@@ -737,6 +737,10 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 				}
 			}
 		} else {
+			// probe 最长 15s。在它飞行期间真实业务请求可能通过 handle429 写入一条正确的
+			// 长封锁，而 account 是 probe 之前加载的内存快照、返回后不会重新读库。
+			// 先把"我观测到的这一代限流"记下来，自愈只允许清除这一代（条件清除）。
+			observedLimitedAt, observedResetAt := copyTimePtr(account.RateLimitedAt), copyTimePtr(account.RateLimitResetAt)
 			if updates, err := s.probeOpenAICodexSnapshot(ctx, account); err == nil && len(updates) > 0 {
 				mergeAccountExtra(account, updates)
 				if usage.UpdatedAt == nil {
@@ -744,7 +748,9 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 				}
 				applyExtraToUsage(usage, account.Extra, now)
 				// 拿到新鲜快照的唯一时机：顺手做 OpenAI 的 429 自愈（见下方函数注释）。
-				s.clearOpenAIRateLimitIfCodexSnapshotHealthy(ctx, account, usage)
+				// observedLimitedAt/observedResetAt 必须是 probe 发起【之前】的那一代，
+				// 见 clearOpenAIRateLimitIfCodexSnapshotHealthy 的丢失更新说明。
+				s.clearOpenAIRateLimitIfCodexSnapshotHealthy(ctx, account, usage, updates, observedLimitedAt, observedResetAt)
 			}
 		}
 	}
@@ -770,6 +776,25 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 	return usage, nil
 }
 
+// copyTimePtr 复制一份可空时间，避免自愈拿到的"观测代际"与账号内存快照共享指针。
+func copyTimePtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	copied := *t
+	return &copied
+}
+
+// OpenAIRateLimitRecoveryRepository 是 OpenAI 自愈用的条件清除原语（AccountRepository 之外的
+// 可选接口，与 Grok 的 grokRateLimitRecoveryRepository 同构）。
+//
+// 导出是刻意的：自愈通过类型断言拿到它，断言失败只会打一条 Debug 就悄悄什么都不做。
+// 导出后 repository 侧可以写编译期断言（account_repo_test.go），
+// 真实仓库一旦不再满足这个接口就编译失败，而不是让 OpenAI 的 429 自愈静默消失。
+type OpenAIRateLimitRecoveryRepository interface {
+	ClearOpenAIRateLimitIfObserved(ctx context.Context, id int64, observedLimitedAt, observedResetAt time.Time) (bool, error)
+}
+
 // clearOpenAIRateLimitIfCodexSnapshotHealthy 是 OpenAI 平台的 429 自愈路径。
 //
 // 背景：Anthropic 在响应头 status == "allowed" 时会 ClearRateLimit（ratelimit_service.go），
@@ -779,15 +804,43 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 //
 // shouldRefreshOpenAICodexSnapshot 对 IsRateLimited() 的账号会强制刷新 codex 快照，
 // 因此这里正好是拿到"新鲜的上游窗口真值"的时刻：若两个窗口都没耗尽（<100%），
-// 说明这次限流标记与套餐额度无关（或对应窗口早已滚动），直接清掉账号级限流状态。
-// 只有新鲜快照（probe 成功且有 updates）才会走到这里，不会拿 Extra 里的旧值误清。
+// 说明这次限流标记与套餐额度无关（或对应窗口早已滚动），可以清掉账号级限流状态。
 //
-// 防御：
+// 三条必须守住的边界（每条都对应一个真实故障模式）：
+//
+//  1. 【丢失更新】只做条件清除。probe 超时 15s，而 account 是 probe 发起前加载的内存快照，
+//     返回后不会重新读库；这中间真实业务请求完全可能通过 handle429 写入一条正确的长封锁。
+//     无条件的 ClearRateLimit（裸 UPDATE ... WHERE id）会把它抹掉，账号回池反复撞 429，
+//     下次 usage 刷新再抹一次。因此改用 ClearOpenAIRateLimitIfObserved，
+//     WHERE 精确匹配 probe 发起前观测到的 (rate_limited_at, rate_limit_reset_at) 这一代；
+//     代际已变化时什么都不做。
+//
+//  2. 【不碰 overload_until】529 过载冷却由 SetOverloaded 独立写入、在 IsSchedulable() 里
+//     独立参与判定，与 codex 的 5h/7d used_percent 毫无关系。ClearRateLimit 会顺带
+//     ClearOverloadUntil()，把一个仍在过载的账号提前放回调度池；条件清除原语刻意只清
+//     rate_limited_at / rate_limit_reset_at。
+//
+//  3. 【不推翻 body 派生的额度封锁】"额度耗尽"信号可能只出现在响应体的 usage_limit_reached，
+//     而 5h/7d header 仍显示 <100%（plan 级 credit 限制、per-model 周限、上游代理改写 header、
+//     舍入到 99.9）。这类封锁在 handle429 里被打上 openai_rate_limit_source 标记，
+//     自愈必须跳过，否则"封锁→下次 usage 刷新解封→立刻再撞 429"。
+//
+// 其余防御：
 //   - 仅对 PlatformOpenAI 生效，不碰其它平台；
-//   - spark 影子（IsShadow/IsCredentialShadow）的配额是独立道，其限流状态只由 QueryUsage
-//     (/wham/usage codex_bengalfox) 维护，绝不能被 global codex 信号影响，直接跳过；
-//   - 5h/7d 任一窗口数据缺失时不敢下"未耗尽"的结论，保持现状。
-func (s *AccountUsageService) clearOpenAIRateLimitIfCodexSnapshotHealthy(ctx context.Context, account *Account, usage *UsageInfo) {
+//   - spark 影子（IsShadow）的配额是独立道，其限流状态只由 QueryUsage
+//     (/wham/usage codex_bengalfox) 维护，绝不能被 global codex 信号影响，直接跳过。
+//     注：getOpenAIUsage 里影子走的是另一条分支，正常到不了这里，此为纵深防御；
+//   - 本轮 probe 必须同时给出 codex_5h_used_percent 与 codex_7d_used_percent。
+//     mergeAccountExtra 是 merge 不是 replace，只回了一个窗口时另一个窗口会沿用 Extra 里的旧值；
+//     再叠加 buildCodexUsageProgressFromExtra 的"窗口已过期 ⇒ Utilization 归零"，
+//     一个陈旧且已过期的窗口会被当成"健康的 0%"，从而误清。
+func (s *AccountUsageService) clearOpenAIRateLimitIfCodexSnapshotHealthy(
+	ctx context.Context,
+	account *Account,
+	usage *UsageInfo,
+	updates map[string]any,
+	observedLimitedAt, observedResetAt *time.Time,
+) {
 	if s == nil || s.accountRepo == nil || account == nil || usage == nil {
 		return
 	}
@@ -795,10 +848,21 @@ func (s *AccountUsageService) clearOpenAIRateLimitIfCodexSnapshotHealthy(ctx con
 		return
 	}
 	// spark 影子：global codex 快照不代表其 bengalfox 道的配额，不参与自愈。
-	if account.IsShadow() || account.IsCredentialShadow() {
+	if account.IsShadow() {
+		return
+	}
+	// 只认 probe 发起前观测到的那一代；那时没被限流就没什么可清的。
+	if observedLimitedAt == nil || observedResetAt == nil {
 		return
 	}
 	if !account.IsRateLimited() {
+		return
+	}
+	// 本轮快照必须同时带上两个窗口，否则缺失的那个会静默沿用 Extra 旧值。
+	if _, ok := updates["codex_5h_used_percent"]; !ok {
+		return
+	}
+	if _, ok := updates["codex_7d_used_percent"]; !ok {
 		return
 	}
 	if usage.FiveHour == nil || usage.SevenDay == nil {
@@ -807,13 +871,49 @@ func (s *AccountUsageService) clearOpenAIRateLimitIfCodexSnapshotHealthy(ctx con
 	if usage.FiveHour.Utilization >= 100 || usage.SevenDay.Utilization >= 100 {
 		return
 	}
+	// body 派生的额度封锁：codex 窗口无权推翻它。
+	if isOpenAIQuotaDerivedRateLimit(account) {
+		slog.Debug("openai_rate_limit_self_heal_skipped",
+			"account_id", account.ID,
+			"reason", "quota-derived rate limit (usage_limit_reached body), codex window says nothing about it",
+			"source", openAIRateLimitSourceFor(account))
+		return
+	}
 
-	if err := s.accountRepo.ClearRateLimit(ctx, account.ID); err != nil {
+	recoveryRepo, ok := s.accountRepo.(OpenAIRateLimitRecoveryRepository)
+	if !ok {
+		slog.Debug("openai_rate_limit_self_heal_unsupported",
+			"account_id", account.ID,
+			"reason", "account repository does not implement ClearOpenAIRateLimitIfObserved")
+		return
+	}
+
+	cleared, err := recoveryRepo.ClearOpenAIRateLimitIfObserved(ctx, account.ID, *observedLimitedAt, *observedResetAt)
+	if err != nil {
 		slog.Warn("openai_rate_limit_self_heal_failed", "account_id", account.ID, "error", err)
 		return
 	}
+	if !cleared {
+		// probe 飞行期间限流代际变了（真实 429 写入了新封锁，或已被别处清除/重新武装）。
+		// 保持现状，绝不能退回无条件清除。
+		slog.Info("openai_rate_limit_self_heal_generation_changed",
+			"account_id", account.ID,
+			"observed_rate_limited_at", observedLimitedAt.UTC(),
+			"observed_reset_at", observedResetAt.UTC(),
+			"reason", "rate limit generation changed while the codex probe was in flight, skipping clear")
+		return
+	}
+
 	account.RateLimitedAt = nil
 	account.RateLimitResetAt = nil
+	// 标记必须随限流一起消失，否则会留下误导后续判断的陈旧值。
+	if clearUpdates := openAIRateLimitSourceClearUpdates(); len(clearUpdates) > 0 {
+		if err := s.accountRepo.UpdateExtra(ctx, account.ID, clearUpdates); err != nil {
+			slog.Warn("openai_rate_limit_source_clear_failed", "account_id", account.ID, "error", err)
+		} else {
+			mergeAccountExtra(account, clearUpdates)
+		}
+	}
 	slog.Info("openai_rate_limit_cleared_by_codex_snapshot",
 		"account_id", account.ID,
 		"used_5h_percent", usage.FiveHour.Utilization,

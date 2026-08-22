@@ -156,3 +156,8 @@ func (parameterLimitRows) Close() error {
 func (parameterLimitRows) Next([]driver.Value) error {
 	return io.EOF
 }
+
+// 编译期护栏：OpenAI 的 429 自愈通过类型断言取得这个可选接口，断言失败时只会打一条 Debug
+// 日志然后什么都不做。这里把"仓库必须提供该原语"变成编译错误，
+// 避免方法被改名/删除后自愈静默失效。
+var _ service.OpenAIRateLimitRecoveryRepository = (*accountRepository)(nil)

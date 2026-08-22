@@ -941,6 +941,98 @@ func (s *AccountRepoSuite) TestClearRateLimitIfObservedProtectsRearmed429Generat
 	s.Require().WithinDuration(rearmedReset, *retyped.RateLimitResetAt, time.Second)
 }
 
+// TestClearOpenAIRateLimitIfObservedIsGenerationScopedAndKeepsOverload 锁住 OpenAI 自愈
+// 使用的条件清除原语的两条性质：
+//
+//  1. 代际作用域：codex usage probe 最长飞 15s，期间真实 429 可能写入一条新的、正确的封锁。
+//     只匹配探针发起前观测到的那一代，代际变了就什么都不做（否则是丢失更新）。
+//  2. 不碰 overload_until：529 过载冷却由 SetOverloaded 独立写入并独立参与 IsSchedulable()，
+//     与 codex 的 5h/7d used_percent 毫无关系，自愈无权把它一起抹掉。
+//
+// 同时确认平台/类型作用域：Grok 的入口打不到 OpenAI 行，OpenAI 的入口也打不到 Grok 行。
+func (s *AccountRepoSuite) TestClearOpenAIRateLimitIfObservedIsGenerationScopedAndKeepsOverload() {
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:     "acc-openai-conditional-clear",
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeOAuth,
+	})
+	overloadUntil := time.Now().Add(20 * time.Minute).UTC().Truncate(time.Second)
+	firstReset := time.Now().Add(96 * time.Hour).UTC().Truncate(time.Second)
+
+	s.Require().NoError(s.repo.SetOverloaded(s.ctx, account.ID, overloadUntil))
+	s.Require().NoError(s.repo.SetRateLimited(s.ctx, account.ID, firstReset))
+	observed, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(observed.RateLimitedAt)
+	s.Require().NotNil(observed.RateLimitResetAt)
+
+	// 探针飞行期间：真实 429 写入了新的一代。
+	newerReset := time.Now().Add(120 * time.Hour).UTC().Truncate(time.Second)
+	s.Require().NoError(s.repo.SetRateLimited(s.ctx, account.ID, newerReset))
+
+	cleared, err := s.repo.ClearOpenAIRateLimitIfObserved(s.ctx, account.ID, *observed.RateLimitedAt, *observed.RateLimitResetAt)
+	s.Require().NoError(err)
+	s.Require().False(cleared, "a rate limit written while the probe was in flight must not be erased")
+
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(got.RateLimitResetAt)
+	s.Require().WithinDuration(newerReset, *got.RateLimitResetAt, time.Second)
+
+	// 现在按当前这一代清除：限流消失，529 过载冷却必须原封不动。
+	cleared, err = s.repo.ClearOpenAIRateLimitIfObserved(s.ctx, account.ID, *got.RateLimitedAt, *got.RateLimitResetAt)
+	s.Require().NoError(err)
+	s.Require().True(cleared)
+
+	healed, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Nil(healed.RateLimitedAt)
+	s.Require().Nil(healed.RateLimitResetAt)
+	s.Require().NotNil(healed.OverloadUntil, "the 529 overload cooldown must survive the 429 self-heal")
+	s.Require().WithinDuration(overloadUntil, *healed.OverloadUntil, time.Second)
+	s.Require().False(healed.IsSchedulable(), "an account still inside its overload cooldown must not become schedulable")
+}
+
+// TestClearRateLimitIfObservedStaysPlatformScoped 确认两个入口互不串台：
+// Grok 的入口不得清 OpenAI 行，OpenAI 的入口不得清 Grok 行。
+func (s *AccountRepoSuite) TestClearRateLimitIfObservedStaysPlatformScoped() {
+	reset := time.Now().Add(30 * time.Minute).UTC().Truncate(time.Second)
+
+	openaiAccount := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:     "acc-scope-openai",
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeOAuth,
+	})
+	grokAccount := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:     "acc-scope-grok",
+		Platform: service.PlatformGrok,
+		Type:     service.AccountTypeOAuth,
+	})
+	s.Require().NoError(s.repo.SetRateLimited(s.ctx, openaiAccount.ID, reset))
+	s.Require().NoError(s.repo.SetRateLimited(s.ctx, grokAccount.ID, reset))
+
+	openaiRow, err := s.repo.GetByID(s.ctx, openaiAccount.ID)
+	s.Require().NoError(err)
+	grokRow, err := s.repo.GetByID(s.ctx, grokAccount.ID)
+	s.Require().NoError(err)
+
+	cleared, err := s.repo.ClearRateLimitIfObserved(s.ctx, openaiAccount.ID, *openaiRow.RateLimitedAt, *openaiRow.RateLimitResetAt)
+	s.Require().NoError(err)
+	s.Require().False(cleared, "the Grok recovery entrypoint must stay pinned to grok+oauth rows")
+
+	cleared, err = s.repo.ClearOpenAIRateLimitIfObserved(s.ctx, grokAccount.ID, *grokRow.RateLimitedAt, *grokRow.RateLimitResetAt)
+	s.Require().NoError(err)
+	s.Require().False(cleared, "the OpenAI recovery entrypoint must stay pinned to openai+oauth rows")
+
+	// 各自的入口仍然照常工作。
+	cleared, err = s.repo.ClearOpenAIRateLimitIfObserved(s.ctx, openaiAccount.ID, *openaiRow.RateLimitedAt, *openaiRow.RateLimitResetAt)
+	s.Require().NoError(err)
+	s.Require().True(cleared)
+	cleared, err = s.repo.ClearRateLimitIfObserved(s.ctx, grokAccount.ID, *grokRow.RateLimitedAt, *grokRow.RateLimitResetAt)
+	s.Require().NoError(err)
+	s.Require().True(cleared)
+}
+
 func (s *AccountRepoSuite) TestClearRateLimit() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-clear"})
 	until := time.Now().Add(1 * time.Hour)

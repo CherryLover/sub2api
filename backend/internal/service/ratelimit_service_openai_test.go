@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -255,8 +256,15 @@ func (r *openAI429SnapshotRepo) SetRateLimited(_ context.Context, id int64, rese
 	return nil
 }
 
+// UpdateExtra 按真实实现的 jsonb `||` 语义做累积合并，而不是整体替换——
+// 一次 429 现在可能触发多次 Extra 写入（codex 快照 + 限流来源标记）。
 func (r *openAI429SnapshotRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
-	r.updatedExtra = updates
+	if r.updatedExtra == nil {
+		r.updatedExtra = make(map[string]any, len(updates))
+	}
+	for k, v := range updates {
+		r.updatedExtra[k] = v
+	}
 	return nil
 }
 
@@ -655,4 +663,118 @@ func TestCalculateOpenAI429ResetTime_5MinFallbackWhenNoReset(t *testing.T) {
 	if resetAt != nil {
 		t.Errorf("expected nil when no reset_after_seconds, got %v", resetAt)
 	}
+}
+
+// TestHandle429_OpenAIBodyUsageLimitMarksQuotaDerivedBlock 锁住改动 A 与改动 B 的交界：
+//
+// 改动 A 刻意保留了"额度耗尽信号只在 body、不在 5h/7d header"这条通路——两个窗口都 <100%
+// 时 calculateOpenAI429ResetTime 返回 nil，handle429 降级到 body 的 usage_limit_reached
+// 并按 resets_at 正确封锁。改动 B 的自愈判据恰恰是"两个窗口都 <100% ⇒ 解封"，若不加区分
+// 就会把 A 保留的这条正确封锁推翻。
+//
+// 因此 handle429 必须给 body 派生的封锁打上来源标记，且标记要绑定到本次的 reset_at 代际。
+func TestHandle429_OpenAIBodyUsageLimitMarksQuotaDerivedBlock(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{ID: 4711, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	// header 口径：两个窗口都远未耗尽（上游代理改写头 / plan 级 credit 限制的典型形态）。
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "9")
+	headers.Set("x-codex-primary-reset-after-seconds", "500000")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	headers.Set("x-codex-secondary-used-percent", "21")
+	headers.Set("x-codex-secondary-reset-after-seconds", "9000")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
+	resetsAt := time.Now().Add(50 * time.Hour).Unix()
+	body := []byte(fmt.Sprintf(`{"error":{"type":"usage_limit_reached","message":"You've hit your usage limit.","resets_at":%d}}`, resetsAt))
+
+	svc.handle429(context.Background(), account, headers, body)
+
+	require.Equal(t, account.ID, repo.rateLimitedID)
+	require.Equal(t, resetsAt, repo.rateLimitResetAt.Unix(),
+		"body-derived usage_limit_reached must still block until resets_at (change A's preserved path)")
+
+	require.Equal(t, openAIRateLimitSourceBodyUsageLimit, repo.updatedExtra[openAIRateLimitSourceExtraKey],
+		"a quota-derived block must be marked so the codex snapshot self-heal skips it")
+	require.Equal(t, time.Unix(resetsAt, 0).UTC().Format(time.RFC3339), repo.updatedExtra[openAIRateLimitSourceResetAtExtraKey],
+		"the marker must be pinned to the generation it describes")
+	// 内存快照也要跟上，否则同一请求链后续读到的还是旧值。
+	require.Equal(t, openAIRateLimitSourceBodyUsageLimit, account.Extra[openAIRateLimitSourceExtraKey])
+
+	// 端到端：把刚写下的这条限流装回账号，自愈判据必须认出它是额度派生的。
+	blocked := &Account{
+		ID:               account.ID,
+		Platform:         PlatformOpenAI,
+		Type:             AccountTypeOAuth,
+		RateLimitedAt:    &repo.rateLimitResetAt,
+		RateLimitResetAt: &repo.rateLimitResetAt,
+		Extra:            account.Extra,
+	}
+	require.True(t, isOpenAIQuotaDerivedRateLimit(blocked))
+}
+
+// TestHandle429_OpenAIWindowExhaustedIsNotMarkedQuotaDerived 反向对照：
+// 由 5h/7d 窗口耗尽写下的封锁不打标记——它本来就该在窗口滚动后被 codex 快照自愈清掉。
+func TestHandle429_OpenAIWindowExhaustedIsNotMarkedQuotaDerived(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{ID: 4712, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "100")
+	headers.Set("x-codex-primary-reset-after-seconds", "604800")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	headers.Set("x-codex-secondary-used-percent", "40")
+	headers.Set("x-codex-secondary-reset-after-seconds", "9000")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
+	svc.handle429(context.Background(), account, headers, []byte(`{"error":{"type":"usage_limit_reached","resets_at":1}}`))
+
+	require.Equal(t, account.ID, repo.rateLimitedID)
+	require.NotContains(t, repo.updatedExtra, openAIRateLimitSourceExtraKey,
+		"a window-derived block must stay healable by the codex snapshot self-heal")
+}
+
+// TestOpenAIRateLimitSourceFor_GenerationBinding 锁住"陈旧标记不得误导后续判断"：
+// 标记只有在它记录的 reset_at 与账号当前的 rate_limit_reset_at 属于同一代际时才算数。
+func TestOpenAIRateLimitSourceFor_GenerationBinding(t *testing.T) {
+	resetAt := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+
+	newAccount := func(markerResetAt string) *Account {
+		reset := resetAt
+		return &Account{
+			ID:               5001,
+			Platform:         PlatformOpenAI,
+			Type:             AccountTypeOAuth,
+			RateLimitResetAt: &reset,
+			Extra: map[string]any{
+				openAIRateLimitSourceExtraKey:        openAIRateLimitSourceBodyUsageLimit,
+				openAIRateLimitSourceResetAtExtraKey: markerResetAt,
+			},
+		}
+	}
+
+	require.Equal(t, openAIRateLimitSourceBodyUsageLimit,
+		openAIRateLimitSourceFor(newAccount(resetAt.Format(time.RFC3339))),
+		"marker for the current generation must be honoured")
+
+	require.Empty(t, openAIRateLimitSourceFor(newAccount(resetAt.Add(-time.Hour).Format(time.RFC3339))),
+		"a marker left over from an older generation must be ignored")
+
+	require.Empty(t, openAIRateLimitSourceFor(newAccount("")),
+		"an unparsable marker timestamp must be ignored")
+
+	// 限流已被清除：即便 Extra 里还留着标记也不得生效。
+	noLimit := newAccount(resetAt.Format(time.RFC3339))
+	noLimit.RateLimitResetAt = nil
+	require.Empty(t, openAIRateLimitSourceFor(noLimit))
+
+	// 清除动作写下的 null 值必须被读作"无标记"。
+	cleared := newAccount(resetAt.Format(time.RFC3339))
+	for k, v := range openAIRateLimitSourceClearUpdates() {
+		cleared.Extra[k] = v
+	}
+	require.Empty(t, openAIRateLimitSourceFor(cleared))
 }

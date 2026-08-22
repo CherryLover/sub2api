@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -257,37 +258,121 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 	})
 }
 
-// openAISelfHealRepo 记录 ClearRateLimit 调用，用于验证 OpenAI 429 自愈路径。
+// openAISelfHealRepo 忠实模拟 account_repo.go 里两个清除原语【副作用面的差异】。
+// 假 repo 只记录 ID 是不够的：P1-2（顺带抹掉 529 过载冷却）和 P0-1（丢失更新）都只在
+// 副作用被如实模拟时才暴露得出来。
+//
+//   - ClearRateLimit：裸 UPDATE ... WHERE id，且额外 ClearOverloadUntil()；
+//   - ClearOpenAIRateLimitIfObserved：WHERE 还匹配 (rate_limited_at, rate_limit_reset_at)
+//     这一代，且只清 rate_limit_*，绝不动 overload_until。
+//
+// state 代表"数据库里的那一行"，与调用方手里的内存快照分离——这样"probe 飞行期间限流被改写"
+// 就能被真实地表达出来。
 type openAISelfHealRepo struct {
 	stubOpenAIAccountRepo
-	clearedIDs []int64
+
+	// state 是被清除操作作用的那一行；nil 表示测试不关心行状态。
+	state *Account
+
+	unconditionalClears []int64
+	observedClears      []openAISelfHealObservedClear
+	extraUpdates        []map[string]any
+	observedErr         error
+}
+
+type openAISelfHealObservedClear struct {
+	id        int64
+	limitedAt time.Time
+	resetAt   time.Time
+	cleared   bool
 }
 
 func (r *openAISelfHealRepo) ClearRateLimit(_ context.Context, id int64) error {
-	r.clearedIDs = append(r.clearedIDs, id)
+	r.unconditionalClears = append(r.unconditionalClears, id)
+	if r.state != nil {
+		r.state.RateLimitedAt = nil
+		r.state.RateLimitResetAt = nil
+		// 真实实现确实会连 529 过载冷却一起抹掉。
+		r.state.OverloadUntil = nil
+	}
 	return nil
+}
+
+func (r *openAISelfHealRepo) ClearOpenAIRateLimitIfObserved(_ context.Context, id int64, observedLimitedAt, observedResetAt time.Time) (bool, error) {
+	if r.observedErr != nil {
+		r.observedClears = append(r.observedClears, openAISelfHealObservedClear{id: id, limitedAt: observedLimitedAt, resetAt: observedResetAt})
+		return false, r.observedErr
+	}
+	cleared := false
+	if r.state != nil &&
+		r.state.ID == id &&
+		r.state.Platform == PlatformOpenAI &&
+		r.state.Type == AccountTypeOAuth &&
+		r.state.RateLimitedAt != nil && r.state.RateLimitedAt.Equal(observedLimitedAt) &&
+		r.state.RateLimitResetAt != nil && r.state.RateLimitResetAt.Equal(observedResetAt) {
+		r.state.RateLimitedAt = nil
+		r.state.RateLimitResetAt = nil
+		// 刻意不动 OverloadUntil —— 这正是条件清除原语与 ClearRateLimit 的关键差异。
+		cleared = true
+	}
+	r.observedClears = append(r.observedClears, openAISelfHealObservedClear{
+		id: id, limitedAt: observedLimitedAt, resetAt: observedResetAt, cleared: cleared,
+	})
+	return cleared, nil
+}
+
+func (r *openAISelfHealRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
+	copied := make(map[string]any, len(updates))
+	for k, v := range updates {
+		copied[k] = v
+	}
+	r.extraUpdates = append(r.extraUpdates, copied)
+	return nil
+}
+
+func (r *openAISelfHealRepo) clearedCount() int {
+	n := 0
+	for _, c := range r.observedClears {
+		if c.cleared {
+			n++
+		}
+	}
+	return n
+}
+
+// healthyCodexUpdates 是"本轮 probe 同时给出了 5h 与 7d 两个窗口"的最小 updates。
+func healthyCodexUpdates() map[string]any {
+	return map[string]any{
+		"codex_5h_used_percent": 12.0,
+		"codex_7d_used_percent": 40.0,
+	}
 }
 
 // TestAccountUsageService_ClearOpenAIRateLimitIfCodexSnapshotHealthy 覆盖 OpenAI 的 429 自愈：
 // 新鲜 codex 快照显示两个窗口都没耗尽时，被误标限流的账号应被解封；
-// 窗口确实耗尽、或对象是 spark 影子 / 非 OpenAI 账号时，一律不得清除。
+// 窗口确实耗尽、对象是 spark 影子 / 非 OpenAI 账号、限流代际已变化、限流是 body 额度派生时，
+// 一律不得清除。并且任何情况下都不得走无条件的 ClearRateLimit（它会顺带抹掉 529 过载冷却）。
 func TestAccountUsageService_ClearOpenAIRateLimitIfCodexSnapshotHealthy(t *testing.T) {
 	t.Parallel()
 
-	future := time.Now().Add(96 * time.Hour)
-	limitedAt := time.Now().Add(-time.Hour)
+	future := time.Now().Add(96 * time.Hour).UTC().Truncate(time.Second)
+	limitedAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
 	parentID := int64(4200)
 
-	newLimitedAccount := func(id int64, platform string) *Account {
-		limited := limitedAt
-		reset := future
-		return &Account{
-			ID:               id,
-			Platform:         platform,
-			Type:             AccountTypeOAuth,
-			RateLimitedAt:    &limited,
-			RateLimitResetAt: &reset,
+	// newLimitedAccount 返回 (内存快照, 假 repo)，两者的限流代际初始一致。
+	newLimitedAccount := func(id int64, platform string) (*Account, *openAISelfHealRepo) {
+		mk := func() *Account {
+			limited := limitedAt
+			reset := future
+			return &Account{
+				ID:               id,
+				Platform:         platform,
+				Type:             AccountTypeOAuth,
+				RateLimitedAt:    &limited,
+				RateLimitResetAt: &reset,
+			}
 		}
+		return mk(), &openAISelfHealRepo{state: mk()}
 	}
 
 	healthy := &UsageInfo{
@@ -296,14 +381,17 @@ func TestAccountUsageService_ClearOpenAIRateLimitIfCodexSnapshotHealthy(t *testi
 	}
 
 	t.Run("clears when neither window is exhausted", func(t *testing.T) {
-		repo := &openAISelfHealRepo{}
+		account, repo := newLimitedAccount(1, PlatformOpenAI)
 		svc := &AccountUsageService{accountRepo: repo}
-		account := newLimitedAccount(1, PlatformOpenAI)
 
-		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy)
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
 
-		if len(repo.clearedIDs) != 1 || repo.clearedIDs[0] != account.ID {
-			t.Fatalf("clearedIDs = %v, want [%d]", repo.clearedIDs, account.ID)
+		if repo.clearedCount() != 1 {
+			t.Fatalf("observedClears = %+v, want exactly one successful conditional clear", repo.observedClears)
+		}
+		if len(repo.unconditionalClears) != 0 {
+			t.Fatalf("unconditionalClears = %v, self-heal must never use the unconditional primitive", repo.unconditionalClears)
 		}
 		if account.RateLimitResetAt != nil || account.RateLimitedAt != nil {
 			t.Fatal("in-memory rate limit fields should be cleared as well")
@@ -311,38 +399,151 @@ func TestAccountUsageService_ClearOpenAIRateLimitIfCodexSnapshotHealthy(t *testi
 		if account.IsRateLimited() {
 			t.Fatal("account should no longer be rate limited")
 		}
+		if repo.state.RateLimitResetAt != nil {
+			t.Fatal("row should no longer be rate limited")
+		}
+	})
+
+	// P1-2：529 过载冷却与 codex 的 5h/7d used_percent 毫无关系，自愈不得把它一起抹掉，
+	// 否则一个仍在过载的账号会被提前放回调度池。
+	t.Run("keeps the 529 overload cooldown", func(t *testing.T) {
+		account, repo := newLimitedAccount(10, PlatformOpenAI)
+		overloadUntil := time.Now().Add(9 * time.Minute)
+		account.OverloadUntil = &overloadUntil
+		repo.state.OverloadUntil = &overloadUntil
+		account.Status = StatusActive
+		account.Schedulable = true
+		repo.state.Status = StatusActive
+		repo.state.Schedulable = true
+
+		svc := &AccountUsageService{accountRepo: repo}
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
+
+		if repo.clearedCount() != 1 {
+			t.Fatalf("observedClears = %+v, want the rate limit to be cleared", repo.observedClears)
+		}
+		if repo.state.OverloadUntil == nil {
+			t.Fatal("529 overload cooldown must survive the 429 self-heal")
+		}
+		if repo.state.IsSchedulable() {
+			t.Fatal("an account still inside its 529 overload cooldown must not become schedulable")
+		}
+	})
+
+	// P0-1：probe 最长飞 15s，期间真实请求可能写入一条正确的长封锁。
+	// 内存快照是 probe 之前的，条件清除必须因代际不匹配而放弃。
+	t.Run("skips when the rate limit generation changed during the probe", func(t *testing.T) {
+		account, repo := newLimitedAccount(11, PlatformOpenAI)
+		observedLimitedAt, observedResetAt := account.RateLimitedAt, account.RateLimitResetAt
+
+		// probe 飞行期间：真实 429 写入了一条新的、更长的封锁。
+		newLimitedAt := time.Now().UTC().Truncate(time.Second)
+		newResetAt := newLimitedAt.Add(72 * time.Hour)
+		repo.state.RateLimitedAt = &newLimitedAt
+		repo.state.RateLimitResetAt = &newResetAt
+
+		svc := &AccountUsageService{accountRepo: repo}
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), observedLimitedAt, observedResetAt)
+
+		if len(repo.observedClears) != 1 {
+			t.Fatalf("observedClears = %+v, want exactly one attempt", repo.observedClears)
+		}
+		if repo.clearedCount() != 0 {
+			t.Fatal("a rate limit written while the probe was in flight must not be erased")
+		}
+		if len(repo.unconditionalClears) != 0 {
+			t.Fatalf("unconditionalClears = %v, must never fall back to the unconditional clear", repo.unconditionalClears)
+		}
+		if repo.state.RateLimitResetAt == nil || !repo.state.RateLimitResetAt.Equal(newResetAt) {
+			t.Fatal("the newer rate limit must stay intact")
+		}
+	})
+
+	// P1-3：额度耗尽信号可能只出现在 body（usage_limit_reached），5h/7d header 仍 <100%。
+	// handle429 给这类封锁打了来源标记，自愈必须跳过，否则"封锁→刷新解封→立刻再撞 429"。
+	t.Run("keeps a quota-derived usage_limit_reached block", func(t *testing.T) {
+		account, repo := newLimitedAccount(12, PlatformOpenAI)
+		account.Extra = map[string]any{
+			openAIRateLimitSourceExtraKey:        openAIRateLimitSourceBodyUsageLimit,
+			openAIRateLimitSourceResetAtExtraKey: future.Format(time.RFC3339),
+		}
+
+		svc := &AccountUsageService{accountRepo: repo}
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
+
+		if len(repo.observedClears) != 0 || len(repo.unconditionalClears) != 0 {
+			t.Fatalf("a body-derived quota block must not be cleared by a healthy codex window snapshot (observed=%+v unconditional=%v)",
+				repo.observedClears, repo.unconditionalClears)
+		}
+		if !account.IsRateLimited() {
+			t.Fatal("account must stay rate limited")
+		}
+	})
+
+	// 陈旧标记不得长期挡住本该发生的自愈：标记绑定的是写入时的 reset_at 代际。
+	t.Run("ignores a stale source marker from an older generation", func(t *testing.T) {
+		account, repo := newLimitedAccount(13, PlatformOpenAI)
+		account.Extra = map[string]any{
+			openAIRateLimitSourceExtraKey:        openAIRateLimitSourceBodyUsageLimit,
+			openAIRateLimitSourceResetAtExtraKey: future.Add(-48 * time.Hour).Format(time.RFC3339),
+		}
+
+		svc := &AccountUsageService{accountRepo: repo}
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
+
+		if repo.clearedCount() != 1 {
+			t.Fatalf("observedClears = %+v, a marker from an older generation must not block the heal", repo.observedClears)
+		}
+		// 标记必须随限流一起被抹掉。
+		found := false
+		for _, u := range repo.extraUpdates {
+			if v, ok := u[openAIRateLimitSourceExtraKey]; ok && v == nil {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("extraUpdates = %+v, the source marker must be cleared together with the rate limit", repo.extraUpdates)
+		}
 	})
 
 	t.Run("keeps rate limit when a window is exhausted", func(t *testing.T) {
-		repo := &openAISelfHealRepo{}
+		account, repo := newLimitedAccount(2, PlatformOpenAI)
 		svc := &AccountUsageService{accountRepo: repo}
-		account := newLimitedAccount(2, PlatformOpenAI)
 
 		exhausted := &UsageInfo{
 			FiveHour: &UsageProgress{Utilization: 8},
 			SevenDay: &UsageProgress{Utilization: 100},
 		}
-		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, exhausted)
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, exhausted,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
 
-		if len(repo.clearedIDs) != 0 {
-			t.Fatalf("clearedIDs = %v, want none when a plan window is exhausted", repo.clearedIDs)
+		if len(repo.observedClears) != 0 || len(repo.unconditionalClears) != 0 {
+			t.Fatalf("nothing must be cleared when a plan window is exhausted (observed=%+v unconditional=%v)",
+				repo.observedClears, repo.unconditionalClears)
 		}
 		if !account.IsRateLimited() {
 			t.Fatal("account should stay rate limited")
 		}
 	})
 
+	// 纵深防御：真实路径里影子走 getOpenAIUsage 的另一条分支（见
+	// TestGetOpenAIUsage_SparkShadowRateLimitedIsNeverSelfHealed），此处只锁函数自身的守卫。
 	t.Run("skips spark shadow accounts", func(t *testing.T) {
-		repo := &openAISelfHealRepo{}
-		svc := &AccountUsageService{accountRepo: repo}
-		account := newLimitedAccount(3, PlatformOpenAI)
+		account, repo := newLimitedAccount(3, PlatformOpenAI)
 		account.ParentAccountID = &parentID
 		account.QuotaDimension = QuotaDimensionSpark
+		svc := &AccountUsageService{accountRepo: repo}
 
-		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy)
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
 
-		if len(repo.clearedIDs) != 0 {
-			t.Fatalf("clearedIDs = %v, spark shadow must not be healed by global codex signals", repo.clearedIDs)
+		if len(repo.observedClears) != 0 || len(repo.unconditionalClears) != 0 {
+			t.Fatalf("spark shadow must not be healed by global codex signals (observed=%+v unconditional=%v)",
+				repo.observedClears, repo.unconditionalClears)
 		}
 		if !account.IsRateLimited() {
 			t.Fatal("spark shadow should stay rate limited")
@@ -350,27 +551,88 @@ func TestAccountUsageService_ClearOpenAIRateLimitIfCodexSnapshotHealthy(t *testi
 	})
 
 	t.Run("skips non-openai platforms", func(t *testing.T) {
-		repo := &openAISelfHealRepo{}
+		account, repo := newLimitedAccount(4, PlatformAnthropic)
 		svc := &AccountUsageService{accountRepo: repo}
-		account := newLimitedAccount(4, PlatformAnthropic)
 
-		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy)
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
 
-		if len(repo.clearedIDs) != 0 {
-			t.Fatalf("clearedIDs = %v, want none for non-OpenAI platforms", repo.clearedIDs)
+		if len(repo.observedClears) != 0 || len(repo.unconditionalClears) != 0 {
+			t.Fatalf("nothing must be cleared for non-OpenAI platforms (observed=%+v unconditional=%v)",
+				repo.observedClears, repo.unconditionalClears)
 		}
 	})
 
 	t.Run("skips when window data is incomplete", func(t *testing.T) {
-		repo := &openAISelfHealRepo{}
+		account, repo := newLimitedAccount(5, PlatformOpenAI)
 		svc := &AccountUsageService{accountRepo: repo}
-		account := newLimitedAccount(5, PlatformOpenAI)
 
 		partial := &UsageInfo{FiveHour: &UsageProgress{Utilization: 3}}
-		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, partial)
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, partial,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
 
-		if len(repo.clearedIDs) != 0 {
-			t.Fatalf("clearedIDs = %v, want none when 7d data is missing", repo.clearedIDs)
+		if len(repo.observedClears) != 0 || len(repo.unconditionalClears) != 0 {
+			t.Fatalf("nothing must be cleared when 7d data is missing (observed=%+v unconditional=%v)",
+				repo.observedClears, repo.unconditionalClears)
 		}
 	})
+
+	// T-3：mergeAccountExtra 是 merge 不是 replace。本轮 probe 只回了一个窗口时，
+	// 另一个窗口会沿用 Extra 里的旧值，而"窗口已过期 ⇒ Utilization 归零"会把它伪装成健康的 0%。
+	t.Run("skips when this round's snapshot is missing a window", func(t *testing.T) {
+		account, repo := newLimitedAccount(6, PlatformOpenAI)
+		svc := &AccountUsageService{accountRepo: repo}
+
+		onlySevenDay := map[string]any{"codex_7d_used_percent": 40.0}
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			onlySevenDay, account.RateLimitedAt, account.RateLimitResetAt)
+
+		if len(repo.observedClears) != 0 || len(repo.unconditionalClears) != 0 {
+			t.Fatalf("a snapshot missing codex_5h_used_percent must not be trusted (observed=%+v unconditional=%v)",
+				repo.observedClears, repo.unconditionalClears)
+		}
+	})
+
+	t.Run("keeps the in-memory rate limit when the clear fails", func(t *testing.T) {
+		account, repo := newLimitedAccount(8, PlatformOpenAI)
+		repo.observedErr = errors.New("db down")
+		svc := &AccountUsageService{accountRepo: repo}
+
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
+
+		if !account.IsRateLimited() {
+			t.Fatal("a failed clear must not optimistically clear the in-memory snapshot")
+		}
+		if len(repo.extraUpdates) != 0 {
+			t.Fatalf("extraUpdates = %+v, the source marker must not be cleared when the rate limit was not", repo.extraUpdates)
+		}
+	})
+
+	t.Run("skips when the repository has no conditional clear primitive", func(t *testing.T) {
+		account, _ := newLimitedAccount(7, PlatformOpenAI)
+		bare := &noConditionalClearRepo{}
+		svc := &AccountUsageService{accountRepo: bare}
+
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
+
+		if len(bare.clearedIDs) != 0 {
+			t.Fatalf("clearedIDs = %v, must never fall back to the unconditional ClearRateLimit", bare.clearedIDs)
+		}
+		if !account.IsRateLimited() {
+			t.Fatal("account must stay rate limited when no safe primitive is available")
+		}
+	})
+}
+
+// noConditionalClearRepo 只实现无条件 ClearRateLimit，用于锁住"缺少条件清除原语时宁可不清"。
+type noConditionalClearRepo struct {
+	stubOpenAIAccountRepo
+	clearedIDs []int64
+}
+
+func (r *noConditionalClearRepo) ClearRateLimit(_ context.Context, id int64) error {
+	r.clearedIDs = append(r.clearedIDs, id)
+	return nil
 }

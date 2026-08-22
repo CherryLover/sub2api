@@ -1124,6 +1124,11 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 					return
 				}
+				// 这是"额度耗尽"信号，且它只存在于 body 里（5h/7d header 可能仍显示 <100%：
+				// plan 级 credit 限制、per-model 周限、上游代理改写头、舍入到 99.9）。
+				// 打上来源标记，否则 usage 刷新时的 codex 快照自愈会把这条正确封锁当成
+				// "窗口没耗尽 → 误封"给清掉，账号立刻回池再撞 429（见函数注释）。
+				markOpenAIQuotaDerivedRateLimit(ctx, s.accountRepo, account, resetTime)
 				slog.Info("account_rate_limited", "account_id", account.ID, "platform", account.Platform, "reset_at", resetTime, "reset_in", time.Until(resetTime).Truncate(time.Second))
 				return
 			}
@@ -1286,7 +1291,9 @@ func calculateOpenAI429ResetTime(headers http.Header) *time.Time {
 
 	// 两个窗口都没耗尽：这次 429 不是套餐额度耗尽（多为瞬时/并发限流或上游代理 429）。
 	// 返回 nil 让调用方降级到 body 解析 / 秒级兜底冷却，详见函数头注释。
-	slog.Info("openai_429_no_window_exhausted",
+	// Debug 而非 Info：瞬时 429 每次都会走到这里，429 风暴（默认阈值 20 次/10s）下
+	// Info 会直接刷屏，而这条只在排查"为什么没按窗口封锁"时才有价值。
+	slog.Debug("openai_429_no_window_exhausted",
 		"used_5h_percent", codexPercentForLog(normalized.Used5hPercent),
 		"used_7d_percent", codexPercentForLog(normalized.Used7dPercent),
 		"reason", "429 is not a plan-window exhaustion, falling back to caller cooldown")
@@ -1725,6 +1732,92 @@ func persistOpenAI429PlanType(ctx context.Context, repo AccountRepository, accou
 	}
 	account.Credentials["plan_type"] = planType
 	slog.Info("openai_429_plan_type_synced", "account_id", account.ID, "previous_plan_type", current, "plan_type", planType)
+}
+
+// OpenAI 账号级限流的"来源标记"。写在 Extra 上，与写入时的 rate_limit_reset_at 绑定。
+//
+// 存在的理由：OpenAI 的额度耗尽信号有两条互不重叠的通路 ——
+//   - x-codex-*-used-percent 响应头（5h/7d 套餐窗口），由 calculateOpenAI429ResetTime 处理；
+//   - 响应体的 usage_limit_reached（resets_at / resets_in_seconds）。
+//
+// 后者在 header 显示两个窗口都 <100% 时照样会出现（plan 级 credit 限制、per-model 周限、
+// 上游代理改写/丢失 header、header 舍入到 99.9…）。而 codex 快照自愈
+// (AccountUsageService.clearOpenAIRateLimitIfCodexSnapshotHealthy) 的判据恰恰是
+// "两个窗口都 <100% ⇒ 这不是额度问题 ⇒ 解封"。没有标记的话，body 派生的正确封锁会在下一次
+// usage 刷新时被自愈推翻，账号回池 → 立刻再撞 429 → 再封 → 再解，稳定打摆子。
+const (
+	openAIRateLimitSourceExtraKey        = "openai_rate_limit_source"
+	openAIRateLimitSourceResetAtExtraKey = "openai_rate_limit_source_reset_at"
+
+	// openAIRateLimitSourceBodyUsageLimit 表示本次封锁来自 body 的 usage_limit_reached，
+	// 即真实的额度耗尽，codex 窗口快照无权推翻它。
+	openAIRateLimitSourceBodyUsageLimit = "body_usage_limit"
+)
+
+// markOpenAIQuotaDerivedRateLimit 把"本次封锁是额度派生的"记到账号 Extra 上。
+//
+// 标记连同它所描述的 rate_limit_reset_at 一起写入：读取方 (openAIRateLimitSourceFor)
+// 只在标记的 reset_at 与账号当前的 rate_limit_reset_at 属于同一代际时才认这个标记。
+// 这样任何"限流被重写/被清除后重新写入"的场景都会让旧标记自动失效，不会留下一个陈旧值
+// 长期挡住后续本该发生的自愈。
+func markOpenAIQuotaDerivedRateLimit(ctx context.Context, repo AccountRepository, account *Account, resetAt time.Time) {
+	if repo == nil || account == nil || account.ID <= 0 || account.Platform != PlatformOpenAI {
+		return
+	}
+	// spark 影子：其限流状态只由 /wham/usage 的 bengalfox 道维护，global 道的 429 不该在
+	// 影子行上留下任何痕迹（与 persistOpenAI429PlanType 同一条影子防线）。
+	// handle429 顶部已提前 return，这里只是纵深防御。
+	if account.IsShadow() {
+		return
+	}
+
+	stamp := resetAt.UTC().Format(time.RFC3339)
+	updates := map[string]any{
+		openAIRateLimitSourceExtraKey:        openAIRateLimitSourceBodyUsageLimit,
+		openAIRateLimitSourceResetAtExtraKey: stamp,
+	}
+	if err := repo.UpdateExtra(ctx, account.ID, updates); err != nil {
+		slog.Warn("openai_rate_limit_source_mark_failed", "account_id", account.ID, "reset_at", stamp, "error", err)
+		return
+	}
+	mergeAccountExtra(account, updates)
+}
+
+// openAIRateLimitSourceFor 返回账号"当前这一代"限流的来源标记，无标记或代际不匹配时返回 ""。
+func openAIRateLimitSourceFor(account *Account) string {
+	if account == nil || account.RateLimitResetAt == nil || len(account.Extra) == 0 {
+		return ""
+	}
+	source, _ := account.Extra[openAIRateLimitSourceExtraKey].(string)
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return ""
+	}
+	stamped := parseExtraTime(account.Extra[openAIRateLimitSourceResetAtExtraKey])
+	if stamped.IsZero() {
+		return ""
+	}
+	// 秒级比较：body 的 resets_at 本就是整秒，而 Postgres timestamptz 只保到微秒，
+	// 往返之后纳秒位不可靠。
+	if !stamped.Truncate(time.Second).Equal(account.RateLimitResetAt.UTC().Truncate(time.Second)) {
+		return ""
+	}
+	return source
+}
+
+// isOpenAIQuotaDerivedRateLimit 报告账号当前的限流是否由 body 的额度耗尽信号写入。
+// 这类封锁不允许被 codex 5h/7d 窗口快照自愈清除。
+func isOpenAIQuotaDerivedRateLimit(account *Account) bool {
+	return openAIRateLimitSourceFor(account) == openAIRateLimitSourceBodyUsageLimit
+}
+
+// openAIRateLimitSourceClearUpdates 返回"抹掉来源标记"的 Extra 更新。
+// 清除限流时必须一并调用，避免陈旧标记误导后续判断。
+func openAIRateLimitSourceClearUpdates() map[string]any {
+	return map[string]any{
+		openAIRateLimitSourceExtraKey:        nil,
+		openAIRateLimitSourceResetAtExtraKey: nil,
+	}
 }
 
 // handle529 处理529过载错误

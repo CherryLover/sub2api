@@ -59,6 +59,12 @@ func (r *snapshotUpdateAccountRepo) UpdateExtra(ctx context.Context, id int64, u
 	return nil
 }
 
+// UpdateExtra 默认吞掉写入：多条 OpenAI 路径（codex 快照、429 来源标记）都会顺手写 Extra，
+// 派生 stub 只有在需要断言写入内容时才覆写它。
+func (r stubOpenAIAccountRepo) UpdateExtra(_ context.Context, _ int64, _ map[string]any) error {
+	return nil
+}
+
 func (r stubOpenAIAccountRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
 	for i := range r.accounts {
 		if r.accounts[i].ID == id {
