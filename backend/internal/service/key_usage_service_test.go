@@ -463,3 +463,39 @@ func selfFlagsOf(entries []KeyUsageRankEntry) []bool {
 	}
 	return out
 }
+
+// 账号被封禁时，即使 Key 本身还是 active 也不允许再查用量（纵深防御）。
+func TestKeyUsageRejectsInactiveOwner(t *testing.T) {
+	apiKey := activeTestAPIKey(21, 9, "sk-banned-owner", "k")
+	apiKey.User = &User{ID: 9, Status: "disabled"}
+	keys := &fakeKeyUsageAPIKeys{
+		byKey: map[string]*APIKey{"sk-banned-owner": apiKey},
+		byID:  map[int64]*APIKey{21: apiKey},
+	}
+	svc := newTestKeyUsageService(t, keys, &fakeKeyUsageModelStats{}, nil, time.Minute)
+	ctx := context.Background()
+
+	_, err := svc.ResolveRawKey(ctx, "sk-banned-owner")
+	require.ErrorIs(t, err, ErrKeyUsageUnauthorized)
+
+	// 令牌是在账号正常时签发的，封禁后必须立刻失效
+	apiKey.User.Status = StatusActive
+	token, _, err := svc.IssueToken(ctx, "sk-banned-owner")
+	require.NoError(t, err)
+	apiKey.User.Status = "disabled"
+	_, err = svc.ResolveToken(ctx, token)
+	require.ErrorIs(t, err, ErrKeyUsageUnauthorized)
+}
+
+// 排名退化成零值时 total_keys 不能小于 self_rank（前端会用它渲染"第 N / 共 M"）。
+func TestKeyUsageTotalKeysNeverBelowSelfRank(t *testing.T) {
+	ranking := &fakeKeyUsageRanking{err: context.DeadlineExceeded}
+	svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, selfWithUsage(5, 500, 5), ranking, time.Minute)
+	apiKey := activeTestAPIKey(1, 1, "sk-1", "self")
+
+	report := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost)
+	for _, window := range []KeyUsageRankingWindow{report.Rankings.Account.Today, report.Rankings.Site.Last30d} {
+		require.GreaterOrEqual(t, window.TotalKeys, window.SelfRank)
+		require.Equal(t, 1, window.TotalKeys)
+	}
+}

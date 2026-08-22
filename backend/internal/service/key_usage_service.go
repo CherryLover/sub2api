@@ -225,8 +225,12 @@ func (s *KeyUsageService) ResolveToken(ctx context.Context, token string) (*APIK
 
 // keyUsageViewable 判断该 Key 当前是否允许查看用量。
 // 与 /v1/usage 的 isValid 口径保持一致：额度耗尽/已过期仍然能看自己的用量，
-// 只有被管理员禁用（或已删除）才彻底关闭入口。
+// 只有被管理员禁用（或已删除）才彻底关闭入口；
+// owner 被封禁时同样关闭（纵深防御：封号后不该还能靠旧令牌看数据）。
 func keyUsageViewable(apiKey *APIKey) bool {
+	if apiKey.User != nil && !apiKey.User.IsActive() {
+		return false
+	}
 	switch apiKey.Status {
 	case StatusAPIKeyActive, StatusAPIKeyQuotaExhausted, StatusAPIKeyExpired:
 		return true
@@ -412,6 +416,10 @@ func assembleKeyUsageRanking(top []KeyUsageRankEntry, values []float64, totalKey
 	// 避免出现 self_rank > total_keys 这种前端没法解释的组合。
 	if self.Requests == 0 {
 		totalKeys++
+	}
+	// 排名查询失败退化成零值时，总数同样不能小于自己的名次。
+	if totalKeys < selfRank {
+		totalKeys = selfRank
 	}
 	if top == nil {
 		top = []KeyUsageRankEntry{}
