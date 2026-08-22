@@ -743,6 +743,8 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 					usage.UpdatedAt = &now
 				}
 				applyExtraToUsage(usage, account.Extra, now)
+				// 拿到新鲜快照的唯一时机：顺手做 OpenAI 的 429 自愈（见下方函数注释）。
+				s.clearOpenAIRateLimitIfCodexSnapshotHealthy(ctx, account, usage)
 			}
 		}
 	}
@@ -766,6 +768,56 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 	}
 
 	return usage, nil
+}
+
+// clearOpenAIRateLimitIfCodexSnapshotHealthy 是 OpenAI 平台的 429 自愈路径。
+//
+// 背景：Anthropic 在响应头 status == "allowed" 时会 ClearRateLimit（ratelimit_service.go），
+// Grok 有 ClearRateLimitIfObserved，唯独 OpenAI 此前没有任何"成功后自愈"的入口——
+// 一旦 rate_limit_reset_at 被写错（历史上按 7d 窗口误封），账号就只能干等到那个错误的时间点，
+// 期间管理页一直显示限流中，即便账号实际完全可用。
+//
+// shouldRefreshOpenAICodexSnapshot 对 IsRateLimited() 的账号会强制刷新 codex 快照，
+// 因此这里正好是拿到"新鲜的上游窗口真值"的时刻：若两个窗口都没耗尽（<100%），
+// 说明这次限流标记与套餐额度无关（或对应窗口早已滚动），直接清掉账号级限流状态。
+// 只有新鲜快照（probe 成功且有 updates）才会走到这里，不会拿 Extra 里的旧值误清。
+//
+// 防御：
+//   - 仅对 PlatformOpenAI 生效，不碰其它平台；
+//   - spark 影子（IsShadow/IsCredentialShadow）的配额是独立道，其限流状态只由 QueryUsage
+//     (/wham/usage codex_bengalfox) 维护，绝不能被 global codex 信号影响，直接跳过；
+//   - 5h/7d 任一窗口数据缺失时不敢下"未耗尽"的结论，保持现状。
+func (s *AccountUsageService) clearOpenAIRateLimitIfCodexSnapshotHealthy(ctx context.Context, account *Account, usage *UsageInfo) {
+	if s == nil || s.accountRepo == nil || account == nil || usage == nil {
+		return
+	}
+	if account.Platform != PlatformOpenAI {
+		return
+	}
+	// spark 影子：global codex 快照不代表其 bengalfox 道的配额，不参与自愈。
+	if account.IsShadow() || account.IsCredentialShadow() {
+		return
+	}
+	if !account.IsRateLimited() {
+		return
+	}
+	if usage.FiveHour == nil || usage.SevenDay == nil {
+		return
+	}
+	if usage.FiveHour.Utilization >= 100 || usage.SevenDay.Utilization >= 100 {
+		return
+	}
+
+	if err := s.accountRepo.ClearRateLimit(ctx, account.ID); err != nil {
+		slog.Warn("openai_rate_limit_self_heal_failed", "account_id", account.ID, "error", err)
+		return
+	}
+	account.RateLimitedAt = nil
+	account.RateLimitResetAt = nil
+	slog.Info("openai_rate_limit_cleared_by_codex_snapshot",
+		"account_id", account.ID,
+		"used_5h_percent", usage.FiveHour.Utilization,
+		"used_7d_percent", usage.SevenDay.Utilization)
 }
 
 func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now time.Time) bool {

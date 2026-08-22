@@ -256,3 +256,121 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 		}
 	})
 }
+
+// openAISelfHealRepo 记录 ClearRateLimit 调用，用于验证 OpenAI 429 自愈路径。
+type openAISelfHealRepo struct {
+	stubOpenAIAccountRepo
+	clearedIDs []int64
+}
+
+func (r *openAISelfHealRepo) ClearRateLimit(_ context.Context, id int64) error {
+	r.clearedIDs = append(r.clearedIDs, id)
+	return nil
+}
+
+// TestAccountUsageService_ClearOpenAIRateLimitIfCodexSnapshotHealthy 覆盖 OpenAI 的 429 自愈：
+// 新鲜 codex 快照显示两个窗口都没耗尽时，被误标限流的账号应被解封；
+// 窗口确实耗尽、或对象是 spark 影子 / 非 OpenAI 账号时，一律不得清除。
+func TestAccountUsageService_ClearOpenAIRateLimitIfCodexSnapshotHealthy(t *testing.T) {
+	t.Parallel()
+
+	future := time.Now().Add(96 * time.Hour)
+	limitedAt := time.Now().Add(-time.Hour)
+	parentID := int64(4200)
+
+	newLimitedAccount := func(id int64, platform string) *Account {
+		limited := limitedAt
+		reset := future
+		return &Account{
+			ID:               id,
+			Platform:         platform,
+			Type:             AccountTypeOAuth,
+			RateLimitedAt:    &limited,
+			RateLimitResetAt: &reset,
+		}
+	}
+
+	healthy := &UsageInfo{
+		FiveHour: &UsageProgress{Utilization: 12},
+		SevenDay: &UsageProgress{Utilization: 40},
+	}
+
+	t.Run("clears when neither window is exhausted", func(t *testing.T) {
+		repo := &openAISelfHealRepo{}
+		svc := &AccountUsageService{accountRepo: repo}
+		account := newLimitedAccount(1, PlatformOpenAI)
+
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy)
+
+		if len(repo.clearedIDs) != 1 || repo.clearedIDs[0] != account.ID {
+			t.Fatalf("clearedIDs = %v, want [%d]", repo.clearedIDs, account.ID)
+		}
+		if account.RateLimitResetAt != nil || account.RateLimitedAt != nil {
+			t.Fatal("in-memory rate limit fields should be cleared as well")
+		}
+		if account.IsRateLimited() {
+			t.Fatal("account should no longer be rate limited")
+		}
+	})
+
+	t.Run("keeps rate limit when a window is exhausted", func(t *testing.T) {
+		repo := &openAISelfHealRepo{}
+		svc := &AccountUsageService{accountRepo: repo}
+		account := newLimitedAccount(2, PlatformOpenAI)
+
+		exhausted := &UsageInfo{
+			FiveHour: &UsageProgress{Utilization: 8},
+			SevenDay: &UsageProgress{Utilization: 100},
+		}
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, exhausted)
+
+		if len(repo.clearedIDs) != 0 {
+			t.Fatalf("clearedIDs = %v, want none when a plan window is exhausted", repo.clearedIDs)
+		}
+		if !account.IsRateLimited() {
+			t.Fatal("account should stay rate limited")
+		}
+	})
+
+	t.Run("skips spark shadow accounts", func(t *testing.T) {
+		repo := &openAISelfHealRepo{}
+		svc := &AccountUsageService{accountRepo: repo}
+		account := newLimitedAccount(3, PlatformOpenAI)
+		account.ParentAccountID = &parentID
+		account.QuotaDimension = QuotaDimensionSpark
+
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy)
+
+		if len(repo.clearedIDs) != 0 {
+			t.Fatalf("clearedIDs = %v, spark shadow must not be healed by global codex signals", repo.clearedIDs)
+		}
+		if !account.IsRateLimited() {
+			t.Fatal("spark shadow should stay rate limited")
+		}
+	})
+
+	t.Run("skips non-openai platforms", func(t *testing.T) {
+		repo := &openAISelfHealRepo{}
+		svc := &AccountUsageService{accountRepo: repo}
+		account := newLimitedAccount(4, PlatformAnthropic)
+
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy)
+
+		if len(repo.clearedIDs) != 0 {
+			t.Fatalf("clearedIDs = %v, want none for non-OpenAI platforms", repo.clearedIDs)
+		}
+	})
+
+	t.Run("skips when window data is incomplete", func(t *testing.T) {
+		repo := &openAISelfHealRepo{}
+		svc := &AccountUsageService{accountRepo: repo}
+		account := newLimitedAccount(5, PlatformOpenAI)
+
+		partial := &UsageInfo{FiveHour: &UsageProgress{Utilization: 3}}
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, partial)
+
+		if len(repo.clearedIDs) != 0 {
+			t.Fatalf("clearedIDs = %v, want none when 7d data is missing", repo.clearedIDs)
+		}
+	})
+}

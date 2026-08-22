@@ -1229,8 +1229,22 @@ func clampRateLimit429CooldownSeconds(seconds int) int {
 	return seconds
 }
 
-// calculateOpenAI429ResetTime 从 OpenAI 429 响应头计算正确的重置时间
-// 返回 nil 表示无法从响应头中确定重置时间
+// calculateOpenAI429ResetTime 从 OpenAI 429 响应头（x-codex-*）计算重置时间。
+// 返回 nil 表示"无法从响应头判断这次 429 是套餐窗口耗尽"，调用方应继续走它自己的降级链
+// （body 里显式的 resets_at/resets_in_seconds → 管理端可配的秒级 429 兜底冷却）。
+//
+// 语义约定：只有某个窗口真的耗尽（used_percent >= 100）时，才允许按该窗口的
+// reset_after_seconds 封锁账号；7d 优先于 5h，因为 7d 耗尽实际恢复得更晚。
+//
+// 【为什么两个窗口都未耗尽时必须返回 nil —— 不要再改回"取较长的 reset"】
+// x-codex-*-reset-after-seconds 表达的是"当前窗口还有多少秒滚动到下一周期"，
+// 它与这次 429 是否发生、因何发生完全无关：账号即使只用了 3%，7d 窗口也照样挂着一个几天量级的 reset。
+// 历史实现在两个窗口都没到 100% 时取二者中较大的那个（几乎总是 7d）作为限流截止时间，
+// 于是任何一次与套餐额度无关的 429（OpenAI 侧的瞬时/并发限流 rate_limit_exceeded、
+// 上游代理自己吐的 429 等）都会把一个完全可用的账号按 7d 窗口封到几天之后。
+// 而限流恢复是惰性的时间比较（没有定时器会提前解封），结果就是运维看到的现象：
+// 管理页上账号长期显示 429/限流中，手工测试却完全可用，且持续数小时到数天。
+// 两个窗口都没耗尽 == 这不是套餐额度问题，绝不能按窗口 reset 封号。
 func calculateOpenAI429ResetTime(headers http.Header) *time.Time {
 	snapshot := ParseCodexRateLimitHeaders(headers)
 	if snapshot == nil {
@@ -1248,7 +1262,7 @@ func calculateOpenAI429ResetTime(headers http.Header) *time.Time {
 	is7dExhausted := normalized.Used7dPercent != nil && *normalized.Used7dPercent >= 100
 	is5hExhausted := normalized.Used5hPercent != nil && *normalized.Used5hPercent >= 100
 
-	// 优先使用被触发限制的重置时间
+	// 优先使用被触发限制的重置时间；若耗尽窗口自身缺 reset 头，则退到另一个同样耗尽的窗口。
 	if is7dExhausted && normalized.Reset7dSeconds != nil {
 		resetAt := now.Add(time.Duration(*normalized.Reset7dSeconds) * time.Second)
 		slog.Info("openai_429_7d_limit_exhausted", "reset_after_seconds", *normalized.Reset7dSeconds, "reset_at", resetAt)
@@ -1260,21 +1274,31 @@ func calculateOpenAI429ResetTime(headers http.Header) *time.Time {
 		return &resetAt
 	}
 
-	// 都未达到100%但收到429，使用较长的重置时间
-	var maxResetSecs int
-	if normalized.Reset7dSeconds != nil && *normalized.Reset7dSeconds > maxResetSecs {
-		maxResetSecs = *normalized.Reset7dSeconds
-	}
-	if normalized.Reset5hSeconds != nil && *normalized.Reset5hSeconds > maxResetSecs {
-		maxResetSecs = *normalized.Reset5hSeconds
-	}
-	if maxResetSecs > 0 {
-		resetAt := now.Add(time.Duration(maxResetSecs) * time.Second)
-		slog.Info("openai_429_using_max_reset", "max_reset_seconds", maxResetSecs, "reset_at", resetAt)
-		return &resetAt
+	if is7dExhausted || is5hExhausted {
+		// 窗口确实耗尽，但上游没给对应的 reset 头：宁可交给秒级兜底冷却反复重试，
+		// 也不要拿另一个窗口的 reset 猜一个长封锁时间。打 warn 便于排查上游头缺失。
+		slog.Warn("openai_429_exhausted_without_reset_header",
+			"used_5h_percent", codexPercentForLog(normalized.Used5hPercent),
+			"used_7d_percent", codexPercentForLog(normalized.Used7dPercent),
+			"reason", "exhausted window has no reset_after_seconds header")
+		return nil
 	}
 
+	// 两个窗口都没耗尽：这次 429 不是套餐额度耗尽（多为瞬时/并发限流或上游代理 429）。
+	// 返回 nil 让调用方降级到 body 解析 / 秒级兜底冷却，详见函数头注释。
+	slog.Info("openai_429_no_window_exhausted",
+		"used_5h_percent", codexPercentForLog(normalized.Used5hPercent),
+		"used_7d_percent", codexPercentForLog(normalized.Used7dPercent),
+		"reason", "429 is not a plan-window exhaustion, falling back to caller cooldown")
 	return nil
+}
+
+// codexPercentForLog 把可空的 used_percent 渲染成日志友好的值（缺失记为 -1）。
+func codexPercentForLog(p *float64) float64 {
+	if p == nil {
+		return -1
+	}
+	return *p
 }
 
 func (s *RateLimitService) calculateOpenAI429ResetTime(headers http.Header) *time.Time {
