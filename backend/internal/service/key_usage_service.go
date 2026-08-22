@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
 	"log/slog"
 	"sort"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 
@@ -21,6 +23,12 @@ const (
 	DefaultKeyUsageTokenTTL = 30 * 24 * time.Hour
 	// DefaultKeyUsageSiteRankingCacheTTL 全站排行榜默认缓存时长，可由配置覆盖。
 	DefaultKeyUsageSiteRankingCacheTTL = 120 * time.Second
+	// keyUsageSiteRankingLoadTimeout 单次全站聚合的硬超时。
+	// 全站榜走 singleflight，加载用的 ctx 与首个调用方的请求 ctx 解绑（见 buildSiteRanking），
+	// 所以必须自带超时，否则一条卡住的聚合会把这个 cache key 上的所有等待者一起挂住。
+	keyUsageSiteRankingLoadTimeout = 30 * time.Second
+	// keyUsageSiteCacheMaxEntries 全站榜缓存的条目上限（兜底，正常只有 3 metric × 3 window = 9 条）。
+	keyUsageSiteCacheMaxEntries = 32
 	// KeyUsageTopN 排行榜返回的名次数量上限（金银铜取前三）。
 	KeyUsageTopN = 10
 	// keyUsageUnknownKeyName Key 记录已被硬删除时的占位名称。
@@ -171,8 +179,9 @@ func (s *KeyUsageService) TokenTTL() time.Duration {
 }
 
 // IssueToken 用原始 API Key 换取只读用量令牌。
-func (s *KeyUsageService) IssueToken(ctx context.Context, rawKey string) (string, time.Time, error) {
-	apiKey, err := s.ResolveRawKey(ctx, rawKey)
+// clientIP 参与 Key 的 IP 白名单/黑名单校验，口径与网关中间件一致。
+func (s *KeyUsageService) IssueToken(ctx context.Context, rawKey, clientIP string) (string, time.Time, error) {
+	apiKey, err := s.ResolveRawKey(ctx, rawKey, clientIP)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -180,7 +189,7 @@ func (s *KeyUsageService) IssueToken(ctx context.Context, rawKey string) (string
 }
 
 // ResolveRawKey 校验原始 API Key（Bearer 直连路径）。
-func (s *KeyUsageService) ResolveRawKey(ctx context.Context, rawKey string) (*APIKey, error) {
+func (s *KeyUsageService) ResolveRawKey(ctx context.Context, rawKey, clientIP string) (*APIKey, error) {
 	rawKey = strings.TrimSpace(rawKey)
 	if rawKey == "" || s.apiKeys == nil {
 		return nil, ErrKeyUsageUnauthorized
@@ -192,6 +201,9 @@ func (s *KeyUsageService) ResolveRawKey(ctx context.Context, rawKey string) (*AP
 	if !keyUsageViewable(apiKey) {
 		return nil, ErrKeyUsageUnauthorized
 	}
+	if !keyUsageAllowedFromIP(apiKey, clientIP) {
+		return nil, ErrKeyUsageUnauthorized
+	}
 	return apiKey, nil
 }
 
@@ -201,8 +213,10 @@ func (s *KeyUsageService) ResolveRawKey(ctx context.Context, rawKey string) (*AP
 //  1. 签名/类型/过期 —— KeyUsageTokenService.Parse；
 //  2. Key 是否还存在（软删除后 GetByID 直接查不到）；
 //  3. Key 当前状态是否仍可查看（禁用即刻失效）；
-//  4. Key 明文是否还是签发时那一把（指纹比对，key 轮换后旧令牌失效）。
-func (s *KeyUsageService) ResolveToken(ctx context.Context, token string) (*APIKey, error) {
+//  4. Key 明文是否还是签发时那一把（指纹比对，key 轮换后旧令牌失效）；
+//  5. 当前来源 IP 是否仍被这把 Key 的 IP 白名单/黑名单允许 —— 令牌不能变成一张
+//     绕开 IP ACL 的长期旁路凭证。
+func (s *KeyUsageService) ResolveToken(ctx context.Context, token, clientIP string) (*APIKey, error) {
 	if s.apiKeys == nil {
 		return nil, ErrKeyUsageUnauthorized
 	}
@@ -217,10 +231,41 @@ func (s *KeyUsageService) ResolveToken(ctx context.Context, token string) (*APIK
 	if !keyUsageViewable(apiKey) {
 		return nil, ErrKeyUsageUnauthorized
 	}
-	if fingerprint := s.tokens.Fingerprint(apiKey.Key); fingerprint == "" || fingerprint != claims.Fingerprint {
+	fingerprint := s.tokens.Fingerprint(apiKey.Key)
+	if fingerprint == "" || !hmac.Equal([]byte(fingerprint), []byte(claims.Fingerprint)) {
+		return nil, ErrKeyUsageUnauthorized
+	}
+	if !keyUsageAllowedFromIP(apiKey, clientIP) {
 		return nil, ErrKeyUsageUnauthorized
 	}
 	return apiKey, nil
+}
+
+// keyUsageAllowedFromIP 复用网关 API Key 中间件的 IP 白名单/黑名单口径
+// （ip.CheckIPRestrictionWithCompiledRules）。
+//
+// 免登录用量页不经过 API Key 中间件，如果这里不查，一把配了 IP 白名单的 Key 一旦泄露，
+// 攻击者就能从任意 IP 读到余额、额度、套餐、逐日曲线与模型统计——站长明确配置过的
+// 访问控制被静默绕过。原始 Key 路径与令牌路径都要查。
+//
+// 预编译规则缺失时就地编译：宁可多花一次编译，也不能因为调用方忘了编译而 fail-open。
+func keyUsageAllowedFromIP(apiKey *APIKey, clientIP string) bool {
+	if apiKey == nil {
+		return false
+	}
+	if len(apiKey.IPWhitelist) == 0 && len(apiKey.IPBlacklist) == 0 {
+		return true
+	}
+	whitelist := apiKey.CompiledIPWhitelist
+	if whitelist == nil && len(apiKey.IPWhitelist) > 0 {
+		whitelist = ip.CompileIPRules(apiKey.IPWhitelist)
+	}
+	blacklist := apiKey.CompiledIPBlacklist
+	if blacklist == nil && len(apiKey.IPBlacklist) > 0 {
+		blacklist = ip.CompileIPRules(apiKey.IPBlacklist)
+	}
+	allowed, _ := ip.CheckIPRestrictionWithCompiledRules(clientIP, whitelist, blacklist)
+	return allowed
 }
 
 // keyUsageViewable 判断该 Key 当前是否允许查看用量。
@@ -240,9 +285,13 @@ func keyUsageViewable(apiKey *APIKey) bool {
 }
 
 // BuildReport 组装窗口汇总 + 两个维度的排名。
-func (s *KeyUsageService) BuildReport(ctx context.Context, apiKey *APIKey, metric string) *KeyUsageReportData {
+//
+// userTZ 是前端传来的浏览器时区（与 /v1/usage 的 timezone query param 同一个值）：
+// 窗口边界必须跟着它切，否则 UTC+8 的访客在 UTC 服务器上会看到"今日汇总"与按天曲线
+// 最后一行差 8 小时。空串表示回落到服务端全局时区。
+func (s *KeyUsageService) BuildReport(ctx context.Context, apiKey *APIKey, metric, userTZ string) *KeyUsageReportData {
 	metric = usagestats.NormalizeKeyRankingMetric(metric)
-	windows := keyUsageWindows(timezone.Now())
+	windows := keyUsageWindows(timezone.NowInUserLocation(userTZ), userTZ)
 
 	keyInfo := KeyUsageKeyInfo{Name: apiKey.Name, Status: apiKey.Status}
 	if !apiKey.CreatedAt.IsZero() {
@@ -272,24 +321,25 @@ func (s *KeyUsageService) BuildReport(ctx context.Context, apiKey *APIKey, metri
 
 // keyUsageWindows 返回 today / last_7d / last_30d 三个窗口。
 //
-// 全部按仓库全局时区的自然日边界切分（与 buildAPIKeyDailyUsage 用的
-// apiKeyDailyUsageRange 完全同源：起点 = StartOfDay(now-(days-1))，终点 = 明天 00:00），
+// 全部按 userTZ 的自然日边界切分（与 buildAPIKeyDailyUsage 用的 apiKeyDailyUsageRange
+// 完全同源：起点 = StartOfDayInUserLocation(now-(days-1))，终点 = 明天 00:00），
 // 这样窗口汇总和页面上的按天曲线能对得上；不使用 now-7*24h 这种滚动窗口。
-func keyUsageWindows(now time.Time) []keyUsageWindow {
-	todayStart := timezone.StartOfDay(now)
-	end := todayStart.AddDate(0, 0, 1)
+// userTZ 为空时 timezone.* 会回落到服务端全局时区。
+func keyUsageWindows(now time.Time, userTZ string) []keyUsageWindow {
+	end := timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
 	return []keyUsageWindow{
-		{Name: KeyUsageWindowToday, Start: todayStart, End: end},
-		{Name: KeyUsageWindowLast7d, Start: timezone.StartOfDay(now.AddDate(0, 0, -6)), End: end},
-		{Name: KeyUsageWindowLast30d, Start: timezone.StartOfDay(now.AddDate(0, 0, -29)), End: end},
+		{Name: KeyUsageWindowToday, Start: timezone.StartOfDayInUserLocation(now, userTZ), End: end},
+		{Name: KeyUsageWindowLast7d, Start: timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -6), userTZ), End: end},
+		{Name: KeyUsageWindowLast30d, Start: timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -29), userTZ), End: end},
 	}
 }
 
 // KeyUsageWindowRanges 返回三个窗口的时间边界（窗口名 → [start, end)），
-// 供测试与线上排查核对口径：它必须与 handler 里按天聚合用的 apiKeyDailyUsageRange 完全一致。
-func KeyUsageWindowRanges(now time.Time) map[string][2]time.Time {
+// 供测试与线上排查核对口径：它必须与 handler 里按天聚合用的 apiKeyDailyUsageRange
+// 在同一个 userTZ 下完全一致。
+func KeyUsageWindowRanges(now time.Time, userTZ string) map[string][2]time.Time {
 	ranges := make(map[string][2]time.Time, 3)
-	for _, window := range keyUsageWindows(now) {
+	for _, window := range keyUsageWindows(now, userTZ) {
 		ranges[window.Name] = [2]time.Time{window.Start, window.End}
 	}
 	return ranges
@@ -325,39 +375,47 @@ func (s *KeyUsageService) buildWindowStat(ctx context.Context, apiKeyID int64, w
 // buildAccountRanking 账户内排名：数据量小（一个账户的 Key 数量有限），每次实时查，不缓存。
 func (s *KeyUsageService) buildAccountRanking(ctx context.Context, apiKey *APIKey, metric string, window keyUsageWindow, self KeyUsageWindowStat) KeyUsageRankingWindow {
 	if s.ranking == nil {
-		return emptyKeyUsageRanking(apiKey, self, metric)
+		return emptyKeyUsageRanking(apiKey, self)
 	}
 	rows, err := s.ranking.GetAPIKeyUsageAggregates(ctx, window.Start, window.End, apiKey.UserID, metric)
 	if err != nil {
 		slog.Warn("key usage account ranking failed", "window", window.Name, "user_id", apiKey.UserID, "error", err)
-		return emptyKeyUsageRanking(apiKey, self, metric)
+		return emptyKeyUsageRanking(apiKey, self)
 	}
 	values := keyUsageMetricValues(rows, metric)
+	selfValue, selfFound := keyUsageSelfValueByID(keyUsageAggregateIDs(rows), values, apiKey.ID)
 	top := s.resolveTopEntries(ctx, rows, values, apiKey.ID)
-	return assembleKeyUsageRanking(top, values, len(rows), apiKey, self, metric)
+	return assembleKeyUsageRanking(top, values, len(rows), apiKey, self, metric, selfValue, selfFound)
 }
 
 // buildSiteRanking 全站排名：与具体 Key 无关，全站共用一份缓存（key = metric + 窗口边界）。
 // 免登录端点必须挡住"任何人都能触发一次全表 30 天聚合"这条路径。
 func (s *KeyUsageService) buildSiteRanking(ctx context.Context, apiKey *APIKey, metric string, window keyUsageWindow, self KeyUsageWindowStat) KeyUsageRankingWindow {
 	if s.ranking == nil {
-		return emptyKeyUsageRanking(apiKey, self, metric)
+		return emptyKeyUsageRanking(apiKey, self)
 	}
+	// singleflight 会让所有等待者共享首个调用方的加载过程：如果直接用请求 ctx，
+	// 首个请求断连（浏览器刷新/超时）会把所有等待者一起打成 context.Canceled，
+	// 整块排名退化。这里与请求生命周期解绑，改用自带超时的 ctx。
+	loadCtx := context.WithoutCancel(ctx)
 	snapshot, err := s.siteCache.GetOrLoad(keyUsageSiteCacheKey(metric, window), func() (*keyUsageSiteSnapshot, error) {
-		rows, loadErr := s.ranking.GetAPIKeyUsageAggregates(ctx, window.Start, window.End, 0, metric)
+		queryCtx, cancel := context.WithTimeout(loadCtx, keyUsageSiteRankingLoadTimeout)
+		defer cancel()
+		rows, loadErr := s.ranking.GetAPIKeyUsageAggregates(queryCtx, window.Start, window.End, 0, metric)
 		if loadErr != nil {
 			return nil, loadErr
 		}
 		values := keyUsageMetricValues(rows, metric)
 		return &keyUsageSiteSnapshot{
-			Top:       s.resolveTopEntries(ctx, rows, values, 0),
+			Top:       s.resolveTopEntries(queryCtx, rows, values, 0),
+			IDs:       keyUsageAggregateIDs(rows),
 			Values:    values,
 			TotalKeys: len(rows),
 		}, nil
 	})
 	if err != nil || snapshot == nil {
 		slog.Warn("key usage site ranking failed", "window", window.Name, "error", err)
-		return emptyKeyUsageRanking(apiKey, self, metric)
+		return emptyKeyUsageRanking(apiKey, self)
 	}
 
 	// 快照里的 is_self 是按"无自身视角"生成的（全站共用），这里按当前 Key 重新打标记。
@@ -366,7 +424,8 @@ func (s *KeyUsageService) buildSiteRanking(ctx context.Context, apiKey *APIKey, 
 	for i := range top {
 		top[i].IsSelf = top[i].APIKeyID == apiKey.ID
 	}
-	return assembleKeyUsageRanking(top, snapshot.Values, snapshot.TotalKeys, apiKey, self, metric)
+	selfValue, selfFound := keyUsageSelfValueByID(snapshot.IDs, snapshot.Values, apiKey.ID)
+	return assembleKeyUsageRanking(top, snapshot.Values, snapshot.TotalKeys, apiKey, self, metric, selfValue, selfFound)
 }
 
 // resolveTopEntries 取前 KeyUsageTopN 行并批量补齐 Key 名称。
@@ -409,18 +468,29 @@ func (s *KeyUsageService) resolveTopEntries(ctx context.Context, rows []usagesta
 //
 // 名次策略：标准竞赛排名（1224）—— 名次 = 指标严格大于自己的 Key 数 + 1，
 // 并列的 Key 共享同一名次，其后名次跳号。展示顺序在并列时按 api_key_id 升序（SQL 已保证）。
-func assembleKeyUsageRanking(top []KeyUsageRankEntry, values []float64, totalKeys int, apiKey *APIKey, self KeyUsageWindowStat, metric string) KeyUsageRankingWindow {
-	selfValue := keyUsageWindowMetricValue(self, metric)
-	selfRank := keyUsageRankForValue(values, selfValue)
-	// 本 Key 在窗口内没有任何用量时不会出现在聚合结果里，把它自己补进总数，
-	// 避免出现 self_rank > total_keys 这种前端没法解释的组合。
-	if self.Requests == 0 {
+//
+// selfValue 必须来自榜单同一份聚合结果（selfFound == true 时由调用方按 api_key_id 取出），
+// 不能在 Go 里重新把各模型行的 cost 累加一遍：浮点求和顺序不同会让末位比特不同，
+// keyUsageRankForValue 里的 `values[i] <= value` 比较就会把自己算进"严格大于自己"，
+// 名次凭空 +1（能复现出"金牌是自己、同时显示第 2 名 / 共 2 个"这种自相矛盾的渲染）。
+// 只有在聚合结果里确实没有自己这一行时，才回落到实时窗口值定位名次。
+func assembleKeyUsageRanking(
+	top []KeyUsageRankEntry,
+	values []float64,
+	totalKeys int,
+	apiKey *APIKey,
+	self KeyUsageWindowStat,
+	metric string,
+	selfValue float64,
+	selfFound bool,
+) KeyUsageRankingWindow {
+	if !selfFound {
+		// 本 Key 在窗口内没有聚合行（没有用量，或实时值与聚合口径之间存在时间差）：
+		// 用实时窗口值定位名次，并把自己补进总数，避免 self_rank > total_keys。
+		selfValue = keyUsageWindowMetricValue(self, metric)
 		totalKeys++
 	}
-	// 排名查询失败退化成零值时，总数同样不能小于自己的名次。
-	if totalKeys < selfRank {
-		totalKeys = selfRank
-	}
+	selfRank := keyUsageRankForValue(values, selfValue)
 	if top == nil {
 		top = []KeyUsageRankEntry{}
 	}
@@ -440,10 +510,55 @@ func assembleKeyUsageRanking(top []KeyUsageRankEntry, values []float64, totalKey
 	}
 }
 
-// emptyKeyUsageRanking 排名不可用（依赖缺失/查询失败）时的零值结果：
-// top 是空数组而不是 null，self 依然返回，前端渲染路径唯一。
-func emptyKeyUsageRanking(apiKey *APIKey, self KeyUsageWindowStat, metric string) KeyUsageRankingWindow {
-	return assembleKeyUsageRanking([]KeyUsageRankEntry{}, nil, 0, apiKey, self, metric)
+// emptyKeyUsageRanking 排名不可用（依赖缺失 / 聚合查询失败）时的结果。
+//
+// self_rank 与 total_keys 都是 0，表示"排名暂不可用"：绝不能返回 1/1，
+// 那会让每一个访客在 DB 抖动时都被渲染成"全站第 1 / 共 1 个 Key"，
+// 而且与真实数据在视觉上完全无法区分。前端据 self_rank == 0 走单独的降级文案。
+// top 仍是空数组而不是 null，self 依然返回，前端渲染路径唯一。
+func emptyKeyUsageRanking(apiKey *APIKey, self KeyUsageWindowStat) KeyUsageRankingWindow {
+	return KeyUsageRankingWindow{
+		TotalKeys: 0,
+		SelfRank:  0,
+		Top:       []KeyUsageRankEntry{},
+		Self: KeyUsageRankEntry{
+			APIKeyID: apiKey.ID,
+			Rank:     0,
+			KeyName:  apiKey.Name,
+			Requests: self.Requests,
+			Tokens:   self.Tokens,
+			CostUSD:  self.CostUSD,
+			IsSelf:   true,
+		},
+	}
+}
+
+// keyUsageAggregateIDs 抽出聚合结果的 api_key_id 序列（与 keyUsageMetricValues 同序）。
+func keyUsageAggregateIDs(rows []usagestats.APIKeyUsageAggregate) []int64 {
+	ids := make([]int64, len(rows))
+	for i, row := range rows {
+		ids[i] = row.APIKeyID
+	}
+	return ids
+}
+
+// keyUsageSelfValueByID 在聚合结果里按 api_key_id 找出自己那一行的指标值。
+// 线性扫描：全站榜上万行时也只是一次 int64 比较循环（远快于一次 SQL 往返），
+// 换来的是"名次与榜单来自同一份浮点数"这个必须成立的性质。
+func keyUsageSelfValueByID(ids []int64, values []float64, apiKeyID int64) (float64, bool) {
+	if apiKeyID <= 0 {
+		return 0, false
+	}
+	for i, id := range ids {
+		if id != apiKeyID {
+			continue
+		}
+		if i >= len(values) {
+			return 0, false
+		}
+		return values[i], true
+	}
+	return 0, false
 }
 
 // keyUsageMetricValues 抽出排序指标序列（SQL 已按该指标降序）。
@@ -490,10 +605,12 @@ func keyUsageSiteCacheKey(metric string, window keyUsageWindow) string {
 }
 
 // keyUsageSiteSnapshot 全站榜快照（与具体 Key 无关，可全站共享）。
-// 只保留前十名明细 + 全部 Key 的指标值序列（8 字节/Key），
+// 只保留前十名明细 + 全部 Key 的 id / 指标值序列（各 8 字节/Key），
 // 不缓存整张榜的明细，避免大站上把几十 MB 常驻在内存里。
+// IDs 与 Values 同序，用来按 api_key_id 取出"自己"在榜上的原始值（见 keyUsageSelfValueByID）。
 type keyUsageSiteSnapshot struct {
 	Top       []KeyUsageRankEntry
+	IDs       []int64
 	Values    []float64
 	TotalKeys int
 }
@@ -541,13 +658,54 @@ func (c *keyUsageSiteCache) get(key string) (*keyUsageSiteSnapshot, bool) {
 	return entry.snapshot, true
 }
 
+// set 写入快照，并顺手回收过期项。
+//
+// 必须在写入时回收：cache key 里编了窗口边界的 unix 时间戳，每天会产生 9 个全新 key
+// （3 metric × 3 window），而昨天的窗口边界此后永远不会被再次读取——只靠 get 的惰性
+// 删除，昨天的条目会永久留在 map 里（每条持有一个长度=全站有用量 Key 数的 []float64
+// 和 []int64），几百天下来就是几个 GB 的纯泄漏。
 func (c *keyUsageSiteCache) set(key string, snapshot *keyUsageSiteSnapshot) {
 	if c == nil {
 		return
 	}
+	now := time.Now()
 	c.mu.Lock()
-	c.items[key] = keyUsageSiteCacheEntry{snapshot: snapshot, expiresAt: time.Now().Add(c.ttl)}
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+
+	for existing, entry := range c.items {
+		if !now.Before(entry.expiresAt) {
+			delete(c.items, existing)
+		}
+	}
+	c.items[key] = keyUsageSiteCacheEntry{snapshot: snapshot, expiresAt: now.Add(c.ttl)}
+
+	// 兜底上限：即使 TTL 被配得很长（所有条目都还没过期），也不允许无界增长。
+	for len(c.items) > keyUsageSiteCacheMaxEntries {
+		oldestKey := ""
+		var oldest time.Time
+		for existing, entry := range c.items {
+			if existing == key {
+				continue
+			}
+			if oldestKey == "" || entry.expiresAt.Before(oldest) {
+				oldestKey, oldest = existing, entry.expiresAt
+			}
+		}
+		if oldestKey == "" {
+			break
+		}
+		delete(c.items, oldestKey)
+	}
+}
+
+// Len 返回当前缓存条目数（供测试断言回收行为）。
+func (c *keyUsageSiteCache) Len() int {
+	if c == nil {
+		return 0
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.items)
 }
 
 func (c *keyUsageSiteCache) GetOrLoad(key string, load func() (*keyUsageSiteSnapshot, error)) (*keyUsageSiteSnapshot, error) {

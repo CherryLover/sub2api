@@ -100,6 +100,96 @@ describe('RankingPodium', () => {
     expect(requests.text()).toContain('42')
   })
 
+  // The backend uses standard competition ranking (1224): ties share a rank and the next
+  // rank is skipped. De-duplicating by rank would blank out a whole medal slot and silently
+  // drop a Key that is actually on the podium.
+  it('keeps both winners of a tie in the gold slot', () => {
+    const wrapper = mount(RankingPodium, {
+      props: {
+        metric: 'cost',
+        entries: [
+          entry({ rank: 1, key_name: 'Gold A' }),
+          entry({ rank: 1, key_name: 'Gold B' }),
+          entry({ rank: 3, key_name: 'Bronze Key' }),
+        ],
+      },
+    })
+
+    const slots = slotsOf(wrapper)
+    expect(slots.map(s => s.attributes('data-medal'))).toEqual(['gold', 'bronze'])
+    expect(wrapper.findAll('[data-testid="podium-entry"]')).toHaveLength(3)
+    expect(wrapper.text()).toContain('Gold A')
+    expect(wrapper.text()).toContain('Gold B')
+    expect(wrapper.text()).toContain('Bronze Key')
+    expect(slots[0].attributes('data-tied')).toBe('true')
+  })
+
+  it('keeps both runners-up when second place is tied and third is skipped', () => {
+    const wrapper = mount(RankingPodium, {
+      props: {
+        metric: 'cost',
+        entries: [
+          entry({ rank: 1, key_name: 'Gold Key' }),
+          entry({ rank: 2, key_name: 'Silver A' }),
+          entry({ rank: 2, key_name: 'Silver B' }),
+        ],
+      },
+    })
+
+    // Silver stays on the left, gold in the middle; the bronze slot is simply absent
+    // because rank 3 does not exist under 1224 ranking after a two-way tie for 2nd.
+    const slots = slotsOf(wrapper)
+    expect(slots.map(s => s.attributes('data-medal'))).toEqual(['silver', 'gold'])
+    expect(wrapper.findAll('[data-testid="podium-entry"]')).toHaveLength(3)
+    expect(wrapper.text()).toContain('Silver A')
+    expect(wrapper.text()).toContain('Silver B')
+  })
+
+  it('keeps a three-way tie for first together and drops nobody', () => {
+    const wrapper = mount(RankingPodium, {
+      props: {
+        metric: 'cost',
+        entries: [
+          entry({ rank: 1, key_name: 'A' }),
+          entry({ rank: 1, key_name: 'B' }),
+          entry({ rank: 1, key_name: 'C' }),
+        ],
+      },
+    })
+
+    expect(slotsOf(wrapper).map(s => s.attributes('data-medal'))).toEqual(['gold'])
+    expect(wrapper.findAll('[data-testid="podium-entry"]')).toHaveLength(3)
+    for (const name of ['A', 'B', 'C']) {
+      expect(wrapper.text()).toContain(name)
+    }
+  })
+
+  it('marks the self entry inside a tied slot', () => {
+    const wrapper = mount(RankingPodium, {
+      props: {
+        metric: 'cost',
+        entries: [
+          entry({ rank: 1, key_name: 'Someone else' }),
+          entry({ rank: 1, key_name: 'Mine', is_self: true }),
+        ],
+      },
+    })
+
+    expect(wrapper.findAll('[data-testid="podium-self-badge"]')).toHaveLength(1)
+  })
+
+  it('ignores entries ranked outside the podium', () => {
+    const wrapper = mount(RankingPodium, {
+      props: {
+        metric: 'cost',
+        entries: [entry({ rank: 1, key_name: 'Gold' }), entry({ rank: 4, key_name: 'Fourth' })],
+      },
+    })
+
+    expect(wrapper.findAll('[data-testid="podium-entry"]')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('Fourth')
+  })
+
   it('renders an empty state when there is nothing to show', () => {
     const wrapper = mount(RankingPodium, { props: { metric: 'cost', entries: [] } })
 

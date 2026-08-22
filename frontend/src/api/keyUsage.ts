@@ -63,10 +63,29 @@ export interface KeyUsageKeyInfo {
 
 export interface KeyUsageReport {
   key: KeyUsageKeyInfo | null
-  // The raw `/v1/usage` payload, embedded verbatim.
+  /**
+   * The `/v1/usage` payload, built by the same backend code path as the gateway endpoint.
+   *
+   * Not byte-for-byte identical: this public page has no API-key middleware, so it looks the
+   * subscription up itself. In `simple` run mode that means this payload carries a
+   * `subscription` object that `/v1/usage` does not have (the simple-mode middleware returns
+   * before it loads one). Every other mode matches field for field.
+   *
+   * `null` means the backend failed to assemble it — see `usage_available`.
+   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   usage: any
+  /**
+   * False when the backend could not build the usage payload. Distinguishes "this Key really
+   * has no usage" (an object with empty stats) from "the backend broke" (`usage` is null),
+   * which an empty object alone cannot express.
+   */
+  usage_available?: boolean
   windows: Partial<Record<KeyUsageWindowKey, KeyUsageWindowStat>> | null
+  /**
+   * Rankings per scope/window. A window with `total_keys === 0 && self_rank === 0` means the
+   * backend could not compute rankings at all — render it as unavailable, never as "#1 of 1".
+   */
   rankings: Partial<Record<KeyUsageRankingScope, Partial<KeyUsageRankingGroup>>> | null
   metric: KeyUsageMetric
   generated_at: string | null

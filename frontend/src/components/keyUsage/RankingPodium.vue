@@ -9,39 +9,56 @@
       2nd (left) / 1st (center) / 3rd (right), the Olympic layout.
       On narrow screens the container becomes a column and the `order-*` classes put
       it back into 1 / 2 / 3 reading order while keeping the medal colours and labels.
+
+      One slot == one medal, not one entry: the backend uses standard competition
+      ranking (1224), so a medal rank can be shared by several Keys. Every tied Key is
+      stacked inside its own medal slot — entries are never silently dropped, and the
+      silver-left / gold-center / bronze-right layout is preserved.
     -->
     <div
       v-for="slot in slots"
-      :key="slot.entry.rank"
+      :key="slot.medal"
       data-testid="podium-slot"
-      :data-rank="slot.entry.rank"
+      :data-rank="slot.rank"
       :data-medal="slot.medal"
+      :data-tied="slot.entries.length > 1 ? 'true' : 'false'"
       class="flex w-full min-w-0 flex-col sm:w-36 sm:shrink-0"
       :class="[slot.orderClass, 'sm:order-none']"
     >
-      <div
-        class="flex min-w-0 items-center gap-3 rounded-xl border p-3 transition-shadow sm:flex-col sm:gap-2 sm:rounded-b-none sm:pb-4 sm:text-center"
-        :class="[slot.cardClass, slot.entry.is_self ? 'ring-2 ring-primary-500 ring-offset-1 ring-offset-white dark:ring-offset-dark-900' : '']"
-      >
-        <span
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold shadow-sm"
-          :class="slot.badgeClass"
-        >{{ slot.entry.rank }}</span>
-        <div class="min-w-0 flex-1 text-left sm:w-full sm:flex-none sm:text-center">
-          <p class="truncate text-sm font-semibold text-gray-900 dark:text-white" :title="slot.entry.key_name">
-            {{ slot.entry.key_name }}
-          </p>
-          <p class="truncate text-xs text-gray-500 dark:text-dark-400">{{ slot.medalLabel }}</p>
-        </div>
-        <div class="shrink-0 text-right sm:w-full sm:text-center">
-          <p class="text-sm font-bold tabular-nums text-gray-900 dark:text-white">
-            {{ metricValueOf(slot.entry, metric) }}
-          </p>
+      <div class="flex min-w-0 flex-col gap-2">
+        <div
+          v-for="(entry, index) in slot.entries"
+          :key="`${slot.medal}-${index}-${entry.key_name}`"
+          data-testid="podium-entry"
+          class="flex min-w-0 items-center gap-3 rounded-xl border p-3 transition-shadow sm:flex-col sm:gap-2 sm:text-center"
+          :class="[
+            slot.cardClass,
+            index === slot.entries.length - 1 ? 'sm:rounded-b-none sm:pb-4' : '',
+            entry.is_self ? 'ring-2 ring-primary-500 ring-offset-1 ring-offset-white dark:ring-offset-dark-900' : '',
+          ]"
+        >
           <span
-            v-if="slot.entry.is_self"
-            data-testid="podium-self-badge"
-            class="mt-1 inline-block rounded-full bg-primary-500/10 px-2 py-0.5 text-[10px] font-semibold text-primary-600 dark:text-primary-300"
-          >{{ t('keyUsage.rankings.you') }}</span>
+            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold shadow-sm"
+            :class="slot.badgeClass"
+          >{{ entry.rank }}</span>
+          <div class="min-w-0 flex-1 text-left sm:w-full sm:flex-none sm:text-center">
+            <p class="truncate text-sm font-semibold text-gray-900 dark:text-white" :title="entry.key_name">
+              {{ entry.key_name }}
+            </p>
+            <p class="truncate text-xs text-gray-500 dark:text-dark-400">
+              {{ slot.entries.length > 1 ? t('keyUsage.rankings.podiumTied', { medal: slot.medalLabel }) : slot.medalLabel }}
+            </p>
+          </div>
+          <div class="shrink-0 text-right sm:w-full sm:text-center">
+            <p class="text-sm font-bold tabular-nums text-gray-900 dark:text-white">
+              {{ metricValueOf(entry, metric) }}
+            </p>
+            <span
+              v-if="entry.is_self"
+              data-testid="podium-self-badge"
+              class="mt-1 inline-block rounded-full bg-primary-500/10 px-2 py-0.5 text-[10px] font-semibold text-primary-600 dark:text-primary-300"
+            >{{ t('keyUsage.rankings.you') }}</span>
+          </div>
         </div>
       </div>
       <!-- Pedestal: desktop only, height encodes the medal -->
@@ -66,6 +83,8 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
+type MedalRank = 1 | 2 | 3
+
 interface MedalMeta {
   medal: 'gold' | 'silver' | 'bronze'
   labelKey: string
@@ -76,7 +95,7 @@ interface MedalMeta {
   barClass: string
 }
 
-const MEDALS: Record<1 | 2 | 3, MedalMeta> = {
+const MEDALS: Record<MedalRank, MedalMeta> = {
   1: {
     medal: 'gold',
     labelKey: 'keyUsage.rankings.podiumGold',
@@ -107,28 +126,45 @@ const MEDALS: Record<1 | 2 | 3, MedalMeta> = {
 }
 
 interface PodiumSlot extends MedalMeta {
-  entry: KeyUsageRankingEntry
+  rank: MedalRank
+  entries: KeyUsageRankingEntry[]
   medalLabel: string
 }
 
+function medalRankOf(entry: KeyUsageRankingEntry, index: number): MedalRank | null {
+  // `rank` is authoritative; fall back to array position when the payload omits it.
+  const raw = Math.trunc(Number(entry.rank)) || index + 1
+  if (raw === 1 || raw === 2 || raw === 3) return raw
+  return null
+}
+
 const slots = computed<PodiumSlot[]>(() => {
-  const byRank = new Map<number, KeyUsageRankingEntry>()
+  const byRank = new Map<MedalRank, KeyUsageRankingEntry[]>()
   const entries = Array.isArray(props.entries) ? props.entries : []
+
   entries.forEach((entry, index) => {
     if (!entry) return
-    // `rank` is authoritative; fall back to array position when the payload omits it.
-    const rank = Number(entry.rank) || index + 1
-    if (rank >= 1 && rank <= 3 && !byRank.has(rank)) {
-      byRank.set(rank, { ...entry, rank })
+    const rank = medalRankOf(entry, index)
+    if (rank === null) return
+    const bucket = byRank.get(rank)
+    if (bucket) {
+      // Tied Keys share the medal: keep every one of them instead of dropping
+      // everything after the first (the backend's 1224 ranking skips numbers,
+      // so de-duplicating by rank would blank out a whole medal slot).
+      bucket.push({ ...entry, rank })
+    } else {
+      byRank.set(rank, [{ ...entry, rank }])
     }
   })
+
   // Silver (left) -> Gold (center) -> Bronze (right)
-  const layout: Array<1 | 2 | 3> = [2, 1, 3]
+  const layout: MedalRank[] = [2, 1, 3]
   return layout
-    .filter(rank => byRank.has(rank))
+    .filter(rank => (byRank.get(rank)?.length ?? 0) > 0)
     .map(rank => ({
       ...MEDALS[rank],
-      entry: byRank.get(rank) as KeyUsageRankingEntry,
+      rank,
+      entries: byRank.get(rank) as KeyUsageRankingEntry[],
       medalLabel: t(MEDALS[rank].labelKey),
     }))
 })

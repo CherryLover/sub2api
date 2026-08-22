@@ -8,7 +8,7 @@
       <h4 class="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">
         {{ title }}
       </h4>
-      <p v-if="hasData" class="text-xs text-gray-500 dark:text-dark-400">
+      <p v-if="!rankingUnavailable && hasData" class="text-xs text-gray-500 dark:text-dark-400">
         <span v-if="selfRank > 0" data-testid="ranking-self-summary" class="font-semibold text-primary-600 dark:text-primary-300">
           {{ t('keyUsage.rankings.selfRank', { rank: selfRank, total: totalKeys }) }}
         </span>
@@ -16,7 +16,19 @@
       </p>
     </header>
 
-    <div v-if="hasData">
+    <!--
+      Three distinct states, on purpose:
+        unavailable - the backend could not compute rankings at all (self_rank = 0 AND
+                      total_keys = 0). Must never be rendered as "#1 of 1", which is
+                      visually indistinguishable from real data.
+        has data    - a podium/table, or at least a real rank for this Key.
+        empty       - rankings worked, this window simply has no usage.
+    -->
+    <div v-if="rankingUnavailable" data-testid="ranking-window-unavailable" class="px-5 py-10 text-center sm:px-8">
+      <p class="text-sm text-gray-500 dark:text-dark-400">{{ t('keyUsage.rankings.unavailable') }}</p>
+    </div>
+
+    <div v-else-if="hasData">
       <div class="px-5 py-6 sm:px-8">
         <RankingPodium :entries="topEntries" :metric="metric" />
       </div>
@@ -52,6 +64,15 @@ const topEntries = computed(() => {
 
 const totalKeys = computed(() => Number(props.data?.total_keys) || 0)
 const selfRank = computed(() => Number(props.data?.self_rank) || 0)
+
+/**
+ * The backend encodes "ranking could not be computed" as total_keys = 0 AND self_rank = 0
+ * with an empty `top` (see emptyKeyUsageRanking). Anything else is real data — a Key with
+ * no usage on an otherwise empty site legitimately reports rank 1 of 1.
+ */
+const rankingUnavailable = computed(
+  () => !props.data || (selfRank.value <= 0 && totalKeys.value <= 0 && topEntries.value.length === 0)
+)
 
 const hasData = computed(() => topEntries.value.length > 0 || Boolean(props.data?.self && selfRank.value > 0))
 </script>

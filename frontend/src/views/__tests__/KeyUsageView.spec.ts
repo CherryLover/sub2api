@@ -115,6 +115,9 @@ const messages: Record<string, string> = {
   'keyUsage.rankings.you': 'You',
   'keyUsage.rankings.selfRank': 'You rank #{rank} of {total} Keys',
   'keyUsage.rankings.selfUnranked': 'You are not ranked in this window',
+  'keyUsage.rankings.unavailable': 'Rankings are temporarily unavailable, please try again later',
+  'keyUsage.rankings.podiumTied': '{medal} (tied)',
+  'keyUsage.usageUnavailable': 'Usage details could not be loaded right now.',
   'keyUsage.rankings.empty': 'No ranking data in this window',
   'keyUsage.rankings.refreshing': 'Updating rankings...',
   'keyUsage.rankings.podiumGold': 'Champion',
@@ -332,6 +335,39 @@ describe('KeyUsageView', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+  })
+
+  // ==================== Usage payload availability ====================
+
+  describe('usage payload availability', () => {
+    it('warns when the backend could not assemble the usage payload', async () => {
+      overrides.report = () => jsonResponse({ ...makeReport(), usage: null, usage_available: false })
+
+      const wrapper = mountView()
+      await wrapper.find('input').setValue('sk-test-key')
+      await wrapper.find('input').trigger('keydown.enter')
+      await settle()
+
+      // Silently degrading to an empty object + HTTP 200 makes "the backend broke"
+      // indistinguishable from "this Key has never been used".
+      expect(wrapper.find('[data-testid="usage-unavailable"]').exists()).toBe(true)
+      expect(wrapper.text()).toContain('Usage details could not be loaded right now.')
+      // The parts that did load are still rendered.
+      expect(wrapper.find('[data-testid="windows-section"]').exists()).toBe(true)
+
+      wrapper.unmount()
+    })
+
+    it('does not warn when the usage payload is available', async () => {
+      const wrapper = mountView()
+      await wrapper.find('input').setValue('sk-test-key')
+      await wrapper.find('input').trigger('keydown.enter')
+      await settle()
+
+      expect(wrapper.find('[data-testid="usage-unavailable"]').exists()).toBe(false)
+
+      wrapper.unmount()
+    })
   })
 
   // ==================== Legacy usage panels ====================

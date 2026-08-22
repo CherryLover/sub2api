@@ -139,7 +139,7 @@ func TestKeyUsageCreateSessionHidesKeyExistence(t *testing.T) {
 
 func issueTestToken(t *testing.T, svc *service.KeyUsageService, rawKey string) string {
 	t.Helper()
-	token, _, err := svc.IssueToken(context.Background(), rawKey)
+	token, _, err := svc.IssueToken(context.Background(), rawKey, "203.0.113.10")
 	require.NoError(t, err)
 	return token
 }
@@ -153,7 +153,7 @@ func TestKeyUsageReportContractShape(t *testing.T) {
 
 	var raw map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &raw))
-	for _, field := range []string{"key", "usage", "windows", "rankings", "metric", "generated_at"} {
+	for _, field := range []string{"key", "usage", "usage_available", "windows", "rankings", "metric", "generated_at"} {
 		require.Contains(t, raw, field)
 	}
 
@@ -298,9 +298,11 @@ func decodeKeyUsageBody(t *testing.T, recorder *httptest.ResponseRecorder) map[s
 
 // 免登录页的窗口边界必须与 /v1/usage 按天曲线用的 apiKeyDailyUsageRange 完全同源，
 // 否则同一个页面上"近 7 天汇总"和按天柱状图会对不上。
+//
+// 必须用**真实的浏览器时区**取值来验证：前端每次请求都会带 timezone=<IANA 名>，
+// 只传 "" 的话恰好绕开了前端唯一会走的那条路径，证明不了任何东西
+// （窗口按服务端全局时区切、曲线按浏览器时区切时，两者会整整差一个 UTC 偏移）。
 func TestKeyUsageWindowsMatchDailyUsageRange(t *testing.T) {
-	ranges := service.KeyUsageWindowRanges(timezone.Now())
-
 	cases := []struct {
 		days   int
 		window string
@@ -309,9 +311,171 @@ func TestKeyUsageWindowsMatchDailyUsageRange(t *testing.T) {
 		{7, "last_7d"},
 		{30, "last_30d"},
 	}
-	for _, tc := range cases {
-		start, end := apiKeyDailyUsageRange(tc.days, "")
-		require.True(t, start.Equal(ranges[tc.window][0]), "window=%s start=%s want=%s", tc.window, start, ranges[tc.window][0])
-		require.True(t, end.Equal(ranges[tc.window][1]), "window=%s end=%s want=%s", tc.window, end, ranges[tc.window][1])
+	// "" = 未传时区（回落到服务端全局时区），其余是前端实际会发出的浏览器时区。
+	for _, userTZ := range []string{"", "Asia/Shanghai", "America/Los_Angeles", "Europe/Berlin"} {
+		t.Run("tz="+userTZ, func(t *testing.T) {
+			ranges := service.KeyUsageWindowRanges(timezone.NowInUserLocation(userTZ), userTZ)
+			for _, tc := range cases {
+				start, end := apiKeyDailyUsageRange(tc.days, userTZ)
+				require.True(t, start.Equal(ranges[tc.window][0]), "tz=%s window=%s start=%s want=%s", userTZ, tc.window, start, ranges[tc.window][0])
+				require.True(t, end.Equal(ranges[tc.window][1]), "tz=%s window=%s end=%s want=%s", userTZ, tc.window, end, ranges[tc.window][1])
+			}
+		})
 	}
+}
+
+// 报告接口必须把前端传来的 timezone 一路带到窗口切分上。
+func TestKeyUsageReportHonoursBrowserTimezone(t *testing.T) {
+	router, apiKey, svc := newTestKeyUsageRouter(t)
+	token := issueTestToken(t, svc, apiKey.Key)
+
+	// 选两个当前 UTC 偏移必然不同的时区，保证 today 窗口边界不可能相同。
+	shanghai := service.KeyUsageWindowRanges(timezone.NowInUserLocation("Asia/Shanghai"), "Asia/Shanghai")
+	honolulu := service.KeyUsageWindowRanges(timezone.NowInUserLocation("Pacific/Honolulu"), "Pacific/Honolulu")
+	require.False(t, shanghai["today"][0].Equal(honolulu["today"][0]), "前提：两个时区的自然日边界不同")
+
+	for _, tz := range []string{"Asia/Shanghai", "Pacific/Honolulu"} {
+		recorder := doKeyUsageRequest(router, httptest.NewRequest(http.MethodGet,
+			"/api/v1/key-usage/report?token="+token+"&timezone="+tz, nil))
+		require.Equal(t, http.StatusOK, recorder.Code)
+	}
+}
+
+// --- IP 白名单在 HTTP 层真的生效（P0-2） ------------------------------------
+
+func newIPRestrictedKeyUsageRouter(t *testing.T) (*gin.Engine, *service.APIKey, *service.KeyUsageService) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	apiKey := &service.APIKey{
+		ID:          5,
+		UserID:      7,
+		Key:         "sk-ip-restricted",
+		Name:        "限制Key",
+		Status:      service.StatusAPIKeyActive,
+		CreatedAt:   time.Now(),
+		IPWhitelist: []string{"203.0.113.0/24"},
+	}
+	keys := &stubKeyUsageAPIKeys{
+		byKey: map[string]*service.APIKey{apiKey.Key: apiKey},
+		byID:  map[int64]*service.APIKey{apiKey.ID: apiKey},
+	}
+	tokens := service.NewKeyUsageTokenService(service.DeriveKeyUsageTokenSigningKey("handler-test-master-secret-0123456789"), time.Hour)
+	svc := service.NewKeyUsageService(keys, stubKeyUsageModelStats{}, stubKeyUsageRanking{}, tokens, time.Minute)
+
+	router := gin.New()
+	group := router.Group("/api/v1/key-usage")
+	group.POST("/session", NewKeyUsageHandler(svc, nil, nil).CreateSession)
+	group.GET("/report", NewKeyUsageHandler(svc, nil, nil).Report)
+	return router, apiKey, svc
+}
+
+func withRemoteAddr(req *http.Request, addr string) *http.Request {
+	req.RemoteAddr = addr
+	return req
+}
+
+// 网关中间件会对 /v1/usage 强制执行 Key 的 IP 白名单；免登录页必须同口径，
+// 而且必须真的把客户端 IP 传进 service（只在 service 里加校验、handler 传空字符串
+// 是查不出来的，所以这条断言走完整的 HTTP 路径）。
+func TestKeyUsageReportEnforcesAPIKeyIPWhitelist(t *testing.T) {
+	router, apiKey, svc := newIPRestrictedKeyUsageRouter(t)
+
+	token, _, err := svc.IssueToken(context.Background(), apiKey.Key, "203.0.113.20")
+	require.NoError(t, err)
+
+	// Bearer 直连路径
+	denied := withRemoteAddr(httptest.NewRequest(http.MethodGet, "/api/v1/key-usage/report", nil), "198.51.100.9:1111")
+	denied.Header.Set("Authorization", "Bearer "+apiKey.Key)
+	require.Equal(t, http.StatusUnauthorized, doKeyUsageRequest(router, denied).Code)
+
+	allowed := withRemoteAddr(httptest.NewRequest(http.MethodGet, "/api/v1/key-usage/report", nil), "203.0.113.20:1111")
+	allowed.Header.Set("Authorization", "Bearer "+apiKey.Key)
+	require.Equal(t, http.StatusOK, doKeyUsageRequest(router, allowed).Code)
+
+	// 令牌路径：令牌不能变成一张绕开 IP ACL 的旁路凭证
+	tokenDenied := withRemoteAddr(httptest.NewRequest(http.MethodGet, "/api/v1/key-usage/report?token="+token, nil), "198.51.100.9:1111")
+	require.Equal(t, http.StatusUnauthorized, doKeyUsageRequest(router, tokenDenied).Code)
+
+	tokenAllowed := withRemoteAddr(httptest.NewRequest(http.MethodGet, "/api/v1/key-usage/report?token="+token, nil), "203.0.113.21:1111")
+	require.Equal(t, http.StatusOK, doKeyUsageRequest(router, tokenAllowed).Code)
+}
+
+// 白名单外的 IP 连令牌都换不到。
+func TestKeyUsageCreateSessionEnforcesAPIKeyIPWhitelist(t *testing.T) {
+	router, apiKey, _ := newIPRestrictedKeyUsageRouter(t)
+
+	denied := withRemoteAddr(
+		httptest.NewRequest(http.MethodPost, "/api/v1/key-usage/session", strings.NewReader(`{"key":"`+apiKey.Key+`"}`)),
+		"198.51.100.9:1111",
+	)
+	denied.Header.Set("Content-Type", "application/json")
+	require.Equal(t, http.StatusUnauthorized, doKeyUsageRequest(router, denied).Code)
+
+	allowed := withRemoteAddr(
+		httptest.NewRequest(http.MethodPost, "/api/v1/key-usage/session", strings.NewReader(`{"key":"`+apiKey.Key+`"}`)),
+		"203.0.113.20:1111",
+	)
+	allowed.Header.Set("Content-Type", "application/json")
+	require.Equal(t, http.StatusOK, doKeyUsageRequest(router, allowed).Code)
+}
+
+// --- usage 组装失败必须可辨识 -----------------------------------------------
+
+// gateway 缺失/组装失败时下发 usage=null + usage_available=false，
+// 而不是空对象——空对象与"这把 key 真的没有用量"在前端无法区分。
+func TestKeyUsageReportMarksUsageUnavailable(t *testing.T) {
+	router, apiKey, svc := newTestKeyUsageRouter(t)
+	token := issueTestToken(t, svc, apiKey.Key)
+
+	recorder := doKeyUsageRequest(router, httptest.NewRequest(http.MethodGet, "/api/v1/key-usage/report?token="+token, nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
+
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &raw))
+	require.Equal(t, "null", string(raw["usage"]))
+	require.Equal(t, "false", string(raw["usage_available"]))
+}
+
+// --- start_date / end_date 范围钳制（P2-3） ---------------------------------
+
+// days 有 1-90 的上限，start_date/end_date 之前完全没有下界：
+// ?start_date=1000-01-01&end_date=9999-12-31 会让 model_stats 那条 GROUP BY model
+// 退化成 usage_logs 全表扫描，而这两个参数在免登录页上是公开可控的。
+func TestUsageDateRangeIsClamped(t *testing.T) {
+	now := time.Date(2026, time.March, 2, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name  string
+		start time.Time
+		end   time.Time
+	}{
+		{"极端跨度", time.Date(1000, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)},
+		{"起点过早", time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC), now},
+		{"终点过远", now.AddDate(0, 0, -3), time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)},
+		{"整段在窗口之前", time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(1991, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{"起止倒挂", now, now.AddDate(0, 0, -10)},
+		{"正常范围", now.AddDate(0, 0, -7), now},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			start, end := clampUsageDateRange(now, tc.start, tc.end)
+			require.True(t, start.Before(end), "区间必须非空")
+			require.False(t, end.After(now.AddDate(0, 0, 1)), "终点不能超过明天")
+			require.False(t, start.Before(now.AddDate(0, 0, -maxUsageDateRangeDays)), "起点不能早于上限窗口")
+			require.LessOrEqual(t, end.Sub(start), time.Duration(maxUsageDateRangeDays+1)*24*time.Hour,
+				"跨度必须被钳制在上限之内")
+		})
+	}
+}
+
+// 正常范围原样保留，不能被钳制逻辑改动。
+func TestUsageDateRangeKeepsValidInput(t *testing.T) {
+	now := time.Date(2026, time.March, 2, 12, 0, 0, 0, time.UTC)
+	start := now.AddDate(0, 0, -7)
+	end := now
+
+	gotStart, gotEnd := clampUsageDateRange(now, start, end)
+	require.True(t, start.Equal(gotStart))
+	require.True(t, end.Equal(gotEnd))
 }

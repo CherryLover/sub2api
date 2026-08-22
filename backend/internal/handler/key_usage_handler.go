@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	ippkg "github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -45,14 +47,23 @@ type KeyUsageSessionResponse struct {
 }
 
 // KeyUsageReportResponse 是用量报告的响应体。
-// usage 原样内嵌 /v1/usage 的 payload；windows / rankings 恒为对象，无数据时是零值。
+//
+// usage 复用 /v1/usage 的组装逻辑（同一个 buildUsagePayload），但不是逐字节等价：
+// 免登录路径没有 API Key 中间件，订阅数据由本 handler 自行查询，因此在 simple 运行模式下
+// 这里会比 /v1/usage 多出 subscription 对象（simple 模式的中间件在设置 context 前就返回了，
+// /v1/usage 拿不到订阅）。其余模式下两者字段一致。
+//
+// usage_available 区分"后端组装用量失败"（usage = null，false）与"确实没有数据"
+// （usage 是对象但内容为空，true）；没有它前端只能看到一个空对象，无法提示用户重试。
+// windows / rankings 恒为对象，无数据时是零值。
 type KeyUsageReportResponse struct {
-	Key         service.KeyUsageKeyInfo  `json:"key"`
-	Usage       any                      `json:"usage"`
-	Windows     service.KeyUsageWindows  `json:"windows"`
-	Rankings    service.KeyUsageRankings `json:"rankings"`
-	Metric      string                   `json:"metric"`
-	GeneratedAt time.Time                `json:"generated_at"`
+	Key            service.KeyUsageKeyInfo  `json:"key"`
+	Usage          any                      `json:"usage"`
+	UsageAvailable bool                     `json:"usage_available"`
+	Windows        service.KeyUsageWindows  `json:"windows"`
+	Rankings       service.KeyUsageRankings `json:"rankings"`
+	Metric         string                   `json:"metric"`
+	GeneratedAt    time.Time                `json:"generated_at"`
 }
 
 // CreateSession 用 API Key 换取只读用量令牌。
@@ -72,7 +83,7 @@ func (h *KeyUsageHandler) CreateSession(c *gin.Context) {
 		return
 	}
 
-	token, expiresAt, err := h.keyUsageService.IssueToken(c.Request.Context(), req.Key)
+	token, expiresAt, err := h.keyUsageService.IssueToken(c.Request.Context(), req.Key, keyUsageClientIP(c))
 	if err != nil {
 		// 签名密钥缺失属于服务端配置问题，与 key 是否有效无关，单独用 503 暴露出来。
 		if infraerrors.IsServiceUnavailable(err) {
@@ -103,10 +114,11 @@ func (h *KeyUsageHandler) Report(c *gin.Context) {
 		apiKey *service.APIKey
 		err    error
 	)
+	clientIP := keyUsageClientIP(c)
 	if token := strings.TrimSpace(c.Query("token")); token != "" {
-		apiKey, err = h.keyUsageService.ResolveToken(ctx, token)
+		apiKey, err = h.keyUsageService.ResolveToken(ctx, token, clientIP)
 	} else if rawKey := keyUsageRawKeyFromRequest(c); rawKey != "" {
-		apiKey, err = h.keyUsageService.ResolveRawKey(ctx, rawKey)
+		apiKey, err = h.keyUsageService.ResolveRawKey(ctx, rawKey, clientIP)
 	} else {
 		keyUsageErrorResponse(c, http.StatusUnauthorized, keyUsageGenericAuthMessage)
 		return
@@ -116,24 +128,45 @@ func (h *KeyUsageHandler) Report(c *gin.Context) {
 		return
 	}
 
-	report := h.keyUsageService.BuildReport(ctx, apiKey, c.Query("metric"))
+	// 窗口边界跟随前端传来的浏览器时区，与 /v1/usage 的按天曲线（timezone query param）同源。
+	report := h.keyUsageService.BuildReport(ctx, apiKey, c.Query("metric"), c.Query("timezone"))
 
-	// usage 复用 /v1/usage 的组装逻辑；失败时退化成空对象而不是 null，前端渲染路径唯一。
-	var usagePayload any = gin.H{}
+	// usage 复用 /v1/usage 的组装逻辑。失败时下发 null + usage_available=false，
+	// 而不是空对象：空对象与"这把 key 真的没有用量"在前端无法区分，
+	// 后端挂了会被静默渲染成"一切正常，只是没数据"。
+	var (
+		usagePayload   any
+		usageAvailable bool
+	)
 	if h.gateway != nil {
-		if payload, buildErr := h.gateway.BuildAPIKeyUsagePayload(c, apiKey, h.resolveSubscription(c, apiKey)); buildErr == nil && payload != nil {
+		payload, buildErr := h.gateway.BuildAPIKeyUsagePayload(c, apiKey, h.resolveSubscription(c, apiKey))
+		if buildErr != nil {
+			slog.Warn("key usage payload build failed", "api_key_id", apiKey.ID, "error", buildErr)
+		} else if payload != nil {
 			usagePayload = payload
+			usageAvailable = true
 		}
 	}
 
 	c.JSON(http.StatusOK, KeyUsageReportResponse{
-		Key:         report.Key,
-		Usage:       usagePayload,
-		Windows:     report.Windows,
-		Rankings:    report.Rankings,
-		Metric:      report.Metric,
-		GeneratedAt: timezone.Now(),
+		Key:            report.Key,
+		Usage:          usagePayload,
+		UsageAvailable: usageAvailable,
+		Windows:        report.Windows,
+		Rankings:       report.Rankings,
+		Metric:         report.Metric,
+		GeneratedAt:    timezone.Now(),
 	})
+}
+
+// keyUsageClientIP 返回用于 API Key IP 白名单/黑名单校验的客户端地址。
+//
+// 与网关 API Key 中间件同源：中间件调用 ip.GetSecurityClientIP(c, cfg.TrustForwardedIPForAPIKeyACL())，
+// 而全局中间件 SessionBindingContext 已经把同一个开关按请求快照进了 context，
+// GetSecurityClientIP 会优先读该快照，因此这里传 false 得到的结果与网关完全一致；
+// 快照缺失（中间件未挂载）时 false 会回落到 server.trusted_proxies 可信链，是更保守的一侧。
+func keyUsageClientIP(c *gin.Context) string {
+	return ippkg.GetSecurityClientIP(c, false)
 }
 
 // resolveSubscription 免登录路径没有经过 API Key 中间件，订阅数据要自己查。

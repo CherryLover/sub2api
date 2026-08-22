@@ -243,6 +243,15 @@
             </span>
           </div>
 
+          <!-- Usage payload failed to build: say so instead of silently rendering "no data" -->
+          <div
+            v-if="usageUnavailable"
+            data-testid="usage-unavailable"
+            class="fade-up mx-auto flex max-w-2xl items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50/80 px-4 py-3 text-center text-xs text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+          >
+            {{ t('keyUsage.usageUnavailable') }}
+          </div>
+
           <!-- Status Badge -->
           <div v-if="statusInfo" class="fade-up flex items-center justify-center mb-2">
             <div class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-gray-200 bg-white/90 shadow-sm backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90">
@@ -687,12 +696,23 @@ const showLoading = ref(false)
 const showDatePicker = ref(false)
 const report = ref<KeyUsageReport | null>(null)
 /**
- * The raw `/v1/usage` payload, which the backend embeds verbatim under `report.usage`.
+ * The `/v1/usage` payload the backend embeds under `report.usage`. It is built by the same
+ * backend code path as the gateway endpoint, but is not byte-for-byte identical: in `simple`
+ * run mode this page carries an extra `subscription` object that `/v1/usage` does not have
+ * (the public page looks the subscription up itself). `null` when the backend failed to
+ * assemble it — see `usageUnavailable`.
  * Every legacy panel below (rings, detail rows, daily table, model table) keeps reading
  * from here, so their behaviour is unchanged.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const resultData = computed<any>(() => report.value?.usage ?? null)
+
+/**
+ * The backend sets `usage_available: false` (and `usage: null`) when it could not assemble
+ * the `/v1/usage` payload. Without this the page would silently render "no data", which is
+ * indistinguishable from a Key that genuinely has never been used.
+ */
+const usageUnavailable = computed(() => Boolean(report.value) && report.value?.usage_available === false)
 const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 

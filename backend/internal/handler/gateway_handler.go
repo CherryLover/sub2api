@@ -1514,7 +1514,16 @@ func (h *GatewayHandler) buildUsagePayload(c *gin.Context, apiKey *service.APIKe
 	return h.usageUnrestricted(ctx, apiKey, subject, subscription, usageData, dailyUsage, modelStats)
 }
 
-// parseUsageDateRange 解析 start_date / end_date query params，默认返回近 30 天范围
+// maxUsageDateRangeDays 是 start_date/end_date 允许跨越的最大天数。
+// 与 days 参数的上限（maxAPIKeyDailyUsageDays）同量级：没有下界的日期范围
+// （?start_date=1000-01-01&end_date=9999-12-31）会让 model_stats 那条
+// GROUP BY model 退化成 usage_logs 全表扫描，而这两个参数在免登录页上是公开可控的。
+const maxUsageDateRangeDays = maxAPIKeyDailyUsageDays
+
+// parseUsageDateRange 解析 start_date / end_date query params，默认返回近 30 天范围。
+// 解析结果会被钳制在 [now-maxUsageDateRangeDays, now+1d] 内，且区间长度不超过
+// maxUsageDateRangeDays 天；非法或越界的输入退化成合法范围而不是 400
+// （这两个参数只影响展示范围，不该让整个用量接口失败）。
 func (h *GatewayHandler) parseUsageDateRange(c *gin.Context) (time.Time, time.Time) {
 	now := timezone.Now()
 	endTime := now
@@ -1529,6 +1538,31 @@ func (h *GatewayHandler) parseUsageDateRange(c *gin.Context) (time.Time, time.Ti
 		if t, err := timezone.ParseInLocation("2006-01-02", s); err == nil {
 			endTime = t.AddDate(0, 0, 1) // half-open range upper bound
 		}
+	}
+	return clampUsageDateRange(now, startTime, endTime)
+}
+
+// clampUsageDateRange 把任意输入区间钳制成一个有界、非空、且不超过上限天数的半开区间。
+func clampUsageDateRange(now, startTime, endTime time.Time) (time.Time, time.Time) {
+	maxEnd := now.AddDate(0, 0, 1)
+	minStart := now.AddDate(0, 0, -maxUsageDateRangeDays)
+
+	if endTime.After(maxEnd) {
+		endTime = maxEnd
+	}
+	if !endTime.After(minStart) {
+		// 整个区间都在允许窗口之前：退回默认的近 30 天。
+		return now.AddDate(0, 0, -30), now
+	}
+	if startTime.Before(minStart) {
+		startTime = minStart
+	}
+	if !startTime.Before(endTime) {
+		// start >= end（含被钳制后倒挂）：退化成 end 前一天，保证区间非空且有界。
+		startTime = endTime.AddDate(0, 0, -1)
+	}
+	if earliest := endTime.AddDate(0, 0, -maxUsageDateRangeDays); startTime.Before(earliest) {
+		startTime = earliest
 	}
 	return startTime, endTime
 }
