@@ -720,6 +720,24 @@ dashboard_cache:
   stats_refresh_timeout_seconds: 30
 
 # =============================================================================
+# Key Usage Public Page Configuration
+# 免登录用量页（/key-usage）配置
+# =============================================================================
+key_usage:
+  # Enable the key usage page backend routes (kill switch). Default true: the page
+  # shows nothing without a valid API key of this site (or a token derived from it).
+  # Set to false to unregister the whole /api/v1/key-usage route group (404).
+  # 是否提供免登录用量页的后端路由（kill switch）。默认 true：不输入本站有效 key
+  # （或其派生令牌）就什么也看不到。设为 false 时整组 /api/v1/key-usage 路由不注册（404）。
+  enabled: true
+  # URL token TTL (hours); after expiry the page falls back to the key input box
+  # URL 令牌有效期（小时），过期后页面回到输入框
+  token_ttl_hours: 720
+  # Site-wide key ranking cache TTL (seconds); main guard against repeated full-table aggregation
+  # 全站 Key 排行榜缓存时长（秒），不建议调到很小
+  site_ranking_cache_ttl_seconds: 120
+
+# =============================================================================
 # Dashboard Aggregation Configuration
 # 仪表盘预聚合配置（重启生效）
 # =============================================================================
