@@ -384,3 +384,13 @@ type AccountUsageStatsResponse struct {
 	Endpoints         []EndpointStat        `json:"endpoints"`
 	UpstreamEndpoints []EndpointStat        `json:"upstream_endpoints"`
 }
+
+// APIKeyUsageAggregate 表示单个 API Key 在某个时间窗口内的用量聚合结果。
+// 供免登录用量页的「Key 排名」使用：一次 GROUP BY api_key_id 拿到全部候选行，
+// 名次与前若干名都在内存里算，避免按 Key 逐个查询造成 N+1。
+type APIKeyUsageAggregate struct {
+	APIKeyID int64   `json:"api_key_id"`
+	Requests int64   `json:"requests"`
+	Tokens   int64   `json:"tokens"`
+	Cost     float64 `json:"cost"`
+}

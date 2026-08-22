@@ -47,7 +47,7 @@
 
       <!-- Input Section -->
       <div class="max-w-xl mx-auto mb-14">
-        <div class="flex gap-3">
+        <div v-if="!isTokenMode" class="flex gap-3">
           <div class="flex-1 relative">
             <div class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500">
               <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -89,7 +89,11 @@
             {{ isQuerying ? t('keyUsage.querying') : t('keyUsage.query') }}
           </button>
         </div>
-        <p class="text-xs text-gray-400 dark:text-dark-500 mt-3 text-center">
+        <p
+          v-if="!isTokenMode"
+          data-testid="privacy-note"
+          class="mt-3 text-center text-xs leading-relaxed text-gray-500 dark:text-dark-400"
+        >
           {{ t('keyUsage.privacyNote') }}
         </p>
 
@@ -119,12 +123,55 @@
                 class="input-ring text-xs px-2 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-900 dark:border-dark-700 dark:bg-dark-900 dark:text-white"
               />
               <button
-                @click="queryKey"
+                @click="refreshReport"
                 class="text-xs px-3 py-1.5 rounded-lg bg-primary-500 text-white hover:bg-primary-600"
               >{{ t('keyUsage.apply') }}</button>
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- Lookup Session Bar (token mode) -->
+      <div
+        v-if="isTokenMode"
+        data-testid="session-bar"
+        class="mx-auto mb-10 max-w-3xl rounded-2xl border border-primary-200 bg-primary-50/70 p-4 dark:border-primary-500/30 dark:bg-primary-500/10"
+      >
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-500/15 text-primary-600 dark:text-primary-300">
+            <Icon name="link" size="sm" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-sm font-medium text-gray-900 dark:text-white">
+              {{ keyInfo?.name ? t('keyUsage.session.activeFor', { name: keyInfo.name }) : t('keyUsage.session.active') }}
+            </p>
+            <p v-if="sessionExpiresLabel" class="text-xs text-gray-500 dark:text-dark-400">
+              {{ t('keyUsage.session.expiresAt', { time: sessionExpiresLabel }) }}
+            </p>
+          </div>
+          <div class="flex shrink-0 flex-wrap items-center gap-2">
+            <button
+              data-testid="copy-share-link"
+              @click="copyShareLink"
+              class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:border-primary-300 hover:text-primary-600 dark:border-dark-700 dark:bg-dark-900 dark:text-dark-200 dark:hover:text-primary-300"
+            >
+              <Icon name="copy" size="xs" />
+              {{ t('keyUsage.session.copyLink') }}
+            </button>
+            <button
+              data-testid="exit-session"
+              @click="clearSession()"
+              class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:border-rose-300 hover:text-rose-600 dark:border-dark-700 dark:bg-dark-900 dark:text-dark-200 dark:hover:text-rose-400"
+            >
+              <Icon name="x" size="xs" />
+              {{ t('keyUsage.session.exit') }}
+            </button>
+          </div>
+        </div>
+        <p class="mt-3 flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+          <Icon name="exclamationTriangle" size="xs" class="mt-0.5 shrink-0" />
+          <span>{{ t('keyUsage.session.shareWarning') }}</span>
+        </p>
       </div>
 
       <!-- Results Container -->
@@ -150,10 +197,52 @@
               <div class="skeleton h-4 w-2/3"></div>
             </div>
           </div>
+          <!-- Window summary skeleton (3 windows) -->
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div
+              v-for="n in 3"
+              :key="`win-sk-${n}`"
+              class="rounded-2xl border border-gray-200 bg-white p-6 dark:border-dark-700 dark:bg-dark-900"
+            >
+              <div class="skeleton h-4 w-20 mb-4"></div>
+              <div class="space-y-3">
+                <div class="skeleton h-3 w-full"></div>
+                <div class="skeleton h-3 w-5/6"></div>
+                <div class="skeleton h-3 w-2/3"></div>
+              </div>
+            </div>
+          </div>
+          <!-- Podium skeleton -->
+          <div
+            v-for="n in 2"
+            :key="`rank-sk-${n}`"
+            class="rounded-2xl border border-gray-200 bg-white p-8 dark:border-dark-700 dark:bg-dark-900"
+          >
+            <div class="skeleton h-4 w-24 mb-6"></div>
+            <div class="flex items-end justify-center gap-4">
+              <div class="skeleton h-20 w-24 rounded-xl"></div>
+              <div class="skeleton h-28 w-24 rounded-xl"></div>
+              <div class="skeleton h-16 w-24 rounded-xl"></div>
+            </div>
+          </div>
         </div>
 
         <!-- Result Content -->
-        <div v-else-if="resultData" class="space-y-6">
+        <div v-else-if="report" class="space-y-6">
+          <!-- Key Identity Chip -->
+          <div v-if="keyInfo?.name" data-testid="key-info" class="fade-up flex flex-wrap items-center justify-center gap-2">
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white/90 px-3 py-1.5 text-xs text-gray-600 shadow-sm dark:border-dark-700 dark:bg-dark-900/90 dark:text-dark-300">
+              <Icon name="key" size="xs" />
+              {{ t('keyUsage.keyInfo.name') }}: <strong class="font-semibold text-gray-900 dark:text-white">{{ keyInfo.name }}</strong>
+            </span>
+            <span v-if="keyInfo.created_at" class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white/90 px-3 py-1.5 text-xs text-gray-600 shadow-sm dark:border-dark-700 dark:bg-dark-900/90 dark:text-dark-300">
+              {{ t('keyUsage.keyInfo.createdAt') }}: {{ formatDate(keyInfo.created_at) }}
+            </span>
+            <span v-if="keyInfo.status" class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white/90 px-3 py-1.5 text-xs text-gray-600 shadow-sm dark:border-dark-700 dark:bg-dark-900/90 dark:text-dark-300">
+              {{ t('keyUsage.keyInfo.status') }}: <strong class="font-semibold text-gray-900 dark:text-white">{{ keyInfo.status }}</strong>
+            </span>
+          </div>
+
           <!-- Status Badge -->
           <div v-if="statusInfo" class="fade-up flex items-center justify-center mb-2">
             <div class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-gray-200 bg-white/90 shadow-sm backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90">
@@ -386,6 +475,128 @@
               </table>
             </div>
           </div>
+
+          <!-- ==================== Window Statistics ==================== -->
+          <div v-if="hasWindowStats" data-testid="windows-section" class="fade-up fade-up-delay-3 space-y-4">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div
+                v-for="card in windowCards"
+                :key="card.key"
+                data-testid="window-summary"
+                :data-window="card.key"
+                class="rounded-2xl border border-gray-200 bg-white/90 p-5 backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90"
+              >
+                <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ card.label }}</h4>
+                <dl class="mt-4 space-y-2.5">
+                  <div class="flex items-baseline justify-between gap-3">
+                    <dt class="text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.requests') }}</dt>
+                    <dd class="text-sm font-semibold tabular-nums text-gray-900 dark:text-white">{{ fmtNum(card.stat?.requests ?? 0) }}</dd>
+                  </div>
+                  <div class="flex items-baseline justify-between gap-3">
+                    <dt class="text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.totalTokens') }}</dt>
+                    <dd class="text-sm font-semibold tabular-nums text-gray-900 dark:text-white">{{ fmtNum(card.stat?.tokens ?? 0) }}</dd>
+                  </div>
+                  <div class="flex items-baseline justify-between gap-3">
+                    <dt class="text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.cost') }}</dt>
+                    <dd class="text-sm font-semibold tabular-nums text-gray-900 dark:text-white">{{ usd(card.stat?.cost_usd ?? 0) }}</dd>
+                  </div>
+                </dl>
+                <p
+                  v-if="card.empty"
+                  data-testid="window-summary-empty"
+                  class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-dark-800/60 dark:text-dark-400"
+                >{{ t('keyUsage.windows.empty') }}</p>
+              </div>
+            </div>
+
+            <div class="overflow-hidden rounded-2xl border border-gray-200 bg-white/90 backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90">
+              <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-5 dark:border-dark-700 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+                <h3 class="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('keyUsage.windows.modelsTitle') }}</h3>
+                <div class="inline-flex flex-wrap rounded-lg border border-gray-200 bg-white p-0.5 dark:border-dark-700 dark:bg-dark-950">
+                  <button
+                    v-for="card in windowCards"
+                    :key="card.key"
+                    data-testid="window-tab"
+                    :data-window="card.key"
+                    :aria-pressed="activeWindow === card.key"
+                    @click="setActiveWindow(card.key)"
+                    class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                    :class="activeWindow === card.key
+                      ? 'bg-primary-500 text-white'
+                      : 'text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-800'"
+                  >{{ card.label }}</button>
+                </div>
+              </div>
+              <WindowModelTable :models="activeWindowModels" />
+            </div>
+          </div>
+
+          <!-- ==================== Rankings & Podiums ==================== -->
+          <div v-if="hasRankings" data-testid="rankings-section" class="fade-up fade-up-delay-4 space-y-4">
+            <div class="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white/90 px-5 py-5 backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
+              <div class="min-w-0">
+                <h3 class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">
+                  <Icon name="trophy" size="sm" />
+                  {{ t('keyUsage.rankings.title') }}
+                </h3>
+                <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ rankingScopeHint }}</p>
+              </div>
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div class="inline-flex flex-wrap rounded-lg border border-gray-200 bg-white p-0.5 dark:border-dark-700 dark:bg-dark-950" role="group">
+                  <button
+                    v-for="option in rankingScopeOptions"
+                    :key="option.value"
+                    data-testid="scope-tab"
+                    :data-scope="option.value"
+                    :aria-pressed="rankingScope === option.value"
+                    @click="setRankingScope(option.value)"
+                    class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                    :class="rankingScope === option.value
+                      ? 'bg-primary-500 text-white'
+                      : 'text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-800'"
+                  >{{ option.label }}</button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="whitespace-nowrap text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.rankings.metric') }}</span>
+                  <div class="inline-flex flex-wrap rounded-lg border border-gray-200 bg-white p-0.5 dark:border-dark-700 dark:bg-dark-950" role="group">
+                    <button
+                      v-for="option in metricOptions"
+                      :key="option.value"
+                      data-testid="metric-tab"
+                      :data-metric="option.value"
+                      :aria-pressed="metric === option.value"
+                      :disabled="isRefreshing"
+                      @click="setMetric(option.value)"
+                      class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60"
+                      :class="metric === option.value
+                        ? 'bg-primary-500 text-white'
+                        : 'text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-800'"
+                    >{{ option.label }}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="relative space-y-4 transition-opacity duration-200"
+              data-testid="rankings-body"
+              :class="isRefreshing ? 'opacity-50' : 'opacity-100'"
+            >
+              <div v-if="isRefreshing" data-testid="rankings-refreshing" class="pointer-events-none absolute inset-x-0 -top-1 z-10 flex justify-center">
+                <span class="rounded-full bg-white px-3 py-1 text-xs text-gray-600 shadow-md dark:bg-dark-800 dark:text-dark-200">
+                  {{ t('keyUsage.rankings.refreshing') }}
+                </span>
+              </div>
+              <RankingWindowCard
+                v-for="card in rankingCards"
+                :key="`${rankingScope}-${card.key}`"
+                :title="card.label"
+                :window-key="card.key"
+                :data="card.data"
+                :metric="metric"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </main>
@@ -419,14 +630,32 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { buildGatewayUrl } from '@/api/client'
+import RankingWindowCard from '@/components/keyUsage/RankingWindowCard.vue'
+import WindowModelTable from '@/components/keyUsage/WindowModelTable.vue'
+import {
+  createKeyUsageSession,
+  fetchKeyUsageReport,
+  isEndpointMissing,
+  isUnauthorized,
+  isValidMetric,
+  KEY_USAGE_WINDOWS,
+  type KeyUsageMetric,
+  type KeyUsageRankingScope,
+  type KeyUsageReport,
+  type KeyUsageWindowKey,
+  type KeyUsageWindowStat,
+} from '@/api/keyUsage'
 import { formatDateLocalInput } from '@/utils/format'
+import { formatCount, formatUsd } from '@/utils/keyUsageFormat'
 import { sanitizeUrl } from '@/utils/url'
 
 const { t, locale } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const appStore = useAppStore()
 
 // ==================== Site Settings (same as HomeView) ====================
@@ -456,10 +685,34 @@ const isQuerying = ref(false)
 const showResults = ref(false)
 const showLoading = ref(false)
 const showDatePicker = ref(false)
+const report = ref<KeyUsageReport | null>(null)
+/**
+ * The raw `/v1/usage` payload, which the backend embeds verbatim under `report.usage`.
+ * Every legacy panel below (rings, detail rows, daily table, model table) keeps reading
+ * from here, so their behaviour is unchanged.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const resultData = ref<any>(null)
+const resultData = computed<any>(() => report.value?.usage ?? null)
 const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
+
+// ==================== Lookup Session (URL token) ====================
+
+/** Query-string parameter that carries the non-reversible lookup token. */
+const TOKEN_QUERY_KEY = 't'
+
+const sessionToken = ref('')
+const sessionExpiresAt = ref<string | null>(null)
+/** In token mode the key input is hidden: the URL itself is the credential. */
+const isTokenMode = computed(() => Boolean(sessionToken.value))
+
+// ==================== Rankings / Windows State ====================
+
+const metric = ref<KeyUsageMetric>('cost')
+const rankingScope = ref<KeyUsageRankingScope>('account')
+const activeWindow = ref<KeyUsageWindowKey>('today')
+/** Soft refresh (metric / date change): keeps the current data on screen, no skeleton. */
+const isRefreshing = ref(false)
 
 // ==================== Date Range State ====================
 
@@ -485,7 +738,7 @@ const dailyUsageOptions = computed(() => [
 function setDateRange(key: DateRangeKey) {
   currentRange.value = key
   if (key !== 'custom') {
-    queryKey()
+    refreshReport()
   }
 }
 
@@ -518,8 +771,8 @@ function getDateParams(): string {
 function setDailyUsageDays(days: 7 | 30 | 90) {
   if (dailyUsageDays.value === days) return
   dailyUsageDays.value = days
-  if (resultData.value && apiKey.value.trim()) {
-    queryKey()
+  if (report.value) {
+    refreshReport()
   }
 }
 
@@ -827,17 +1080,81 @@ const dailyUsageRows = computed<DailyUsageRow[]>(() => {
 
 const showDailyUsage = computed(() => Boolean(resultData.value && Array.isArray(resultData.value.daily_usage)))
 
+// ==================== Windows & Rankings ====================
+
+const keyInfo = computed(() => report.value?.key ?? null)
+
+const WINDOW_LABEL_KEYS: Record<KeyUsageWindowKey, string> = {
+  today: 'keyUsage.windows.today',
+  last_7d: 'keyUsage.windows.last7d',
+  last_30d: 'keyUsage.windows.last30d',
+}
+
+function windowLabel(key: KeyUsageWindowKey): string {
+  return t(WINDOW_LABEL_KEYS[key])
+}
+
+function isEmptyWindow(stat: KeyUsageWindowStat | null): boolean {
+  if (!stat) return true
+  return !(stat.requests > 0) && !(stat.tokens > 0) && !(stat.cost_usd > 0)
+}
+
+interface WindowCard {
+  key: KeyUsageWindowKey
+  label: string
+  stat: KeyUsageWindowStat | null
+  empty: boolean
+}
+
+const windowCards = computed<WindowCard[]>(() =>
+  KEY_USAGE_WINDOWS.map(key => {
+    const stat = report.value?.windows?.[key] ?? null
+    return { key, label: windowLabel(key), stat, empty: isEmptyWindow(stat) }
+  })
+)
+
+const hasWindowStats = computed(() => Boolean(report.value?.windows))
+
+const activeWindowModels = computed(() => report.value?.windows?.[activeWindow.value]?.models ?? [])
+
+const rankingScopeOptions = computed(() => [
+  { value: 'account' as const, label: t('keyUsage.rankings.scopeAccount') },
+  { value: 'site' as const, label: t('keyUsage.rankings.scopeSite') },
+])
+
+const metricOptions = computed(() => [
+  { value: 'cost' as const, label: t('keyUsage.rankings.metricCost') },
+  { value: 'tokens' as const, label: t('keyUsage.rankings.metricTokens') },
+  { value: 'requests' as const, label: t('keyUsage.rankings.metricRequests') },
+])
+
+const rankingScopeHint = computed(() =>
+  rankingScope.value === 'account' ? t('keyUsage.rankings.scopeAccountHint') : t('keyUsage.rankings.scopeSiteHint')
+)
+
+const rankingCards = computed(() => {
+  const group = report.value?.rankings?.[rankingScope.value] ?? null
+  return KEY_USAGE_WINDOWS.map(key => ({
+    key,
+    label: windowLabel(key),
+    data: group?.[key] ?? null,
+  }))
+})
+
+const hasRankings = computed(() => Boolean(report.value?.rankings))
+
+function setRankingScope(scope: KeyUsageRankingScope) {
+  rankingScope.value = scope
+}
+
+function setActiveWindow(key: KeyUsageWindowKey) {
+  activeWindow.value = key
+}
+
 // ==================== Utility Functions ====================
 
-function usd(value: number | null | undefined): string {
-  if (value == null || value < 0) return '-'
-  return '$' + Number(value).toFixed(2)
-}
-
-function fmtNum(val: number | null | undefined): string {
-  if (val == null) return '-'
-  return val.toLocaleString()
-}
+const usd = formatUsd
+const fmtNum = formatCount
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '-'
@@ -845,6 +1162,16 @@ function formatDate(iso: string | null | undefined): string {
   const loc = locale.value === 'zh' ? 'zh-CN' : 'en-US'
   return d.toLocaleDateString(loc, { year: 'numeric', month: 'long', day: 'numeric' })
 }
+
+function formatDateTimeShort(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const loc = locale.value === 'zh' ? 'zh-CN' : 'en-US'
+  return d.toLocaleString(loc, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+const sessionExpiresLabel = computed(() => formatDateTimeShort(sessionExpiresAt.value))
 
 function getBrowserTimezone(): string {
   try {
@@ -856,18 +1183,82 @@ function getBrowserTimezone(): string {
 
 // ==================== API Query ====================
 
-async function fetchUsage(key: string) {
-  const dateParams = getDateParams()
-  const url = buildGatewayUrl('/v1/usage') + (dateParams ? '?' + dateParams : '')
-  const res = await fetch(url, {
-    headers: { 'Authorization': 'Bearer ' + key },
+function requestReport(credential?: { token?: string; key?: string }): Promise<KeyUsageReport> {
+  const token = credential ? credential.token : sessionToken.value
+  const key = credential ? credential.key : apiKey.value.trim()
+  return fetchKeyUsageReport({
+    token: token || undefined,
+    key: token ? undefined : key || undefined,
+    metric: metric.value,
+    extraParams: new URLSearchParams(getDateParams()),
+    fallbackMessage: t('keyUsage.queryFailed'),
   })
-  if (!res.ok) {
-    const body = await res.json().catch(() => null)
-    const msg = body?.error?.message || body?.message || `${t('keyUsage.queryFailed')} (${res.status})`
-    throw new Error(msg)
+}
+
+function applyReport(data: KeyUsageReport) {
+  report.value = data
+  // Trust the metric the backend actually sorted by.
+  if (isValidMetric(data?.metric)) {
+    metric.value = data.metric
   }
-  return await res.json()
+}
+
+async function replaceUrlQuery(query: LocationQueryRaw) {
+  try {
+    await router.replace({ query })
+  } catch {
+    /* navigation duplicated / aborted - not actionable on a read-only page */
+  }
+}
+
+/** Persist the lookup token in the URL. `replace`, never `push`: Back must not
+ *  return the visitor to an empty input state. */
+async function syncTokenToUrl(token: string) {
+  const query = { ...(route.query || {}) }
+  if (query[TOKEN_QUERY_KEY] === token) return
+  query[TOKEN_QUERY_KEY] = token
+  await replaceUrlQuery(query)
+}
+
+async function removeTokenFromUrl() {
+  const query = { ...(route.query || {}) }
+  delete query[TOKEN_QUERY_KEY]
+  await replaceUrlQuery(query)
+}
+
+interface ReportErrorOptions {
+  /** Keep the currently rendered report on screen (soft refresh failures). */
+  keepResults?: boolean
+}
+
+async function handleReportError(err: unknown, options: ReportErrorOptions = {}) {
+  showLoading.value = false
+  if (isUnauthorized(err)) {
+    // Expired / revoked lookup token: drop it and fall back to the input box.
+    await clearSession({ silent: true })
+    appStore.showError(t('keyUsage.session.expired'))
+    return
+  }
+  if (!options.keepResults) {
+    showResults.value = false
+  }
+  appStore.showError((err as Error)?.message || t('keyUsage.queryFailedRetry'))
+}
+
+/** Wipe the lookup session and go back to the bare input state. */
+async function clearSession(options: { silent?: boolean } = {}) {
+  sessionToken.value = ''
+  sessionExpiresAt.value = null
+  report.value = null
+  showResults.value = false
+  showLoading.value = false
+  showDatePicker.value = false
+  apiKey.value = ''
+  ringAnimated.value = false
+  await removeTokenFromUrl()
+  if (!options.silent) {
+    appStore.showInfo(t('keyUsage.session.cleared'))
+  }
 }
 
 async function queryKey() {
@@ -881,11 +1272,29 @@ async function queryKey() {
   isQuerying.value = true
   showResults.value = true
   showLoading.value = true
-  resultData.value = null
+  report.value = null
 
   try {
-    const data = await fetchUsage(key)
-    resultData.value = data
+    let token = ''
+    try {
+      const session = await createKeyUsageSession(key, t('keyUsage.queryFailed'))
+      token = session.token
+      sessionExpiresAt.value = session.expires_at
+    } catch (err) {
+      // Session endpoint not deployed yet -> degrade to a direct bearer lookup
+      // (works, but produces no shareable link).
+      if (!isEndpointMissing(err)) throw err
+      sessionExpiresAt.value = null
+    }
+
+    const data = await requestReport(token ? { token } : { key })
+    applyReport(data)
+
+    if (token) {
+      sessionToken.value = token
+      await syncTokenToUrl(token)
+    }
+
     showLoading.value = false
     showDatePicker.value = true
 
@@ -896,11 +1305,97 @@ async function queryKey() {
 
     appStore.showSuccess(t('keyUsage.querySuccess'))
   } catch (err) {
-    showResults.value = false
-    showLoading.value = false
-    appStore.showError((err as Error).message || t('keyUsage.queryFailedRetry'))
+    await handleReportError(err)
   } finally {
     isQuerying.value = false
+  }
+}
+
+/** Load a report straight from a URL token (no input box involved). */
+async function queryWithToken(token: string) {
+  sessionToken.value = token
+  isQuerying.value = true
+  showResults.value = true
+  showLoading.value = true
+  report.value = null
+
+  try {
+    const data = await requestReport({ token })
+    applyReport(data)
+    showLoading.value = false
+    showDatePicker.value = true
+    nextTick(() => {
+      triggerRingAnimation(ringItems.value)
+    })
+  } catch (err) {
+    await handleReportError(err)
+  } finally {
+    isQuerying.value = false
+  }
+}
+
+/** Soft reload that keeps the rendered data in place (no full-page skeleton). */
+async function refreshReport() {
+  if (isRefreshing.value || isQuerying.value) return
+  if (!sessionToken.value && !apiKey.value.trim()) return
+
+  isRefreshing.value = true
+  try {
+    applyReport(await requestReport())
+  } catch (err) {
+    await handleReportError(err, { keepResults: true })
+  } finally {
+    isRefreshing.value = false
+  }
+}
+
+async function setMetric(next: KeyUsageMetric) {
+  if (metric.value === next || isRefreshing.value || isQuerying.value) return
+  const previous = metric.value
+  metric.value = next
+  isRefreshing.value = true
+  try {
+    applyReport(await requestReport())
+  } catch (err) {
+    metric.value = previous
+    await handleReportError(err, { keepResults: true })
+  } finally {
+    isRefreshing.value = false
+  }
+}
+
+// ==================== Share Link ====================
+
+const shareLink = computed(() => {
+  if (!sessionToken.value || typeof window === 'undefined') return ''
+  try {
+    const url = new URL(window.location.href)
+    url.searchParams.set(TOKEN_QUERY_KEY, sessionToken.value)
+    return url.toString()
+  } catch {
+    return ''
+  }
+})
+
+async function copyShareLink() {
+  const link = shareLink.value
+  if (!link) return
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(link)
+    } else {
+      const area = document.createElement('textarea')
+      area.value = link
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.appendChild(area)
+      area.select()
+      document.execCommand('copy')
+      document.body.removeChild(area)
+    }
+    appStore.showSuccess(t('keyUsage.session.copied'))
+  } catch {
+    appStore.showError(t('keyUsage.session.copyFailed'))
   }
 }
 
@@ -926,12 +1421,24 @@ function formatResetTime(resetAt: string | null | undefined): string {
   return `${mins}m`
 }
 
+function readTokenFromUrl(): string {
+  const raw = route?.query?.[TOKEN_QUERY_KEY]
+  const value = Array.isArray(raw) ? raw[0] : raw
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 onMounted(() => {
   initTheme()
   if (!appStore.publicSettingsLoaded) {
     appStore.fetchPublicSettings()
   }
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
+
+  // A `?t=` token means "already signed in": skip the input box entirely.
+  const token = readTokenFromUrl()
+  if (token) {
+    queryWithToken(token)
+  }
 })
 
 onUnmounted(() => {

@@ -99,6 +99,7 @@ type Config struct {
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
+	KeyUsage                KeyUsageConfig                `mapstructure:"key_usage"`
 }
 
 type LogConfig struct {
@@ -1699,6 +1700,15 @@ type DashboardCacheConfig struct {
 	StatsRefreshTimeoutSeconds int `mapstructure:"stats_refresh_timeout_seconds"`
 }
 
+// KeyUsageConfig 免登录用量页（/key-usage）配置
+type KeyUsageConfig struct {
+	// TokenTTLHours: URL 令牌有效期（小时），过期后页面回到输入框
+	TokenTTLHours int `mapstructure:"token_ttl_hours"`
+	// SiteRankingCacheTTLSeconds: 全站 Key 排行榜缓存时长（秒）。
+	// 这是免登录端点，缓存是挡住"任何人都能触发全表聚合"的主要手段，不建议调到很小。
+	SiteRankingCacheTTLSeconds int `mapstructure:"site_ranking_cache_ttl_seconds"`
+}
+
 // DashboardAggregationConfig 仪表盘预聚合配置
 type DashboardAggregationConfig struct {
 	// Enabled: 是否启用预聚合作业
@@ -2297,6 +2307,10 @@ func setDefaults() {
 	viper.SetDefault("dashboard_cache.stats_fresh_ttl_seconds", 15)
 	viper.SetDefault("dashboard_cache.stats_ttl_seconds", 30)
 	viper.SetDefault("dashboard_cache.stats_refresh_timeout_seconds", 30)
+
+	// Key usage public page
+	viper.SetDefault("key_usage.token_ttl_hours", 720)
+	viper.SetDefault("key_usage.site_ranking_cache_ttl_seconds", 120)
 
 	// Dashboard aggregation
 	viper.SetDefault("dashboard_aggregation.enabled", true)
@@ -3116,6 +3130,12 @@ func (c *Config) Validate() error {
 		if c.Dashboard.StatsRefreshTimeoutSeconds < 0 {
 			return fmt.Errorf("dashboard_cache.stats_refresh_timeout_seconds must be non-negative")
 		}
+	}
+	if c.KeyUsage.TokenTTLHours <= 0 {
+		return fmt.Errorf("key_usage.token_ttl_hours must be positive")
+	}
+	if c.KeyUsage.SiteRankingCacheTTLSeconds <= 0 {
+		return fmt.Errorf("key_usage.site_ranking_cache_ttl_seconds must be positive")
 	}
 	if c.DashboardAgg.Enabled {
 		if c.DashboardAgg.IntervalSeconds <= 0 {

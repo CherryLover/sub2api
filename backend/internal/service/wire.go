@@ -26,6 +26,32 @@ func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthCli
 	return svc
 }
 
+// ProvideKeyUsageService 组装免登录用量页服务。
+//
+// 令牌签名密钥由 JWT 主密钥派生（JWT secret 已由 security_secrets 持久化，多实例一致），
+// 因此不需要为它单独做一张表或一次迁移；排行榜聚合能力从 UsageLogRepository 上按需断言，
+// 拿不到时排名板块返回零值而不是让整页不可用。
+func ProvideKeyUsageService(apiKeyService *APIKeyService, usageService *UsageService, usageRepo UsageLogRepository, cfg *config.Config) *KeyUsageService {
+	ranking, _ := usageRepo.(KeyUsageRankingRepository)
+
+	tokenTTL := DefaultKeyUsageTokenTTL
+	siteCacheTTL := DefaultKeyUsageSiteRankingCacheTTL
+	if cfg != nil {
+		if cfg.KeyUsage.TokenTTLHours > 0 {
+			tokenTTL = time.Duration(cfg.KeyUsage.TokenTTLHours) * time.Hour
+		}
+		if cfg.KeyUsage.SiteRankingCacheTTLSeconds > 0 {
+			siteCacheTTL = time.Duration(cfg.KeyUsage.SiteRankingCacheTTLSeconds) * time.Second
+		}
+	}
+
+	var signingKey []byte
+	if cfg != nil {
+		signingKey = DeriveKeyUsageTokenSigningKey(cfg.JWT.Secret)
+	}
+	return NewKeyUsageService(apiKeyService, usageService, ranking, NewKeyUsageTokenService(signingKey, tokenTTL), siteCacheTTL)
+}
+
 // BuildInfo contains build information
 type BuildInfo struct {
 	Version   string
@@ -805,6 +831,7 @@ var ProviderSet = wire.NewSet(
 	NewRedeemService,
 	NewPromoService,
 	NewUsageService,
+	ProvideKeyUsageService,
 	NewDashboardService,
 	ProvidePricingService,
 	NewBillingService,
