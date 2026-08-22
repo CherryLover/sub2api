@@ -1475,7 +1475,14 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 // 其余口径（额度/速率限制/用量/按天/模型统计）与 /v1/usage 共用同一份代码，
 // 保证同一个页面上不会出现两套对不上的数字。
 func (h *GatewayHandler) BuildAPIKeyUsagePayload(c *gin.Context, apiKey *service.APIKey, subscription *service.UserSubscription) (gin.H, error) {
-	return h.buildUsagePayload(c, apiKey, middleware2.AuthSubject{UserID: apiKey.UserID}, subscription, defaultAPIKeyDailyUsageDays)
+	// days / start_date / end_date / timezone 与 /v1/usage 语义一致（页面上的日期选择器
+	// 和 7/30/90 天切换靠它们生效）；只是这里对非法 days 回落到默认值而不是返回 400，
+	// 免登录页不该因为一个展示参数就整页失败。
+	days, ok := parseAPIKeyDailyUsageDays(c.DefaultQuery("days", ""))
+	if !ok {
+		days = defaultAPIKeyDailyUsageDays
+	}
+	return h.buildUsagePayload(c, apiKey, middleware2.AuthSubject{UserID: apiKey.UserID}, subscription, days)
 }
 
 // buildUsagePayload 组装 /v1/usage 响应体（不写响应，便于复用）。

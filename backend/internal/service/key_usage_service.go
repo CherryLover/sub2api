@@ -112,10 +112,11 @@ type KeyUsageRankings struct {
 }
 
 // KeyUsageKeyInfo 页面顶部展示的 Key 元信息。
+// CreatedAt 用指针：缺值时序列化为 null，而不是 0001-01-01 这种前端没法渲染的零时间。
 type KeyUsageKeyInfo struct {
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	Status    string    `json:"status"`
+	Name      string     `json:"name"`
+	CreatedAt *time.Time `json:"created_at"`
+	Status    string     `json:"status"`
 }
 
 // KeyUsageReportData 是 /api/v1/key-usage/report 中除 usage（复用 /v1/usage 原样 payload）
@@ -239,14 +240,12 @@ func (s *KeyUsageService) BuildReport(ctx context.Context, apiKey *APIKey, metri
 	metric = usagestats.NormalizeKeyRankingMetric(metric)
 	windows := keyUsageWindows(timezone.Now())
 
-	report := &KeyUsageReportData{
-		Key: KeyUsageKeyInfo{
-			Name:      apiKey.Name,
-			CreatedAt: apiKey.CreatedAt,
-			Status:    apiKey.Status,
-		},
-		Metric: metric,
+	keyInfo := KeyUsageKeyInfo{Name: apiKey.Name, Status: apiKey.Status}
+	if !apiKey.CreatedAt.IsZero() {
+		createdAt := apiKey.CreatedAt
+		keyInfo.CreatedAt = &createdAt
 	}
+	report := &KeyUsageReportData{Key: keyInfo, Metric: metric}
 
 	stats := make([]KeyUsageWindowStat, len(windows))
 	for i, window := range windows {

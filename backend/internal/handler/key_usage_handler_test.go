@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -196,6 +197,7 @@ func TestKeyUsageReportContractShape(t *testing.T) {
 
 	require.Equal(t, "我的Key", body.Key.Name)
 	require.Equal(t, service.StatusAPIKeyActive, body.Key.Status)
+	require.False(t, body.Key.CreatedAt.IsZero(), "created_at 应真实下发")
 	require.Equal(t, "cost", body.Metric)
 
 	for _, window := range []string{"today", "last_7d", "last_30d"} {
@@ -292,4 +294,24 @@ func decodeKeyUsageBody(t *testing.T, recorder *httptest.ResponseRecorder) map[s
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
 	return body
+}
+
+// 免登录页的窗口边界必须与 /v1/usage 按天曲线用的 apiKeyDailyUsageRange 完全同源，
+// 否则同一个页面上"近 7 天汇总"和按天柱状图会对不上。
+func TestKeyUsageWindowsMatchDailyUsageRange(t *testing.T) {
+	ranges := service.KeyUsageWindowRanges(timezone.Now())
+
+	cases := []struct {
+		days   int
+		window string
+	}{
+		{1, "today"},
+		{7, "last_7d"},
+		{30, "last_30d"},
+	}
+	for _, tc := range cases {
+		start, end := apiKeyDailyUsageRange(tc.days, "")
+		require.True(t, start.Equal(ranges[tc.window][0]), "window=%s start=%s want=%s", tc.window, start, ranges[tc.window][0])
+		require.True(t, end.Equal(ranges[tc.window][1]), "window=%s end=%s want=%s", tc.window, end, ranges[tc.window][1])
+	}
 }
