@@ -155,3 +155,70 @@ func TestSettingHandler_GetPublicSettings_ExposesWeChatOAuthModeCapabilities(t *
 	require.True(t, resp.Data.WeChatOAuthOpenEnabled)
 	require.True(t, resp.Data.WeChatOAuthMPEnabled)
 }
+
+// The custom login path is the one setting that must never leave the process.
+// /api/v1/settings/public is unauthenticated, so anything in this payload is
+// public by definition — assert the path is absent from the raw response bytes,
+// not just from the fields we happen to decode.
+func TestSettingHandler_GetPublicSettings_NeverLeaksCustomLoginPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const hiddenPath = "/j7q2m9x4vk3p"
+	cfg := &config.Config{}
+	cfg.Web.LoginEntryPublic = false
+	cfg.Web.LoginEntryPath = hiddenPath
+	cfg.Web.DefaultHomePath = "/key-usage"
+
+	h := NewSettingHandler(service.NewSettingService(&settingHandlerPublicRepoStub{
+		values: map[string]string{},
+	}, cfg), "test-version")
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
+
+	h.GetPublicSettings(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	body := recorder.Body.String()
+	require.NotContains(t, body, hiddenPath, "custom login path leaked through the public settings API")
+	require.NotContains(t, body, "login_entry_path")
+
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			LoginEntryPublic bool   `json:"login_entry_public"`
+			DefaultHomePath  string `json:"default_home_path"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.Equal(t, 0, resp.Code)
+	require.False(t, resp.Data.LoginEntryPublic, "the frontend still needs to know the entry is hidden")
+	require.Equal(t, "/key-usage", resp.Data.DefaultHomePath)
+}
+
+// Default / zero config keeps the historical layout: /login is public and "/"
+// lands on the login-free usage page.
+func TestSettingHandler_GetPublicSettings_DefaultsToPublicLoginEntry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := NewSettingHandler(service.NewSettingService(&settingHandlerPublicRepoStub{
+		values: map[string]string{},
+	}, &config.Config{}), "test-version")
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
+
+	h.GetPublicSettings(c)
+
+	var resp struct {
+		Data struct {
+			LoginEntryPublic bool   `json:"login_entry_public"`
+			DefaultHomePath  string `json:"default_home_path"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.True(t, resp.Data.LoginEntryPublic)
+	require.Equal(t, config.DefaultHomePathFallback, resp.Data.DefaultHomePath)
+}

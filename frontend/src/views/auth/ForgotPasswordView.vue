@@ -31,7 +31,8 @@
 
         <div class="text-center">
           <router-link
-            to="/login"
+            v-if="loginPath"
+            :to="loginPath"
             class="inline-flex items-center gap-2 font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
           >
             <Icon name="arrowLeft" size="sm" />
@@ -122,7 +123,8 @@
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.rememberedPassword') }}
         <router-link
-          to="/login"
+          v-if="loginPath"
+          :to="loginPath"
           class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
         >
           {{ t('auth.signIn') }}
@@ -140,12 +142,15 @@ import Icon from '@/components/icons/Icon.vue'
 import TurnstileWidget from '@/components/CaptchaChallenge.vue'
 import { useAppStore } from '@/stores'
 import { getPublicSettings, forgotPassword } from '@/api/auth'
+import { resolveLoginPath } from '@/router/loginEntry'
 
 const { t } = useI18n()
 
 // ==================== Stores ====================
 
 const appStore = useAppStore()
+// 登录入口隐藏且本标签页不知道入口时返回 null，模板据此不渲染登录链接。
+const loginPath = computed(() => resolveLoginPath(appStore.cachedPublicSettings))
 
 // ==================== State ====================
 

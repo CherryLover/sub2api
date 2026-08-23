@@ -17,7 +17,8 @@
           </template>
         </RouterLink>
         <RouterLink
-          to="/login"
+          v-if="loginPath"
+          :to="loginPath"
           class="inline-flex flex-shrink-0 items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-primary-600/20 transition hover:bg-primary-700"
         >
           {{ t('home.login') }}
@@ -99,6 +100,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { getLocale } from '@/i18n'
 import { sanitizeUrl } from '@/utils/url'
 import { useAppStore } from '@/stores/app'
+import { resolveLoginPath } from '@/router/loginEntry'
 import type { LoginAgreementDocument } from '@/types'
 import zhAdminCompliance from '../../../../docs/legal/admin-compliance.zh.md?raw'
 import enAdminCompliance from '../../../../docs/legal/admin-compliance.en.md?raw'
@@ -108,6 +110,8 @@ type LegalDocumentIcon = 'document' | 'shield' | 'globe' | 'cog'
 const route = useRoute()
 const { t } = useI18n()
 const appStore = useAppStore()
+// 法务页是公开页：登录入口隐藏时这里不再渲染登录按钮。
+const loginPath = computed(() => resolveLoginPath(appStore.cachedPublicSettings))
 const settings = computed(() => appStore.cachedPublicSettings)
 const loading = ref(!settings.value)
 const loadError = ref(false)

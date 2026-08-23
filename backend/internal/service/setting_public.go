@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
@@ -368,7 +369,26 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		RiskControlEnabled: settings[SettingKeyRiskControlEnabled] == "true",
 
 		AllowUserViewErrorRequests: settings[SettingKeyAllowUserViewErrorRequests] == "true",
+
+		LoginEntryPublic: !s.loginEntryHidden(),
+		DefaultHomePath:  s.defaultHomePath(),
 	}, nil
+}
+
+// loginEntryHidden / defaultHomePath 读取本地配置文件的 web 分组。
+// cfg 为 nil（部分单测里的裸 SettingService）时回落到历史默认：登录入口公开。
+func (s *SettingService) loginEntryHidden() bool {
+	if s == nil || s.cfg == nil {
+		return false
+	}
+	return s.cfg.LoginEntryHidden()
+}
+
+func (s *SettingService) defaultHomePath() string {
+	if s == nil || s.cfg == nil {
+		return config.DefaultHomePathFallback
+	}
+	return s.cfg.ResolvedDefaultHomePath()
 }
 
 // channelMonitorIntervalMin / channelMonitorIntervalMax bound the default interval
@@ -623,6 +643,14 @@ type PublicSettingsInjectionPayload struct {
 	AffiliateEnabled           bool `json:"affiliate_enabled"`
 	RiskControlEnabled         bool `json:"risk_control_enabled"`
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	// LoginEntryPublic / DefaultHomePath 来自本地配置文件的 web 分组（不可通过后台修改）。
+	//
+	// 只放"入口是否公开"这个布尔和默认首页路径，绝不放自定义登录路径：这份结构会被
+	// 注入进每一个页面的 HTML，也会原样从 /api/v1/settings/public 返回，放进来的东西
+	// 等同于公开。
+	LoginEntryPublic bool   `json:"login_entry_public"`
+	DefaultHomePath  string `json:"default_home_path"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -698,6 +726,8 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		ChannelMonitorHideThroughput:         settings.ChannelMonitorHideThroughput,
 		ChannelMonitorShowQuota:              settings.ChannelMonitorShowQuota,
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
+		LoginEntryPublic:                     settings.LoginEntryPublic,
+		DefaultHomePath:                      settings.DefaultHomePath,
 		ModelPlazaEnabled:                    settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:                settings.ModelPlazaRequireAuth,
 		AffiliateEnabled:                     settings.AffiliateEnabled,

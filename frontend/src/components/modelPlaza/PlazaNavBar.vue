@@ -30,8 +30,8 @@
         {{ t('modelPlaza.nav.backToDashboard') }}
       </RouterLink>
       <RouterLink
-        v-else
-        :to="{ path: '/login', query: { redirect: '/model-plaza' } }"
+        v-else-if="loginPath"
+        :to="{ path: loginPath, query: { redirect: '/model-plaza' } }"
         class="inline-flex flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-primary-500/25 transition-all duration-200 hover:from-primary-600 hover:to-primary-700 hover:shadow-lg hover:shadow-primary-500/30 active:scale-[0.98] dark:shadow-primary-500/20"
       >
         {{ t('modelPlaza.nav.login') }}
@@ -46,10 +46,13 @@ import { useI18n } from 'vue-i18n'
 import { sanitizeUrl } from '@/utils/url'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
+import { resolveLoginPath } from '@/router/loginEntry'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+// 登录入口隐藏且本标签页不知道入口时，公开的模型广场不渲染登录按钮。
+const loginPath = computed(() => resolveLoginPath(appStore.cachedPublicSettings))
 
 const settings = computed(() => appStore.cachedPublicSettings)
 const siteName = computed(() => settings.value?.site_name || 'Sub2API')

@@ -86,7 +86,7 @@
         <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
           {{ t('auth.oauth.invalidCallbackHint') }}
         </p>
-        <button class="btn btn-primary mt-6" type="button" @click="router.replace('/login')">
+        <button class="btn btn-primary mt-6" type="button" @click="router.replace(resolveLoginHref(appStore.cachedPublicSettings))">
           {{ t('auth.backToLogin') }}
         </button>
       </div>
@@ -153,6 +153,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import { useAppStore, useAuthStore } from '@/stores'
 import { apiClient } from '@/api/client'
 import { buildApiUrl } from '@/api/url'
+import { resolveLoginHref } from '@/router/loginEntry'
 import {
   exchangePendingOAuthCompletion,
   persistOAuthTokenContext,

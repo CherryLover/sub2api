@@ -64,5 +64,10 @@ declare module 'vue-router' {
      * i18n key for the page description
      */
     descriptionKey?: string
+
+    /**
+     * 该路由是隐藏模式下动态注册的登录入口（路径来自当前 URL，不在静态路由表里）。
+     */
+    loginEntry?: boolean
   }
 }

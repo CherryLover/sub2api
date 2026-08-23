@@ -49,7 +49,8 @@
             <Icon v-else name="moon" size="md" />
           </button>
           <router-link
-            :to="isAuthenticated ? dashboardPath : '/login'"
+            v-if="showAuthEntry"
+            :to="authEntryTarget"
             class="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
           >
             {{ isAuthenticated ? t('home.dashboard') : t('home.login') }}
@@ -68,7 +69,8 @@
         <h1 class="[overflow-wrap:anywhere] text-3xl font-bold md:text-4xl">{{ siteName }}</h1>
         <p class="mt-4 whitespace-pre-wrap [overflow-wrap:anywhere] text-base text-gray-600 dark:text-dark-300">{{ siteSubtitle }}</p>
         <router-link
-          :to="isAuthenticated ? dashboardPath : '/login'"
+          v-if="showAuthEntry"
+          :to="authEntryTarget"
           class="mt-8 inline-flex min-h-10 items-center justify-center rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-700"
         >
           {{ isAuthenticated ? t('home.goToDashboard') : t('home.login') }}
@@ -169,8 +171,8 @@
             </svg>
           </router-link>
           <router-link
-            v-else
-            to="/login"
+            v-else-if="loginPath"
+            :to="loginPath"
             class="inline-flex items-center rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
           >
             {{ t('home.login') }}
@@ -198,7 +200,8 @@
             <!-- CTA Button -->
             <div>
               <router-link
-                :to="isAuthenticated ? dashboardPath : '/login'"
+                v-if="showAuthEntry"
+                :to="authEntryTarget"
                 class="btn btn-primary px-8 py-3 text-base shadow-lg shadow-primary-500/30"
               >
                 {{ isAuthenticated ? t('home.goToDashboard') : t('home.getStarted') }}
@@ -480,6 +483,7 @@ import { useAuthStore, useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeUrl } from '@/utils/url'
+import { resolveLoginPath } from '@/router/loginEntry'
 
 const { t } = useI18n()
 
@@ -511,6 +515,10 @@ const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const isAdmin = computed(() => authStore.isAdmin)
 const dashboardPath = computed(() => isAdmin.value ? '/admin/dashboard' : '/dashboard')
+// 登录入口隐藏时（且本标签页不知道入口在哪）首页不渲染任何"去登录"的入口。
+const loginPath = computed(() => resolveLoginPath(appStore.cachedPublicSettings))
+const showAuthEntry = computed(() => isAuthenticated.value || loginPath.value !== null)
+const authEntryTarget = computed(() => (isAuthenticated.value ? dashboardPath.value : loginPath.value ?? dashboardPath.value))
 const userInitial = computed(() => {
   const user = authStore.user
   if (!user || !user.email) return ''

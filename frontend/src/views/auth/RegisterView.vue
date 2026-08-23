@@ -320,7 +320,8 @@
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.alreadyHaveAccount') }}
         <router-link
-          to="/login"
+          v-if="loginPath"
+          :to="loginPath"
           class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
         >
           {{ t('auth.signIn') }}
@@ -365,6 +366,7 @@ import {
   resolveAffiliateReferralCode
 } from '@/utils/oauthAffiliate'
 import type { LoginAgreementDocument } from '@/types'
+import { resolveLoginPath } from '@/router/loginEntry'
 
 const { t, locale } = useI18n()
 const LOGIN_AGREEMENT_STORAGE_KEY = 'sub2api_login_agreement_consent'
@@ -375,6 +377,8 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const appStore = useAppStore()
+// 登录入口隐藏且本标签页不知道入口时返回 null，模板据此不渲染登录链接。
+const loginPath = computed(() => resolveLoginPath(appStore.cachedPublicSettings))
 
 // ==================== State ====================
 

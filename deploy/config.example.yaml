@@ -738,6 +738,63 @@ key_usage:
   site_ranking_cache_ttl_seconds: 120
 
 # =============================================================================
+# Web Entry Configuration
+# 前端入口配置（登录入口 / 默认首页，重启生效）
+# =============================================================================
+#
+# NOTE / 请注意：
+#   Hiding the login page is obscurity, not authentication. It reduces the surface
+#   that scanners and casual probes stumble into — it does NOT stop anyone from
+#   calling /api/v1/auth/login directly. Brute force and credential stuffing are
+#   still handled by strong passwords, 2FA, IP allowlists and rate limiting.
+#   隐藏登录页只是把入口挪走，减少被扫描器/顺手试探撞见的暴露面，并不能阻止任何人
+#   直接调用 /api/v1/auth/login 之类的接口。抗暴力破解/撞库仍然要靠强密码、2FA、
+#   IP 限制和限流，别把这一组配置当成安全边界。
+#
+#   Hidden login requires the backend-served frontend (the binary with the embedded
+#   dist). A frontend served by a separate nginx/CDN never receives the marker, so
+#   the hidden login page will not render there.
+#   隐藏登录依赖后端渲染 index.html（内嵌前端的二进制）。前端由独立 nginx/CDN 托管时
+#   拿不到标记，隐藏登录页不会渲染。
+web:
+  # Whether the login entry is public.
+  # true  (default): /login works and the home page shows the login button —
+  #                  identical to the historical behaviour.
+  # false          : /login stops being a usable route, public pages stop rendering
+  #                  the login button, and the login page only renders on
+  #                  login_entry_path below.
+  # 登录入口是否公开。
+  # true（默认）：/login 正常可用，首页显示登录入口，与既有行为一致。
+  # false       ：/login 不再可用，公开页面不再显示登录入口，登录页只在下面的
+  #               login_entry_path 上渲染。
+  login_entry_public: true
+
+  # Custom login path, required when login_entry_public is false.
+  # Rules: must start with "/", each segment may only use [A-Za-z0-9_~-], no trailing
+  # slash, at least 4 characters after the leading "/", and it may not collide with
+  # backend prefixes (/api, /v1, ...) or existing frontend routes. An invalid value
+  # fails startup instead of silently falling back to the public layout.
+  # This path is never written into the frontend bundle and never appears in
+  # /api/v1/settings/public or in the settings injected into ordinary pages.
+  # Use a long random string — not being guessable is the entire point.
+  # 自定义登录路径，login_entry_public 为 false 时必填。
+  # 规则：必须以 "/" 开头，每段只允许 [A-Za-z0-9_~-]，不能有尾部斜杠，去掉前导 "/"
+  # 后至少 4 个字符，且不能与后端前缀（/api、/v1 等）或既有前端路由冲突。写错会直接
+  # 启动失败，不会静默退回公开模式。
+  # 该路径不会写进前端产物，也不会出现在 /api/v1/settings/public 或普通页面注入的
+  # 设置里。建议用一段足够长的随机串——它的全部作用就是不被猜到。
+  # Example / 示例: "/j7q2m9x4vk3p"
+  login_entry_path: ""
+
+  # Landing page for "/". Allowed: /home, /key-usage, /model-plaza
+  # (and /login only while login_entry_public is true).
+  # Default /key-usage is the login-free usage lookup page.
+  # 访问 "/" 时落到的页面。允许：/home、/key-usage、/model-plaza
+  # （login_entry_public 为 true 时还允许 /login）。
+  # 默认 /key-usage，即免登录的用量查询页。
+  default_home_path: "/key-usage"
+
+# =============================================================================
 # Dashboard Aggregation Configuration
 # 仪表盘预聚合配置（重启生效）
 # =============================================================================

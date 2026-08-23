@@ -25,6 +25,13 @@ func NewFrontendServer(settingsProvider PublicSettingsProvider) (*FrontendServer
 	return nil, errors.New("frontend not embedded")
 }
 
+// NewFrontendServerWithLoginEntry returns an error when frontend is not embedded.
+// Hidden login entries need the backend-rendered index.html, so they are only
+// available in embed builds.
+func NewFrontendServerWithLoginEntry(settingsProvider PublicSettingsProvider, loginEntry LoginEntry) (*FrontendServer, error) {
+	return nil, errors.New("frontend not embedded")
+}
+
 // InvalidateCache is a no-op for non-embed builds
 func (s *FrontendServer) InvalidateCache() {}
 

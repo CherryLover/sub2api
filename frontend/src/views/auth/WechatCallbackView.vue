@@ -324,6 +324,7 @@ import PendingOAuthCreateAccountForm, {
   type PendingOAuthCreateAccountPayload
 } from '@/components/auth/PendingOAuthCreateAccountForm.vue'
 import { apiClient } from '@/api/client'
+import { resolveLoginHref } from '@/router/loginEntry'
 import { useAuthStore, useAppStore } from '@/stores'
 import {
   completeWeChatOAuthRegistration,
@@ -645,7 +646,8 @@ async function handleExistingAccountBinding() {
   if (email) {
     params.set('email', email)
   }
-  await router.replace(`/login?${params.toString()}`)
+  // 登录入口隐藏时回到本标签页已知的入口；未知则回默认首页（不会写出自定义路径）。
+  await router.replace(`${resolveLoginHref(appStore.cachedPublicSettings)}?${params.toString()}`)
 }
 
 function applyAdoptionSuggestionState(completion: PendingOAuthExchangeResponse) {
@@ -1016,7 +1018,7 @@ onMounted(async () => {
     if (email) {
       params.set('email', email)
     }
-    await router.replace(`/login?${params.toString()}`)
+    await router.replace(`${resolveLoginHref(appStore.cachedPublicSettings)}?${params.toString()}`)
     return
   }
 
