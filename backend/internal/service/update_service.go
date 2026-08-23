@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -25,12 +26,20 @@ import (
 var (
 	ErrNoUpdateAvailable         = infraerrors.Conflict("ALREADY_UP_TO_DATE", "no update available; current version is latest")
 	ErrRollbackVersionNotAllowed = infraerrors.BadRequest("ROLLBACK_VERSION_NOT_ALLOWED", "version is not in the allowed rollback list")
+
+	// githubRepoPattern 限定 owner/name 的合法字符，防止配置值把 GitHub API
+	// 的请求路径带偏（例如 "../"、"a/b/c" 或带 scheme 的完整 URL）。
+	githubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 )
 
 const (
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+
+	// defaultGitHubRepo 是版本检查 / 在线更新默认使用的仓库（owner/name）。
+	// 本仓库是 Wei-Shaw/sub2api 的 fork，站长自行发版，因此默认指向自己的仓库；
+	// 需要跟随上游时用配置项 update.github_repo（环境变量 UPDATE_GITHUB_REPO）覆盖。
+	defaultGitHubRepo = "CherryLover/sub2api"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -65,6 +74,7 @@ type UpdateService struct {
 	githubClient   GitHubReleaseClient
 	currentVersion string
 	buildType      string // "source" for manual builds, "release" for CI builds
+	githubRepo     string // owner/name，版本检查与下载资产的来源仓库
 }
 
 // NewUpdateService creates a new UpdateService
@@ -74,7 +84,27 @@ func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, versi
 		githubClient:   githubClient,
 		currentVersion: version,
 		buildType:      buildType,
+		githubRepo:     defaultGitHubRepo,
 	}
+}
+
+// WithGitHubRepo 覆盖版本检查所用的 GitHub 仓库。
+//
+// repo 必须是 "owner/name" 形式：该值会被拼进 api.github.com 的 URL 路径，
+// 非法值（空串、带路径分隔符或协议头）一律忽略并保留默认仓库，避免把请求
+// 打到非预期的地址上。
+func (s *UpdateService) WithGitHubRepo(repo string) *UpdateService {
+	repo = strings.TrimSpace(repo)
+	if repo == "" || !githubRepoPattern.MatchString(repo) {
+		return s
+	}
+	s.githubRepo = repo
+	return s
+}
+
+// GitHubRepo 返回当前生效的版本检查仓库。
+func (s *UpdateService) GitHubRepo() string {
+	return s.githubRepo
 }
 
 // UpdateInfo contains update information
@@ -363,7 +393,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 // fetchRollbackCandidates fetches recent releases and keeps the newest
 // maxRollbackVersions entries strictly older than the current version.
 func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubRelease, error) {
-	releases, err := s.githubClient.FetchRecentReleases(ctx, githubRepo, rollbackFetchPageSize)
+	releases, err := s.githubClient.FetchRecentReleases(ctx, s.githubRepo, rollbackFetchPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +430,7 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 }
 
 func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
-	release, err := s.githubClient.FetchLatestRelease(ctx, githubRepo)
+	release, err := s.githubClient.FetchLatestRelease(ctx, s.githubRepo)
 	if err != nil {
 		return nil, err
 	}

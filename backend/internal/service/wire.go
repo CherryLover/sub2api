@@ -69,8 +69,15 @@ func ProvidePricingService(cfg *config.Config, remoteClient PricingRemoteClient)
 }
 
 // ProvideUpdateService creates UpdateService with BuildInfo
-func ProvideUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, buildInfo BuildInfo) *UpdateService {
-	return NewUpdateService(cache, githubClient, buildInfo.Version, buildInfo.BuildType)
+//
+// 版本检查的目标仓库来自配置 update.github_repo（环境变量 UPDATE_GITHUB_REPO），
+// 未配置或格式非法时由 WithGitHubRepo 保留服务层默认仓库。
+func ProvideUpdateService(cfg *config.Config, cache UpdateCache, githubClient GitHubReleaseClient, buildInfo BuildInfo) *UpdateService {
+	svc := NewUpdateService(cache, githubClient, buildInfo.Version, buildInfo.BuildType)
+	if cfg != nil {
+		svc = svc.WithGitHubRepo(cfg.Update.GitHubRepo)
+	}
+	return svc
 }
 
 // ProvideEmailQueueService creates EmailQueueService with default worker count

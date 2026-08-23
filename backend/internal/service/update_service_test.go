@@ -31,13 +31,17 @@ type updateServiceGitHubClientStub struct {
 	release        *GitHubRelease
 	recentReleases []*GitHubRelease
 	recentErr      error
+	// lastRepo 记录最后一次请求使用的仓库，用于验证配置真的透传到了 GitHub 调用
+	lastRepo string
 }
 
-func (s *updateServiceGitHubClientStub) FetchLatestRelease(context.Context, string) (*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchLatestRelease(_ context.Context, repo string) (*GitHubRelease, error) {
+	s.lastRepo = repo
 	return s.release, nil
 }
 
-func (s *updateServiceGitHubClientStub) FetchRecentReleases(context.Context, string, int) ([]*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchRecentReleases(_ context.Context, repo string, _ int) ([]*GitHubRelease, error) {
+	s.lastRepo = repo
 	return s.recentReleases, s.recentErr
 }
 
@@ -184,4 +188,56 @@ func TestUpdateServiceRollbackToVersionAcceptsVPrefix(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrRollbackVersionNotAllowed)
 	require.Contains(t, err.Error(), "no compatible release found")
+}
+
+// 版本检查默认走本仓库自己的 Release，配置项只是覆盖手段。
+func TestUpdateServiceDefaultGitHubRepo(t *testing.T) {
+	svc := NewUpdateService(&updateServiceCacheStub{}, &updateServiceGitHubClientStub{}, "0.1.179", "release")
+
+	require.Equal(t, "CherryLover/sub2api", svc.GitHubRepo())
+}
+
+func TestUpdateServiceWithGitHubRepoOverridesAndValidates(t *testing.T) {
+	t.Run("accepts owner/name", func(t *testing.T) {
+		svc := NewUpdateService(&updateServiceCacheStub{}, &updateServiceGitHubClientStub{}, "0.1.179", "release").
+			WithGitHubRepo("  Wei-Shaw/sub2api  ")
+
+		require.Equal(t, "Wei-Shaw/sub2api", svc.GitHubRepo())
+	})
+
+	// 非法值一律回退到默认仓库：该值会被拼进 api.github.com 的路径。
+	for _, repo := range []string{
+		"",
+		"   ",
+		"sub2api",
+		"owner/name/extra",
+		"../../etc/passwd",
+		"https://evil.example.com/owner/name",
+		"owner name/sub2api",
+	} {
+		t.Run("rejects "+repo, func(t *testing.T) {
+			svc := NewUpdateService(&updateServiceCacheStub{}, &updateServiceGitHubClientStub{}, "0.1.179", "release").
+				WithGitHubRepo(repo)
+
+			require.Equal(t, "CherryLover/sub2api", svc.GitHubRepo())
+		})
+	}
+}
+
+func TestUpdateServiceUsesConfiguredRepoForGitHubCalls(t *testing.T) {
+	client := &updateServiceGitHubClientStub{
+		release:        &GitHubRelease{TagName: "v0.1.180", Name: "v0.1.180"},
+		recentReleases: []*GitHubRelease{{TagName: "v0.1.178"}},
+	}
+	svc := NewUpdateService(&updateServiceCacheStub{}, client, "0.1.179", "release").
+		WithGitHubRepo("CherryLover/sub2api-fork")
+
+	_, err := svc.CheckUpdate(context.Background(), true)
+	require.NoError(t, err)
+	require.Equal(t, "CherryLover/sub2api-fork", client.lastRepo)
+
+	client.lastRepo = ""
+	_, err = svc.ListRollbackVersions(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "CherryLover/sub2api-fork", client.lastRepo)
 }

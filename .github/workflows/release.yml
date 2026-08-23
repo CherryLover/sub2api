@@ -164,13 +164,15 @@ jobs:
           echo "$TAG_MESSAGE" | head -10
 
           # 使用 EOF 分隔符处理多行内容
-          echo "message<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAG_MESSAGE" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo "message<<EOF"
+            echo "$TAG_MESSAGE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set lowercase owner for GHCR
         id: lowercase
-        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
@@ -224,6 +226,7 @@ jobs:
 
           # 获取 tag message 内容并转义 Markdown 特殊字符
           TAG_MESSAGE='${{ steps.tag_message.outputs.message }}'
+          # shellcheck disable=SC2001 # 这里是字符类替换，${var//search/replace} 表达不了
           TAG_MESSAGE=$(echo "$TAG_MESSAGE" | sed 's/\([_*`\[]\)/\\\1/g')
 
           # 限制消息长度（Telegram 消息限制 4096 字符，预留空间给头尾固定内容）
@@ -271,6 +274,161 @@ jobs:
                 parse_mode: "Markdown",
                 disable_web_page_preview: true
               }')"
+
+  # ---------------------------------------------------------------------------
+  # 把刚发布的多架构 manifest 重打成 :main / :main-<short-sha>
+  # ---------------------------------------------------------------------------
+  # 为什么放在这里而不是让 main-docker-image.yml 再构建一次：
+  #   合并到 main 现在会自动发版（auto-release.yml），如果 main 镜像另起一条
+  #   构建流水线，同一个提交的镜像就会被构建两遍。这里用
+  #   `docker buildx imagetools create` 只在 registry 侧复制 manifest 引用，
+  #   秒级完成、不重新构建，站长的持续部署盯的 `:main` 也就保住了。
+  #
+  # 只有"本次发版的提交确实在 main 上，且这个 tag 是仓库里最大的版本号"时才重打，
+  # 避免手动补发一个旧 tag 时把 :main 打回旧代码。
+  retag-main-image:
+    needs: [release]
+    if: ${{ needs.release.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 判定是否应该重打 main 标签
+        id: check
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_TAG}" ]; then
+            TAG_NAME="${INPUT_TAG}"
+          else
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG_NAME#v}"
+
+          # 分两次 fetch：--tags 那次会把 tag 也写进 FETCH_HEAD，
+          # 单独 fetch main 才能保证 FETCH_HEAD 就是 main 的最新提交
+          git fetch --tags --force --quiet
+          git fetch --quiet origin main
+          TAG_SHA="$(git rev-list -n 1 "${TAG_NAME}")"
+          SHORT_SHA="${TAG_SHA:0:7}"
+          MAIN_SHA="$(git rev-parse FETCH_HEAD)"
+
+          RETAG=true
+
+          # 条件一：这次发版的提交必须在 main 的历史里（不是某条特性分支上的 tag）
+          if ! git merge-base --is-ancestor "${TAG_SHA}" "${MAIN_SHA}"; then
+            echo "::notice::${TAG_NAME} 指向的提交不在 main 历史中，跳过 :main 重打"
+            RETAG=false
+          fi
+
+          # 条件二：这个 tag 必须是 main 上最大的正式版本号，否则补发旧版本会把
+          # :main 打回旧代码。只统计"提交在 main 历史里"的 tag —— 特性分支上打的
+          # 高版本号 tag 不该阻塞 main 的正常发版。
+          MAIN_VERSIONS=""
+          while read -r CANDIDATE_TAG; do
+            [ -n "${CANDIDATE_TAG}" ] || continue
+            CANDIDATE_VERSION="${CANDIDATE_TAG#v}"
+            echo "${CANDIDATE_VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || continue
+            CANDIDATE_SHA="$(git rev-list -n 1 "${CANDIDATE_TAG}")"
+            if git merge-base --is-ancestor "${CANDIDATE_SHA}" "${MAIN_SHA}"; then
+              MAIN_VERSIONS="${MAIN_VERSIONS}${CANDIDATE_VERSION}"$'\n'
+            fi
+          done <<< "$(git tag -l 'v[0-9]*')"
+          MAX_VERSION="$(printf '%s' "${MAIN_VERSIONS}" | sort -V | tail -n1)"
+          if [ "${MAX_VERSION}" != "${VERSION}" ]; then
+            echo "::notice::${TAG_NAME} 不是最大版本（当前最大 v${MAX_VERSION}），跳过 :main 重打"
+            RETAG=false
+          fi
+
+          OWNER_LOWER="$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "retag=${RETAG}"
+            echo "version=${VERSION}"
+            echo "short_sha=${SHORT_SHA}"
+            echo "tag_sha=${TAG_SHA}"
+            echo "ghcr_image=ghcr.io/${OWNER_LOWER}/sub2api"
+            echo "dockerhub_image=${DOCKERHUB_USERNAME:+${DOCKERHUB_USERNAME}/sub2api}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Login to GitHub Container Registry
+        if: steps.check.outputs.retag == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Docker Hub 可选：仅当配置了 DOCKERHUB_USERNAME / DOCKERHUB_TOKEN 时才登录
+      - name: Login to DockerHub
+        if: ${{ steps.check.outputs.retag == 'true' && env.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 重打 :main / :main-<short-sha>
+        if: steps.check.outputs.retag == 'true'
+        env:
+          GHCR_IMAGE: ${{ steps.check.outputs.ghcr_image }}
+          DOCKERHUB_IMAGE: ${{ steps.check.outputs.dockerhub_image }}
+          VERSION: ${{ steps.check.outputs.version }}
+          SHORT_SHA: ${{ steps.check.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+
+          # imagetools create 只是在 registry 里新建一个指向同一批 digest 的
+          # manifest，不拉取也不重新构建镜像层。
+          docker buildx imagetools create \
+            --tag "${GHCR_IMAGE}:main" \
+            --tag "${GHCR_IMAGE}:main-${SHORT_SHA}" \
+            "${GHCR_IMAGE}:${VERSION}"
+
+          if [ -n "${DOCKERHUB_IMAGE}" ]; then
+            docker buildx imagetools create \
+              --tag "${DOCKERHUB_IMAGE}:main" \
+              --tag "${DOCKERHUB_IMAGE}:main-${SHORT_SHA}" \
+              "${DOCKERHUB_IMAGE}:${VERSION}"
+          fi
+
+      - name: 输出镜像信息
+        env:
+          RETAG: ${{ steps.check.outputs.retag }}
+          GHCR_IMAGE: ${{ steps.check.outputs.ghcr_image }}
+          VERSION: ${{ steps.check.outputs.version }}
+          SHORT_SHA: ${{ steps.check.outputs.short_sha }}
+          TAG_SHA: ${{ steps.check.outputs.tag_sha }}
+        run: |
+          {
+            if [ "${RETAG}" = "true" ]; then
+              echo "### 已重打 main 标签（未重新构建）"
+              echo
+              echo '```'
+              echo "${GHCR_IMAGE}:main"
+              echo "${GHCR_IMAGE}:main-${SHORT_SHA}"
+              echo '```'
+              echo
+              echo "- 来源 manifest: \`${GHCR_IMAGE}:${VERSION}\`"
+              echo "- commit: \`${TAG_SHA}\`"
+            else
+              echo "### 未重打 main 标签"
+              echo
+              echo "- 原因见上方 notice（提交不在 main 上 / 不是最大版本号）"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
 
   sync-version-file:
     needs: [release]
