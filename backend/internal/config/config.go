@@ -99,6 +99,7 @@ type Config struct {
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
+	KeyUsage                KeyUsageConfig                `mapstructure:"key_usage"`
 }
 
 type LogConfig struct {
@@ -1699,6 +1700,23 @@ type DashboardCacheConfig struct {
 	StatsRefreshTimeoutSeconds int `mapstructure:"stats_refresh_timeout_seconds"`
 }
 
+// KeyUsageConfig 免登录用量页（/key-usage）配置
+type KeyUsageConfig struct {
+	// Enabled: 是否对外提供免登录用量页的后端路由（kill switch）。
+	//
+	// 默认 true：这个页面不输入 key 就什么也看不到，必须持有一把本站有效 key
+	// （或由它派生的令牌）才能拿到全站用量信息，暴露面是"本站任一有效 key 的持有者"
+	// 而不是整个互联网，因此升级后即可用。
+	// 设成 false 时整组 /api/v1/key-usage 路由不注册（返回 404，前端按"端点未部署"处理），
+	// 这是出事时不用改代码发版就能关掉这个页面的开关。
+	Enabled bool `mapstructure:"enabled"`
+	// TokenTTLHours: URL 令牌有效期（小时），过期后页面回到输入框
+	TokenTTLHours int `mapstructure:"token_ttl_hours"`
+	// SiteRankingCacheTTLSeconds: 全站 Key 排行榜缓存时长（秒）。
+	// 这是免登录端点，缓存是挡住"任何人都能触发全表聚合"的主要手段，不建议调到很小。
+	SiteRankingCacheTTLSeconds int `mapstructure:"site_ranking_cache_ttl_seconds"`
+}
+
 // DashboardAggregationConfig 仪表盘预聚合配置
 type DashboardAggregationConfig struct {
 	// Enabled: 是否启用预聚合作业
@@ -2297,6 +2315,12 @@ func setDefaults() {
 	viper.SetDefault("dashboard_cache.stats_fresh_ttl_seconds", 15)
 	viper.SetDefault("dashboard_cache.stats_ttl_seconds", 30)
 	viper.SetDefault("dashboard_cache.stats_refresh_timeout_seconds", 30)
+
+	// Key usage public page（默认开启：需要持有一把本站有效 key 才能看到内容；
+	// key_usage.enabled=false 是出事时的 kill switch）
+	viper.SetDefault("key_usage.enabled", true)
+	viper.SetDefault("key_usage.token_ttl_hours", 720)
+	viper.SetDefault("key_usage.site_ranking_cache_ttl_seconds", 120)
 
 	// Dashboard aggregation
 	viper.SetDefault("dashboard_aggregation.enabled", true)
@@ -3115,6 +3139,16 @@ func (c *Config) Validate() error {
 		}
 		if c.Dashboard.StatsRefreshTimeoutSeconds < 0 {
 			return fmt.Errorf("dashboard_cache.stats_refresh_timeout_seconds must be non-negative")
+		}
+	}
+	// 只有启用时才校验 TTL：功能关闭时这些值不会被使用，不该让"我想关掉它"的配置
+	// （比如把 token_ttl_hours 写成 0）反过来把服务卡在启动失败上。
+	if c.KeyUsage.Enabled {
+		if c.KeyUsage.TokenTTLHours <= 0 {
+			return fmt.Errorf("key_usage.token_ttl_hours must be positive (set key_usage.enabled=false to turn the page off)")
+		}
+		if c.KeyUsage.SiteRankingCacheTTLSeconds <= 0 {
+			return fmt.Errorf("key_usage.site_ranking_cache_ttl_seconds must be positive (set key_usage.enabled=false to turn the page off)")
 		}
 	}
 	if c.DashboardAgg.Enabled {

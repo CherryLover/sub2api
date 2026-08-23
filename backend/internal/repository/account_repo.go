@@ -2207,11 +2207,36 @@ func (r *accountRepository) SetRateLimitedIfLater(ctx context.Context, id int64,
 // by a successful request. Matching both timestamps prevents a stale success
 // from erasing a later clear/re-arm generation with an equal or shorter reset.
 func (r *accountRepository) ClearRateLimitIfObserved(ctx context.Context, id int64, observedLimitedAt, observedResetAt time.Time) (bool, error) {
+	return r.clearRateLimitIfObserved(ctx, id, service.PlatformGrok, service.AccountTypeOAuth, observedLimitedAt, observedResetAt)
+}
+
+// ClearOpenAIRateLimitIfObserved is the OpenAI OAuth counterpart of
+// ClearRateLimitIfObserved: the codex usage probe takes up to 15s, so the
+// account snapshot that justified the clear can be several seconds stale by the
+// time the clear runs. An unconditional clear would erase a *newer* rate limit
+// written by a real request that 429'd while the probe was in flight (lost
+// update), sending an exhausted account straight back into the scheduling pool.
+// Matching both observed timestamps makes the clear apply to that exact
+// generation or not at all.
+//
+// Like the Grok variant it deliberately leaves overload_until alone: the 529
+// overload cooldown is written by an independent path (SetOverloaded) and
+// gates IsSchedulable() on its own; a healthy codex usage window says nothing
+// about upstream overload.
+func (r *accountRepository) ClearOpenAIRateLimitIfObserved(ctx context.Context, id int64, observedLimitedAt, observedResetAt time.Time) (bool, error) {
+	return r.clearRateLimitIfObserved(ctx, id, service.PlatformOpenAI, service.AccountTypeOAuth, observedLimitedAt, observedResetAt)
+}
+
+// clearRateLimitIfObserved is the shared generation-scoped clear primitive. The
+// platform/type predicates are supplied by the caller so each platform stays
+// pinned to its own account shape and one platform's recovery path can never
+// touch another's row.
+func (r *accountRepository) clearRateLimitIfObserved(ctx context.Context, id int64, platform, accountType string, observedLimitedAt, observedResetAt time.Time) (bool, error) {
 	updated, err := r.client.Account.Update().
 		Where(
 			dbaccount.IDEQ(id),
-			dbaccount.PlatformEQ(service.PlatformGrok),
-			dbaccount.TypeEQ(service.AccountTypeOAuth),
+			dbaccount.PlatformEQ(platform),
+			dbaccount.TypeEQ(accountType),
 			dbaccount.RateLimitedAtEQ(observedLimitedAt),
 			dbaccount.RateLimitResetAtEQ(observedResetAt),
 		).
@@ -2391,6 +2416,12 @@ func (r *accountRepository) ClearTempUnschedulable(ctx context.Context, id int64
 	return nil
 }
 
+// ClearRateLimit unconditionally clears the account's rate-limit state. It also
+// clears overload_until, so it is the *administrative* "make this account
+// schedulable again" verb (manual unblock, account edit), not a recovery
+// primitive: an automated healer must not decide that a healthy quota window
+// also means the 529 overload cooldown is over. Automated recovery paths use
+// the generation-scoped ClearRateLimitIfObserved / ClearOpenAIRateLimitIfObserved.
 func (r *accountRepository) ClearRateLimit(ctx context.Context, id int64) error {
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).

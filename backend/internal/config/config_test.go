@@ -96,6 +96,31 @@ func TestLoadHTTPIngressSafetyDefaults(t *testing.T) {
 	require.Equal(t, 16384, cfg.APIKeyAuth.InvalidAbuse.Capacity)
 }
 
+func TestLoadKeyUsageDefaults(t *testing.T) {
+	t.Run("enabled by default", func(t *testing.T) {
+		// 免登录用量页默认开启：必须持有一把本站有效 key（或其派生令牌）才能看到内容，
+		// 站长接受这个暴露面并要求升级后即可用。
+		resetViperWithJWTSecret(t)
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.True(t, cfg.KeyUsage.Enabled)
+		require.Equal(t, 720, cfg.KeyUsage.TokenTTLHours)
+		require.Equal(t, 120, cfg.KeyUsage.SiteRankingCacheTTLSeconds)
+	})
+
+	t.Run("kill switch honoured from config file", func(t *testing.T) {
+		// enabled 开关本身保留：出事时站长改配置就能关掉整组路由。
+		resetViperWithJWTSecret(t)
+		configFile := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(configFile, []byte("key_usage:\n  enabled: false\n"), 0o600))
+		t.Setenv("CONFIG_FILE", configFile)
+
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.False(t, cfg.KeyUsage.Enabled)
+	})
+}
+
 func TestNormalizeForwardedClientIPHeaders(t *testing.T) {
 	headers, err := NormalizeForwardedClientIPHeaders([]string{
 		" x-cdn-client-ip ",

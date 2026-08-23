@@ -1,0 +1,253 @@
+# =============================================================================
+# main 分支持续构建：合并/推送到 main 后自动产出 Docker 镜像
+# =============================================================================
+# 用途：给站长提供可持续部署的开发版镜像。
+#   - 正式发版走 release.yml（tag v*）+ GoReleaser，产出 vX.Y.Z / latest 等标签
+#   - 本 workflow 只产出 main / main-<short-sha>，两者互不干扰
+# =============================================================================
+name: Main Docker Image
+
+on:
+  # 质量闸门：不直接监听 push，而是等既有的 CI（.github/workflows/backend-ci.yml，
+  # name: CI）整体跑完且结论为 success 之后再构建。
+  # 这样"带 main 标签的镜像"一定来自 CI 全绿的提交，坏版本不会被自动部署拉走。
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    # CI 监听所有分支的 push 和 PR，这里按触发 CI 的分支过滤，
+    # 避免每条特性分支都产生一次"全部 skipped"的空跑记录。
+    branches: [main]
+
+  # 手动补一次构建（例如需要重推镜像、或 CI 因外部原因重跑过）。
+  # 注意：手动触发会绕过上面的 CI 闸门，请确认目标提交的 CI 是绿的再用。
+  workflow_dispatch:
+
+# 关于路径过滤（paths / paths-ignore）：这里刻意不做。
+#   1. workflow_run 触发器本身不支持 paths / paths-ignore；
+#   2. 从 API 只能可靠拿到 tip commit 的 diff，一次推送含多个提交时
+#      （代码提交 + 文档提交）会误判成"纯文档改动"而漏掉构建；
+#   3. docs/legal/ 是要打进镜像的（见 Dockerfile 的 COPY docs/legal/），
+#      粗暴忽略 docs/** 会直接产出内容不对的镜像。
+# 漏构建的代价 > 省下的那点额度，所以宁可每次 main 提交都构建。
+
+# 同一分支的新推送取消掉还在跑的旧构建：省额度，也避免旧 commit 的镜像
+# 在后面覆盖掉新 commit 的 main 标签。
+concurrency:
+  group: main-docker-image-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: true
+
+# 默认最小权限，需要写包的权限只在 build job 里单独放开。
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 预检：确认触发条件合法 + 计算镜像标签/版本等元数据
+  # ---------------------------------------------------------------------------
+  check:
+    name: 预检与元数据
+    # 只有下面两种情况才继续：
+    #   a) 人工 workflow_dispatch
+    #   b) 本仓库 main 分支的 push 所触发的 CI 跑完且成功
+    # （CI 同时监听 pull_request，这里用 workflow_run.event == 'push' 排除掉 PR 跑的那次）
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+      version: ${{ steps.meta.outputs.version }}
+      build_date: ${{ steps.meta.outputs.build_date }}
+      tags: ${{ steps.meta.outputs.tags }}
+      stale: ${{ steps.fresh.outputs.stale }}
+    steps:
+      # 手动触发时 GitHub 允许选任意分支，但本 workflow 打的是 main 标签，
+      # 从别的分支跑会污染 main 镜像，直接拦掉。
+      - name: 校验手动触发的分支
+        if: github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
+        run: |
+          echo "::error::本 workflow 只用于构建 main 分支镜像，当前分支：${{ github.ref_name }}"
+          exit 1
+
+      - name: 计算镜像元数据
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_SHA: ${{ github.sha }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+
+          # workflow_run 事件里的 github.sha / github.ref 指向默认分支当时的状态，
+          # 不一定是触发 CI 的那个提交，必须显式用 workflow_run.head_sha。
+          if [ "${EVENT_NAME}" = "workflow_run" ]; then
+            SHA="${WORKFLOW_RUN_SHA}"
+          else
+            SHA="${DISPATCH_SHA}"
+          fi
+          SHORT_SHA="${SHA:0:7}"
+
+          # 开发版版本号，刻意带 main- 前缀，不伪装成正式版本号（v1.2.3）
+          VERSION="main-${SHORT_SHA}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # GHCR 的 owner 必须小写（与 .goreleaser.yaml 里的 GITHUB_REPO_OWNER_LOWER 一致）
+          OWNER_LOWER="$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          GHCR_IMAGE="ghcr.io/${OWNER_LOWER}/sub2api"
+
+          # ---------------------------------------------------------------
+          # 标签策略：
+          #   :main             浮动标签，站长的自动部署盯这个
+          #   :main-<short-sha> 不可变标签，用于回滚到具体提交
+          #
+          # ⚠️ 绝对不要在这里打 :latest ⚠️
+          # latest 属于正式发版：.goreleaser.yaml 的 docker_manifests 里
+          # ghcr.io/<owner>/sub2api:latest 由 tag v* 的 Release 流程产出。
+          # 如果 main 构建也去覆盖 latest，所有盯 latest 做部署的环境会
+          # 静默吃到未经发版审核的开发版本 —— 后来者请不要"顺手加上"。
+          # ---------------------------------------------------------------
+          TAGS="${GHCR_IMAGE}:main"
+          TAGS="${TAGS}"$'\n'"${GHCR_IMAGE}:${VERSION}"
+
+          # Docker Hub 可选：只有配置了 DOCKERHUB_USERNAME 才加对应标签
+          if [ -n "${DOCKERHUB_USERNAME}" ]; then
+            TAGS="${TAGS}"$'\n'"${DOCKERHUB_USERNAME}/sub2api:main"
+            TAGS="${TAGS}"$'\n'"${DOCKERHUB_USERNAME}/sub2api:${VERSION}"
+          fi
+
+          {
+            echo "sha=${SHA}"
+            echo "short_sha=${SHORT_SHA}"
+            echo "version=${VERSION}"
+            echo "build_date=${BUILD_DATE}"
+            echo "tags<<TAGS_EOF"
+            echo "${TAGS}"
+            echo "TAGS_EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "将构建 ${SHA} -> ${VERSION}"
+          echo "${TAGS}"
+
+      # CI 的完成顺序不保证和 push 顺序一致（例如 macos-15 那个 job 排队久了，
+      # 老提交的 CI 可能后完成）。如果老提交的构建还去推 :main，自动部署就会
+      # 静默回退到旧代码。这里发现自己不是 main 最新提交就直接跳过 —— 更新的
+      # 那个提交的 CI 会触发它自己的构建。
+      - name: 校验是否仍是 main 最新提交
+        id: fresh
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BUILT_SHA: ${{ steps.meta.outputs.sha }}
+        run: |
+          set -euo pipefail
+          TIP_SHA="$(gh api "repos/${REPO}/commits/main" --jq '.sha')"
+          if [ "${TIP_SHA}" != "${BUILT_SHA}" ]; then
+            echo "stale=true" >> "${GITHUB_OUTPUT}"
+            echo "::notice::main 已前进到 ${TIP_SHA}，跳过 ${BUILT_SHA} 的镜像构建"
+          else
+            echo "stale=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 构建并推送多架构镜像
+  # ---------------------------------------------------------------------------
+  build:
+    name: 构建并推送镜像
+    needs: check
+    # dispatch 时 fresh 步骤被跳过，outputs.stale 为空字符串，同样满足条件
+    if: needs.check.outputs.stale != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write # 推 GHCR 用内置的 GITHUB_TOKEN，站长不需要额外配 secret
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # 必须 checkout 触发 CI 的那个提交，而不是 workflow_run 事件默认的 ref
+          ref: ${{ needs.check.outputs.sha }}
+          persist-credentials: false
+
+      # Dockerfile 的 frontend-builder / backend-builder 都是 FROM --platform=$BUILDPLATFORM
+      # 的交叉编译，不走模拟；但最终运行阶段（alpine 里的 apk add / adduser 等 RUN）
+      # 是目标架构，构建 linux/arm64 时这几条仍需要 QEMU，所以这一步不能省。
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Docker Hub 可选：仅当配置了 DOCKERHUB_USERNAME / DOCKERHUB_TOKEN 时才登录并推送
+      # （条件写法与 release.yml 保持一致）
+      - name: Login to DockerHub
+        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          # 关掉 provenance attestation，否则 GHCR 的镜像列表里会多出
+          # unknown/unknown 架构条目，和 release.yml 产出的 manifest 形态不一致
+          provenance: false
+          tags: ${{ needs.check.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=sub2api
+            org.opencontainers.image.description=Sub2API - AI API Gateway Platform
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.check.outputs.sha }}
+            org.opencontainers.image.created=${{ needs.check.outputs.build_date }}
+            org.opencontainers.image.version=${{ needs.check.outputs.version }}
+          build-args: |
+            VERSION=${{ needs.check.outputs.version }}
+            COMMIT=${{ needs.check.outputs.sha }}
+            DATE=${{ needs.check.outputs.build_date }}
+            GOPROXY=https://proxy.golang.org,direct
+            GOSUMDB=sum.golang.org
+          # GitHub Actions 缓存加速：跨次构建复用 pnpm install / go mod download 等层
+          cache-from: type=gha,scope=main-docker-image
+          cache-to: type=gha,mode=max,scope=main-docker-image
+
+      - name: 输出镜像信息
+        env:
+          TAGS: ${{ needs.check.outputs.tags }}
+          SHA: ${{ needs.check.outputs.sha }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          {
+            echo "### 已推送镜像"
+            echo
+            echo '```'
+            echo "${TAGS}"
+            echo '```'
+            echo
+            echo "- commit: \`${SHA}\`"
+            echo "- 持续部署请盯浮动标签 \`:main\`"
+            echo "- 需要回滚到本次构建用 \`:${VERSION}\`"
+            echo "- \`latest\` 由正式发版（tag \`v*\`）产出，本流程不会动它"
+          } >> "${GITHUB_STEP_SUMMARY}"

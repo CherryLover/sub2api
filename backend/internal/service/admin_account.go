@@ -116,6 +116,8 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	"passive_usage_sampled_at":               {},
 	"grok_usage_snapshot":                    {},
 	"grok_billing_snapshot":                  {},
+	openAIRateLimitSourceExtraKey:            {},
+	openAIRateLimitSourceResetAtExtraKey:     {},
 	"openai_responses_supported":             {},
 	"openai_compact_supported":               {},
 	"openai_compact_checked_at":              {},

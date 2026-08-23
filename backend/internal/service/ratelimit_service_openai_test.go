@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -73,10 +74,14 @@ func TestCalculateOpenAI429ResetTime_5hExhausted(t *testing.T) {
 	}
 }
 
-func TestCalculateOpenAI429ResetTime_NeitherExhausted_UsesMax(t *testing.T) {
+// TestCalculateOpenAI429ResetTime_NeitherExhausted_ReturnsNil 锁住本次修复的核心语义：
+// 两个套餐窗口都没耗尽时收到的 429 不是额度问题（多为瞬时/并发限流或上游代理 429），
+// 绝不能按"较长的那个窗口 reset"（几乎总是 7d）封锁账号——那正是账号被误挂几天 429 的根因。
+// 此处必须返回 nil，把决定权交回调用方的秒级兜底冷却。
+func TestCalculateOpenAI429ResetTime_NeitherExhausted_ReturnsNil(t *testing.T) {
 	svc := &RateLimitService{}
 
-	// Neither limit at 100%, should use the longer reset time
+	// Neither window is exhausted (<100%), even though both carry long reset headers.
 	headers := http.Header{}
 	headers.Set("x-codex-primary-used-percent", "80")
 	headers.Set("x-codex-primary-reset-after-seconds", "100000")
@@ -85,22 +90,111 @@ func TestCalculateOpenAI429ResetTime_NeitherExhausted_UsesMax(t *testing.T) {
 	headers.Set("x-codex-secondary-reset-after-seconds", "5000")
 	headers.Set("x-codex-secondary-window-minutes", "300")
 
+	resetAt := svc.calculateOpenAI429ResetTime(headers)
+
+	require.Nil(t, resetAt, "neither window exhausted must not produce a window-based block time")
+}
+
+// TestCalculateOpenAI429ResetTime_Only5hExhausted 仅 5h 耗尽 → 用 5h 自己的 reset。
+func TestCalculateOpenAI429ResetTime_Only5hExhausted(t *testing.T) {
+	svc := &RateLimitService{}
+
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "42")
+	headers.Set("x-codex-primary-reset-after-seconds", "400000")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	headers.Set("x-codex-secondary-used-percent", "100")
+	headers.Set("x-codex-secondary-reset-after-seconds", "1800")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
 	before := time.Now()
 	resetAt := svc.calculateOpenAI429ResetTime(headers)
 	after := time.Now()
 
-	if resetAt == nil {
-		t.Fatal("expected non-nil resetAt")
-	}
+	require.NotNil(t, resetAt)
+	require.False(t, resetAt.Before(before.Add(1800*time.Second)))
+	require.False(t, resetAt.After(after.Add(1800*time.Second)))
+}
 
-	// Should use the max (100000 seconds from 7d window)
-	expectedDuration := 100000 * time.Second
-	minExpected := before.Add(expectedDuration)
-	maxExpected := after.Add(expectedDuration)
+// TestCalculateOpenAI429ResetTime_Only7dExhausted 仅 7d 耗尽 → 用 7d 自己的 reset。
+func TestCalculateOpenAI429ResetTime_Only7dExhausted(t *testing.T) {
+	svc := &RateLimitService{}
 
-	if resetAt.Before(minExpected) || resetAt.After(maxExpected) {
-		t.Errorf("resetAt %v not in expected range [%v, %v]", resetAt, minExpected, maxExpected)
-	}
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "100")
+	headers.Set("x-codex-primary-reset-after-seconds", "200000")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	headers.Set("x-codex-secondary-used-percent", "5")
+	headers.Set("x-codex-secondary-reset-after-seconds", "900")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
+	before := time.Now()
+	resetAt := svc.calculateOpenAI429ResetTime(headers)
+	after := time.Now()
+
+	require.NotNil(t, resetAt)
+	require.False(t, resetAt.Before(before.Add(200000*time.Second)))
+	require.False(t, resetAt.After(after.Add(200000*time.Second)))
+}
+
+// TestCalculateOpenAI429ResetTime_BothExhausted_Prefers7d 两个窗口都耗尽时 7d 优先，
+// 因为 7d 耗尽实际恢复得更晚，按 5h 解封会立刻再撞 429。
+func TestCalculateOpenAI429ResetTime_BothExhausted_Prefers7d(t *testing.T) {
+	svc := &RateLimitService{}
+
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "100")
+	headers.Set("x-codex-primary-reset-after-seconds", "300000")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	headers.Set("x-codex-secondary-used-percent", "100")
+	headers.Set("x-codex-secondary-reset-after-seconds", "1200")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
+	before := time.Now()
+	resetAt := svc.calculateOpenAI429ResetTime(headers)
+	after := time.Now()
+
+	require.NotNil(t, resetAt)
+	require.False(t, resetAt.Before(before.Add(300000*time.Second)))
+	require.False(t, resetAt.After(after.Add(300000*time.Second)))
+}
+
+// TestCalculateOpenAI429ResetTime_ExhaustedWithoutOwnReset_FallsBackToOtherExhaustedWindow
+// 7d 耗尽但缺自己的 reset 头，而 5h 同样耗尽且有 reset → 用 5h 的，而不是无限期封锁。
+func TestCalculateOpenAI429ResetTime_ExhaustedWithoutOwnReset_FallsBackToOtherExhaustedWindow(t *testing.T) {
+	svc := &RateLimitService{}
+
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "100")
+	headers.Set("x-codex-primary-window-minutes", "10080") // 7d exhausted, no reset header
+	headers.Set("x-codex-secondary-used-percent", "100")
+	headers.Set("x-codex-secondary-reset-after-seconds", "600")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
+	before := time.Now()
+	resetAt := svc.calculateOpenAI429ResetTime(headers)
+	after := time.Now()
+
+	require.NotNil(t, resetAt)
+	require.False(t, resetAt.Before(before.Add(600*time.Second)))
+	require.False(t, resetAt.After(after.Add(600*time.Second)))
+}
+
+// TestCalculateOpenAI429ResetTime_ExhaustedWithoutAnyReset_ReturnsNil
+// 窗口耗尽但没有任何可用的 reset 头：不拿另一个未耗尽窗口的 reset 去猜长封锁时间，返回 nil。
+func TestCalculateOpenAI429ResetTime_ExhaustedWithoutAnyReset_ReturnsNil(t *testing.T) {
+	svc := &RateLimitService{}
+
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "100")
+	headers.Set("x-codex-primary-window-minutes", "10080") // 7d exhausted, no reset header
+	headers.Set("x-codex-secondary-used-percent", "10")
+	headers.Set("x-codex-secondary-reset-after-seconds", "50000") // 未耗尽窗口的 reset 不得被借用
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
+	resetAt := svc.calculateOpenAI429ResetTime(headers)
+
+	require.Nil(t, resetAt, "must not borrow a non-exhausted window's reset time")
 }
 
 func TestCalculateOpenAI429ResetTime_NoCodexHeaders(t *testing.T) {
@@ -150,18 +244,27 @@ func TestCalculateOpenAI429ResetTime_ReversedWindowOrder(t *testing.T) {
 type openAI429SnapshotRepo struct {
 	mockAccountRepoForGemini
 	rateLimitedID      int64
+	rateLimitResetAt   time.Time
 	updatedExtra       map[string]any
 	bulkUpdatedIDs     []int64
 	bulkUpdatedPayload AccountBulkUpdate
 }
 
-func (r *openAI429SnapshotRepo) SetRateLimited(_ context.Context, id int64, _ time.Time) error {
+func (r *openAI429SnapshotRepo) SetRateLimited(_ context.Context, id int64, resetAt time.Time) error {
 	r.rateLimitedID = id
+	r.rateLimitResetAt = resetAt
 	return nil
 }
 
+// UpdateExtra 按真实实现的 jsonb `||` 语义做累积合并，而不是整体替换——
+// 一次 429 现在可能触发多次 Extra 写入（codex 快照 + 限流来源标记）。
 func (r *openAI429SnapshotRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
-	r.updatedExtra = updates
+	if r.updatedExtra == nil {
+		r.updatedExtra = make(map[string]any, len(updates))
+	}
+	for k, v := range updates {
+		r.updatedExtra[k] = v
+	}
 	return nil
 }
 
@@ -198,6 +301,42 @@ func TestHandle429_OpenAIPersistsCodexSnapshotImmediately(t *testing.T) {
 	if got := repo.updatedExtra["codex_7d_used_percent"]; got != 100.0 {
 		t.Fatalf("codex_7d_used_percent = %v, want 100", got)
 	}
+}
+
+// TestHandle429_OpenAINeitherWindowExhausted_UsesSecondsFallback 端到端锁住本次修复的用户可见价值：
+// OpenAI 账号收到一个"两个套餐窗口都没耗尽、body 里也没有 resets_* 字段"的 429（典型的瞬时/并发
+// 限流或上游代理 429）时，最终只应落到管理端可配的秒级兜底冷却，而不是被按 7d 窗口封几天。
+func TestHandle429_OpenAINeitherWindowExhausted_UsesSecondsFallback(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{ID: 777, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "12")
+	headers.Set("x-codex-primary-reset-after-seconds", "500000") // 7d 窗口滚动还剩 ~5.8 天
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	headers.Set("x-codex-secondary-used-percent", "31")
+	headers.Set("x-codex-secondary-reset-after-seconds", "9000")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
+	// 瞬时限流的典型 body：没有 resets_at / resets_in_seconds。
+	body := []byte(`{"error":{"type":"rate_limit_exceeded","message":"Rate limit reached, please slow down"}}`)
+
+	before := time.Now()
+	svc.handle429(context.Background(), account, headers, body)
+
+	require.Equal(t, account.ID, repo.rateLimitedID, "account should still get a short cooldown so failover budget is not burned")
+	require.False(t, repo.rateLimitResetAt.IsZero())
+
+	cooldown := repo.rateLimitResetAt.Sub(before)
+	require.Greater(t, cooldown, time.Duration(0))
+	require.LessOrEqual(t, cooldown, time.Duration(defaultRateLimit429CooldownSeconds)*time.Second+2*time.Second,
+		"must be the seconds-level 429 fallback, not a window-length block")
+	require.Less(t, cooldown, time.Minute, "must never be hours/days for a non-exhaustion 429")
+
+	// 快照仍应被写入，方便管理页看到真实用量。
+	require.Equal(t, 12.0, repo.updatedExtra["codex_7d_used_percent"])
+	require.Equal(t, 31.0, repo.updatedExtra["codex_5h_used_percent"])
 }
 
 func TestHandle429_OpenAISyncsObservedPlanType(t *testing.T) {
@@ -524,4 +663,118 @@ func TestCalculateOpenAI429ResetTime_5MinFallbackWhenNoReset(t *testing.T) {
 	if resetAt != nil {
 		t.Errorf("expected nil when no reset_after_seconds, got %v", resetAt)
 	}
+}
+
+// TestHandle429_OpenAIBodyUsageLimitMarksQuotaDerivedBlock 锁住改动 A 与改动 B 的交界：
+//
+// 改动 A 刻意保留了"额度耗尽信号只在 body、不在 5h/7d header"这条通路——两个窗口都 <100%
+// 时 calculateOpenAI429ResetTime 返回 nil，handle429 降级到 body 的 usage_limit_reached
+// 并按 resets_at 正确封锁。改动 B 的自愈判据恰恰是"两个窗口都 <100% ⇒ 解封"，若不加区分
+// 就会把 A 保留的这条正确封锁推翻。
+//
+// 因此 handle429 必须给 body 派生的封锁打上来源标记，且标记要绑定到本次的 reset_at 代际。
+func TestHandle429_OpenAIBodyUsageLimitMarksQuotaDerivedBlock(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{ID: 4711, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	// header 口径：两个窗口都远未耗尽（上游代理改写头 / plan 级 credit 限制的典型形态）。
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "9")
+	headers.Set("x-codex-primary-reset-after-seconds", "500000")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	headers.Set("x-codex-secondary-used-percent", "21")
+	headers.Set("x-codex-secondary-reset-after-seconds", "9000")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
+	resetsAt := time.Now().Add(50 * time.Hour).Unix()
+	body := []byte(fmt.Sprintf(`{"error":{"type":"usage_limit_reached","message":"You've hit your usage limit.","resets_at":%d}}`, resetsAt))
+
+	svc.handle429(context.Background(), account, headers, body)
+
+	require.Equal(t, account.ID, repo.rateLimitedID)
+	require.Equal(t, resetsAt, repo.rateLimitResetAt.Unix(),
+		"body-derived usage_limit_reached must still block until resets_at (change A's preserved path)")
+
+	require.Equal(t, openAIRateLimitSourceBodyUsageLimit, repo.updatedExtra[openAIRateLimitSourceExtraKey],
+		"a quota-derived block must be marked so the codex snapshot self-heal skips it")
+	require.Equal(t, time.Unix(resetsAt, 0).UTC().Format(time.RFC3339), repo.updatedExtra[openAIRateLimitSourceResetAtExtraKey],
+		"the marker must be pinned to the generation it describes")
+	// 内存快照也要跟上，否则同一请求链后续读到的还是旧值。
+	require.Equal(t, openAIRateLimitSourceBodyUsageLimit, account.Extra[openAIRateLimitSourceExtraKey])
+
+	// 端到端：把刚写下的这条限流装回账号，自愈判据必须认出它是额度派生的。
+	blocked := &Account{
+		ID:               account.ID,
+		Platform:         PlatformOpenAI,
+		Type:             AccountTypeOAuth,
+		RateLimitedAt:    &repo.rateLimitResetAt,
+		RateLimitResetAt: &repo.rateLimitResetAt,
+		Extra:            account.Extra,
+	}
+	require.True(t, isOpenAIQuotaDerivedRateLimit(blocked))
+}
+
+// TestHandle429_OpenAIWindowExhaustedIsNotMarkedQuotaDerived 反向对照：
+// 由 5h/7d 窗口耗尽写下的封锁不打标记——它本来就该在窗口滚动后被 codex 快照自愈清掉。
+func TestHandle429_OpenAIWindowExhaustedIsNotMarkedQuotaDerived(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{ID: 4712, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "100")
+	headers.Set("x-codex-primary-reset-after-seconds", "604800")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	headers.Set("x-codex-secondary-used-percent", "40")
+	headers.Set("x-codex-secondary-reset-after-seconds", "9000")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
+	svc.handle429(context.Background(), account, headers, []byte(`{"error":{"type":"usage_limit_reached","resets_at":1}}`))
+
+	require.Equal(t, account.ID, repo.rateLimitedID)
+	require.NotContains(t, repo.updatedExtra, openAIRateLimitSourceExtraKey,
+		"a window-derived block must stay healable by the codex snapshot self-heal")
+}
+
+// TestOpenAIRateLimitSourceFor_GenerationBinding 锁住"陈旧标记不得误导后续判断"：
+// 标记只有在它记录的 reset_at 与账号当前的 rate_limit_reset_at 属于同一代际时才算数。
+func TestOpenAIRateLimitSourceFor_GenerationBinding(t *testing.T) {
+	resetAt := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+
+	newAccount := func(markerResetAt string) *Account {
+		reset := resetAt
+		return &Account{
+			ID:               5001,
+			Platform:         PlatformOpenAI,
+			Type:             AccountTypeOAuth,
+			RateLimitResetAt: &reset,
+			Extra: map[string]any{
+				openAIRateLimitSourceExtraKey:        openAIRateLimitSourceBodyUsageLimit,
+				openAIRateLimitSourceResetAtExtraKey: markerResetAt,
+			},
+		}
+	}
+
+	require.Equal(t, openAIRateLimitSourceBodyUsageLimit,
+		openAIRateLimitSourceFor(newAccount(resetAt.Format(time.RFC3339))),
+		"marker for the current generation must be honoured")
+
+	require.Empty(t, openAIRateLimitSourceFor(newAccount(resetAt.Add(-time.Hour).Format(time.RFC3339))),
+		"a marker left over from an older generation must be ignored")
+
+	require.Empty(t, openAIRateLimitSourceFor(newAccount("")),
+		"an unparsable marker timestamp must be ignored")
+
+	// 限流已被清除：即便 Extra 里还留着标记也不得生效。
+	noLimit := newAccount(resetAt.Format(time.RFC3339))
+	noLimit.RateLimitResetAt = nil
+	require.Empty(t, openAIRateLimitSourceFor(noLimit))
+
+	// 清除动作写下的 null 值必须被读作"无标记"。
+	cleared := newAccount(resetAt.Format(time.RFC3339))
+	for k, v := range openAIRateLimitSourceClearUpdates() {
+		cleared.Extra[k] = v
+	}
+	require.Empty(t, openAIRateLimitSourceFor(cleared))
 }

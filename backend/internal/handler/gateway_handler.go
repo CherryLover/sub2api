@@ -1451,15 +1451,46 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 		return
 	}
 
-	ctx := c.Request.Context()
-
-	// 解析可选的日期范围参数（用于 model_stats 查询）
-	startTime, endTime := h.parseUsageDateRange(c)
 	days, ok := parseAPIKeyDailyUsageDays(c.DefaultQuery("days", ""))
 	if !ok {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Invalid days, allowed range is 1-90")
 		return
 	}
+
+	// 订阅信息由 API Key 中间件放进 context（/v1/usage 路径跳过了计费检查，可能没有）
+	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+
+	payload, err := h.buildUsagePayload(c, apiKey, subject, subscription, days)
+	if err != nil {
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to get user info")
+		return
+	}
+	c.JSON(http.StatusOK, payload)
+}
+
+// BuildAPIKeyUsagePayload 以"某把 API Key"的视角组装 /v1/usage 的完整响应体，
+// 供免登录用量页（/api/v1/key-usage/report）原样内嵌复用。
+//
+// 免登录页没有走 API Key 中间件，订阅数据由调用方自行查好后传进来；
+// 其余口径（额度/速率限制/用量/按天/模型统计）与 /v1/usage 共用同一份代码，
+// 保证同一个页面上不会出现两套对不上的数字。
+func (h *GatewayHandler) BuildAPIKeyUsagePayload(c *gin.Context, apiKey *service.APIKey, subscription *service.UserSubscription) (gin.H, error) {
+	// days / start_date / end_date / timezone 与 /v1/usage 语义一致（页面上的日期选择器
+	// 和 7/30/90 天切换靠它们生效）；只是这里对非法 days 回落到默认值而不是返回 400，
+	// 免登录页不该因为一个展示参数就整页失败。
+	days, ok := parseAPIKeyDailyUsageDays(c.DefaultQuery("days", ""))
+	if !ok {
+		days = defaultAPIKeyDailyUsageDays
+	}
+	return h.buildUsagePayload(c, apiKey, middleware2.AuthSubject{UserID: apiKey.UserID}, subscription, days)
+}
+
+// buildUsagePayload 组装 /v1/usage 响应体（不写响应，便于复用）。
+func (h *GatewayHandler) buildUsagePayload(c *gin.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, subscription *service.UserSubscription, days int) (gin.H, error) {
+	ctx := c.Request.Context()
+
+	// 解析可选的日期范围参数（用于 model_stats 查询）
+	startTime, endTime := h.parseUsageDateRange(c)
 
 	// Best-effort: 获取用量统计（按当前 API Key 过滤），失败不影响基础响应
 	usageData := h.buildUsageData(ctx, apiKey.ID)
@@ -1477,14 +1508,22 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 	isQuotaLimited := apiKey.Quota > 0 || apiKey.HasRateLimits()
 
 	if isQuotaLimited {
-		h.usageQuotaLimited(c, ctx, apiKey, usageData, dailyUsage, modelStats)
-		return
+		return h.usageQuotaLimited(ctx, apiKey, usageData, dailyUsage, modelStats), nil
 	}
 
-	h.usageUnrestricted(c, ctx, apiKey, subject, usageData, dailyUsage, modelStats)
+	return h.usageUnrestricted(ctx, apiKey, subject, subscription, usageData, dailyUsage, modelStats)
 }
 
-// parseUsageDateRange 解析 start_date / end_date query params，默认返回近 30 天范围
+// maxUsageDateRangeDays 是 start_date/end_date 允许跨越的最大天数。
+// 与 days 参数的上限（maxAPIKeyDailyUsageDays）同量级：没有下界的日期范围
+// （?start_date=1000-01-01&end_date=9999-12-31）会让 model_stats 那条
+// GROUP BY model 退化成 usage_logs 全表扫描，而这两个参数在免登录页上是公开可控的。
+const maxUsageDateRangeDays = maxAPIKeyDailyUsageDays
+
+// parseUsageDateRange 解析 start_date / end_date query params，默认返回近 30 天范围。
+// 解析结果会被钳制在 [now-maxUsageDateRangeDays, now+1d] 内，且区间长度不超过
+// maxUsageDateRangeDays 天；非法或越界的输入退化成合法范围而不是 400
+// （这两个参数只影响展示范围，不该让整个用量接口失败）。
 func (h *GatewayHandler) parseUsageDateRange(c *gin.Context) (time.Time, time.Time) {
 	now := timezone.Now()
 	endTime := now
@@ -1499,6 +1538,31 @@ func (h *GatewayHandler) parseUsageDateRange(c *gin.Context) (time.Time, time.Ti
 		if t, err := timezone.ParseInLocation("2006-01-02", s); err == nil {
 			endTime = t.AddDate(0, 0, 1) // half-open range upper bound
 		}
+	}
+	return clampUsageDateRange(now, startTime, endTime)
+}
+
+// clampUsageDateRange 把任意输入区间钳制成一个有界、非空、且不超过上限天数的半开区间。
+func clampUsageDateRange(now, startTime, endTime time.Time) (time.Time, time.Time) {
+	maxEnd := now.AddDate(0, 0, 1)
+	minStart := now.AddDate(0, 0, -maxUsageDateRangeDays)
+
+	if endTime.After(maxEnd) {
+		endTime = maxEnd
+	}
+	if !endTime.After(minStart) {
+		// 整个区间都在允许窗口之前：退回默认的近 30 天。
+		return now.AddDate(0, 0, -30), now
+	}
+	if startTime.Before(minStart) {
+		startTime = minStart
+	}
+	if !startTime.Before(endTime) {
+		// start >= end（含被钳制后倒挂）：退化成 end 前一天，保证区间非空且有界。
+		startTime = endTime.AddDate(0, 0, -1)
+	}
+	if earliest := endTime.AddDate(0, 0, -maxUsageDateRangeDays); startTime.Before(earliest) {
+		startTime = earliest
 	}
 	return startTime, endTime
 }
@@ -1551,8 +1615,8 @@ func (h *GatewayHandler) buildAPIKeyDailyUsage(c *gin.Context, userID, apiKeyID 
 	return stats
 }
 
-// usageQuotaLimited 处理 quota_limited 模式的响应
-func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, apiKey *service.APIKey, usageData gin.H, dailyUsage any, modelStats any) {
+// usageQuotaLimited 组装 quota_limited 模式的响应体
+func (h *GatewayHandler) usageQuotaLimited(ctx context.Context, apiKey *service.APIKey, usageData gin.H, dailyUsage any, modelStats any) gin.H {
 	resp := gin.H{
 		"mode":    "quota_limited",
 		"isValid": apiKey.Status == service.StatusAPIKeyActive || apiKey.Status == service.StatusAPIKeyQuotaExhausted || apiKey.Status == service.StatusAPIKeyExpired,
@@ -1641,11 +1705,11 @@ func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, 
 		resp["model_stats"] = modelStats
 	}
 
-	c.JSON(http.StatusOK, resp)
+	return resp
 }
 
-// usageUnrestricted 处理 unrestricted 模式的响应（向后兼容）
-func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, usageData gin.H, dailyUsage any, modelStats any) {
+// usageUnrestricted 组装 unrestricted 模式的响应体（向后兼容）
+func (h *GatewayHandler) usageUnrestricted(ctx context.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, subscription *service.UserSubscription, usageData gin.H, dailyUsage any, modelStats any) (gin.H, error) {
 	// 订阅模式
 	if apiKey.Group != nil && apiKey.Group.IsSubscriptionType() {
 		resp := gin.H{
@@ -1655,9 +1719,8 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 			"unit":     "USD",
 		}
 
-		// 订阅信息可能不在 context 中（/v1/usage 路径跳过了中间件的计费检查）
-		subscription, ok := middleware2.GetSubscriptionFromContext(c)
-		if ok {
+		// 订阅信息可能拿不到（/v1/usage 路径跳过了中间件的计费检查）
+		if subscription != nil {
 			remaining := h.calculateSubscriptionRemaining(apiKey.Group, subscription)
 			resp["remaining"] = remaining
 			resp["subscription"] = gin.H{
@@ -1681,15 +1744,13 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 		if modelStats != nil {
 			resp["model_stats"] = modelStats
 		}
-		c.JSON(http.StatusOK, resp)
-		return
+		return resp, nil
 	}
 
 	// 余额模式
 	latestUser, err := h.userService.GetByID(ctx, subject.UserID)
 	if err != nil {
-		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to get user info")
-		return
+		return nil, err
 	}
 
 	resp := gin.H{
@@ -1709,7 +1770,7 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 	if modelStats != nil {
 		resp["model_stats"] = modelStats
 	}
-	c.JSON(http.StatusOK, resp)
+	return resp, nil
 }
 
 // calculateSubscriptionRemaining 计算订阅剩余可用额度
