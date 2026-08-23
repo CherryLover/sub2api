@@ -396,6 +396,14 @@ type PublicSettings struct {
 	// Affiliate (邀请返利) feature toggle
 	AffiliateEnabled bool `json:"affiliate_enabled"`
 
+	// LoginEntryPublic / DefaultHomePath 来自本地配置文件的 web 分组（不可通过后台修改）。
+	//
+	// 只放"入口是否公开"这个布尔和默认首页路径，绝不放自定义登录路径：这份结构会被
+	// 注入进每一个页面的 HTML，也会原样从 /api/v1/settings/public 返回，放进来的东西
+	// 等同于公开。
+	LoginEntryPublic bool   `json:"login_entry_public"`
+	DefaultHomePath  string `json:"default_home_path"`
+
 	// 风控中心功能开关
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 

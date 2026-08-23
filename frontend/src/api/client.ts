@@ -14,7 +14,21 @@ import {
 } from './adminUIRequest'
 import { refreshAuthTokens } from './tokenRefresh'
 import { getAPIBaseURL } from './url'
+import { resolveLoginHref } from '@/router/loginEntry'
 export { buildApiUrl, buildGatewayUrl } from './url'
+
+/**
+ * 会话失效后整页跳转的目标。
+ *
+ * 登录入口公开时是 /login；隐藏时只有本标签页已经走过隐藏入口才回登录页，
+ * 否则回默认首页——不能因为一次 401 就把自定义登录路径写进地址栏。
+ */
+function redirectToLoginPage(): void {
+  const target = resolveLoginHref()
+  if (window.location.pathname !== target) {
+    window.location.href = target
+  }
+}
 
 // ==================== Axios Instance Configuration ====================
 
@@ -207,9 +221,7 @@ apiClient.interceptors.response.use(
             localStorage.removeItem('token_expires_at')
             sessionStorage.setItem('auth_expired', '1')
 
-            if (!window.location.pathname.includes('/login')) {
-              window.location.href = '/login'
-            }
+            redirectToLoginPage()
 
             return Promise.reject({
               status: 401,
@@ -237,10 +249,8 @@ apiClient.interceptors.response.use(
         if ((hasToken || sentAuth) && !isAuthEndpoint) {
           sessionStorage.setItem('auth_expired', '1')
         }
-        // Only redirect if not already on login page
-        if (!window.location.pathname.includes('/login')) {
-          window.location.href = '/login'
-        }
+        // Only redirect if not already on the login page
+        redirectToLoginPage()
       }
 
       // Return structured error

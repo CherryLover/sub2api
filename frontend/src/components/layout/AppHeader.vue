@@ -261,6 +261,7 @@ import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
+import { resolveLoginHref } from '@/router/loginEntry'
 
 const router = useRouter()
 const route = useRoute()
@@ -353,7 +354,8 @@ async function handleLogout() {
     // Ignore logout errors - still redirect to login
     console.error('Logout error:', error)
   }
-  await router.push('/login')
+  // 登录入口隐藏且本标签页不知道入口时，退出后落到默认首页而不是死链。
+  await router.push(resolveLoginHref(appStore.cachedPublicSettings))
 }
 
 function handleReplayGuide() {

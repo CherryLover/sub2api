@@ -3,7 +3,12 @@
  * Defines all application routes with lazy loading and navigation guards
  */
 
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import {
+  createRouter,
+  createWebHistory,
+  type RouteLocationNormalized,
+  type RouteRecordRaw,
+} from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
@@ -13,6 +18,17 @@ import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
+import {
+  captureLoginEntryPath,
+  isEntryRoute,
+  isEntryRouteBlocked,
+  isLoginEntryHidden,
+  resolveDefaultHomePath,
+  resolveUnauthenticatedTarget,
+} from './loginEntry'
+
+// 必须在路由发生第一次导航之前读取：隐藏登录路径的唯一来源就是本次页面加载的 URL。
+const initialLoginEntryPath = captureLoginEntryPath()
 
 /**
  * Route definitions with lazy loading
@@ -188,8 +204,17 @@ const routes: RouteRecordRaw[] = [
 
   // ==================== User Routes ====================
   {
+    // 默认首页可配置（后端 web.default_home_path，默认 /key-usage）。
+    // 用函数形式而不是常量，是为了在设置到位之后（注入或异步拉取）每次都重新解析。
     path: '/',
-    redirect: '/home'
+    redirect: () => {
+      try {
+        return resolveDefaultHomePath(useAppStore().cachedPublicSettings)
+      } catch {
+        // pinia 尚未激活（部分单测直接 import 路由表）时回落到注入的配置。
+        return resolveDefaultHomePath()
+      }
+    },
   },
   {
     path: '/dashboard',
@@ -730,6 +755,29 @@ const router = createRouter({
 })
 
 /**
+ * 隐藏模式下的登录入口路由。
+ *
+ * 路径来自 `initialLoginEntryPath` —— 即"后端确认本次加载命中了自定义登录路径"时
+ * 的当前 URL。它不在上面的静态路由表里，因此不会被编译进 JS 产物；不知道路径的
+ * 访问者拿到的 bundle 里根本没有这条路由。
+ *
+ * 静态路径的匹配优先级高于末尾的 `/:pathMatch(.*)*`，所以后注册也能正常命中。
+ */
+if (initialLoginEntryPath && isLoginEntryHidden()) {
+  router.addRoute({
+    path: initialLoginEntryPath,
+    name: 'LoginEntry',
+    component: () => import('@/views/auth/LoginView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Login',
+      titleKey: 'home.login',
+      loginEntry: true,
+    },
+  })
+}
+
+/**
  * Navigation guard: Authentication check
  */
 let authInitialized = false
@@ -738,6 +786,8 @@ let authInitialized = false
 const navigationLoading = useNavigationLoadingState()
 // 延迟初始化预加载，传入 router 实例
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
+// '/login' 只在登录入口公开时才是一条真实路由；隐藏模式下的登录入口靠
+// isLoginRoute() 按路由名放行，路径本身不进这份常量（它会被编译进产物）。
 const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/payment/result', '/payment/airwallex', '/legal']
 const BACKEND_MODE_CALLBACK_PATHS = [
   '/auth/callback',
@@ -750,7 +800,16 @@ const BACKEND_MODE_CALLBACK_PATHS = [
 ]
 const BACKEND_MODE_PENDING_AUTH_PATHS = ['/register', '/email-verify']
 
-function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: boolean): boolean {
+function isBackendModePublicRouteAllowed(
+  path: string,
+  hasPendingAuthSession: boolean,
+  isLoginEntryRoute = false
+): boolean {
+  // 隐藏登录入口在 backend mode 下和 /login 等价放行。
+  if (isLoginEntryRoute) {
+    return true
+  }
+
   if (BACKEND_MODE_ALLOWED_PATHS.some((allowedPath) => path === allowedPath || path.startsWith(allowedPath))) {
     return true
   }
@@ -764,6 +823,11 @@ function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: bo
   }
 
   return false
+}
+
+/** 当前导航目标是不是登录页（公开的 /login 或隐藏模式下动态注册的入口）。 */
+function isLoginRoute(to: RouteLocationNormalized): boolean {
+  return to.name === 'Login' || to.meta.loginEntry === true
 }
 
 router.beforeEach(async (to, _from, next) => {
@@ -787,6 +851,25 @@ router.beforeEach(async (to, _from, next) => {
   ]
   document.title = resolveRouteDocumentTitle(to, appStore.siteName, customMenuItems)
 
+  /**
+   * 未登录（或 backend mode 下无权限）被拦下时的落点。
+   *
+   * 隐藏模式下 resolveUnauthenticatedTarget 会给出默认首页，但 backend mode 只放行
+   * 一小撮公开路径——如果默认首页恰好不在其中（例如 /home），把人送过去会立刻被同一条
+   * 规则再拦一次，形成重定向死循环。这里兜一层：落点必须是 backend mode 也认的路径，
+   * 否则退回始终放行的 /key-usage。
+   */
+  const blockedTarget = (redirectFullPath?: string) => {
+    const target = resolveUnauthenticatedTarget(appStore.cachedPublicSettings, redirectFullPath)
+    if (
+      appStore.backendModeEnabled &&
+      !isBackendModePublicRouteAllowed(target.path, authStore.hasPendingAuthSession)
+    ) {
+      return { path: '/key-usage' }
+    }
+    return target
+  }
+
   // Check if route requires authentication
   const requiresAuth = to.meta.requiresAuth !== false // Default to true
   const requiresAdmin = to.meta.requiresAdmin === true
@@ -805,8 +888,26 @@ router.beforeEach(async (to, _from, next) => {
 
   // If route doesn't require auth, allow access
   if (!requiresAuth) {
+    // 登录入口隐藏时：静态的 /login 不再可用，注册/找回密码也只在本标签页已经走过
+    // 隐藏入口时才可达。设置尚未加载完（静态部署首次导航）先补齐，避免因为"还不知道
+    // 是不是隐藏模式"而漏放一次 /login。
+    if (isEntryRoute(to)) {
+      if (!appStore.publicSettingsLoaded) {
+        try {
+          await appStore.fetchPublicSettings()
+        } catch (error) {
+          console.warn('Failed to load public settings in route guard', error)
+        }
+      }
+      const entrySettings = appStore.cachedPublicSettings
+      if (isEntryRouteBlocked(to, entrySettings)) {
+        next({ path: resolveDefaultHomePath(entrySettings), replace: true })
+        return
+      }
+    }
+
     // If already authenticated and trying to access login/register, redirect to appropriate dashboard
-    if (authStore.isAuthenticated && (to.path === '/login' || to.path === '/register')) {
+    if (authStore.isAuthenticated && (isLoginRoute(to) || to.path === '/register')) {
       // In backend mode, non-admin users should NOT be redirected away from login
       // (they are blocked from all protected routes, so redirecting would cause a loop)
       if (appStore.backendModeEnabled && !authStore.isAdmin) {
@@ -839,20 +940,24 @@ router.beforeEach(async (to, _from, next) => {
         return
       }
       if (plazaSettings?.model_plaza_require_auth === true && !authStore.isAuthenticated) {
-        next({ path: '/login', query: { redirect: to.fullPath } })
+        next(blockedTarget(to.fullPath))
         return
       }
       // Backend mode:登录的非管理员也不可见(匿名由下方公共拦截处理,广场不在白名单)
       if (appStore.backendModeEnabled && authStore.isAuthenticated && !authStore.isAdmin) {
-        next('/login')
+        next(blockedTarget())
         return
       }
     }
     // Backend mode: block public pages for unauthenticated users (except login, key-usage, setup)
     if (appStore.backendModeEnabled && !authStore.isAuthenticated) {
-      const isAllowed = isBackendModePublicRouteAllowed(to.path, authStore.hasPendingAuthSession)
+      const isAllowed = isBackendModePublicRouteAllowed(
+        to.path,
+        authStore.hasPendingAuthSession,
+        to.meta.loginEntry === true
+      )
       if (!isAllowed) {
-        next('/login')
+        next(blockedTarget())
         return
       }
     }
@@ -862,11 +967,10 @@ router.beforeEach(async (to, _from, next) => {
 
   // Route requires authentication
   if (!authStore.isAuthenticated) {
-    // Not authenticated, redirect to login
-    next({
-      path: '/login',
-      query: { redirect: to.fullPath } // Save intended destination
-    })
+    // 未登录：公开模式回 /login 并带上 redirect；隐藏模式下只有本标签页已经知道
+    // 入口时才回登录页，否则送去默认首页——绝不能因为随手访问一个受保护 URL
+    // 就把自定义登录路径透出去。
+    next(blockedTarget(to.fullPath))
     return
   }
 
@@ -946,9 +1050,13 @@ router.beforeEach(async (to, _from, next) => {
       next()
       return
     }
-    const isAllowed = isBackendModePublicRouteAllowed(to.path, authStore.hasPendingAuthSession)
+    const isAllowed = isBackendModePublicRouteAllowed(
+      to.path,
+      authStore.hasPendingAuthSession,
+      to.meta.loginEntry === true
+    )
     if (!isAllowed) {
-      next('/login')
+      next(blockedTarget())
       return
     }
   }

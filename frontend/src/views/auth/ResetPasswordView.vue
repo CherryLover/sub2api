@@ -59,7 +59,8 @@
 
         <div class="text-center">
           <router-link
-            to="/login"
+            v-if="loginPath"
+            :to="loginPath"
             class="btn btn-primary inline-flex items-center gap-2"
           >
             <Icon name="login" size="md" />
@@ -189,7 +190,8 @@
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.rememberedPassword') }}
         <router-link
-          to="/login"
+          v-if="loginPath"
+          :to="loginPath"
           class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
         >
           {{ t('auth.signIn') }}
@@ -207,6 +209,7 @@ import { AuthLayout } from '@/components/layout'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores'
 import { resetPassword } from '@/api/auth'
+import { resolveLoginPath } from '@/router/loginEntry'
 
 const { t } = useI18n()
 
@@ -214,6 +217,8 @@ const { t } = useI18n()
 
 const route = useRoute()
 const appStore = useAppStore()
+// 登录入口隐藏且本标签页不知道入口时返回 null，模板据此不渲染登录链接。
+const loginPath = computed(() => resolveLoginPath(appStore.cachedPublicSettings))
 
 // ==================== State ====================
 

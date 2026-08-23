@@ -72,8 +72,14 @@ func SetupRouter(
 
 	// Serve embedded frontend with settings injection if available
 	if web.HasEmbeddedFrontend() {
-		frontendServer, err := web.NewFrontendServer(settingService) //nolint:staticcheck // SA4023: the !embed stub always errors; embed builds can return nil
-		if err != nil {                                              //nolint:staticcheck // SA4023: see above
+		// The custom login path is passed to the frontend server only; it is never
+		// added to the public settings payload that gets injected into every page
+		// and served by /api/v1/settings/public.
+		frontendServer, err := web.NewFrontendServerWithLoginEntry(settingService, web.LoginEntry{ //nolint:staticcheck // SA4023: the !embed stub always errors; embed builds can return nil
+			Hidden: cfg.LoginEntryHidden(),
+			Path:   cfg.Web.LoginEntryPath,
+		})
+		if err != nil { //nolint:staticcheck // SA4023: see above
 			log.Printf("Warning: Failed to create frontend server with settings injection: %v, using legacy mode", err)
 			r.Use(web.ServeEmbeddedFrontend())
 			settingService.SetOnUpdateCallback(refreshFrameOrigins)

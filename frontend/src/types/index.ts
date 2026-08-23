@@ -254,6 +254,14 @@ export interface PublicSettings {
   github_oauth_enabled: boolean
   google_oauth_enabled: boolean
   backend_mode_enabled: boolean
+  /**
+   * 登录入口是否公开（来自后端本地配置文件的 web 分组）。
+   * 可选：静态部署或旧后端可能没有这个字段，缺失按公开处理。
+   * 注意这里只有布尔开关，自定义登录路径绝不会出现在公开设置里。
+   */
+  login_entry_public?: boolean
+  /** 访问 "/" 时落到的页面，默认 "/key-usage"。 */
+  default_home_path?: string
   version: string
   // 服务器全局时区（IANA 名称与当前 UTC 偏移），高峰时段等服务端本地时间窗口的展示标注用；
   // 可选：注入的 __APP_CONFIG__ 旧缓存可能缺失

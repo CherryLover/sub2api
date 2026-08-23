@@ -100,6 +100,7 @@ type Config struct {
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
 	KeyUsage                KeyUsageConfig                `mapstructure:"key_usage"`
+	Web                     WebConfig                     `mapstructure:"web"`
 }
 
 type LogConfig struct {
@@ -1723,6 +1724,34 @@ type KeyUsageConfig struct {
 	SiteRankingCacheTTLSeconds int `mapstructure:"site_ranking_cache_ttl_seconds"`
 }
 
+// WebConfig 前端入口相关配置（只读本地配置文件，重启生效）。
+//
+// 这一组是给自建站长用的"入口布置"开关：登录页放在哪里、根路径落到哪个页面。
+// 注意它解决的是"暴露面"问题，不是"认证强度"问题——把登录页藏起来能让扫描器和
+// 顺手试探的人撞不到登录表单，但拦不住任何人直接去打 /api/v1/auth/login 这类接口。
+// 真正扛暴力破解/撞库的仍然是强密码、2FA、IP 限制和限流，别把这组配置当成安全边界。
+type WebConfig struct {
+	// LoginEntryPublic: 登录入口是否公开。
+	//
+	// true（默认，与历史行为一致）：/login 正常可用，首页展示登录入口。
+	// false：/login 不再是可用路由，首页/公开页不再渲染登录入口，登录页只在
+	// LoginEntryPath 指定的路径上出现；该路径既不会写进前端产物，也不会出现在
+	// 任何公开接口的响应里，只有直接命中它的那一次 HTML 响应才带上渲染标记。
+	LoginEntryPublic bool `mapstructure:"login_entry_public"`
+
+	// LoginEntryPath: 隐藏登录入口时使用的自定义登录路径，例如 "/j7q2m9x4vk"。
+	//
+	// LoginEntryPublic=false 时必填。只允许 "/" 开头、由 [A-Za-z0-9_~-] 组成的
+	// 多级路径，不允许尾部斜杠、不允许与后端保留前缀（/api、/v1 等）或既有前端
+	// 路由冲突。路径越长越随机越好——它的全部作用就是不被猜到。
+	LoginEntryPath string `mapstructure:"login_entry_path"`
+
+	// DefaultHomePath: 访问 "/" 时落到的页面，默认 "/key-usage"（免登录用量查询页）。
+	// 只允许配置公开可访问的页面；配置需要登录的页面会让未登录访问陷入重定向循环，
+	// 因此这里用白名单校验。
+	DefaultHomePath string `mapstructure:"default_home_path"`
+}
+
 // DashboardAggregationConfig 仪表盘预聚合配置
 type DashboardAggregationConfig struct {
 	// Enabled: 是否启用预聚合作业
@@ -2332,6 +2361,12 @@ func setDefaults() {
 	viper.SetDefault("key_usage.token_ttl_hours", 720)
 	viper.SetDefault("key_usage.site_ranking_cache_ttl_seconds", 120)
 
+	// Web entry layout（登录入口 / 默认首页）
+	// 默认保持历史行为：登录入口公开、/login 可用。
+	viper.SetDefault("web.login_entry_public", true)
+	viper.SetDefault("web.login_entry_path", "")
+	viper.SetDefault("web.default_home_path", DefaultHomePathFallback)
+
 	// Dashboard aggregation
 	viper.SetDefault("dashboard_aggregation.enabled", true)
 	viper.SetDefault("dashboard_aggregation.interval_seconds", 60)
@@ -2659,6 +2694,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("security.proxy_probe.urls: %w", err)
 	}
 	c.Security.ProxyProbe.URLs = proxyProbeURLs
+	if err := c.normalizeAndValidateWeb(); err != nil {
+		return err
+	}
 	if c.Server.ReadHeaderTimeout < 1 || c.Server.ReadHeaderTimeout > 60 {
 		return fmt.Errorf("server.read_header_timeout must be between 1 and 60 seconds")
 	}
