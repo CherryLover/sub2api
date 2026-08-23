@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -25,6 +26,29 @@ var allowedDefaultHomePaths = map[string]bool{
 	"/home":        true,
 	"/key-usage":   true,
 	"/model-plaza": true,
+}
+
+// AllowedDefaultHomePaths 返回默认首页白名单（不含只在登录入口公开时可用的 "/login"）。
+// 管理后台的校验与报错文案共用这一份，避免前后端各写一份很快漂移。
+func AllowedDefaultHomePaths() []string {
+	out := make([]string, 0, len(allowedDefaultHomePaths))
+	for path := range allowedDefaultHomePaths {
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// IsAllowedDefaultHomePath 判断归一化后的路径能否作为默认首页。
+//
+// loginEntryPublic=false 时 "/login" 不是可达页面，用它当落地页会让未登录访问在
+// 「首页 -> 登录跳转 -> 首页」之间无限打转，因此按登录入口的实际状态判定。
+func IsAllowedDefaultHomePath(path string, loginEntryPublic bool) bool {
+	normalized := NormalizeEntryPath(path)
+	if allowedDefaultHomePaths[normalized] {
+		return true
+	}
+	return normalized == "/login" && loginEntryPublic
 }
 
 // reservedEntryPaths 是自定义登录路径不能占用的确切路径（既有前端路由与静态资源）。
@@ -104,8 +128,7 @@ func (c *Config) normalizeAndValidateWeb() error {
 	if c.Web.DefaultHomePath == "" {
 		c.Web.DefaultHomePath = DefaultHomePathFallback
 	}
-	if !allowedDefaultHomePaths[c.Web.DefaultHomePath] &&
-		(c.Web.DefaultHomePath != "/login" || !c.Web.LoginEntryPublic) {
+	if !IsAllowedDefaultHomePath(c.Web.DefaultHomePath, c.Web.LoginEntryPublic) {
 		return fmt.Errorf(
 			"web.default_home_path %q is not an allowed landing page (allowed: /home, /key-usage, /model-plaza%s)",
 			c.Web.DefaultHomePath,
@@ -137,34 +160,47 @@ func loginHomeHint(loginPublic bool) string {
 	return ""
 }
 
-// validateLoginEntryPath 校验自定义登录路径的格式与冲突。
+// validateLoginEntryPath 校验来自本地配置文件的自定义登录路径。
+// 错误信息带上 yaml 键名，让站长知道去改哪一行。
 func validateLoginEntryPath(path string) error {
+	if err := ValidateLoginEntryPath(path); err != nil {
+		return fmt.Errorf("web.login_entry_path: %w", err)
+	}
+	return nil
+}
+
+// ValidateLoginEntryPath 校验自定义登录路径的格式与冲突。
+//
+// 配置文件与管理后台共用同一套规则：后台能存进数据库的路径，必须也是配置文件
+// 认得的路径，否则"后台设一次、配置文件救一次"两条通道会给出不同结论。
+// 错误信息里不带 yaml 键名，方便管理后台直接展示给管理员。
+func ValidateLoginEntryPath(path string) error {
 	if !strings.HasPrefix(path, "/") {
-		return fmt.Errorf("web.login_entry_path %q must start with \"/\"", path)
+		return fmt.Errorf("login path %q must start with \"/\"", path)
 	}
 	if len(path) > loginEntryPathMaxLength {
-		return fmt.Errorf("web.login_entry_path must be at most %d characters", loginEntryPathMaxLength)
+		return fmt.Errorf("login path must be at most %d characters", loginEntryPathMaxLength)
 	}
 	if len(path)-1 < LoginEntryPathMinLength {
-		return fmt.Errorf("web.login_entry_path %q is too short: use at least %d characters after the leading \"/\" (a long random string is what makes it hard to guess)", path, LoginEntryPathMinLength)
+		return fmt.Errorf("login path %q is too short: use at least %d characters after the leading \"/\" (a long random string is what makes it hard to guess)", path, LoginEntryPathMinLength)
 	}
 
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	for _, segment := range segments {
 		if segment == "" {
-			return fmt.Errorf("web.login_entry_path %q must not contain empty path segments or a trailing slash", path)
+			return fmt.Errorf("login path %q must not contain empty path segments or a trailing slash", path)
 		}
 		if !isLoginEntrySegment(segment) {
-			return fmt.Errorf("web.login_entry_path %q may only contain letters, digits, \"-\", \"_\" and \"~\" in each path segment", path)
+			return fmt.Errorf("login path %q may only contain letters, digits, \"-\", \"_\" and \"~\" in each path segment", path)
 		}
 	}
 
 	if reservedEntryPaths[path] {
-		return fmt.Errorf("web.login_entry_path %q collides with an existing route or static asset", path)
+		return fmt.Errorf("login path %q collides with an existing route or static asset", path)
 	}
 	for _, prefix := range reservedEntryPrefixes {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
-			return fmt.Errorf("web.login_entry_path %q is not allowed: %q is reserved by the backend or by existing frontend routes", path, prefix)
+			return fmt.Errorf("login path %q is not allowed: %q is reserved by the backend or by existing frontend routes", path, prefix)
 		}
 	}
 	return nil
@@ -199,4 +235,23 @@ func (c *Config) ResolvedDefaultHomePath() string {
 		return DefaultHomePathFallback
 	}
 	return c.Web.DefaultHomePath
+}
+
+// WebLoginEntryLockedLocally 表示登录入口（公开与否 + 自定义路径）是否被本地配置锁定。
+//
+// 锁定时数据库里的值一律忽略，管理后台只读——这就是把自己关在门外之后的破窗通道：
+// 往 config.yaml 写一行 web.login_entry_public: true 再重启，入口立刻回到 /login。
+//
+// 判定条件里除了 load() 记录的显式标记，还带上"LoginEntryPath 非空"：单测和内嵌
+// 场景会直接构造 Config 而不过 load()，那时路径本身就是最可靠的显式信号。
+func (c *Config) WebLoginEntryLockedLocally() bool {
+	return c != nil && (c.Web.LoginEntryConfigured || strings.TrimSpace(c.Web.LoginEntryPath) != "")
+}
+
+// WebDefaultHomeLockedLocally 表示默认首页是否被本地配置锁定。
+//
+// 这里只认 load() 记录的显式标记：normalizeAndValidateWeb 会把空值补成 /key-usage，
+// 所以 DefaultHomePath 非空并不能说明站长写过这一行。
+func (c *Config) WebDefaultHomeLockedLocally() bool {
+	return c != nil && c.Web.DefaultHomePathConfigured
 }

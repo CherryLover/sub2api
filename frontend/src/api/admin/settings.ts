@@ -411,6 +411,15 @@ export interface SystemSettings {
   passkey_rp_origins: string[];
   session_binding_enabled: boolean; // 会话 IP/UA 绑定
   step_up_enabled: boolean; // 敏感操作 step-up 2FA
+  // 登录入口 / 默认首页：这里拿到的是三层合并后的**生效值**
+  // （本地配置文件 > 数据库 > 内置默认值）。
+  // login_entry_path 只在管理端接口出现，公开设置里永远没有它。
+  login_entry_public: boolean;
+  login_entry_path: string;
+  default_home_path: string;
+  // *_locked_by_config 为 true 表示该项被后端本地配置文件钉死，后台只读。
+  login_entry_locked_by_config: boolean;
+  default_home_path_locked_by_config: boolean;
   audit_log_retention_days: number; // 审计日志保留天数
   login_agreement_enabled: boolean;
   login_agreement_mode: "modal" | "checkbox" | string;
@@ -751,6 +760,10 @@ export interface UpdateSettingsRequest {
   passkey_enabled?: boolean;
   session_binding_enabled?: boolean; // 会话 IP/UA 绑定
   step_up_enabled?: boolean; // 敏感操作 step-up 2FA
+  // 登录入口 / 默认首页（省略=保持现值）。被配置文件锁定时前端不发送这三项。
+  login_entry_public?: boolean;
+  login_entry_path?: string;
+  default_home_path?: string;
   audit_log_retention_days?: number; // 审计日志保留天数
   login_agreement_enabled?: boolean;
   login_agreement_mode?: "modal" | "checkbox" | string;

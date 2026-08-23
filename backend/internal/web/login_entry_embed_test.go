@@ -197,3 +197,56 @@ func TestHiddenLoginPath_NotPartOfInjectedSettingsJSON(t *testing.T) {
 	entryStart := strings.Index(rendered, "window.__LOGIN_ENTRY__=")
 	require.Greater(t, entryStart, configStart, "login flag is a separate assignment, not a settings field")
 }
+
+// 登录入口现在可以在管理后台改，所以布置必须是每次请求现问的，而不是启动时拍下的
+// 快照——否则站长在后台藏起入口之后，进程不重启就一直按旧布置服务。
+func TestHiddenLoginPath_LayoutIsResolvedPerRequest(t *testing.T) {
+	provider := &mockSettingsProvider{
+		settings: map[string]any{"site_name": "Test", "login_entry_public": true},
+	}
+	var current LoginEntry
+	server, err := NewFrontendServerWithLoginEntryResolver(provider, func() LoginEntry { return current })
+	require.NoError(t, err)
+
+	// 公开布置：既没有标记，也没有占位符。
+	body := serveHTML(t, server, "/login", nil).Body.String()
+	assert.NotContains(t, body, "window.__LOGIN_ENTRY__")
+	assert.NotContains(t, body, LoginEntryFlagPlaceholder)
+
+	// 后台把入口藏起来：设置变更会让 HTML 缓存失效（router 的 onUpdate 回调），
+	// 重新渲染之后隐藏路径立刻可用，且路径本身依然不出现在任何响应里。
+	current = LoginEntry{Hidden: true, Path: testHiddenLoginPath}
+	server.InvalidateCache()
+
+	entry := serveHTML(t, server, testHiddenLoginPath, nil).Body.String()
+	assert.Contains(t, entry, "window.__LOGIN_ENTRY__=1;")
+	assert.NotContains(t, entry, testHiddenLoginPath)
+
+	other := serveHTML(t, server, "/home", nil).Body.String()
+	assert.Contains(t, other, "window.__LOGIN_ENTRY__=0;")
+	assert.NotContains(t, other, testHiddenLoginPath)
+
+	// 再翻回公开：旧的隐藏路径不再是登录页。
+	current = LoginEntry{}
+	server.InvalidateCache()
+	reverted := serveHTML(t, server, testHiddenLoginPath, nil).Body.String()
+	assert.NotContains(t, reverted, "window.__LOGIN_ENTRY__=1;")
+}
+
+// 布置刚翻转、缓存里还留着上一份渲染结果时，占位符绝不能原样漏进响应里：
+// 那既会暴露"这里有个登录标记"，也会让页面上的脚本解析失败。
+func TestHiddenLoginPath_PlaceholderNeverSurvivesALayoutFlip(t *testing.T) {
+	provider := &mockSettingsProvider{settings: map[string]any{"site_name": "Test"}}
+	current := LoginEntry{Hidden: true, Path: testHiddenLoginPath}
+	server, err := NewFrontendServerWithLoginEntryResolver(provider, func() LoginEntry { return current })
+	require.NoError(t, err)
+
+	// 先把带占位符的那份 HTML 灌进缓存。
+	require.Contains(t, serveHTML(t, server, testHiddenLoginPath, nil).Body.String(), "window.__LOGIN_ENTRY__=1;")
+
+	// 翻成公开但故意不清缓存（模拟缓存失效与布置翻转之间的那一瞬）。
+	current = LoginEntry{}
+	body := serveHTML(t, server, "/home", nil).Body.String()
+	assert.NotContains(t, body, LoginEntryFlagPlaceholder)
+	assert.Contains(t, body, "window.__LOGIN_ENTRY__=0;")
+}

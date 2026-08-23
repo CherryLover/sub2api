@@ -177,6 +177,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyTotpEnabled] = strconv.FormatBool(settings.TotpEnabled)
 	updates[SettingKeyPasskeyEnabled] = strconv.FormatBool(settings.PasskeyEnabled)
 	updates[SettingKeySessionBindingEnabled] = strconv.FormatBool(settings.SessionBindingEnabled)
+
+	// 登录入口 / 默认首页。handler 已经用 NormalizeAndValidateWebEntryInput 挡过一次，
+	// 这里再归一化一次，保证直接调用 service 的路径也存不进 "/gate/" 这种未归一化的值。
+	updates[SettingKeyWebLoginEntryPublic] = strconv.FormatBool(settings.LoginEntryPublic)
+	updates[SettingKeyWebLoginEntryPath] = config.NormalizeEntryPath(settings.LoginEntryPath)
+	updates[SettingKeyWebDefaultHomePath] = config.NormalizeEntryPath(settings.DefaultHomePath)
 	updates[SettingKeyStepUpEnabled] = strconv.FormatBool(settings.StepUpEnabled)
 	updates[SettingKeyAuditLogRetentionDays] = strconv.Itoa(settings.AuditLogRetentionDays)
 	settings.LoginAgreementMode = normalizeLoginAgreementMode(settings.LoginAgreementMode)
@@ -781,6 +787,10 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	// codex_cli_only 加固策略缓存：设置更新后强制下次重载（涉及 4 个键 + JSON 解析，直接置过期）。
 	s.codexRestrictionPolicySF.Forget("codex_restriction_policy")
 	s.codexRestrictionPolicyCache.Store(&cachedCodexRestrictionPolicy{expiresAt: 0})
+	// 登录入口 / 默认首页：直接用刚写下去的这份值重建缓存（不回读数据库），
+	// 本节点下一个请求即生效。必须排在 onUpdate 之前——onUpdate 会让内嵌前端的
+	// HTML 缓存失效，重新渲染时要读到新的登录入口状态（决定是否注入登录标记）。
+	s.refreshWebEntryCacheFromSettings(settings)
 	if s.onUpdate != nil {
 		s.onUpdate() // Invalidate cache after settings update
 	}

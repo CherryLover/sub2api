@@ -49,6 +49,17 @@ type SystemSettings struct {
 	LoginAgreementUpdatedAt             string                   `json:"login_agreement_updated_at"`
 	LoginAgreementDocuments             []LoginAgreementDocument `json:"login_agreement_documents"`
 
+	// 登录入口 / 默认首页（三层合并后的**生效值**）。
+	//
+	// LoginEntryPath 是这份结构里唯一"只能给管理员看"的字段：/api/v1/admin/settings
+	// 走管理员鉴权，而公开设置 DTO（PublicSettings）里没有、也永远不许有这个字段。
+	// LockedByConfig 为 true 表示该项被本地配置文件锁定，后台只读。
+	LoginEntryPublic              bool   `json:"login_entry_public"`
+	LoginEntryPath                string `json:"login_entry_path"`
+	DefaultHomePath               string `json:"default_home_path"`
+	LoginEntryLockedByConfig      bool   `json:"login_entry_locked_by_config"`
+	DefaultHomePathLockedByConfig bool   `json:"default_home_path_locked_by_config"`
+
 	SMTPHost               string `json:"smtp_host"`
 	SMTPPort               int    `json:"smtp_port"`
 	SMTPUsername           string `json:"smtp_username"`

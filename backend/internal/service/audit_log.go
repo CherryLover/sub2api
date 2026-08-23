@@ -133,6 +133,11 @@ var auditBodySensitiveExactKeys = func() map[string]struct{} {
 		// custom_key 为用户自设的平台 API Key 明文，
 		// session 为 Ollama Cloud 用量的浏览器会话 Cookie 明文。
 		"proxy_key", "custom_key", "session",
+		// 自定义登录路径：它的全部作用就是不被知道。审计日志会把管理端 PUT
+		// /api/v1/admin/settings 的请求体整体入库，不脱敏的话这条路径就会在
+		// audit_logs 里留一份明文副本，被日志导出/备份一路带出去。
+		// 改动本身仍然可追溯——diffSettings 会记下 "login_entry_path" 这个键名。
+		"login_entry_path",
 	}
 	set := make(map[string]struct{}, len(builtin)+len(SensitiveCredentialKeys)+16)
 	for _, k := range builtin {

@@ -326,6 +326,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		LoginAgreementMode:                     normalizeLoginAgreementMode(settings[SettingKeyLoginAgreementMode]),
 		LoginAgreementUpdatedAt:                loginAgreementUpdatedAt,
 		LoginAgreementDocuments:                loginAgreementDocuments,
+		LoginEntryPublic:                       strings.TrimSpace(settings[SettingKeyWebLoginEntryPublic]) != "false", // 缺失=公开
+		LoginEntryPath:                         config.NormalizeEntryPath(settings[SettingKeyWebLoginEntryPath]),
+		DefaultHomePath:                        config.NormalizeEntryPath(settings[SettingKeyWebDefaultHomePath]),
 		SMTPHost:                               settings[SettingKeySMTPHost],
 		SMTPUsername:                           settings[SettingKeySMTPUsername],
 		SMTPFrom:                               settings[SettingKeySMTPFrom],

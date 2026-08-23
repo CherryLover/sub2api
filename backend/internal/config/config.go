@@ -1724,12 +1724,23 @@ type KeyUsageConfig struct {
 	SiteRankingCacheTTLSeconds int `mapstructure:"site_ranking_cache_ttl_seconds"`
 }
 
-// WebConfig 前端入口相关配置（只读本地配置文件，重启生效）。
+// WebConfig 前端入口相关配置。
 //
 // 这一组是给自建站长用的"入口布置"开关：登录页放在哪里、根路径落到哪个页面。
 // 注意它解决的是"暴露面"问题，不是"认证强度"问题——把登录页藏起来能让扫描器和
 // 顺手试探的人撞不到登录表单，但拦不住任何人直接去打 /api/v1/auth/login 这类接口。
 // 真正扛暴力破解/撞库的仍然是强密码、2FA、IP 限制和限流，别把这组配置当成安全边界。
+//
+// # 三层优先级
+//
+// 这三项现在也能在管理后台改（存数据库）。生效顺序固定为：
+//
+//	本地配置文件/环境变量（显式设置时） > 数据库（后台设置） > 内置默认值
+//
+// 本地配置文件是"破窗恢复"通道：管理员在后台把登录入口设成一条自己记错的路径、
+// 把自己关在门外时，改 config.yaml 重启即可夺回入口，数据库里的值会被忽略。
+// 因此本组值一旦显式出现在配置文件/环境变量里，后台就只读不可写（见
+// WebLoginEntryLockedLocally / WebDefaultHomeLockedLocally）。
 type WebConfig struct {
 	// LoginEntryPublic: 登录入口是否公开。
 	//
@@ -1750,6 +1761,18 @@ type WebConfig struct {
 	// 只允许配置公开可访问的页面；配置需要登录的页面会让未登录访问陷入重定向循环，
 	// 因此这里用白名单校验。
 	DefaultHomePath string `mapstructure:"default_home_path"`
+
+	// 下面两个不是配置项，而是 load() 记录的"这个键是否显式出现在配置文件或环境变量里"。
+	//
+	// 为什么不能靠值本身判断：viper 给 login_entry_public / default_home_path 都注册了
+	// 默认值（true / "/key-usage"），所以"没写"和"写了默认值"解出来的结构体一模一样。
+	// mapstructure:"-" 保证它们不会被配置文件里的同名键覆盖。
+	//
+	// LoginEntryConfigured 对 login_entry_public 与 login_entry_path 取并集：这两项
+	// 描述的是同一件事（登录入口摆在哪儿），只锁一半会得到"模式来自文件、路径来自数据库"
+	// 这种没人能推理的组合。
+	LoginEntryConfigured      bool `mapstructure:"-"`
+	DefaultHomePathConfigured bool `mapstructure:"-"`
 }
 
 // DashboardAggregationConfig 仪表盘预聚合配置
@@ -1855,6 +1878,12 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 		cfg.Security.ForwardedClientIPHeaders = normalizeStringSlice(strings.Split(forwardedClientIPHeadersEnv, ","))
 	}
 	cfg.Server.TrustedProxiesConfigured = trustedProxiesConfigured
+	// web 分组的"是否显式设置"必须在 unmarshal 之后单独判定：viper 给这几个键注册了
+	// 默认值，viper.IsSet 会把默认值也算成"已设置"，只有 InConfig（真正出现在配置
+	// 文件里）加上一次环境变量查表才区分得出"没写"和"写了"。
+	cfg.Web.LoginEntryConfigured = webEntryKeyConfigured("web.login_entry_public", "WEB_LOGIN_ENTRY_PUBLIC") ||
+		webEntryKeyConfigured("web.login_entry_path", "WEB_LOGIN_ENTRY_PATH")
+	cfg.Web.DefaultHomePathConfigured = webEntryKeyConfigured("web.default_home_path", "WEB_DEFAULT_HOME_PATH")
 	if cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs == 0 {
 		cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 15000
 	}
@@ -2618,6 +2647,19 @@ func setDefaults() {
 // zero keeps behavior identical while making the key addressable from the
 // environment. Any subsystem that wants a richer default still applies it after
 // unmarshal, exactly as before.
+// webEntryKeyConfigured 判断 web 分组的某个键是否被本地显式设置过。
+//
+// viper.InConfig 只看配置文件里真实出现的键（不含 SetDefault 注册的默认值），
+// os.LookupEnv 覆盖纯环境变量部署。两者都没有才算"没设"，此时该项交给数据库
+// （管理后台）决定。
+func webEntryKeyConfigured(viperKey, envKey string) bool {
+	if viper.InConfig(viperKey) {
+		return true
+	}
+	value, ok := os.LookupEnv(envKey)
+	return ok && strings.TrimSpace(value) != ""
+}
+
 func setEnvReachableDefaults() {
 	viper.SetDefault("gateway.forced_codex_instructions_template_file", "")
 	viper.SetDefault("gateway.session_idle_timeout_minutes", 0)

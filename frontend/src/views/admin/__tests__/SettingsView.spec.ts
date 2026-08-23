@@ -1932,3 +1932,320 @@ describe("admin SettingsView platform quota matrix", () => {
     expect(quotas["anthropic"]?.["daily"]).toBe(null);
   });
 });
+
+// 登录入口 / 默认首页从"只能改配置文件"挪到了后台，随之而来的最大风险是
+// 管理员点几下就把登录页关掉、自己再也进不来。这一组用例守的就是那几道闸：
+// 非法值拒绝、二次确认带完整地址、配置文件锁定时界面只读且不下发这几项。
+describe("admin SettingsView login entry controls", () => {
+  beforeEach(() => {
+    getSettings.mockReset();
+    updateSettings.mockReset();
+    getWebSearchEmulationConfig.mockReset();
+    updateWebSearchEmulationConfig.mockReset();
+    getAdminApiKey.mockReset();
+    getOverloadCooldownSettings.mockReset();
+    getRateLimit429CooldownSettings.mockReset();
+    updateRateLimit429CooldownSettings.mockReset();
+    getStreamTimeoutSettings.mockReset();
+    getRectifierSettings.mockReset();
+    getBetaPolicySettings.mockReset();
+    getGroups.mockReset();
+    listProxies.mockReset();
+    getProviders.mockReset();
+    updateProvider.mockReset();
+    createProvider.mockReset();
+    deleteProvider.mockReset();
+    fetchPublicSettings.mockReset();
+    adminSettingsFetch.mockReset();
+    showError.mockReset();
+    showSuccess.mockReset();
+
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      payment_visible_method_wxpay_source: "official_wxpay",
+    });
+    updateSettings.mockImplementation(async (payload) => ({
+      ...baseSettingsResponse,
+      payment_visible_method_wxpay_source: "official_wxpay",
+      ...payload,
+    }));
+    getWebSearchEmulationConfig.mockResolvedValue({
+      enabled: false,
+      providers: [],
+    });
+    updateWebSearchEmulationConfig.mockResolvedValue({
+      enabled: false,
+      providers: [],
+    });
+    getAdminApiKey.mockResolvedValue({
+      exists: false,
+      masked_key: "",
+    });
+    getOverloadCooldownSettings.mockResolvedValue({
+      enabled: true,
+      cooldown_minutes: 10,
+    });
+    getRateLimit429CooldownSettings.mockResolvedValue({
+      enabled: true,
+      cooldown_seconds: 5,
+    });
+    updateRateLimit429CooldownSettings.mockImplementation(async (payload) => payload);
+    getStreamTimeoutSettings.mockResolvedValue({
+      enabled: true,
+      action: "temp_unsched",
+      temp_unsched_minutes: 5,
+      threshold_count: 3,
+      threshold_window_minutes: 10,
+    });
+    getRectifierSettings.mockResolvedValue({
+      enabled: true,
+      thinking_signature_enabled: true,
+      thinking_budget_enabled: true,
+      apikey_signature_enabled: false,
+      apikey_signature_patterns: [],
+    });
+    getBetaPolicySettings.mockResolvedValue({
+      rules: [],
+    });
+    getGroups.mockResolvedValue([]);
+    listProxies.mockResolvedValue({
+      items: [],
+    });
+    getProviders.mockResolvedValue({
+      data: [],
+    });
+    fetchPublicSettings.mockResolvedValue(undefined);
+    adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  it("loads the effective login entry and shows the resulting login URL", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      login_entry_public: false,
+      login_entry_path: "/j7q2m9x4vk3p",
+      default_home_path: "/home",
+      login_entry_locked_by_config: false,
+      default_home_path_locked_by_config: false,
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const toggle = wrapper.get('[data-testid="login-entry-hidden-toggle"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(true);
+    expect(wrapper.get('[data-testid="login-entry-url"]').text()).toBe(
+      `${window.location.origin}/j7q2m9x4vk3p`,
+    );
+    expect(wrapper.find('[data-testid="login-entry-locked-banner"]').exists()).toBe(
+      false,
+    );
+  });
+
+  it("shows a lock banner, disables the controls and omits the pinned fields from the payload", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      login_entry_public: true,
+      login_entry_path: "",
+      default_home_path: "/model-plaza",
+      login_entry_locked_by_config: true,
+      default_home_path_locked_by_config: true,
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    expect(wrapper.find('[data-testid="login-entry-locked-banner"]').exists()).toBe(
+      true,
+    );
+    const toggle = wrapper.get('[data-testid="login-entry-hidden-toggle"]');
+    expect((toggle.element as HTMLInputElement).disabled).toBe(true);
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    const payload = updateSettings.mock.calls[0][0];
+    expect(payload).not.toHaveProperty("login_entry_public");
+    expect(payload).not.toHaveProperty("login_entry_path");
+    expect(payload).not.toHaveProperty("default_home_path");
+  });
+
+  it("refuses to save a hidden login entry without a usable path", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      login_entry_public: true,
+      login_entry_path: "",
+      default_home_path: "/key-usage",
+      login_entry_locked_by_config: false,
+      default_home_path_locked_by_config: false,
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    await wrapper
+      .get('[data-testid="login-entry-hidden-toggle"]')
+      .setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalled();
+  });
+
+  it("refuses to save a login path that collides with a backend prefix", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      login_entry_public: true,
+      login_entry_path: "",
+      default_home_path: "/key-usage",
+      login_entry_locked_by_config: false,
+      default_home_path_locked_by_config: false,
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    await wrapper
+      .get('[data-testid="login-entry-hidden-toggle"]')
+      .setValue(true);
+    await wrapper.get("#login-entry-path").setValue("/api/secret-gate");
+    expect(wrapper.get('[data-testid="login-entry-path-error"]').exists()).toBe(
+      true,
+    );
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("asks for confirmation with the full login URL before hiding the entry", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      login_entry_public: true,
+      login_entry_path: "",
+      default_home_path: "/key-usage",
+      login_entry_locked_by_config: false,
+      default_home_path_locked_by_config: false,
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    await wrapper
+      .get('[data-testid="login-entry-hidden-toggle"]')
+      .setValue(true);
+    await wrapper.get("#login-entry-path").setValue("/j7q2m9x4vk3p");
+
+    // 第一次提交只弹确认框，不保存。
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).not.toHaveBeenCalled();
+
+    const dialog = wrapper
+      .findAllComponents({ name: "ConfirmDialog" })
+      .find((node) => node.props("show") === true);
+    expect(dialog).toBeDefined();
+    expect(dialog?.props("title")).toBe(
+      "admin.settings.loginEntry.confirmTitle",
+    );
+
+    // 确认之后才真的下发，且 payload 带上归一化后的路径。
+    dialog?.vm.$emit("confirm");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings.mock.calls[0][0]).toMatchObject({
+      login_entry_public: false,
+      login_entry_path: "/j7q2m9x4vk3p",
+      default_home_path: "/key-usage",
+    });
+  });
+
+  it("saves without confirmation when the login entry is untouched", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      login_entry_public: true,
+      login_entry_path: "",
+      default_home_path: "/key-usage",
+      login_entry_locked_by_config: false,
+      default_home_path_locked_by_config: false,
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings.mock.calls[0][0]).toMatchObject({
+      login_entry_public: true,
+      default_home_path: "/key-usage",
+    });
+  });
+
+  it("drops /login as a landing page when the entry is hidden", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      login_entry_public: true,
+      login_entry_path: "",
+      default_home_path: "/login",
+      login_entry_locked_by_config: false,
+      default_home_path_locked_by_config: false,
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    await wrapper
+      .get('[data-testid="login-entry-hidden-toggle"]')
+      .setValue(true);
+    await wrapper.get("#login-entry-path").setValue("/j7q2m9x4vk3p");
+
+    const select = wrapper.get("#default-home-path").element as HTMLSelectElement;
+    expect(select.value).toBe("/key-usage");
+    expect(
+      Array.from(select.options).map((option) => option.value),
+    ).not.toContain("/login");
+  });
+});
+
+// 后台的这几句文案是要给站长看的，别把"隐藏登录入口"写成"保证安全"。
+describe("admin SettingsView login entry copy", () => {
+  it("describes hidden login as an exposure reduction, not a security boundary", () => {
+    for (const copy of [
+      zhSettings.settings.loginEntry,
+      enSettings.settings.loginEntry,
+    ]) {
+      expect(copy.notASecurityBoundary).toBeTruthy();
+    }
+    expect(zhSettings.settings.loginEntry.notASecurityBoundary).toContain(
+      "暴露面",
+    );
+    expect(zhSettings.settings.loginEntry.notASecurityBoundary).toContain(
+      "2FA",
+    );
+    expect(enSettings.settings.loginEntry.notASecurityBoundary).toContain(
+      "does not stop",
+    );
+    expect(enSettings.settings.loginEntry.notASecurityBoundary).toContain(
+      "2FA",
+    );
+  });
+
+  it("keeps the break-glass instructions in both locales", () => {
+    expect(zhSettings.settings.loginEntry.confirmBreakGlass).toContain(
+      "配置文件",
+    );
+    expect(enSettings.settings.loginEntry.confirmBreakGlass).toContain(
+      "config file",
+    );
+  });
+});

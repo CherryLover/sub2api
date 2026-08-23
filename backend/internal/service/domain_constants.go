@@ -259,6 +259,15 @@ const (
 	// 会话安全设置
 	SettingKeySessionBindingEnabled = "session_binding_enabled" // 会话 IP/UA 绑定（变更即失效），默认关闭
 
+	// 前端入口布置（登录入口 / 默认首页）。
+	// 本地配置文件 web 分组显式设置时优先于这三项，见 setting_web_entry.go。
+	//
+	// SettingKeyWebLoginEntryPath 存的是自定义登录路径，属于"只能给管理员看"的值：
+	// 它绝不能进 /api/v1/settings/public，也绝不能进注入每个页面的设置 JSON。
+	SettingKeyWebLoginEntryPublic = "web_login_entry_public" // 登录入口是否公开，默认 true
+	SettingKeyWebLoginEntryPath   = "web_login_entry_path"   // 隐藏模式下的自定义登录路径
+	SettingKeyWebDefaultHomePath  = "web_default_home_path"  // 访问 "/" 时落到的页面
+
 	// 敏感操作 step-up 2FA 设置
 	SettingKeyStepUpEnabled = "step_up_enabled" // 敏感操作（导出/备份/S3配置/提升管理员等）要求 step-up 2FA，默认关闭
 

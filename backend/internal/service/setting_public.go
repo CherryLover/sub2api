@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
@@ -246,6 +245,11 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		return nil, fmt.Errorf("get public settings: %w", err)
 	}
 
+	// 登录入口走独立的三层解析（本地配置 > 数据库 > 默认），刻意不把
+	// web_login_entry_path 混进上面那张 settings map：这份 map 喂的是公开 payload，
+	// 少一次共处一室就少一次"哪天被顺手 range 出来"的机会。
+	webEntry := s.ResolveWebEntry(ctx)
+
 	linuxDoEnabled := false
 	if raw, ok := settings[SettingKeyLinuxDoConnectEnabled]; ok {
 		linuxDoEnabled = raw == "true"
@@ -370,25 +374,10 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 
 		AllowUserViewErrorRequests: settings[SettingKeyAllowUserViewErrorRequests] == "true",
 
-		LoginEntryPublic: !s.loginEntryHidden(),
-		DefaultHomePath:  s.defaultHomePath(),
+		// 只放"入口是否公开"和默认首页，绝不放 webEntry.LoginEntryPath。
+		LoginEntryPublic: !webEntry.LoginEntryHidden(),
+		DefaultHomePath:  webEntry.DefaultHomePath,
 	}, nil
-}
-
-// loginEntryHidden / defaultHomePath 读取本地配置文件的 web 分组。
-// cfg 为 nil（部分单测里的裸 SettingService）时回落到历史默认：登录入口公开。
-func (s *SettingService) loginEntryHidden() bool {
-	if s == nil || s.cfg == nil {
-		return false
-	}
-	return s.cfg.LoginEntryHidden()
-}
-
-func (s *SettingService) defaultHomePath() string {
-	if s == nil || s.cfg == nil {
-		return config.DefaultHomePathFallback
-	}
-	return s.cfg.ResolvedDefaultHomePath()
 }
 
 // channelMonitorIntervalMin / channelMonitorIntervalMax bound the default interval

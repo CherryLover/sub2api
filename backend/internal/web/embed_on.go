@@ -42,8 +42,15 @@ type FrontendServer struct {
 	cache       *HTMLCache
 	settings    PublicSettingsProvider
 	overrideDir string // local file override directory
-	loginEntry  LoginEntry
+	// loginEntryFn is consulted per request instead of a fixed value: the login
+	// entry is now admin-editable at runtime, so a snapshot taken at boot would
+	// keep serving the previous layout until the process restarted.
+	loginEntryFn LoginEntryResolver
 }
+
+// LoginEntryResolver reports where the login page currently lives. It is called on
+// the index.html path, so implementations must be cheap (cached) and never block.
+type LoginEntryResolver func() LoginEntry
 
 // NewFrontendServer creates a new frontend server with settings injection.
 // The login entry stays in its default (public) layout: /login is a normal route.
@@ -51,12 +58,19 @@ func NewFrontendServer(settingsProvider PublicSettingsProvider) (*FrontendServer
 	return NewFrontendServerWithLoginEntry(settingsProvider, LoginEntry{})
 }
 
-// NewFrontendServerWithLoginEntry creates a frontend server that also knows where the
-// login page lives. When loginEntry is hidden, the configured path never reaches the
-// bundle or any API response — only a request that hits it exactly gets an HTML
-// response carrying the "render the login page" flag.
+// NewFrontendServerWithLoginEntry creates a frontend server whose login entry never
+// changes for the lifetime of the process (used by tests and by callers that have a
+// fixed layout).
 func NewFrontendServerWithLoginEntry(settingsProvider PublicSettingsProvider, loginEntry LoginEntry) (*FrontendServer, error) {
 	loginEntry.Path = NormalizeEntryPath(loginEntry.Path)
+	return NewFrontendServerWithLoginEntryResolver(settingsProvider, func() LoginEntry { return loginEntry })
+}
+
+// NewFrontendServerWithLoginEntryResolver creates a frontend server that asks resolve
+// where the login page lives on every index.html request. When the entry is hidden,
+// the configured path never reaches the bundle or any API response — only a request
+// that hits it exactly gets an HTML response carrying the "render the login page" flag.
+func NewFrontendServerWithLoginEntryResolver(settingsProvider PublicSettingsProvider, resolve LoginEntryResolver) (*FrontendServer, error) {
 	distFS, err := fs.Sub(frontendFS, "dist")
 	if err != nil {
 		return nil, err
@@ -78,14 +92,24 @@ func NewFrontendServerWithLoginEntry(settingsProvider PublicSettingsProvider, lo
 	cache.SetBaseHTML(baseHTML)
 
 	return &FrontendServer{
-		distFS:      distFS,
-		fileServer:  http.FileServer(http.FS(distFS)),
-		baseHTML:    baseHTML,
-		cache:       cache,
-		settings:    settingsProvider,
-		overrideDir: filepath.Join("data", "public"),
-		loginEntry:  loginEntry,
+		distFS:       distFS,
+		fileServer:   http.FileServer(http.FS(distFS)),
+		baseHTML:     baseHTML,
+		cache:        cache,
+		settings:     settingsProvider,
+		overrideDir:  filepath.Join("data", "public"),
+		loginEntryFn: resolve,
 	}, nil
+}
+
+// loginEntry returns the current login entry layout, normalized.
+func (s *FrontendServer) loginEntry() LoginEntry {
+	if s == nil || s.loginEntryFn == nil {
+		return LoginEntry{}
+	}
+	entry := s.loginEntryFn()
+	entry.Path = NormalizeEntryPath(entry.Path)
+	return entry
 }
 
 // InvalidateCache invalidates the HTML cache (call when settings change)
@@ -160,7 +184,8 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 
 	// Does this request hit the hidden login path? Only this one request gets the
 	// login flag; the shared cache never stores a copy that carries it.
-	isLoginEntry := s.loginEntry.Matches(c.Request.URL.Path)
+	loginEntry := s.loginEntry()
+	isLoginEntry := loginEntry.Matches(c.Request.URL.Path)
 
 	// Check cache first
 	cached := s.cache.Get()
@@ -206,7 +231,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 		return
 	}
 
-	rendered := s.injectSettings(settingsJSON)
+	rendered := s.injectSettingsFor(loginEntry, settingsJSON)
 	s.cache.Set(rendered, settingsJSON)
 
 	// Replace placeholders with per-request values before serving
@@ -222,7 +247,12 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	c.Abort()
 }
 
+// injectSettings renders the cached HTML for the current login entry layout.
 func (s *FrontendServer) injectSettings(settingsJSON []byte) []byte {
+	return s.injectSettingsFor(s.loginEntry(), settingsJSON)
+}
+
+func (s *FrontendServer) injectSettingsFor(loginEntry LoginEntry, settingsJSON []byte) []byte {
 	// Create the script tag to inject with nonce placeholder
 	// The placeholder will be replaced with actual nonce at request time.
 	//
@@ -231,7 +261,7 @@ func (s *FrontendServer) injectSettings(settingsJSON []byte) []byte {
 	// that JSON is embedded into every page and is also served verbatim by
 	// /api/v1/settings/public, so anything in it is public by definition.
 	body := `window.__APP_CONFIG__=` + string(settingsJSON) + `;`
-	if s.loginEntry.Enabled() {
+	if loginEntry.Enabled() {
 		body += `window.__LOGIN_ENTRY__=` + LoginEntryFlagPlaceholder + `;`
 	}
 	script := []byte(`<script nonce="` + NonceHTMLPlaceholder + `">` + body + `</script>`)
@@ -331,10 +361,12 @@ func replaceNoncePlaceholder(html []byte, nonce string) []byte {
 // replaceLoginEntryFlag swaps the cached login-entry placeholder for this request's
 // value. "1" and "0" are both a single byte, so the hidden login page and every
 // ordinary page produce byte-identical response lengths.
+//
+// The substitution is unconditional: the layout can flip while a rendered page is
+// still in the cache, and a placeholder that survived into a response would leak the
+// marker's existence (and break the page). ReplaceAll is a no-op when the cached HTML
+// carries no placeholder, which is the public-mode case.
 func (s *FrontendServer) replaceLoginEntryFlag(html []byte, isLoginEntry bool) []byte {
-	if !s.loginEntry.Enabled() {
-		return html
-	}
 	flag := []byte("0")
 	if isLoginEntry {
 		flag = []byte("1")

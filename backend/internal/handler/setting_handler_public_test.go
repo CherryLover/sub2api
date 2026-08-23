@@ -222,3 +222,97 @@ func TestSettingHandler_GetPublicSettings_DefaultsToPublicLoginEntry(t *testing.
 	require.True(t, resp.Data.LoginEntryPublic)
 	require.Equal(t, config.DefaultHomePathFallback, resp.Data.DefaultHomePath)
 }
+
+// 同一条红线，换成"路径存在数据库里"的新形态：后台可改之后，路径的来源从本地
+// 配置文件变成了数据库，但它依然一个字节都不许出现在公开设置里。
+func TestSettingHandler_GetPublicSettings_NeverLeaksStoredCustomLoginPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const hiddenPath = "/j7q2m9x4vk3p"
+	h := NewSettingHandler(service.NewSettingService(&settingHandlerPublicRepoStub{
+		values: map[string]string{
+			service.SettingKeyWebLoginEntryPublic: "false",
+			service.SettingKeyWebLoginEntryPath:   hiddenPath,
+			service.SettingKeyWebDefaultHomePath:  "/home",
+		},
+	}, &config.Config{}), "test-version")
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
+
+	h.GetPublicSettings(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	body := recorder.Body.String()
+	require.NotContains(t, body, hiddenPath, "the stored custom login path leaked through the public settings API")
+	require.NotContains(t, body, "login_entry_path")
+
+	var resp struct {
+		Data struct {
+			LoginEntryPublic bool   `json:"login_entry_public"`
+			DefaultHomePath  string `json:"default_home_path"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.False(t, resp.Data.LoginEntryPublic, "the frontend still needs to know the entry is hidden")
+	require.Equal(t, "/home", resp.Data.DefaultHomePath)
+}
+
+// 数据库里存着"隐藏但路径不可用"时必须 fail-open：宁可入口没藏住，也不能因为一条
+// 坏数据把所有人（包括站长）关在门外。
+func TestSettingHandler_GetPublicSettings_StoredHiddenEntryWithoutPathFailsOpen(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := NewSettingHandler(service.NewSettingService(&settingHandlerPublicRepoStub{
+		values: map[string]string{
+			service.SettingKeyWebLoginEntryPublic: "false",
+			service.SettingKeyWebLoginEntryPath:   "",
+		},
+	}, &config.Config{}), "test-version")
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
+
+	h.GetPublicSettings(c)
+
+	var resp struct {
+		Data struct {
+			LoginEntryPublic bool `json:"login_entry_public"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.True(t, resp.Data.LoginEntryPublic)
+}
+
+// 本地配置文件优先于数据库：这是"把自己关在门外"之后的破窗通道。
+func TestSettingHandler_GetPublicSettings_ConfigFileOverridesStoredHiddenEntry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfg := &config.Config{}
+	cfg.Web.LoginEntryPublic = true
+	cfg.Web.LoginEntryConfigured = true
+
+	h := NewSettingHandler(service.NewSettingService(&settingHandlerPublicRepoStub{
+		values: map[string]string{
+			service.SettingKeyWebLoginEntryPublic: "false",
+			service.SettingKeyWebLoginEntryPath:   "/j7q2m9x4vk3p",
+		},
+	}, cfg), "test-version")
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
+
+	h.GetPublicSettings(c)
+
+	var resp struct {
+		Data struct {
+			LoginEntryPublic bool `json:"login_entry_public"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.True(t, resp.Data.LoginEntryPublic)
+	require.NotContains(t, recorder.Body.String(), "/j7q2m9x4vk3p")
+}
