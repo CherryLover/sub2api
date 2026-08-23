@@ -51,10 +51,12 @@
           <td
             class="px-4 py-2.5 text-right text-sm tabular-nums"
             :class="metric === 'requests' ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-dark-200'"
+            :title="formatCountExact(row.entry.requests)"
           >{{ formatCount(row.entry.requests) }}</td>
           <td
             class="px-4 py-2.5 text-right text-sm tabular-nums"
             :class="metric === 'tokens' ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-dark-200'"
+            :title="formatCountExact(row.entry.tokens)"
           >{{ formatCount(row.entry.tokens) }}</td>
           <td
             class="px-4 py-2.5 text-right text-sm tabular-nums"
@@ -73,7 +75,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { KeyUsageMetric, KeyUsageRankingEntry, KeyUsageRankingWindow } from '@/api/keyUsage'
-import { formatCount, formatUsd } from '@/utils/keyUsageFormat'
+import { formatCount, formatCountExact, formatUsd } from '@/utils/keyUsageFormat'
 
 const props = defineProps<{
   data: KeyUsageRankingWindow | null

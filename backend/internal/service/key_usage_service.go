@@ -27,8 +27,16 @@ const (
 	// 全站榜走 singleflight，加载用的 ctx 与首个调用方的请求 ctx 解绑（见 buildSiteRanking），
 	// 所以必须自带超时，否则一条卡住的聚合会把这个 cache key 上的所有等待者一起挂住。
 	keyUsageSiteRankingLoadTimeout = 30 * time.Second
-	// keyUsageSiteCacheMaxEntries 全站榜缓存的条目上限（兜底，正常只有 3 metric × 3 window = 9 条）。
-	keyUsageSiteCacheMaxEntries = 32
+	// keyUsageSiteCacheMaxEntries 全站榜缓存的条目上限（兜底）。
+	// 正常是 3 metric × 4 window = 12 条；再乘上访客浏览器时区切出的不同窗口边界，
+	// 所以留出的余量要比 12 大一截，否则多时区站点会互相把对方的条目挤掉、缓存形同虚设。
+	keyUsageSiteCacheMaxEntries = 64
+	// keyUsageAllWindowCacheTTLFactor 全时段（all）窗口相对其它窗口的缓存 TTL 放大倍数。
+	//
+	// all 是这套查询里最贵的一种（usage_logs 全表 GROUP BY api_key_id，没有 created_at
+	// 范围可以剪枝），同时它的相对变化又是最慢的：站点跑了一年之后，10 分钟的新增用量
+	// 几乎不可能改变全时段榜的名次。用更长的 TTL 把这条最贵的查询压到最低频次。
+	keyUsageAllWindowCacheTTLFactor = 5
 	// KeyUsageTopN 排行榜返回的名次数量上限（金银铜取前三）。
 	KeyUsageTopN = 10
 	// keyUsageUnknownKeyName Key 记录已被硬删除时的占位名称。
@@ -38,7 +46,20 @@ const (
 	KeyUsageWindowToday   = "today"
 	KeyUsageWindowLast7d  = "last_7d"
 	KeyUsageWindowLast30d = "last_30d"
+	KeyUsageWindowAll     = "all"
+
+	// DefaultKeyUsageWindow 是 window 参数缺失或非法时的回落值。
+	// 非法值不返回 400：这是个免登录的只读页面，一个拼错的参数不该把整页打成错误。
+	DefaultKeyUsageWindow = KeyUsageWindowToday
 )
+
+// keyUsageAllWindowStart 是 all 窗口的固定下界（Unix 纪元）。
+//
+// 必须是一个常量而不是"当前时间往前推 N 年"：站点榜缓存的 key 里编了窗口的起止时间戳
+// （见 keyUsageSiteCacheKey），任何随请求漂移的边界都会让 all 窗口每次都生成新 key、
+// 永远命不中缓存，于是每一次页面加载都触发一遍全表聚合——正是这个缓存要挡住的事。
+// usage_logs 里不可能存在 1970 年之前的行，所以这个下界与"无下界"在语义上等价。
+var keyUsageAllWindowStart = time.Unix(0, 0).UTC()
 
 // ErrKeyUsageUnauthorized 是免登录用量页所有鉴权失败的唯一出口。
 // key 不存在、key 被禁用、令牌过期、令牌被篡改都返回它：任何差异化的错误都会把
@@ -79,13 +100,6 @@ type KeyUsageWindowStat struct {
 	Models   []KeyUsageModelStat `json:"models"`
 }
 
-// KeyUsageWindows 三个固定窗口的用量汇总。用结构体而不是 map，保证三个字段恒存在。
-type KeyUsageWindows struct {
-	Today   KeyUsageWindowStat `json:"today"`
-	Last7d  KeyUsageWindowStat `json:"last_7d"`
-	Last30d KeyUsageWindowStat `json:"last_30d"`
-}
-
 // KeyUsageRankEntry 排行榜中的一行。
 type KeyUsageRankEntry struct {
 	// APIKeyID 仅用于服务端标记 is_self，不下发（避免把可枚举的自增 ID 暴露给前端）。
@@ -106,17 +120,14 @@ type KeyUsageRankingWindow struct {
 	Self      KeyUsageRankEntry   `json:"self"`
 }
 
-// KeyUsageRankingScope 一个维度（账户内 / 全站）下三个窗口的排名。
-type KeyUsageRankingScope struct {
-	Today   KeyUsageRankingWindow `json:"today"`
-	Last7d  KeyUsageRankingWindow `json:"last_7d"`
-	Last30d KeyUsageRankingWindow `json:"last_30d"`
-}
-
-// KeyUsageRankings 两个排名维度。
+// KeyUsageRankings 被请求的那一个窗口下的两个排名维度（账户内 / 全站）。
+//
+// 两个维度都下发，是因为它们共用同一份窗口聚合、增量成本只有账户榜那条走复合索引的
+// 小查询，而"账户榜/站点榜"在前端是纯客户端切换（切一下不必再往返一次）。
+// 窗口维度则相反：见 BuildReport 的说明。
 type KeyUsageRankings struct {
-	Account KeyUsageRankingScope `json:"account"`
-	Site    KeyUsageRankingScope `json:"site"`
+	Account KeyUsageRankingWindow `json:"account"`
+	Site    KeyUsageRankingWindow `json:"site"`
 }
 
 // KeyUsageKeyInfo 页面顶部展示的 Key 元信息。
@@ -130,10 +141,12 @@ type KeyUsageKeyInfo struct {
 // KeyUsageReportData 是 /api/v1/key-usage/report 中除 usage（复用 /v1/usage 原样 payload）
 // 之外的全部内容，由 handler 负责拼装最终响应。
 type KeyUsageReportData struct {
-	Key      KeyUsageKeyInfo  `json:"key"`
-	Windows  KeyUsageWindows  `json:"windows"`
-	Rankings KeyUsageRankings `json:"rankings"`
-	Metric   string           `json:"metric"`
+	Key KeyUsageKeyInfo `json:"key"`
+	// Window 是本次实际计算的窗口标识（已归一化），前端据它确认后端听懂了自己的请求。
+	Window     string             `json:"window"`
+	WindowStat KeyUsageWindowStat `json:"window_stat"`
+	Rankings   KeyUsageRankings   `json:"rankings"`
+	Metric     string             `json:"metric"`
 }
 
 // keyUsageWindow 一个自然日对齐的时间窗口 [Start, End)。
@@ -284,62 +297,98 @@ func keyUsageViewable(apiKey *APIKey) bool {
 	}
 }
 
-// BuildReport 组装窗口汇总 + 两个维度的排名。
+// BuildReport 组装**单个**窗口的用量汇总 + 该窗口下两个维度的排名。
+//
+// 只算被请求的那一个窗口，不再一次性算完 today/last_7d/last_30d/all：
+// 页面上时间维度是一个 Tab，一次只看得到一个窗口，而 all 是这四个里最贵的一种
+// （全表 GROUP BY）。把四个窗口全算一遍意味着每次请求都要顺带跑一次最贵的聚合，
+// 只为渲染三块用户当下根本没在看的内容。
 //
 // userTZ 是前端传来的浏览器时区（与 /v1/usage 的 timezone query param 同一个值）：
 // 窗口边界必须跟着它切，否则 UTC+8 的访客在 UTC 服务器上会看到"今日汇总"与按天曲线
 // 最后一行差 8 小时。空串表示回落到服务端全局时区。
-func (s *KeyUsageService) BuildReport(ctx context.Context, apiKey *APIKey, metric, userTZ string) *KeyUsageReportData {
+func (s *KeyUsageService) BuildReport(ctx context.Context, apiKey *APIKey, metric, window, userTZ string) *KeyUsageReportData {
 	metric = usagestats.NormalizeKeyRankingMetric(metric)
-	windows := keyUsageWindows(timezone.NowInUserLocation(userTZ), userTZ)
+	win := keyUsageWindowFor(NormalizeKeyUsageWindow(window), timezone.NowInUserLocation(userTZ), userTZ)
 
 	keyInfo := KeyUsageKeyInfo{Name: apiKey.Name, Status: apiKey.Status}
 	if !apiKey.CreatedAt.IsZero() {
 		createdAt := apiKey.CreatedAt
 		keyInfo.CreatedAt = &createdAt
 	}
-	report := &KeyUsageReportData{Key: keyInfo, Metric: metric}
 
-	stats := make([]KeyUsageWindowStat, len(windows))
-	for i, window := range windows {
-		stats[i] = s.buildWindowStat(ctx, apiKey.ID, window)
+	stat := s.buildWindowStat(ctx, apiKey.ID, win)
+	return &KeyUsageReportData{
+		Key:        keyInfo,
+		Window:     win.Name,
+		WindowStat: stat,
+		Rankings: KeyUsageRankings{
+			Account: s.buildAccountRanking(ctx, apiKey, metric, win, stat),
+			Site:    s.buildSiteRanking(ctx, apiKey, metric, win, stat),
+		},
+		Metric: metric,
 	}
-	report.Windows = KeyUsageWindows{Today: stats[0], Last7d: stats[1], Last30d: stats[2]}
-
-	accountRanks := make([]KeyUsageRankingWindow, len(windows))
-	siteRanks := make([]KeyUsageRankingWindow, len(windows))
-	for i, window := range windows {
-		accountRanks[i] = s.buildAccountRanking(ctx, apiKey, metric, window, stats[i])
-		siteRanks[i] = s.buildSiteRanking(ctx, apiKey, metric, window, stats[i])
-	}
-	report.Rankings = KeyUsageRankings{
-		Account: KeyUsageRankingScope{Today: accountRanks[0], Last7d: accountRanks[1], Last30d: accountRanks[2]},
-		Site:    KeyUsageRankingScope{Today: siteRanks[0], Last7d: siteRanks[1], Last30d: siteRanks[2]},
-	}
-	return report
 }
 
-// keyUsageWindows 返回 today / last_7d / last_30d 三个窗口。
+// NormalizeKeyUsageWindow 把外部传入的 window 参数归一化到已知窗口。
+// 未知值回落到 DefaultKeyUsageWindow 而不是报错：见 DefaultKeyUsageWindow 的说明。
+func NormalizeKeyUsageWindow(window string) string {
+	switch strings.ToLower(strings.TrimSpace(window)) {
+	case KeyUsageWindowToday:
+		return KeyUsageWindowToday
+	case KeyUsageWindowLast7d:
+		return KeyUsageWindowLast7d
+	case KeyUsageWindowLast30d:
+		return KeyUsageWindowLast30d
+	case KeyUsageWindowAll:
+		return KeyUsageWindowAll
+	default:
+		return DefaultKeyUsageWindow
+	}
+}
+
+// keyUsageWindowFor 取出单个已归一化窗口的时间边界。
+func keyUsageWindowFor(name string, now time.Time, userTZ string) keyUsageWindow {
+	windows := keyUsageWindows(now, userTZ)
+	for _, window := range windows {
+		if window.Name == name {
+			return window
+		}
+	}
+	return windows[0]
+}
+
+// keyUsageWindows 返回 today / last_7d / last_30d / all 四个窗口。
 //
 // 全部按 userTZ 的自然日边界切分（与 buildAPIKeyDailyUsage 用的 apiKeyDailyUsageRange
 // 完全同源：起点 = StartOfDayInUserLocation(now-(days-1))，终点 = 明天 00:00），
 // 这样窗口汇总和页面上的按天曲线能对得上；不使用 now-7*24h 这种滚动窗口。
 // userTZ 为空时 timezone.* 会回落到服务端全局时区。
+//
+// all 的上界刻意复用同一个 end（明天 00:00）而不是 now：
+//   - 语义上等价，usage_logs 里不会有未来时间的行，"到明天 00:00 为止"就是"到现在为止"；
+//   - 但它是**量化过**的值，一整个自然日内保持不变。全站榜缓存的 key 编了窗口边界，
+//     如果这里取 now，每一次请求都会算出一个新的 cache key，all 窗口就永远命不中缓存，
+//     每次页面加载都要跑一遍全表 GROUP BY api_key_id。
+//
+// 于是 all 与其它三个窗口共用同一条量化规则，缓存侧不需要任何特例。
 func keyUsageWindows(now time.Time, userTZ string) []keyUsageWindow {
 	end := timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
 	return []keyUsageWindow{
 		{Name: KeyUsageWindowToday, Start: timezone.StartOfDayInUserLocation(now, userTZ), End: end},
 		{Name: KeyUsageWindowLast7d, Start: timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -6), userTZ), End: end},
 		{Name: KeyUsageWindowLast30d, Start: timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -29), userTZ), End: end},
+		{Name: KeyUsageWindowAll, Start: keyUsageAllWindowStart, End: end},
 	}
 }
 
-// KeyUsageWindowRanges 返回三个窗口的时间边界（窗口名 → [start, end)），
+// KeyUsageWindowRanges 返回全部窗口的时间边界（窗口名 → [start, end)），
 // 供测试与线上排查核对口径：它必须与 handler 里按天聚合用的 apiKeyDailyUsageRange
 // 在同一个 userTZ 下完全一致。
 func KeyUsageWindowRanges(now time.Time, userTZ string) map[string][2]time.Time {
-	ranges := make(map[string][2]time.Time, 3)
-	for _, window := range keyUsageWindows(now, userTZ) {
+	windows := keyUsageWindows(now, userTZ)
+	ranges := make(map[string][2]time.Time, len(windows))
+	for _, window := range windows {
 		ranges[window.Name] = [2]time.Time{window.Start, window.End}
 	}
 	return ranges
@@ -398,7 +447,7 @@ func (s *KeyUsageService) buildSiteRanking(ctx context.Context, apiKey *APIKey, 
 	// 首个请求断连（浏览器刷新/超时）会把所有等待者一起打成 context.Canceled，
 	// 整块排名退化。这里与请求生命周期解绑，改用自带超时的 ctx。
 	loadCtx := context.WithoutCancel(ctx)
-	snapshot, err := s.siteCache.GetOrLoad(keyUsageSiteCacheKey(metric, window), func() (*keyUsageSiteSnapshot, error) {
+	snapshot, err := s.siteCache.GetOrLoad(keyUsageSiteCacheKey(metric, window), s.siteCache.ttlFor(window), func() (*keyUsageSiteSnapshot, error) {
 		queryCtx, cancel := context.WithTimeout(loadCtx, keyUsageSiteRankingLoadTimeout)
 		defer cancel()
 		rows, loadErr := s.ranking.GetAPIKeyUsageAggregates(queryCtx, window.Start, window.End, 0, metric)
@@ -660,13 +709,33 @@ func (c *keyUsageSiteCache) get(key string) (*keyUsageSiteSnapshot, bool) {
 
 // set 写入快照，并顺手回收过期项。
 //
-// 必须在写入时回收：cache key 里编了窗口边界的 unix 时间戳，每天会产生 9 个全新 key
-// （3 metric × 3 window），而昨天的窗口边界此后永远不会被再次读取——只靠 get 的惰性
+// 必须在写入时回收：cache key 里编了窗口边界的 unix 时间戳，每天会产生 12 个全新 key
+// （3 metric × 4 window），而昨天的窗口边界此后永远不会被再次读取——只靠 get 的惰性
 // 删除，昨天的条目会永久留在 map 里（每条持有一个长度=全站有用量 Key 数的 []float64
 // 和 []int64），几百天下来就是几个 GB 的纯泄漏。
 func (c *keyUsageSiteCache) set(key string, snapshot *keyUsageSiteSnapshot) {
+	c.setWithTTL(key, snapshot, 0)
+}
+
+// ttlFor 返回某个窗口的缓存时长：all 用放大过的 TTL（见 keyUsageAllWindowCacheTTLFactor），
+// 其余窗口用配置的基准值。
+func (c *keyUsageSiteCache) ttlFor(window keyUsageWindow) time.Duration {
+	if c == nil {
+		return 0
+	}
+	if window.Name == KeyUsageWindowAll {
+		return c.ttl * keyUsageAllWindowCacheTTLFactor
+	}
+	return c.ttl
+}
+
+// setWithTTL 是 set 的显式时长版本；ttl <= 0 时回落到缓存的基准 TTL。
+func (c *keyUsageSiteCache) setWithTTL(key string, snapshot *keyUsageSiteSnapshot, ttl time.Duration) {
 	if c == nil {
 		return
+	}
+	if ttl <= 0 {
+		ttl = c.ttl
 	}
 	now := time.Now()
 	c.mu.Lock()
@@ -677,7 +746,7 @@ func (c *keyUsageSiteCache) set(key string, snapshot *keyUsageSiteSnapshot) {
 			delete(c.items, existing)
 		}
 	}
-	c.items[key] = keyUsageSiteCacheEntry{snapshot: snapshot, expiresAt: now.Add(c.ttl)}
+	c.items[key] = keyUsageSiteCacheEntry{snapshot: snapshot, expiresAt: now.Add(ttl)}
 
 	// 兜底上限：即使 TTL 被配得很长（所有条目都还没过期），也不允许无界增长。
 	for len(c.items) > keyUsageSiteCacheMaxEntries {
@@ -708,7 +777,7 @@ func (c *keyUsageSiteCache) Len() int {
 	return len(c.items)
 }
 
-func (c *keyUsageSiteCache) GetOrLoad(key string, load func() (*keyUsageSiteSnapshot, error)) (*keyUsageSiteSnapshot, error) {
+func (c *keyUsageSiteCache) GetOrLoad(key string, ttl time.Duration, load func() (*keyUsageSiteSnapshot, error)) (*keyUsageSiteSnapshot, error) {
 	if c == nil || load == nil {
 		return nil, nil
 	}
@@ -723,7 +792,7 @@ func (c *keyUsageSiteCache) GetOrLoad(key string, load func() (*keyUsageSiteSnap
 		if loadErr != nil {
 			return nil, loadErr
 		}
-		c.set(key, snapshot)
+		c.setWithTTL(key, snapshot, ttl)
 		return snapshot, nil
 	})
 	if err != nil {

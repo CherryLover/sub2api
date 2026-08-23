@@ -213,13 +213,19 @@ export default {
       today: 'Today',
       last7d: 'Last 7 Days',
       last30d: 'Last 30 Days',
+      all: 'All Time',
       modelsTitle: 'Model Breakdown',
       empty: 'No usage in this window',
       noModels: 'No model usage in this window',
     },
+    // The three composable view selectors (time window x ranking scope x sort metric)
+    explorer: {
+      title: 'Usage & Rankings',
+      window: 'Time range',
+      hint: 'Combine a time range, a leaderboard and a sort metric',
+    },
     // Rankings & podium
     rankings: {
-      title: 'Rankings',
       scope: 'Ranking scope',
       scopeAccount: 'Account',
       scopeSite: 'Site-wide',

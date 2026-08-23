@@ -27,8 +27,8 @@
           <td class="px-4 py-2.5 text-sm font-medium text-gray-900 dark:text-white">
             <span class="block max-w-[16rem] truncate" :title="row.model">{{ row.model || '-' }}</span>
           </td>
-          <td class="px-4 py-2.5 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200">{{ formatCount(row.requests) }}</td>
-          <td class="px-4 py-2.5 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200">{{ formatCount(row.tokens) }}</td>
+          <td class="px-4 py-2.5 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200" :title="formatCountExact(row.requests)">{{ formatCount(row.requests) }}</td>
+          <td class="px-4 py-2.5 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200" :title="formatCountExact(row.tokens)">{{ formatCount(row.tokens) }}</td>
           <td class="px-4 py-2.5 text-right text-sm font-medium tabular-nums text-gray-900 dark:text-white">{{ formatUsd(row.cost_usd) }}</td>
         </tr>
       </tbody>
@@ -43,7 +43,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { KeyUsageModelStat } from '@/api/keyUsage'
-import { formatCount, formatUsd } from '@/utils/keyUsageFormat'
+import { formatCount, formatCountExact, formatUsd } from '@/utils/keyUsageFormat'
 
 const props = defineProps<{
   models: KeyUsageModelStat[] | null | undefined

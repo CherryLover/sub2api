@@ -98,10 +98,14 @@ const messages: Record<string, string> = {
   'keyUsage.windows.today': 'Today',
   'keyUsage.windows.last7d': 'Last 7 Days',
   'keyUsage.windows.last30d': 'Last 30 Days',
+  'keyUsage.windows.all': 'All Time',
+  'keyUsage.explorer.title': 'Usage & Rankings',
+  'keyUsage.explorer.window': 'Time range',
+  'keyUsage.explorer.hint': 'Combine a time range, a leaderboard and a sort metric',
+  'keyUsage.rankings.scope': 'Ranking scope',
   'keyUsage.windows.modelsTitle': 'Model Breakdown',
   'keyUsage.windows.empty': 'No usage in this window',
   'keyUsage.windows.noModels': 'No model usage in this window',
-  'keyUsage.rankings.title': 'Rankings',
   'keyUsage.rankings.scopeAccount': 'Account',
   'keyUsage.rankings.scopeSite': 'Site-wide',
   'keyUsage.rankings.scopeAccountHint': 'Compared with account Keys',
@@ -207,9 +211,20 @@ const usagePayload = {
   ],
 }
 
-function accountRankings() {
-  return {
-    today: {
+/**
+ * One fixture per time window. The backend computes exactly one window per request, so the
+ * fixtures are keyed the same way — a test that switches the time tab must see different data
+ * come back, otherwise it proves nothing about the tab actually driving the request.
+ */
+const WINDOW_FIXTURES = {
+  today: {
+    stat: {
+      requests: 12,
+      tokens: 3400,
+      cost_usd: 1.25,
+      models: [{ model: 'claude-opus-5', requests: 10, tokens: 3000, cost_usd: 1 }],
+    },
+    ranking: {
       total_keys: 12,
       self_rank: 3,
       top: [
@@ -219,36 +234,52 @@ function accountRankings() {
       ],
       self: { rank: 3, key_name: 'My Key', requests: 12, tokens: 3400, cost_usd: 1.25, is_self: true },
     },
-    last_7d: {
+  },
+  last_7d: {
+    stat: { requests: 90, tokens: 22000, cost_usd: 9.5, models: [] },
+    ranking: {
       total_keys: 12,
       self_rank: 5,
-      top: [
-        { rank: 1, key_name: 'Alpha Key', requests: 700, tokens: 350000, cost_usd: 69.9, is_self: false },
-      ],
+      top: [{ rank: 1, key_name: 'Alpha Key', requests: 700, tokens: 350000, cost_usd: 69.9, is_self: false }],
       self: { rank: 5, key_name: 'My Key', requests: 90, tokens: 22000, cost_usd: 9.5, is_self: true },
     },
-    // Deliberately empty: exercises the empty-state branch.
-    last_30d: { total_keys: 12, self_rank: 0, top: [], self: null },
-  }
-}
+  },
+  // Deliberately empty: exercises the empty-state branch.
+  last_30d: {
+    stat: { requests: 0, tokens: 0, cost_usd: 0, models: [] },
+    ranking: { total_keys: 12, self_rank: 0, top: [], self: null },
+  },
+  // Big enough to exercise the M/B abbreviation everywhere on the page.
+  all: {
+    stat: {
+      requests: 1_234_567,
+      tokens: 2_500_000_000,
+      cost_usd: 4321.5,
+      models: [{ model: 'claude-opus-5', requests: 1_234_567, tokens: 2_500_000_000, cost_usd: 4321.5 }],
+    },
+    ranking: {
+      total_keys: 40,
+      self_rank: 1,
+      top: [
+        { rank: 1, key_name: 'My Key', requests: 1_234_567, tokens: 2_500_000_000, cost_usd: 4321.5, is_self: true },
+      ],
+      self: { rank: 1, key_name: 'My Key', requests: 1_234_567, tokens: 2_500_000_000, cost_usd: 4321.5, is_self: true },
+    },
+  },
+} as const
 
-function makeReport(metric = 'cost') {
+type WindowKey = keyof typeof WINDOW_FIXTURES
+
+function makeReport(metric = 'cost', window: WindowKey = 'today') {
+  const fixture = WINDOW_FIXTURES[window] ?? WINDOW_FIXTURES.today
   return {
     key: { name: 'My Key', created_at: '2026-01-02T03:04:05Z', status: 'active' },
     usage: usagePayload,
-    windows: {
-      today: {
-        requests: 12,
-        tokens: 3400,
-        cost_usd: 1.25,
-        models: [{ model: 'claude-opus-5', requests: 10, tokens: 3000, cost_usd: 1 }],
-      },
-      last_7d: { requests: 90, tokens: 22000, cost_usd: 9.5, models: [] },
-      last_30d: { requests: 0, tokens: 0, cost_usd: 0, models: [] },
-    },
+    window,
+    window_stat: fixture.stat,
     rankings: {
-      account: accountRankings(),
-      site: accountRankings(),
+      account: fixture.ranking,
+      site: fixture.ranking,
     },
     metric,
     generated_at: '2026-05-19T10:00:00Z',
@@ -278,8 +309,10 @@ function installFetch() {
       }
       if (url.includes('/key-usage/report')) {
         if (overrides.report) return overrides.report(url)
-        const metric = new URL(url, 'http://localhost').searchParams.get('metric') || 'cost'
-        return jsonResponse(makeReport(metric))
+        const params = new URL(url, 'http://localhost').searchParams
+        const metric = params.get('metric') || 'cost'
+        const window = (params.get('window') || 'today') as WindowKey
+        return jsonResponse(makeReport(metric, window))
       }
       throw new Error(`unexpected fetch: ${url}`)
     })
@@ -438,6 +471,7 @@ describe('KeyUsageView', () => {
       await wrapper.find('input').trigger('keydown.enter')
       await settle()
 
+      // Defaults are omitted from the URL, so a fresh lookup link stays clean.
       expect(routerMock.replace).toHaveBeenCalledWith({ query: { t: 'tok-1' } })
       expect(routerMock.push).not.toHaveBeenCalled()
       // The raw key must never be written into the URL.
@@ -461,6 +495,79 @@ describe('KeyUsageView', () => {
       expect(wrapper.text()).toContain('Lookup link for My Key')
       expect(wrapper.text()).toContain('Anyone holding this link can see this Key usage.')
       expect(wrapper.text()).toContain('Daily Detail')
+
+      wrapper.unmount()
+    })
+
+    it('mirrors the three selectors into the URL with replace, never push', async () => {
+      routeState.query = { t: 'tok-from-url' }
+      const wrapper = mountView()
+      await settle()
+      routerMock.replace.mockClear()
+
+      await wrapper.find('[data-testid="window-tab"][data-window="all"]').trigger('click')
+      await settle()
+      expect(routerMock.replace).toHaveBeenLastCalledWith({ query: { t: 'tok-from-url', w: 'all' } })
+
+      await wrapper.find('[data-testid="scope-tab"][data-scope="site"]').trigger('click')
+      await settle()
+      expect(routerMock.replace).toHaveBeenLastCalledWith({ query: { t: 'tok-from-url', w: 'all', s: 'site' } })
+
+      await wrapper.find('[data-testid="metric-tab"][data-metric="tokens"]').trigger('click')
+      await settle()
+      expect(routerMock.replace).toHaveBeenLastCalledWith({
+        query: { t: 'tok-from-url', w: 'all', s: 'site', m: 'tokens' },
+      })
+
+      // Flipping a filter tab must never grow the browser back stack.
+      expect(routerMock.push).not.toHaveBeenCalled()
+
+      wrapper.unmount()
+    })
+
+    it('omits selectors that are still on their default from the URL', async () => {
+      routeState.query = { t: 'tok-from-url', w: 'all' }
+      const wrapper = mountView()
+      await settle()
+      routerMock.replace.mockClear()
+
+      await wrapper.find('[data-testid="window-tab"][data-window="today"]').trigger('click')
+      await settle()
+
+      expect(routerMock.replace).toHaveBeenLastCalledWith({ query: { t: 'tok-from-url' } })
+
+      wrapper.unmount()
+    })
+
+    it('restores a shared view (window / scope / metric) from the URL on mount', async () => {
+      routeState.query = { t: 'tok-from-url', w: 'all', s: 'site', m: 'tokens' }
+
+      const wrapper = mountView()
+      await settle()
+
+      // The very first request already carries the shared view — no default flash first.
+      expect(reportCalls()).toHaveLength(1)
+      expect(reportCalls()[0]).toContain('window=all')
+      expect(reportCalls()[0]).toContain('metric=tokens')
+
+      expect(wrapper.find('[data-testid="window-tab"][data-window="all"]').attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-testid="scope-tab"][data-scope="site"]').attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-testid="metric-tab"][data-metric="tokens"]').attributes('aria-pressed')).toBe('true')
+      expect(wrapper.text()).toContain('Compared with site Keys')
+
+      wrapper.unmount()
+    })
+
+    it('ignores unrecognised selector values in the URL', async () => {
+      routeState.query = { t: 'tok-from-url', w: 'last_millennium', s: 'galaxy', m: 'vibes' }
+
+      const wrapper = mountView()
+      await settle()
+
+      expect(reportCalls()[0]).toContain('window=today')
+      expect(reportCalls()[0]).toContain('metric=cost')
+      expect(wrapper.find('[data-testid="window-tab"][data-window="today"]').attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-testid="scope-tab"][data-scope="account"]').attributes('aria-pressed')).toBe('true')
 
       wrapper.unmount()
     })
@@ -583,22 +690,37 @@ describe('KeyUsageView', () => {
       wrapper.unmount()
     })
 
-    it('renders one podium per window and an empty state for windows without data', async () => {
+    it('renders exactly one window at a time, switched by the time tab', async () => {
       const wrapper = await mountWithToken()
 
-      const windows = wrapper.findAll('[data-testid="ranking-window"]')
-      expect(windows.map(w => w.attributes('data-window'))).toEqual(['today', 'last_7d', 'last_30d'])
-
-      const empty = wrapper.find('[data-testid="ranking-window"][data-window="last_30d"]')
-      expect(empty.find('[data-testid="ranking-window-empty"]').exists()).toBe(true)
-      expect(empty.findAll('[data-testid="podium-slot"]')).toHaveLength(0)
-      expect(empty.text()).toContain('No ranking data in this window')
+      // One ranking block on screen, never a vertical stack of three.
+      expect(wrapper.findAll('[data-testid="ranking-window"]')).toHaveLength(1)
+      expect(wrapper.find('[data-testid="ranking-window"]').attributes('data-window')).toBe('today')
 
       // A single-entry window still renders, with just the gold slot.
-      const week = wrapper.find('[data-testid="ranking-window"][data-window="last_7d"]')
+      await wrapper.find('[data-testid="window-tab"][data-window="last_7d"]').trigger('click')
+      await settle()
+
+      const week = wrapper.find('[data-testid="ranking-window"]')
+      expect(week.attributes('data-window')).toBe('last_7d')
       const weekSlots = week.findAll('[data-testid="podium-slot"]')
       expect(weekSlots).toHaveLength(1)
       expect(weekSlots[0].attributes('data-medal')).toBe('gold')
+
+      wrapper.unmount()
+    })
+
+    it('renders the empty ranking state for a window without data', async () => {
+      const wrapper = await mountWithToken()
+
+      await wrapper.find('[data-testid="window-tab"][data-window="last_30d"]').trigger('click')
+      await settle()
+
+      const empty = wrapper.find('[data-testid="ranking-window"]')
+      expect(empty.attributes('data-window')).toBe('last_30d')
+      expect(empty.find('[data-testid="ranking-window-empty"]').exists()).toBe(true)
+      expect(empty.findAll('[data-testid="podium-slot"]')).toHaveLength(0)
+      expect(empty.text()).toContain('No ranking data in this window')
 
       wrapper.unmount()
     })
@@ -638,6 +760,121 @@ describe('KeyUsageView', () => {
       // Total-tokens column becomes the emphasised one.
       const firstRow = wrapper.find('[data-testid="ranking-row"]')
       expect(firstRow.text()).toContain('50,000')
+
+      wrapper.unmount()
+    })
+
+    it('re-requests with the selected time window and re-renders without a skeleton', async () => {
+      const wrapper = await mountWithToken()
+      expect(reportCalls()[0]).toContain('window=today')
+
+      await wrapper.find('[data-testid="window-tab"][data-window="all"]').trigger('click')
+      await settle()
+
+      const calls = reportCalls()
+      expect(calls).toHaveLength(2)
+      expect(calls[1]).toContain('window=all')
+      expect(calls[1]).toContain('token=tok-from-url')
+      // The window tab must not disturb the other two dimensions.
+      expect(calls[1]).toContain('metric=cost')
+
+      // Data stays on screen through the switch: no loading skeleton is mounted.
+      expect(wrapper.find('.skeleton').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="rankings-section"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="window-tab"][data-window="all"]').attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-testid="window-summary"]').attributes('data-window')).toBe('all')
+
+      wrapper.unmount()
+    })
+
+    it('offers all four time windows and renders each one it is switched to', async () => {
+      const wrapper = await mountWithToken()
+
+      const tabs = wrapper.findAll('[data-testid="window-tab"]')
+      expect(tabs.map(tab => tab.attributes('data-window'))).toEqual(['today', 'last_7d', 'last_30d', 'all'])
+      expect(tabs.map(tab => tab.text())).toEqual(['Today', 'Last 7 Days', 'Last 30 Days', 'All Time'])
+
+      for (const window of ['last_7d', 'last_30d', 'all', 'today']) {
+        await wrapper.find(`[data-testid="window-tab"][data-window="${window}"]`).trigger('click')
+        await settle()
+        expect(wrapper.find('[data-testid="window-summary"]').attributes('data-window')).toBe(window)
+        expect(wrapper.find('[data-testid="ranking-window"]').attributes('data-window')).toBe(window)
+      }
+
+      wrapper.unmount()
+    })
+
+    it('keeps the current report on screen when a window switch fails', async () => {
+      const wrapper = await mountWithToken()
+
+      overrides.report = () => jsonResponse({ error: { message: 'window boom' } }, false, 500)
+      await wrapper.find('[data-testid="window-tab"][data-window="all"]').trigger('click')
+      await settle()
+
+      expect(showError).toHaveBeenCalledWith('window boom')
+      expect(wrapper.find('[data-testid="rankings-section"]').exists()).toBe(true)
+      // The selection rolls back to the window that is actually rendered.
+      expect(wrapper.find('[data-testid="window-tab"][data-window="today"]').attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('[data-testid="window-summary"]').attributes('data-window')).toBe('today')
+
+      wrapper.unmount()
+    })
+
+    it('trusts the window the backend echoes back over the one that was requested', async () => {
+      const wrapper = await mountWithToken()
+
+      // The backend silently falls back for an unrecognised window; the page must follow it
+      // rather than labelling today-sized numbers "All Time".
+      overrides.report = () => jsonResponse(makeReport('cost', 'today'))
+      await wrapper.find('[data-testid="window-tab"][data-window="all"]').trigger('click')
+      await settle()
+
+      expect(wrapper.find('[data-testid="window-summary"]').attributes('data-window')).toBe('today')
+      expect(wrapper.find('[data-testid="window-tab"][data-window="today"]').attributes('aria-pressed')).toBe('true')
+
+      wrapper.unmount()
+    })
+
+    it('groups the three selectors together in one filter panel', async () => {
+      const wrapper = await mountWithToken()
+
+      const filters = wrapper.find('[data-testid="usage-filters"]')
+      expect(filters.exists()).toBe(true)
+      // All three dimensions live in the same panel, not scattered down the page.
+      expect(filters.findAll('[data-testid="window-tab"]')).toHaveLength(4)
+      expect(filters.findAll('[data-testid="scope-tab"]')).toHaveLength(2)
+      expect(filters.findAll('[data-testid="metric-tab"]')).toHaveLength(3)
+      expect(filters.text()).toContain('Time range')
+      expect(filters.text()).toContain('Ranking scope')
+      expect(filters.text()).toContain('Sort by')
+
+      wrapper.unmount()
+    })
+
+    it('abbreviates large token counts and keeps the exact value in the title', async () => {
+      const wrapper = await mountWithToken()
+
+      await wrapper.find('[data-testid="window-tab"][data-window="all"]').trigger('click')
+      await settle()
+
+      const summary = wrapper.find('[data-testid="window-summary"]')
+      expect(summary.text()).toContain('2.50B')
+      expect(summary.text()).toContain('1.23M')
+      expect(summary.text()).not.toContain('2,500,000,000')
+
+      const titles = summary.findAll('dd').map(dd => dd.attributes('title'))
+      expect(titles).toContain('2,500,000,000')
+      expect(titles).toContain('1,234,567')
+
+      // Cost keeps its exact $x.xx form — abbreviation is for counts only.
+      expect(summary.text()).toContain('$4321.50')
+
+      // Same treatment in the ranking table and the model breakdown.
+      const rankCells = wrapper.findAll('[data-testid="ranking-row"] td')
+      expect(rankCells.some(td => td.attributes('title') === '2,500,000,000')).toBe(true)
+      const modelCells = wrapper.findAll('[data-testid="window-model-row"] td')
+      expect(modelCells.some(td => td.attributes('title') === '2,500,000,000')).toBe(true)
+      expect(wrapper.find('[data-testid="window-model-table"]').text()).toContain('2.50B')
 
       wrapper.unmount()
     })
@@ -691,13 +928,15 @@ describe('KeyUsageView', () => {
   // ==================== Per-window statistics ====================
 
   describe('window statistics', () => {
-    it('renders per-window requests / tokens / cost and the model breakdown', async () => {
+    it('renders requests / tokens / cost and the model breakdown for the selected window', async () => {
       routeState.query = { t: 'tok-from-url' }
       const wrapper = mountView()
       await settle()
 
+      // One summary card, for the window currently selected — not three stacked cards.
       const summaries = wrapper.findAll('[data-testid="window-summary"]')
-      expect(summaries.map(s => s.attributes('data-window'))).toEqual(['today', 'last_7d', 'last_30d'])
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0].attributes('data-window')).toBe('today')
       expect(summaries[0].text()).toContain('3,400')
       expect(summaries[0].text()).toContain('$1.25')
 
@@ -713,12 +952,13 @@ describe('KeyUsageView', () => {
       const wrapper = mountView()
       await settle()
 
-      const empty = wrapper.find('[data-testid="window-summary"][data-window="last_30d"]')
+      await wrapper.find('[data-testid="window-tab"][data-window="last_30d"]').trigger('click')
+      await settle()
+
+      const empty = wrapper.find('[data-testid="window-summary"]')
+      expect(empty.attributes('data-window')).toBe('last_30d')
       expect(empty.find('[data-testid="window-summary-empty"]').exists()).toBe(true)
       expect(empty.text()).toContain('No usage in this window')
-
-      await wrapper.find('[data-testid="window-tab"][data-window="last_30d"]').trigger('click')
-      await nextTick()
 
       expect(wrapper.find('[data-testid="window-model-table"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="window-model-empty"]').exists()).toBe(true)
@@ -729,13 +969,14 @@ describe('KeyUsageView', () => {
 
     it('degrades gracefully when the backend omits windows and rankings', async () => {
       routeState.query = { t: 'tok-from-url' }
-      overrides.report = () => jsonResponse({ key: null, usage: usagePayload, metric: 'cost' })
+      overrides.report = () => jsonResponse({ key: null, usage: usagePayload, metric: 'cost', window: 'today' })
 
       const wrapper = mountView()
       await settle()
 
       expect(wrapper.find('[data-testid="windows-section"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="rankings-section"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="usage-filters"]').exists()).toBe(false)
       // The legacy usage panels still render.
       expect(wrapper.text()).toContain('Daily Detail')
 
