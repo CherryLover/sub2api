@@ -105,7 +105,7 @@ func (c *Config) normalizeAndValidateWeb() error {
 		c.Web.DefaultHomePath = DefaultHomePathFallback
 	}
 	if !allowedDefaultHomePaths[c.Web.DefaultHomePath] &&
-		!(c.Web.DefaultHomePath == "/login" && c.Web.LoginEntryPublic) {
+		(c.Web.DefaultHomePath != "/login" || !c.Web.LoginEntryPublic) {
 		return fmt.Errorf(
 			"web.default_home_path %q is not an allowed landing page (allowed: /home, /key-usage, /model-plaza%s)",
 			c.Web.DefaultHomePath,
