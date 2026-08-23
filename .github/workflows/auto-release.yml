@@ -1,0 +1,291 @@
+# =============================================================================
+# main 合并即自动发版：自动递增 patch 版本号，打 tag 并触发 release.yml
+# =============================================================================
+# 流水线全貌（一次普通合并）：
+#   合并到 main
+#     -> CI（backend-ci.yml，name: CI）全绿
+#     -> 本 workflow：算出下一个 patch 版本 vX.Y.Z，打 annotated tag 并推送
+#     -> 显式 dispatch release.yml，由 GoReleaser 出完整发版
+#        （多架构镜像 + GitHub Release + latest，见 .goreleaser.yaml）
+#     -> release.yml 的 retag-main-image job 把同一份 manifest 重打成
+#        :main / :main-<sha>，不重新构建
+#
+# 镜像只构建一次：main-docker-image.yml 的自动触发已经收窄成手动兜底，
+# 合并路径上只有 release.yml 里的 GoReleaser 在构建。
+#
+# ⚠️ GITHUB_TOKEN 的防递归机制 ⚠️
+# 用内置 GITHUB_TOKEN 推送的 tag **不会**触发 release.yml 的 `on: push: tags`，
+# 否则 workflow 会无限自我触发。GitHub 对这条规则只留了两个例外：
+# workflow_dispatch 和 repository_dispatch。所以这里不靠 tag push 触发发版，
+# 而是推完 tag 之后显式 `gh workflow run release.yml -f tag=vX.Y.Z`。
+# 好处是站长不需要额外配置 PAT。
+# 反过来说：请不要再给本仓库配一个能推 tag 的 PAT 来"修"这个问题 ——
+# 那样 tag push 和这里的 dispatch 会各触发一次 release.yml，同一个版本发两遍。
+# =============================================================================
+name: Auto Release
+
+on:
+  # 质量闸门：等既有的 CI 整体跑完且成功再发版，坏版本不会被自动发出去。
+  # （与 main-docker-image.yml 当初的闸门写法一致）
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+  # 手动补发或指定版本号（例如需要跳 minor/major，或补上一次被跳过的发版）
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '手动指定版本号（如 v0.2.0），留空则在最大 tag 上自动 +1 patch'
+        required: false
+        type: string
+
+# 一次只跑一个：并发打 tag 会算出同一个版本号然后互相推挂。
+# 这里不取消进行中的任务 —— 打到一半被取消会留下"tag 推了但没发版"的残局。
+concurrency:
+  group: auto-release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release-tag:
+    name: 计算版本号并打 tag
+    # 只有两种情况才继续：
+    #   a) 人工 workflow_dispatch
+    #   b) 本仓库 main 分支的 push 所触发的 CI 跑完且成功
+    #   （CI 同时监听 pull_request，用 workflow_run.event == 'push' 排除掉 PR 那次）
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # 推送 tag
+      actions: write # 触发 release.yml 的 workflow_dispatch
+    steps:
+      # 手动触发时 GitHub 允许选任意分支，但发版只应该发 main。
+      - name: 校验手动触发的分支
+        if: github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
+        run: |
+          echo "::error::自动发版只针对 main 分支，当前分支：${{ github.ref_name }}"
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # workflow_run 事件里的 github.sha 指向默认分支当时的状态，
+          # 不一定是触发 CI 的那个提交，必须显式用 workflow_run.head_sha
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # 需要完整历史和全部 tag 才能算"最大版本号"和生成变更列表
+          fetch-depth: 0
+          # 需要凭据推送 tag
+          persist-credentials: true
+
+      - name: 预检（是否仍是 main 最新提交 / 是否被显式跳过）
+        id: precheck
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          SKIP=false
+
+          # CI 的完成顺序不保证和 push 顺序一致（macos-15 那个 job 排队久了，
+          # 老提交的 CI 可能后完成）。给老提交发版会让 latest / :main 静默回退，
+          # 所以发现 main 已经前进就跳过 —— 更新的那个提交的 CI 会触发它自己的发版。
+          #
+          # 但"前进了"要分两种情况：release.yml 的 sync-version-file 会在发版后
+          # 往 main 推一个 "chore: sync VERSION ... [skip ci]" 提交，它不跑 CI、
+          # 也就不会触发发版。如果把它算作"main 已前进"，那么恰好卡在这个时间点
+          # 完成 CI 的那次合并就会被永久饿死（本次跳过，之后也没人替它发）。
+          # 所以只统计 head_sha 之后**没有跳过标记**的提交。
+          # 显式补一次 tag（后面判断"该提交是否已发过版"要用），再单独 fetch main：
+          # --tags 那次也会往 FETCH_HEAD 里写内容，分开取才能保证 FETCH_HEAD 是 main
+          git fetch --tags --force --quiet
+          git fetch --quiet origin main
+          TIP_SHA="$(git rev-parse FETCH_HEAD)"
+          if [ "${TIP_SHA}" != "${HEAD_SHA}" ]; then
+            if git merge-base --is-ancestor "${HEAD_SHA}" "${TIP_SHA}"; then
+              while read -r NEWER_SHA; do
+                [ -n "${NEWER_SHA}" ] || continue
+                NEWER_MSG="$(git log -1 --pretty=%B "${NEWER_SHA}")"
+                case "${NEWER_MSG}" in
+                  *"[skip release]"*|*"[skip ci]"*) ;;
+                  *)
+                    echo "::notice::main 已前进到 ${TIP_SHA}（含实际提交 ${NEWER_SHA}），跳过 ${HEAD_SHA} 的发版"
+                    SKIP=true
+                    ;;
+                esac
+              done <<< "$(git log --pretty=format:%H "${HEAD_SHA}..${TIP_SHA}")"
+            else
+              # head_sha 不在 main 历史里（force push / 分支被重写），不发版
+              echo "::notice::${HEAD_SHA} 已不在 main 历史中，跳过发版"
+              SKIP=true
+            fi
+          fi
+
+          # 提交信息里带 [skip release] / [skip ci] 的不发版：
+          #   - [skip release]：站长手动标注的"这次合并不值得发版"
+          #   - [skip ci]：release.yml 的 sync-version-file 回写 VERSION 用的正是
+          #     这个标记，绝不能让它反过来再触发一次发版
+          COMMIT_MSG="$(git log -1 --pretty=%B "${HEAD_SHA}")"
+          case "${COMMIT_MSG}" in
+            *"[skip release]"*|*"[skip ci]"*)
+              echo "::notice::提交信息包含跳过标记，不发版"
+              SKIP=true
+              ;;
+          esac
+
+          # 该提交已经有版本 tag（例如手动发过），不重复发
+          if [ -n "$(git tag --points-at "${HEAD_SHA}" -l 'v[0-9]*')" ]; then
+            echo "::notice::${HEAD_SHA} 已存在版本 tag，不重复发版"
+            SKIP=true
+          fi
+
+          echo "skip=${SKIP}" >> "${GITHUB_OUTPUT}"
+
+      - name: 计算下一个版本号
+        id: version
+        if: steps.precheck.outputs.skip != 'true'
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+
+          SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+
+          # 已有的最大正式版本 tag（排除 v1.2.3-rc1 这类预发布）
+          LATEST="$(git tag -l 'v[0-9]*' \
+            | sed 's/^v//' \
+            | grep -E "${SEMVER_RE}" \
+            | sort -V \
+            | tail -n1 || true)"
+
+          if [ -z "${LATEST}" ]; then
+            # 本 fork 目前一个 tag 都没有：以仓库内 VERSION 文件为起点。
+            # VERSION 正是运行中的二进制自报的版本号（backend/cmd/server/main.go
+            # 通过 //go:embed 读它），从它 +1 patch 起步，已部署实例才能立刻
+            # 检查到"有新版本"，而不是先看到一个比自己旧的版本号。
+            LATEST="$(tr -d ' \r\n' < backend/cmd/server/VERSION)"
+            echo "仓库暂无版本 tag，以 VERSION 文件为起点：${LATEST}"
+            if ! echo "${LATEST}" | grep -qE "${SEMVER_RE}"; then
+              echo "::error::VERSION 文件内容不是 x.y.z：${LATEST}"
+              exit 1
+            fi
+          else
+            echo "当前最大版本 tag：v${LATEST}"
+          fi
+
+          if [ -n "${INPUT_VERSION}" ]; then
+            NEXT="${INPUT_VERSION#v}"
+            if ! echo "${NEXT}" | grep -qE "${SEMVER_RE}"; then
+              echo "::error::手动指定的版本号格式不对（应为 vX.Y.Z）：${INPUT_VERSION}"
+              exit 1
+            fi
+          else
+            MAJOR="${LATEST%%.*}"
+            REST="${LATEST#*.}"
+            MINOR="${REST%%.*}"
+            PATCH="${REST#*.}"
+            NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+
+          TAG="v${NEXT}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "::error::tag ${TAG} 已存在"
+            exit 1
+          fi
+
+          {
+            echo "version=${NEXT}"
+            echo "tag=${TAG}"
+            echo "prev_tag=${LATEST}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "将发布 ${TAG}"
+
+      - name: 打 tag 并推送
+        id: tag
+        if: steps.precheck.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          PREV_TAG: ${{ steps.version.outputs.prev_tag }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          # release.yml 用 `git tag -l --format='%(contents:body)'` 取 tag 消息
+          # （跳过首行标题）作为 Release 正文，所以首行写标题、空一行再写正文。
+          #
+          # 变更列表来自上一个 tag 到本次提交的 commit 标题。这里刻意剔除单引号和
+          # 反引号：release.yml 的 Telegram 通知步骤把 tag 消息拼进单引号 shell
+          # 字符串，提交标题里带一个单引号就会让那一步整段语法错。
+          RANGE=""
+          if git rev-parse -q --verify "refs/tags/v${PREV_TAG}" >/dev/null; then
+            RANGE="v${PREV_TAG}..${HEAD_SHA}"
+          fi
+          # 注意用 git log -n 而不是管道 head：head 提前关闭管道会让 git 拿到
+          # SIGPIPE，配合 set -o pipefail 会把这一步判成失败。
+          if [ -n "${RANGE}" ]; then
+            CHANGES="$(git log "${RANGE}" --no-merges -n 50 --pretty=format:'- %s' | tr -d "\`'")"
+          else
+            CHANGES="$(git log "${HEAD_SHA}" --no-merges -n 20 --pretty=format:'- %s' | tr -d "\`'")"
+          fi
+          if [ -z "${CHANGES}" ]; then
+            CHANGES="- 无代码变更记录"
+          fi
+
+          {
+            echo "Sub2API ${TAG}"
+            echo
+            echo "main 分支合并后自动发版（提交 ${HEAD_SHA}）"
+            echo
+            echo "## 本次变更"
+            echo
+            echo "${CHANGES}"
+          } > /tmp/tag-message.txt
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -F /tmp/tag-message.txt "${HEAD_SHA}"
+          git push origin "refs/tags/${TAG}"
+          echo "已推送 ${TAG}"
+
+      - name: 触发 release.yml
+        if: steps.precheck.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          # workflow_dispatch 是 GITHUB_TOKEN 防递归机制的例外，这一步能真正拉起
+          # release.yml；release.yml 的 dispatch 分支已经支持 tag 入参，
+          # 会 checkout 该 tag 并交给 GoReleaser。
+          gh workflow run release.yml --ref "${DEFAULT_BRANCH}" -f tag="${TAG}"
+          echo "已触发 release.yml，tag=${TAG}"
+
+      - name: 输出发版信息
+        env:
+          SKIPPED: ${{ steps.precheck.outputs.skip }}
+          TAG: ${{ steps.version.outputs.tag }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          {
+            if [ "${SKIPPED}" = "true" ]; then
+              echo "### 本次未发版"
+              echo
+              echo "- commit: \`${HEAD_SHA}\`"
+              echo "- 原因见上方 notice（非 main 最新提交 / 带跳过标记 / 已有 tag）"
+            else
+              echo "### 已发版"
+              echo
+              echo "- commit: \`${HEAD_SHA}\`"
+              echo "- tag: \`${TAG}\`"
+              echo "- 已触发 release.yml，产出 Release、多架构镜像、\`latest\` 与 \`:main\`"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

@@ -161,6 +161,12 @@ type UpdateConfig struct {
 	// 支持 http/https/socks5/socks5h 协议
 	// 例如: "http://127.0.0.1:7890", "socks5://127.0.0.1:1080"
 	ProxyURL string `mapstructure:"proxy_url"`
+
+	// GitHubRepo 版本检查 / 在线更新读取 Release 的仓库，形如 "owner/name"。
+	// 留空或格式非法时回退到服务层的默认仓库（见 service.defaultGitHubRepo）。
+	// 该仓库的 Release 必须带上更新器需要的资产（sub2api_<版本>_<os>_<arch>.tar.gz
+	// 与 checksums.txt），否则会出现"能检查到新版本但下载失败"。
+	GitHubRepo string `mapstructure:"github_repo"`
 }
 
 type IdempotencyConfig struct {
@@ -2286,6 +2292,10 @@ func setDefaults() {
 	viper.SetDefault("pricing.fallback_file", "./resources/model-pricing/model_prices_and_context_window.json")
 	viper.SetDefault("pricing.update_interval_hours", 24)
 	viper.SetDefault("pricing.hash_check_interval_minutes", 10)
+
+	// Update - 版本检查与在线更新读取 Release 的仓库（环境变量 UPDATE_GITHUB_REPO）
+	// 本仓库自行发版，默认指向自己的仓库；要跟随上游改成 "Wei-Shaw/sub2api" 即可
+	viper.SetDefault("update.github_repo", "CherryLover/sub2api")
 
 	// Timezone (default to Asia/Shanghai for Chinese users)
 	viper.SetDefault("timezone", "Asia/Shanghai")

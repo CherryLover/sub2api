@@ -2,7 +2,7 @@
 #
 # Sub2API Installation Script
 # Sub2API 安装脚本
-# Usage: curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/CherryLover/sub2api/main/deploy/install.sh | bash
 #
 
 set -e
@@ -31,7 +31,8 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-GITHUB_REPO="Wei-Shaw/sub2api"
+# 默认从本仓库自己的 Release 安装/回滚，可用 GITHUB_REPO 环境变量覆盖
+GITHUB_REPO="${GITHUB_REPO:-CherryLover/sub2api}"
 INSTALL_DIR="/opt/sub2api"
 SERVICE_NAME="sub2api"
 SERVICE_USER="sub2api"
