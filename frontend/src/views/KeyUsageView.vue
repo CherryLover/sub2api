@@ -197,25 +197,23 @@
               <div class="skeleton h-4 w-2/3"></div>
             </div>
           </div>
-          <!-- Window summary skeleton (3 windows) -->
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div
-              v-for="n in 3"
-              :key="`win-sk-${n}`"
-              class="rounded-2xl border border-gray-200 bg-white p-6 dark:border-dark-700 dark:bg-dark-900"
-            >
-              <div class="skeleton h-4 w-20 mb-4"></div>
-              <div class="space-y-3">
-                <div class="skeleton h-3 w-full"></div>
-                <div class="skeleton h-3 w-5/6"></div>
-                <div class="skeleton h-3 w-2/3"></div>
-              </div>
+          <!-- Filter bar + single-window summary skeleton -->
+          <div class="rounded-2xl border border-gray-200 bg-white p-6 dark:border-dark-700 dark:bg-dark-900">
+            <div class="skeleton h-4 w-28 mb-4"></div>
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div v-for="n in 3" :key="`filter-sk-${n}`" class="skeleton h-9 w-full"></div>
+            </div>
+          </div>
+          <div class="rounded-2xl border border-gray-200 bg-white p-6 dark:border-dark-700 dark:bg-dark-900">
+            <div class="skeleton h-4 w-20 mb-4"></div>
+            <div class="grid gap-3 sm:grid-cols-3">
+              <div class="skeleton h-3 w-full"></div>
+              <div class="skeleton h-3 w-5/6"></div>
+              <div class="skeleton h-3 w-2/3"></div>
             </div>
           </div>
           <!-- Podium skeleton -->
           <div
-            v-for="n in 2"
-            :key="`rank-sk-${n}`"
             class="rounded-2xl border border-gray-200 bg-white p-8 dark:border-dark-700 dark:bg-dark-900"
           >
             <div class="skeleton h-4 w-24 mb-6"></div>
@@ -382,7 +380,7 @@
                 class="bg-white px-6 py-4 dark:bg-dark-900"
               >
                 <div class="text-xs text-gray-500 dark:text-dark-400 mb-1">{{ cell.label }}</div>
-                <div class="text-sm font-semibold tabular-nums text-gray-900 dark:text-white">{{ cell.value }}</div>
+                <div class="text-sm font-semibold tabular-nums text-gray-900 dark:text-white" :title="cell.title">{{ cell.value }}</div>
               </div>
             </div>
           </div>
@@ -428,11 +426,11 @@
                     class="border-b border-gray-100 last:border-b-0 dark:border-dark-800"
                   >
                     <td class="px-4 py-3 text-sm font-medium whitespace-nowrap text-gray-900 dark:text-white">{{ row.date }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(row.requests) }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(row.input_tokens) }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(row.output_tokens) }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(row.cache_read_tokens) }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(row.cache_write_tokens) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200" :title="fmtNumExact(row.requests)">{{ fmtNum(row.requests) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200" :title="fmtNumExact(row.input_tokens)">{{ fmtNum(row.input_tokens) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200" :title="fmtNumExact(row.output_tokens)">{{ fmtNum(row.output_tokens) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200" :title="fmtNumExact(row.cache_read_tokens)">{{ fmtNum(row.cache_read_tokens) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200" :title="fmtNumExact(row.cache_write_tokens)">{{ fmtNum(row.cache_write_tokens) }}</td>
                     <td class="px-4 py-3 text-sm tabular-nums text-right font-medium text-gray-900 dark:text-white">{{ usd(row.actual_cost != null ? row.actual_cost : row.cost) }}</td>
                   </tr>
                 </tbody>
@@ -472,12 +470,12 @@
                     class="border-b border-gray-100 last:border-b-0 dark:border-dark-800"
                   >
                     <td class="px-4 py-3 text-sm font-medium whitespace-nowrap text-gray-900 dark:text-white">{{ m.model || '-' }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(m.requests) }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(m.input_tokens) }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(m.output_tokens) }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(m.cache_creation_tokens) }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(m.cache_read_tokens) }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(m.total_tokens) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200" :title="fmtNumExact(m.requests)">{{ fmtNum(m.requests) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200" :title="fmtNumExact(m.input_tokens)">{{ fmtNum(m.input_tokens) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200" :title="fmtNumExact(m.output_tokens)">{{ fmtNum(m.output_tokens) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200" :title="fmtNumExact(m.cache_creation_tokens)">{{ fmtNum(m.cache_creation_tokens) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200" :title="fmtNumExact(m.cache_read_tokens)">{{ fmtNum(m.cache_read_tokens) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200" :title="fmtNumExact(m.total_tokens)">{{ fmtNum(m.total_tokens) }}</td>
                     <td class="px-4 py-3 text-sm tabular-nums text-right font-medium text-gray-900 dark:text-white">{{ usd(m.actual_cost != null ? m.actual_cost : m.cost) }}</td>
                   </tr>
                 </tbody>
@@ -485,89 +483,64 @@
             </div>
           </div>
 
-          <!-- ==================== Window Statistics ==================== -->
-          <div v-if="hasWindowStats" data-testid="windows-section" class="fade-up fade-up-delay-3 space-y-4">
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div
-                v-for="card in windowCards"
-                :key="card.key"
-                data-testid="window-summary"
-                :data-window="card.key"
-                class="rounded-2xl border border-gray-200 bg-white/90 p-5 backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90"
-              >
-                <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ card.label }}</h4>
-                <dl class="mt-4 space-y-2.5">
-                  <div class="flex items-baseline justify-between gap-3">
-                    <dt class="text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.requests') }}</dt>
-                    <dd class="text-sm font-semibold tabular-nums text-gray-900 dark:text-white">{{ fmtNum(card.stat?.requests ?? 0) }}</dd>
-                  </div>
-                  <div class="flex items-baseline justify-between gap-3">
-                    <dt class="text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.totalTokens') }}</dt>
-                    <dd class="text-sm font-semibold tabular-nums text-gray-900 dark:text-white">{{ fmtNum(card.stat?.tokens ?? 0) }}</dd>
-                  </div>
-                  <div class="flex items-baseline justify-between gap-3">
-                    <dt class="text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.cost') }}</dt>
-                    <dd class="text-sm font-semibold tabular-nums text-gray-900 dark:text-white">{{ usd(card.stat?.cost_usd ?? 0) }}</dd>
-                  </div>
-                </dl>
-                <p
-                  v-if="card.empty"
-                  data-testid="window-summary-empty"
-                  class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-dark-800/60 dark:text-dark-400"
-                >{{ t('keyUsage.windows.empty') }}</p>
-              </div>
-            </div>
-
-            <div class="overflow-hidden rounded-2xl border border-gray-200 bg-white/90 backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90">
-              <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-5 dark:border-dark-700 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-                <h3 class="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('keyUsage.windows.modelsTitle') }}</h3>
-                <div class="inline-flex flex-wrap rounded-lg border border-gray-200 bg-white p-0.5 dark:border-dark-700 dark:bg-dark-950">
-                  <button
-                    v-for="card in windowCards"
-                    :key="card.key"
-                    data-testid="window-tab"
-                    :data-window="card.key"
-                    :aria-pressed="activeWindow === card.key"
-                    @click="setActiveWindow(card.key)"
-                    class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
-                    :class="activeWindow === card.key
-                      ? 'bg-primary-500 text-white'
-                      : 'text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-800'"
-                  >{{ card.label }}</button>
-                </div>
-              </div>
-              <WindowModelTable :models="activeWindowModels" />
-            </div>
-          </div>
-
-          <!-- ==================== Rankings & Podiums ==================== -->
-          <div v-if="hasRankings" data-testid="rankings-section" class="fade-up fade-up-delay-4 space-y-4">
-            <div class="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white/90 px-5 py-5 backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
-              <div class="min-w-0">
+          <!-- ==================== Usage Explorer (window x scope x metric) ==================== -->
+          <div v-if="showExplorer" data-testid="usage-explorer" class="fade-up fade-up-delay-3 space-y-4">
+            <!--
+              One panel, three selectors. Time window / ranking scope / sort metric are three
+              composable dimensions of a single view, so they are grouped and labelled together
+              instead of being scattered down the page. Each group wraps on its own, so three
+              rows of tabs stack cleanly on a narrow screen rather than overflowing.
+            -->
+            <div
+              data-testid="usage-filters"
+              class="rounded-2xl border border-gray-200 bg-white/90 px-5 py-5 backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90 sm:px-8"
+            >
+              <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <h3 class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">
                   <Icon name="trophy" size="sm" />
-                  {{ t('keyUsage.rankings.title') }}
+                  {{ t('keyUsage.explorer.title') }}
                 </h3>
-                <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ rankingScopeHint }}</p>
+                <p class="text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.explorer.hint') }}</p>
               </div>
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div class="inline-flex flex-wrap rounded-lg border border-gray-200 bg-white p-0.5 dark:border-dark-700 dark:bg-dark-950" role="group">
-                  <button
-                    v-for="option in rankingScopeOptions"
-                    :key="option.value"
-                    data-testid="scope-tab"
-                    :data-scope="option.value"
-                    :aria-pressed="rankingScope === option.value"
-                    @click="setRankingScope(option.value)"
-                    class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
-                    :class="rankingScope === option.value
-                      ? 'bg-primary-500 text-white'
-                      : 'text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-800'"
-                  >{{ option.label }}</button>
+
+              <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <!-- Time window: drives the summary, the model breakdown AND the ranking -->
+                <div class="min-w-0">
+                  <p class="mb-1.5 text-xs font-medium text-gray-500 dark:text-dark-400">{{ t('keyUsage.explorer.window') }}</p>
+                  <div class="flex flex-wrap gap-1 rounded-lg border border-gray-200 bg-white p-1 dark:border-dark-700 dark:bg-dark-950" role="group">
+                    <button
+                      v-for="option in windowOptions"
+                      :key="option.value"
+                      data-testid="window-tab"
+                      :data-window="option.value"
+                      :aria-pressed="activeWindow === option.value"
+                      :disabled="isRefreshing"
+                      :class="tabClass(activeWindow === option.value)"
+                      @click="setActiveWindow(option.value)"
+                    >{{ option.label }}</button>
+                  </div>
                 </div>
-                <div class="flex items-center gap-2">
-                  <span class="whitespace-nowrap text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.rankings.metric') }}</span>
-                  <div class="inline-flex flex-wrap rounded-lg border border-gray-200 bg-white p-0.5 dark:border-dark-700 dark:bg-dark-950" role="group">
+
+                <!-- Ranking scope: a pure client-side pivot, both scopes are already loaded -->
+                <div class="min-w-0">
+                  <p class="mb-1.5 text-xs font-medium text-gray-500 dark:text-dark-400">{{ t('keyUsage.rankings.scope') }}</p>
+                  <div class="flex flex-wrap gap-1 rounded-lg border border-gray-200 bg-white p-1 dark:border-dark-700 dark:bg-dark-950" role="group">
+                    <button
+                      v-for="option in rankingScopeOptions"
+                      :key="option.value"
+                      data-testid="scope-tab"
+                      :data-scope="option.value"
+                      :aria-pressed="rankingScope === option.value"
+                      :class="tabClass(rankingScope === option.value)"
+                      @click="setRankingScope(option.value)"
+                    >{{ option.label }}</button>
+                  </div>
+                </div>
+
+                <!-- Sort metric: the backend does the sorting, so this is a refetch -->
+                <div class="min-w-0">
+                  <p class="mb-1.5 text-xs font-medium text-gray-500 dark:text-dark-400">{{ t('keyUsage.rankings.metric') }}</p>
+                  <div class="flex flex-wrap gap-1 rounded-lg border border-gray-200 bg-white p-1 dark:border-dark-700 dark:bg-dark-950" role="group">
                     <button
                       v-for="option in metricOptions"
                       :key="option.value"
@@ -575,20 +548,24 @@
                       :data-metric="option.value"
                       :aria-pressed="metric === option.value"
                       :disabled="isRefreshing"
+                      :class="tabClass(metric === option.value)"
                       @click="setMetric(option.value)"
-                      class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60"
-                      :class="metric === option.value
-                        ? 'bg-primary-500 text-white'
-                        : 'text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-800'"
                     >{{ option.label }}</button>
                   </div>
                 </div>
               </div>
+
+              <p class="mt-3 text-xs text-gray-500 dark:text-dark-400">{{ rankingScopeHint }}</p>
             </div>
 
+            <!--
+              Everything below is driven by the three selectors above. It stays mounted across
+              a switch and only dims: remounting a skeleton here makes every tab click flash
+              the whole page, which reads as a full reload rather than a filter change.
+            -->
             <div
               class="relative space-y-4 transition-opacity duration-200"
-              data-testid="rankings-body"
+              data-testid="explorer-body"
               :class="isRefreshing ? 'opacity-50' : 'opacity-100'"
             >
               <div v-if="isRefreshing" data-testid="rankings-refreshing" class="pointer-events-none absolute inset-x-0 -top-1 z-10 flex justify-center">
@@ -596,14 +573,60 @@
                   {{ t('keyUsage.rankings.refreshing') }}
                 </span>
               </div>
-              <RankingWindowCard
-                v-for="card in rankingCards"
-                :key="`${rankingScope}-${card.key}`"
-                :title="card.label"
-                :window-key="card.key"
-                :data="card.data"
-                :metric="metric"
-              />
+
+              <!-- Stats for the selected window -->
+              <div v-if="hasWindowStats" data-testid="windows-section" class="space-y-4">
+                <div
+                  data-testid="window-summary"
+                  :data-window="activeWindow"
+                  class="rounded-2xl border border-gray-200 bg-white/90 p-5 backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90 sm:px-8"
+                >
+                  <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ activeWindowLabel }}</h4>
+                  <dl class="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div class="flex items-baseline justify-between gap-3 sm:flex-col sm:items-start sm:gap-1">
+                      <dt class="text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.requests') }}</dt>
+                      <dd
+                        class="text-base font-semibold tabular-nums text-gray-900 dark:text-white"
+                        :title="fmtNumExact(activeWindowStat?.requests ?? 0)"
+                      >{{ fmtNum(activeWindowStat?.requests ?? 0) }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-3 sm:flex-col sm:items-start sm:gap-1">
+                      <dt class="text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.totalTokens') }}</dt>
+                      <dd
+                        class="text-base font-semibold tabular-nums text-gray-900 dark:text-white"
+                        :title="fmtNumExact(activeWindowStat?.tokens ?? 0)"
+                      >{{ fmtNum(activeWindowStat?.tokens ?? 0) }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-3 sm:flex-col sm:items-start sm:gap-1">
+                      <dt class="text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.cost') }}</dt>
+                      <dd class="text-base font-semibold tabular-nums text-gray-900 dark:text-white">{{ usd(activeWindowStat?.cost_usd ?? 0) }}</dd>
+                    </div>
+                  </dl>
+                  <p
+                    v-if="activeWindowEmpty"
+                    data-testid="window-summary-empty"
+                    class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-dark-800/60 dark:text-dark-400"
+                  >{{ t('keyUsage.windows.empty') }}</p>
+                </div>
+
+                <div class="overflow-hidden rounded-2xl border border-gray-200 bg-white/90 backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90">
+                  <div class="border-b border-gray-200 px-5 py-5 dark:border-dark-700 sm:px-8">
+                    <h3 class="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('keyUsage.windows.modelsTitle') }}</h3>
+                  </div>
+                  <WindowModelTable :models="activeWindowModels" />
+                </div>
+              </div>
+
+              <!-- Ranking for the selected window + scope -->
+              <div v-if="hasRankings" data-testid="rankings-section">
+                <RankingWindowCard
+                  :key="`${rankingScope}-${activeWindow}`"
+                  :title="rankingCardTitle"
+                  :window-key="activeWindow"
+                  :data="activeRanking"
+                  :metric="metric"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -647,10 +670,15 @@ import RankingWindowCard from '@/components/keyUsage/RankingWindowCard.vue'
 import WindowModelTable from '@/components/keyUsage/WindowModelTable.vue'
 import {
   createKeyUsageSession,
+  DEFAULT_KEY_USAGE_METRIC,
+  DEFAULT_KEY_USAGE_SCOPE,
+  DEFAULT_KEY_USAGE_WINDOW,
   fetchKeyUsageReport,
   isEndpointMissing,
   isUnauthorized,
   isValidMetric,
+  isValidScope,
+  isValidWindow,
   KEY_USAGE_WINDOWS,
   type KeyUsageMetric,
   type KeyUsageRankingScope,
@@ -659,7 +687,7 @@ import {
   type KeyUsageWindowStat,
 } from '@/api/keyUsage'
 import { formatDateLocalInput } from '@/utils/format'
-import { formatCount, formatUsd } from '@/utils/keyUsageFormat'
+import { formatCount, formatCountExact, formatUsd } from '@/utils/keyUsageFormat'
 import { sanitizeUrl } from '@/utils/url'
 
 const { t, locale } = useI18n()
@@ -720,6 +748,10 @@ let resetTimer: ReturnType<typeof setInterval> | null = null
 
 /** Query-string parameter that carries the non-reversible lookup token. */
 const TOKEN_QUERY_KEY = 't'
+/** The three view selectors, mirrored into the URL alongside `?t=` so a view is shareable. */
+const WINDOW_QUERY_KEY = 'w'
+const SCOPE_QUERY_KEY = 's'
+const METRIC_QUERY_KEY = 'm'
 
 const sessionToken = ref('')
 const sessionExpiresAt = ref<string | null>(null)
@@ -728,10 +760,14 @@ const isTokenMode = computed(() => Boolean(sessionToken.value))
 
 // ==================== Rankings / Windows State ====================
 
-const metric = ref<KeyUsageMetric>('cost')
-const rankingScope = ref<KeyUsageRankingScope>('account')
-const activeWindow = ref<KeyUsageWindowKey>('today')
-/** Soft refresh (metric / date change): keeps the current data on screen, no skeleton. */
+const metric = ref<KeyUsageMetric>(DEFAULT_KEY_USAGE_METRIC)
+const rankingScope = ref<KeyUsageRankingScope>(DEFAULT_KEY_USAGE_SCOPE)
+/**
+ * The one time window the page is showing. It drives BOTH the request (the backend computes
+ * only this window) and everything rendered from it — summary, model breakdown, ranking.
+ */
+const activeWindow = ref<KeyUsageWindowKey>(DEFAULT_KEY_USAGE_WINDOW)
+/** Soft refresh (window / metric / date change): keeps the current data on screen, no skeleton. */
 const isRefreshing = ref(false)
 
 // ==================== Date Range State ====================
@@ -1050,6 +1086,13 @@ const detailRows = computed<DetailRow[]>(() => {
 interface StatCell {
   label: string
   value: string
+  /** Exact grouped number behind an abbreviated count; absent for costs and ratios. */
+  title?: string
+}
+
+/** Count cell: abbreviated on screen (`12.3M`), exact value on hover. */
+function countCell(label: string, value: number | null | undefined): StatCell {
+  return { label, value: fmtNum(value), title: fmtNumExact(value) }
 }
 
 const usageStatCells = computed<StatCell[]>(() => {
@@ -1060,20 +1103,20 @@ const usageStatCells = computed<StatCell[]>(() => {
   const total = usage.total || {}
 
   return [
-    { label: t('keyUsage.todayRequests'), value: fmtNum(today.requests) },
-    { label: t('keyUsage.todayInputTokens'), value: fmtNum(today.input_tokens) },
-    { label: t('keyUsage.todayOutputTokens'), value: fmtNum(today.output_tokens) },
-    { label: t('keyUsage.todayTokens'), value: fmtNum(today.total_tokens) },
-    { label: t('keyUsage.todayCacheCreation'), value: fmtNum(today.cache_creation_tokens) },
-    { label: t('keyUsage.todayCacheRead'), value: fmtNum(today.cache_read_tokens) },
+    countCell(t('keyUsage.todayRequests'), today.requests),
+    countCell(t('keyUsage.todayInputTokens'), today.input_tokens),
+    countCell(t('keyUsage.todayOutputTokens'), today.output_tokens),
+    countCell(t('keyUsage.todayTokens'), today.total_tokens),
+    countCell(t('keyUsage.todayCacheCreation'), today.cache_creation_tokens),
+    countCell(t('keyUsage.todayCacheRead'), today.cache_read_tokens),
     { label: t('keyUsage.todayCost'), value: usd(today.actual_cost) },
     { label: t('keyUsage.rpmTpm'), value: `${usage.rpm || 0} / ${usage.tpm || 0}` },
-    { label: t('keyUsage.totalRequests'), value: fmtNum(total.requests) },
-    { label: t('keyUsage.totalInputTokens'), value: fmtNum(total.input_tokens) },
-    { label: t('keyUsage.totalOutputTokens'), value: fmtNum(total.output_tokens) },
-    { label: t('keyUsage.totalTokensLabel'), value: fmtNum(total.total_tokens) },
-    { label: t('keyUsage.totalCacheCreation'), value: fmtNum(total.cache_creation_tokens) },
-    { label: t('keyUsage.totalCacheRead'), value: fmtNum(total.cache_read_tokens) },
+    countCell(t('keyUsage.totalRequests'), total.requests),
+    countCell(t('keyUsage.totalInputTokens'), total.input_tokens),
+    countCell(t('keyUsage.totalOutputTokens'), total.output_tokens),
+    countCell(t('keyUsage.totalTokensLabel'), total.total_tokens),
+    countCell(t('keyUsage.totalCacheCreation'), total.cache_creation_tokens),
+    countCell(t('keyUsage.totalCacheRead'), total.cache_read_tokens),
     { label: t('keyUsage.totalCost'), value: usd(total.actual_cost) },
     { label: t('keyUsage.avgDuration'), value: usage.average_duration_ms ? `${Math.round(usage.average_duration_ms)} ms` : '-' },
   ]
@@ -1108,6 +1151,7 @@ const WINDOW_LABEL_KEYS: Record<KeyUsageWindowKey, string> = {
   today: 'keyUsage.windows.today',
   last_7d: 'keyUsage.windows.last7d',
   last_30d: 'keyUsage.windows.last30d',
+  all: 'keyUsage.windows.all',
 }
 
 function windowLabel(key: KeyUsageWindowKey): string {
@@ -1119,23 +1163,24 @@ function isEmptyWindow(stat: KeyUsageWindowStat | null): boolean {
   return !(stat.requests > 0) && !(stat.tokens > 0) && !(stat.cost_usd > 0)
 }
 
-interface WindowCard {
-  key: KeyUsageWindowKey
-  label: string
-  stat: KeyUsageWindowStat | null
-  empty: boolean
+/** Shared look for all three selector groups, so they read as one control surface. */
+function tabClass(active: boolean): string {
+  const base = 'rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60'
+  return active
+    ? `${base} bg-primary-500 text-white`
+    : `${base} text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-800`
 }
 
-const windowCards = computed<WindowCard[]>(() =>
-  KEY_USAGE_WINDOWS.map(key => {
-    const stat = report.value?.windows?.[key] ?? null
-    return { key, label: windowLabel(key), stat, empty: isEmptyWindow(stat) }
-  })
+const windowOptions = computed(() =>
+  KEY_USAGE_WINDOWS.map(value => ({ value, label: windowLabel(value) }))
 )
 
-const hasWindowStats = computed(() => Boolean(report.value?.windows))
+const activeWindowLabel = computed(() => windowLabel(activeWindow.value))
+const activeWindowStat = computed<KeyUsageWindowStat | null>(() => report.value?.window_stat ?? null)
+const activeWindowEmpty = computed(() => isEmptyWindow(activeWindowStat.value))
+const activeWindowModels = computed(() => activeWindowStat.value?.models ?? [])
 
-const activeWindowModels = computed(() => report.value?.windows?.[activeWindow.value]?.models ?? [])
+const hasWindowStats = computed(() => Boolean(report.value?.window_stat))
 
 const rankingScopeOptions = computed(() => [
   { value: 'account' as const, label: t('keyUsage.rankings.scopeAccount') },
@@ -1152,29 +1197,54 @@ const rankingScopeHint = computed(() =>
   rankingScope.value === 'account' ? t('keyUsage.rankings.scopeAccountHint') : t('keyUsage.rankings.scopeSiteHint')
 )
 
-const rankingCards = computed(() => {
-  const group = report.value?.rankings?.[rankingScope.value] ?? null
-  return KEY_USAGE_WINDOWS.map(key => ({
-    key,
-    label: windowLabel(key),
-    data: group?.[key] ?? null,
-  }))
-})
+const rankingScopeLabel = computed(() =>
+  rankingScope.value === 'account' ? t('keyUsage.rankings.scopeAccount') : t('keyUsage.rankings.scopeSite')
+)
+
+/** Both halves come from i18n; the separator is punctuation, not copy. */
+const rankingCardTitle = computed(() => `${rankingScopeLabel.value} · ${activeWindowLabel.value}`)
+
+/** Ranking for the selected scope, in the one window the backend computed. */
+const activeRanking = computed(() => report.value?.rankings?.[rankingScope.value] ?? null)
 
 const hasRankings = computed(() => Boolean(report.value?.rankings))
 
+/** The filter bar is worth showing as soon as either block below it has something to filter. */
+const showExplorer = computed(() => hasWindowStats.value || hasRankings.value)
+
 function setRankingScope(scope: KeyUsageRankingScope) {
+  if (rankingScope.value === scope) return
   rankingScope.value = scope
+  // Pure client-side pivot: both scopes already came down with this window.
+  syncViewToUrl()
 }
 
-function setActiveWindow(key: KeyUsageWindowKey) {
-  activeWindow.value = key
+/**
+ * Switching the window is a refetch — the backend computes one window per request, so the
+ * data for the newly selected one is not on the client yet.
+ */
+async function setActiveWindow(next: KeyUsageWindowKey) {
+  if (activeWindow.value === next || isRefreshing.value || isQuerying.value) return
+  const previous = activeWindow.value
+  activeWindow.value = next
+  isRefreshing.value = true
+  try {
+    applyReport(await requestReport())
+    syncViewToUrl()
+  } catch (err) {
+    activeWindow.value = previous
+    await handleReportError(err, { keepResults: true })
+  } finally {
+    isRefreshing.value = false
+  }
 }
 
 // ==================== Utility Functions ====================
 
 const usd = formatUsd
 const fmtNum = formatCount
+/** Exact grouped value behind an abbreviated count — used for `title` tooltips. */
+const fmtNumExact = formatCountExact
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '-'
@@ -1210,6 +1280,7 @@ function requestReport(credential?: { token?: string; key?: string }): Promise<K
     token: token || undefined,
     key: token ? undefined : key || undefined,
     metric: metric.value,
+    window: activeWindow.value,
     extraParams: new URLSearchParams(getDateParams()),
     fallbackMessage: t('keyUsage.queryFailed'),
   })
@@ -1217,9 +1288,14 @@ function requestReport(credential?: { token?: string; key?: string }): Promise<K
 
 function applyReport(data: KeyUsageReport) {
   report.value = data
-  // Trust the metric the backend actually sorted by.
+  // Trust the metric and window the backend actually computed: a value it did not recognise
+  // silently falls back server-side, and labelling fallback data with our own selection would
+  // put "All time" above a today-sized number.
   if (isValidMetric(data?.metric)) {
     metric.value = data.metric
+  }
+  if (isValidWindow(data?.window)) {
+    activeWindow.value = data.window
   }
 }
 
@@ -1237,13 +1313,63 @@ async function syncTokenToUrl(token: string) {
   const query = { ...(route.query || {}) }
   if (query[TOKEN_QUERY_KEY] === token) return
   query[TOKEN_QUERY_KEY] = token
+  applyViewToQuery(query)
   await replaceUrlQuery(query)
 }
 
 async function removeTokenFromUrl() {
   const query = { ...(route.query || {}) }
   delete query[TOKEN_QUERY_KEY]
+  delete query[WINDOW_QUERY_KEY]
+  delete query[SCOPE_QUERY_KEY]
+  delete query[METRIC_QUERY_KEY]
   await replaceUrlQuery(query)
+}
+
+/**
+ * Write the three selectors into a query object, omitting defaults so a plain
+ * `/key-usage?t=…` link stays clean.
+ */
+function applyViewToQuery(query: LocationQueryRaw) {
+  const entries: [string, string, string][] = [
+    [WINDOW_QUERY_KEY, activeWindow.value, DEFAULT_KEY_USAGE_WINDOW],
+    [SCOPE_QUERY_KEY, rankingScope.value, DEFAULT_KEY_USAGE_SCOPE],
+    [METRIC_QUERY_KEY, metric.value, DEFAULT_KEY_USAGE_METRIC],
+  ]
+  for (const [name, value, fallback] of entries) {
+    if (value === fallback) {
+      delete query[name]
+    } else {
+      query[name] = value
+    }
+  }
+}
+
+/**
+ * Mirror the current window / scope / metric into the URL so a specific view
+ * ("site-wide, all time, by tokens") can be bookmarked or shared.
+ *
+ * `replace`, never `push`: flipping a filter tab must not pile entries onto the
+ * back stack — Back should leave the page, not walk back through tab clicks.
+ */
+function syncViewToUrl() {
+  const query = { ...(route.query || {}) }
+  applyViewToQuery(query)
+  void replaceUrlQuery(query)
+}
+
+/** Restore the three selectors from the URL. Unknown values are ignored, not errors. */
+function readViewFromUrl() {
+  const single = (name: string): unknown => {
+    const raw = route?.query?.[name]
+    return Array.isArray(raw) ? raw[0] : raw
+  }
+  const window = single(WINDOW_QUERY_KEY)
+  if (isValidWindow(window)) activeWindow.value = window
+  const scope = single(SCOPE_QUERY_KEY)
+  if (isValidScope(scope)) rankingScope.value = scope
+  const wanted = single(METRIC_QUERY_KEY)
+  if (isValidMetric(wanted)) metric.value = wanted
 }
 
 interface ReportErrorOptions {
@@ -1270,6 +1396,9 @@ async function clearSession(options: { silent?: boolean } = {}) {
   sessionToken.value = ''
   sessionExpiresAt.value = null
   report.value = null
+  activeWindow.value = DEFAULT_KEY_USAGE_WINDOW
+  rankingScope.value = DEFAULT_KEY_USAGE_SCOPE
+  metric.value = DEFAULT_KEY_USAGE_METRIC
   showResults.value = false
   showLoading.value = false
   showDatePicker.value = false
@@ -1376,6 +1505,7 @@ async function setMetric(next: KeyUsageMetric) {
   isRefreshing.value = true
   try {
     applyReport(await requestReport())
+    syncViewToUrl()
   } catch (err) {
     metric.value = previous
     await handleReportError(err, { keepResults: true })
@@ -1453,6 +1583,10 @@ onMounted(() => {
     appStore.fetchPublicSettings()
   }
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
+
+  // Restore a shared view (window / scope / metric) before the first request goes out,
+  // so the link opens on the view it was shared from instead of flashing the default.
+  readViewFromUrl()
 
   // A `?t=` token means "already signed in": skip the input box entirely.
   const token = readTokenFromUrl()

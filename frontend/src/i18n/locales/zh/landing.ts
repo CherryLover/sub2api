@@ -213,13 +213,19 @@ export default {
       today: '今天',
       last7d: '近 7 天',
       last30d: '近 30 天',
+      all: '全部',
       modelsTitle: '模型明细',
       empty: '该时间窗口暂无用量数据',
       noModels: '该时间窗口暂无模型调用',
     },
+    // The three composable view selectors (time window x ranking scope x sort metric)
+    explorer: {
+      title: '用量与排行',
+      window: '时间范围',
+      hint: '时间 / 榜单 / 排序指标，三个维度自由组合',
+    },
     // Rankings & podium
     rankings: {
-      title: '排行榜',
       scope: '榜单范围',
       scopeAccount: '账户榜',
       scopeSite: '站点榜',

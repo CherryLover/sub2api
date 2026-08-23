@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,16 +45,28 @@ func (stubKeyUsageModelStats) GetAPIKeyModelStats(_ context.Context, apiKeyID in
 	return []usagestats.ModelStat{{Model: "claude-opus-5", Requests: 3, TotalTokens: 900, ActualCost: 1.5}}, nil
 }
 
-type stubKeyUsageRanking struct{}
+type stubKeyUsageRanking struct {
+	mu     sync.Mutex
+	ranges [][2]time.Time
+}
 
-func (stubKeyUsageRanking) GetAPIKeyUsageAggregates(_ context.Context, _, _ time.Time, _ int64, _ string) ([]usagestats.APIKeyUsageAggregate, error) {
+func (s *stubKeyUsageRanking) GetAPIKeyUsageAggregates(_ context.Context, start, end time.Time, _ int64, _ string) ([]usagestats.APIKeyUsageAggregate, error) {
+	s.mu.Lock()
+	s.ranges = append(s.ranges, [2]time.Time{start, end})
+	s.mu.Unlock()
 	return []usagestats.APIKeyUsageAggregate{
 		{APIKeyID: 2, Requests: 10, Tokens: 4000, Cost: 9.9},
 		{APIKeyID: 1, Requests: 3, Tokens: 900, Cost: 1.5},
 	}, nil
 }
 
-func (stubKeyUsageRanking) GetAPIKeyNamesByIDs(_ context.Context, ids []int64) (map[int64]string, error) {
+func (s *stubKeyUsageRanking) queriedRanges() [][2]time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([][2]time.Time(nil), s.ranges...)
+}
+
+func (s *stubKeyUsageRanking) GetAPIKeyNamesByIDs(_ context.Context, ids []int64) (map[int64]string, error) {
 	names := map[int64]string{1: "我的Key", 2: "别人的Key"}
 	out := make(map[int64]string, len(ids))
 	for _, id := range ids {
@@ -63,6 +76,12 @@ func (stubKeyUsageRanking) GetAPIKeyNamesByIDs(_ context.Context, ids []int64) (
 }
 
 func newTestKeyUsageRouter(t *testing.T) (*gin.Engine, *service.APIKey, *service.KeyUsageService) {
+	t.Helper()
+	router, apiKey, svc, _ := newTestKeyUsageRouterWithRanking(t)
+	return router, apiKey, svc
+}
+
+func newTestKeyUsageRouterWithRanking(t *testing.T) (*gin.Engine, *service.APIKey, *service.KeyUsageService, *stubKeyUsageRanking) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
@@ -74,7 +93,8 @@ func newTestKeyUsageRouter(t *testing.T) (*gin.Engine, *service.APIKey, *service
 	}
 
 	tokens := service.NewKeyUsageTokenService(service.DeriveKeyUsageTokenSigningKey("handler-test-master-secret-0123456789"), time.Hour)
-	svc := service.NewKeyUsageService(keys, stubKeyUsageModelStats{}, stubKeyUsageRanking{}, tokens, time.Minute)
+	ranking := &stubKeyUsageRanking{}
+	svc := service.NewKeyUsageService(keys, stubKeyUsageModelStats{}, ranking, tokens, time.Minute)
 
 	// gateway 传 nil：本用例只验证公开端点的契约形状，usage 字段退化成空对象。
 	h := NewKeyUsageHandler(svc, nil, nil)
@@ -82,7 +102,7 @@ func newTestKeyUsageRouter(t *testing.T) (*gin.Engine, *service.APIKey, *service
 	group := router.Group("/api/v1/key-usage")
 	group.POST("/session", h.CreateSession)
 	group.GET("/report", h.Report)
-	return router, apiKey, svc
+	return router, apiKey, svc, ranking
 }
 
 func doKeyUsageRequest(router *gin.Engine, req *http.Request) *httptest.ResponseRecorder {
@@ -153,7 +173,7 @@ func TestKeyUsageReportContractShape(t *testing.T) {
 
 	var raw map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &raw))
-	for _, field := range []string{"key", "usage", "usage_available", "windows", "rankings", "metric", "generated_at"} {
+	for _, field := range []string{"key", "usage", "usage_available", "window", "window_stat", "rankings", "metric", "generated_at"} {
 		require.Contains(t, raw, field)
 	}
 
@@ -163,7 +183,8 @@ func TestKeyUsageReportContractShape(t *testing.T) {
 			CreatedAt time.Time `json:"created_at"`
 			Status    string    `json:"status"`
 		} `json:"key"`
-		Windows map[string]struct {
+		Window     string `json:"window"`
+		WindowStat struct {
 			Requests int64   `json:"requests"`
 			Tokens   int64   `json:"tokens"`
 			CostUSD  float64 `json:"cost_usd"`
@@ -173,8 +194,8 @@ func TestKeyUsageReportContractShape(t *testing.T) {
 				Tokens   int64   `json:"tokens"`
 				CostUSD  float64 `json:"cost_usd"`
 			} `json:"models"`
-		} `json:"windows"`
-		Rankings map[string]map[string]struct {
+		} `json:"window_stat"`
+		Rankings map[string]struct {
 			TotalKeys int `json:"total_keys"`
 			SelfRank  int `json:"self_rank"`
 			Top       []struct {
@@ -199,29 +220,25 @@ func TestKeyUsageReportContractShape(t *testing.T) {
 	require.Equal(t, service.StatusAPIKeyActive, body.Key.Status)
 	require.False(t, body.Key.CreatedAt.IsZero(), "created_at 应真实下发")
 	require.Equal(t, "cost", body.Metric)
+	require.Equal(t, "today", body.Window, "window 缺省是 today")
 
-	for _, window := range []string{"today", "last_7d", "last_30d"} {
-		require.Contains(t, body.Windows, window)
-		require.Equal(t, int64(3), body.Windows[window].Requests)
-		require.Equal(t, int64(900), body.Windows[window].Tokens)
-		require.InDelta(t, 1.5, body.Windows[window].CostUSD, 1e-9)
-		require.Len(t, body.Windows[window].Models, 1)
-	}
+	require.Equal(t, int64(3), body.WindowStat.Requests)
+	require.Equal(t, int64(900), body.WindowStat.Tokens)
+	require.InDelta(t, 1.5, body.WindowStat.CostUSD, 1e-9)
+	require.Len(t, body.WindowStat.Models, 1)
 
 	for _, scope := range []string{"account", "site"} {
 		require.Contains(t, body.Rankings, scope)
-		for _, window := range []string{"today", "last_7d", "last_30d"} {
-			ranking := body.Rankings[scope][window]
-			require.Equal(t, 2, ranking.TotalKeys)
-			require.Len(t, ranking.Top, 2)
-			require.Equal(t, 1, ranking.Top[0].Rank)
-			require.Equal(t, "别人的Key", ranking.Top[0].KeyName)
-			require.False(t, ranking.Top[0].IsSelf)
-			require.True(t, ranking.Top[1].IsSelf)
-			require.Equal(t, 2, ranking.SelfRank)
-			require.Equal(t, "我的Key", ranking.Self.KeyName)
-			require.True(t, ranking.Self.IsSelf)
-		}
+		ranking := body.Rankings[scope]
+		require.Equal(t, 2, ranking.TotalKeys)
+		require.Len(t, ranking.Top, 2)
+		require.Equal(t, 1, ranking.Top[0].Rank)
+		require.Equal(t, "别人的Key", ranking.Top[0].KeyName)
+		require.False(t, ranking.Top[0].IsSelf)
+		require.True(t, ranking.Top[1].IsSelf)
+		require.Equal(t, 2, ranking.SelfRank)
+		require.Equal(t, "我的Key", ranking.Self.KeyName)
+		require.True(t, ranking.Self.IsSelf)
 	}
 
 	// top 必须是数组而不是 null（无数据时为空数组）
@@ -258,6 +275,56 @@ func TestKeyUsageReportMetricSelection(t *testing.T) {
 		require.Equal(t, http.StatusOK, recorder.Code)
 		body := decodeKeyUsageBody(t, recorder)
 		require.Equal(t, tc.want, body["metric"])
+	}
+}
+
+// window 参数：合法值原样回显，非法/缺失值静默回落到 today（不返回 400）。
+func TestKeyUsageReportWindowSelection(t *testing.T) {
+	router, apiKey, svc := newTestKeyUsageRouter(t)
+	token := issueTestToken(t, svc, apiKey.Key)
+
+	for _, tc := range []struct{ query, want string }{
+		{"", "today"},
+		{"&window=today", "today"},
+		{"&window=last_7d", "last_7d"},
+		{"&window=last_30d", "last_30d"},
+		{"&window=all", "all"},
+		{"&window=ALL", "all"},
+		{"&window=bogus", "today"},
+		{"&window=", "today"},
+		{"&window=1%20OR%201%3D1", "today"},
+	} {
+		recorder := doKeyUsageRequest(router, httptest.NewRequest(http.MethodGet, "/api/v1/key-usage/report?token="+token+tc.query, nil))
+		require.Equal(t, http.StatusOK, recorder.Code, "query=%s", tc.query)
+		body := decodeKeyUsageBody(t, recorder)
+		require.Equal(t, tc.want, body["window"], "query=%s", tc.query)
+	}
+}
+
+// 一次请求只允许计算被请求的那个窗口。
+//
+// 加上 all 之后共有四个窗口，而 all 是没有 created_at 下界的全表 GROUP BY——
+// 每次请求都顺带算一遍它，是这个免登录端点上最贵也最没必要的一笔开销。
+func TestKeyUsageReportComputesOnlyRequestedWindow(t *testing.T) {
+	for _, name := range []string{"today", "last_7d", "last_30d", "all"} {
+		t.Run(name, func(t *testing.T) {
+			router, apiKey, svc, ranking := newTestKeyUsageRouterWithRanking(t)
+			token := issueTestToken(t, svc, apiKey.Key)
+
+			recorder := doKeyUsageRequest(router, httptest.NewRequest(http.MethodGet,
+				"/api/v1/key-usage/report?token="+token+"&window="+name, nil))
+			require.Equal(t, http.StatusOK, recorder.Code)
+
+			ranges := service.KeyUsageWindowRanges(timezone.Now(), "")
+			want := ranges[name]
+
+			queried := ranking.queriedRanges()
+			require.NotEmpty(t, queried, "前提：确实跑了聚合查询")
+			for _, got := range queried {
+				require.True(t, got[0].Equal(want[0]) && got[1].Equal(want[1]),
+					"聚合区间 %v 不属于被请求的窗口 %s (%v)", got, name, want)
+			}
+		})
 	}
 }
 
@@ -361,7 +428,7 @@ func newIPRestrictedKeyUsageRouter(t *testing.T) (*gin.Engine, *service.APIKey, 
 		byID:  map[int64]*service.APIKey{apiKey.ID: apiKey},
 	}
 	tokens := service.NewKeyUsageTokenService(service.DeriveKeyUsageTokenSigningKey("handler-test-master-secret-0123456789"), time.Hour)
-	svc := service.NewKeyUsageService(keys, stubKeyUsageModelStats{}, stubKeyUsageRanking{}, tokens, time.Minute)
+	svc := service.NewKeyUsageService(keys, stubKeyUsageModelStats{}, &stubKeyUsageRanking{}, tokens, time.Minute)
 
 	router := gin.New()
 	group := router.Group("/api/v1/key-usage")

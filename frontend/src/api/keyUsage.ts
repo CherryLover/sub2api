@@ -16,12 +16,17 @@ import { buildApiUrl } from './url'
 // ==================== Types ====================
 
 export type KeyUsageMetric = 'cost' | 'tokens' | 'requests'
-export type KeyUsageWindowKey = 'today' | 'last_7d' | 'last_30d'
+export type KeyUsageWindowKey = 'today' | 'last_7d' | 'last_30d' | 'all'
 export type KeyUsageRankingScope = 'account' | 'site'
 
 export const KEY_USAGE_METRICS: KeyUsageMetric[] = ['cost', 'tokens', 'requests']
-export const KEY_USAGE_WINDOWS: KeyUsageWindowKey[] = ['today', 'last_7d', 'last_30d']
+export const KEY_USAGE_WINDOWS: KeyUsageWindowKey[] = ['today', 'last_7d', 'last_30d', 'all']
 export const KEY_USAGE_SCOPES: KeyUsageRankingScope[] = ['account', 'site']
+
+/** Window the backend falls back to when `window` is missing or unrecognised. */
+export const DEFAULT_KEY_USAGE_WINDOW: KeyUsageWindowKey = 'today'
+export const DEFAULT_KEY_USAGE_METRIC: KeyUsageMetric = 'cost'
+export const DEFAULT_KEY_USAGE_SCOPE: KeyUsageRankingScope = 'account'
 
 export interface KeyUsageModelStat {
   model: string
@@ -53,8 +58,6 @@ export interface KeyUsageRankingWindow {
   self: KeyUsageRankingEntry | null
 }
 
-export type KeyUsageRankingGroup = Record<KeyUsageWindowKey, KeyUsageRankingWindow>
-
 export interface KeyUsageKeyInfo {
   name: string
   created_at: string | null
@@ -81,12 +84,23 @@ export interface KeyUsageReport {
    * which an empty object alone cannot express.
    */
   usage_available?: boolean
-  windows: Partial<Record<KeyUsageWindowKey, KeyUsageWindowStat>> | null
   /**
-   * Rankings per scope/window. A window with `total_keys === 0 && self_rank === 0` means the
-   * backend could not compute rankings at all — render it as unavailable, never as "#1 of 1".
+   * The window the backend actually computed, echoed back after normalisation. A request
+   * carrying an unrecognised `window` gets `today` here rather than a 400 — the page trusts
+   * this field over its own selection so it never labels fallback data as "All time".
    */
-  rankings: Partial<Record<KeyUsageRankingScope, Partial<KeyUsageRankingGroup>>> | null
+  window: KeyUsageWindowKey
+  /** Usage summary for `window` only. One window per request: see the backend BuildReport note. */
+  window_stat: KeyUsageWindowStat | null
+  /**
+   * Rankings for `window`, one entry per scope. A scope with
+   * `total_keys === 0 && self_rank === 0` means the backend could not compute rankings at
+   * all — render it as unavailable, never as "#1 of 1".
+   *
+   * Both scopes ship together because they share the same window aggregate, so switching
+   * account/site is a pure client-side pivot; switching the *window* is a refetch.
+   */
+  rankings: Partial<Record<KeyUsageRankingScope, KeyUsageRankingWindow>> | null
   metric: KeyUsageMetric
   generated_at: string | null
 }
@@ -129,6 +143,14 @@ export function isValidMetric(value: unknown): value is KeyUsageMetric {
   return typeof value === 'string' && (KEY_USAGE_METRICS as string[]).includes(value)
 }
 
+export function isValidWindow(value: unknown): value is KeyUsageWindowKey {
+  return typeof value === 'string' && (KEY_USAGE_WINDOWS as string[]).includes(value)
+}
+
+export function isValidScope(value: unknown): value is KeyUsageRankingScope {
+  return typeof value === 'string' && (KEY_USAGE_SCOPES as string[]).includes(value)
+}
+
 // ==================== Endpoints ====================
 
 /**
@@ -158,6 +180,8 @@ export interface FetchReportOptions {
   /** Raw API key, sent as `Authorization: Bearer` when no token is available. */
   key?: string
   metric: KeyUsageMetric
+  /** Time window to compute. The backend calculates only this one. */
+  window: KeyUsageWindowKey
   /** Extra query params (date range / timezone) forwarded to the report endpoint. */
   extraParams?: URLSearchParams | null
   fallbackMessage: string
@@ -169,9 +193,10 @@ export async function fetchKeyUsageReport(options: FetchReportOptions): Promise<
     params.set('token', options.token)
   }
   params.set('metric', options.metric)
+  params.set('window', options.window)
   if (options.extraParams) {
     options.extraParams.forEach((value, name) => {
-      if (name !== 'token' && name !== 'metric') {
+      if (name !== 'token' && name !== 'metric' && name !== 'window') {
         params.set(name, value)
       }
     })

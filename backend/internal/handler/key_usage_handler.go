@@ -55,15 +55,19 @@ type KeyUsageSessionResponse struct {
 //
 // usage_available 区分"后端组装用量失败"（usage = null，false）与"确实没有数据"
 // （usage 是对象但内容为空，true）；没有它前端只能看到一个空对象，无法提示用户重试。
-// windows / rankings 恒为对象，无数据时是零值。
+// window_stat / rankings 恒为对象，无数据时是零值。
+//
+// window 回显本次实际计算的窗口（已归一化）：请求里传了非法值时前端据此知道自己拿到的
+// 是回落窗口的数据，而不是把 30 天的数字当成"全部"渲染出去。
 type KeyUsageReportResponse struct {
-	Key            service.KeyUsageKeyInfo  `json:"key"`
-	Usage          any                      `json:"usage"`
-	UsageAvailable bool                     `json:"usage_available"`
-	Windows        service.KeyUsageWindows  `json:"windows"`
-	Rankings       service.KeyUsageRankings `json:"rankings"`
-	Metric         string                   `json:"metric"`
-	GeneratedAt    time.Time                `json:"generated_at"`
+	Key            service.KeyUsageKeyInfo    `json:"key"`
+	Usage          any                        `json:"usage"`
+	UsageAvailable bool                       `json:"usage_available"`
+	Window         string                     `json:"window"`
+	WindowStat     service.KeyUsageWindowStat `json:"window_stat"`
+	Rankings       service.KeyUsageRankings   `json:"rankings"`
+	Metric         string                     `json:"metric"`
+	GeneratedAt    time.Time                  `json:"generated_at"`
 }
 
 // CreateSession 用 API Key 换取只读用量令牌。
@@ -98,7 +102,9 @@ func (h *KeyUsageHandler) CreateSession(c *gin.Context) {
 }
 
 // Report 返回用量 + 排名报告。
-// GET /api/v1/key-usage/report?token=<token>&metric=<cost|tokens|requests>
+// GET /api/v1/key-usage/report?token=<token>&metric=<cost|tokens|requests>&window=<today|last_7d|last_30d|all>
+//
+// window 只计算被请求的那一个时间窗口（默认 today，非法值静默回落而不是 400）。
 //
 // 两条鉴权路径二选一：带 token 参数走令牌；否则读 Authorization: Bearer <key>
 // （首次输入 key 时可以一次拿到数据，不必先换令牌）。两条路的响应体完全一致。
@@ -129,7 +135,7 @@ func (h *KeyUsageHandler) Report(c *gin.Context) {
 	}
 
 	// 窗口边界跟随前端传来的浏览器时区，与 /v1/usage 的按天曲线（timezone query param）同源。
-	report := h.keyUsageService.BuildReport(ctx, apiKey, c.Query("metric"), c.Query("timezone"))
+	report := h.keyUsageService.BuildReport(ctx, apiKey, c.Query("metric"), c.Query("window"), c.Query("timezone"))
 
 	// usage 复用 /v1/usage 的组装逻辑。失败时下发 null + usage_available=false，
 	// 而不是空对象：空对象与"这把 key 真的没有用量"在前端无法区分，
@@ -152,7 +158,8 @@ func (h *KeyUsageHandler) Report(c *gin.Context) {
 		Key:            report.Key,
 		Usage:          usagePayload,
 		UsageAvailable: usageAvailable,
-		Windows:        report.Windows,
+		Window:         report.Window,
+		WindowStat:     report.WindowStat,
 		Rankings:       report.Rankings,
 		Metric:         report.Metric,
 		GeneratedAt:    timezone.Now(),

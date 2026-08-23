@@ -52,15 +52,27 @@ func (f *fakeKeyUsageAPIKeys) GetByID(_ context.Context, id int64) (*APIKey, err
 }
 
 type fakeKeyUsageModelStats struct {
-	byKey map[int64][]usagestats.ModelStat
-	err   error
+	mu     sync.Mutex
+	byKey  map[int64][]usagestats.ModelStat
+	ranges [][2]time.Time
+	err    error
 }
 
-func (f *fakeKeyUsageModelStats) GetAPIKeyModelStats(_ context.Context, apiKeyID int64, _, _ time.Time) ([]usagestats.ModelStat, error) {
+func (f *fakeKeyUsageModelStats) GetAPIKeyModelStats(_ context.Context, apiKeyID int64, start, end time.Time) ([]usagestats.ModelStat, error) {
+	f.mu.Lock()
+	f.ranges = append(f.ranges, [2]time.Time{start, end})
+	f.mu.Unlock()
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.byKey[apiKeyID], nil
+}
+
+// queriedRanges 返回窗口汇总查询用过的时间区间快照。
+func (f *fakeKeyUsageModelStats) queriedRanges() [][2]time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][2]time.Time(nil), f.ranges...)
 }
 
 type fakeKeyUsageRanking struct {
@@ -69,13 +81,16 @@ type fakeKeyUsageRanking struct {
 	names     map[int64]string
 	aggCalls  int
 	siteCalls int
-	err       error
+	// ranges 记录每次聚合查询实际用到的 [start, end)，用来断言只有被请求的那个窗口被算过。
+	ranges [][2]time.Time
+	err    error
 }
 
-func (f *fakeKeyUsageRanking) GetAPIKeyUsageAggregates(_ context.Context, _, _ time.Time, userID int64, metric string) ([]usagestats.APIKeyUsageAggregate, error) {
+func (f *fakeKeyUsageRanking) GetAPIKeyUsageAggregates(_ context.Context, start, end time.Time, userID int64, metric string) ([]usagestats.APIKeyUsageAggregate, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.aggCalls++
+	f.ranges = append(f.ranges, [2]time.Time{start, end})
 	if userID == 0 {
 		f.siteCalls++
 	}
@@ -83,6 +98,13 @@ func (f *fakeKeyUsageRanking) GetAPIKeyUsageAggregates(_ context.Context, _, _ t
 		return nil, f.err
 	}
 	return sortedAggregatesForMetric(f.rows, metric), nil
+}
+
+// queriedRanges 返回聚合查询用过的时间区间快照。
+func (f *fakeKeyUsageRanking) queriedRanges() [][2]time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][2]time.Time(nil), f.ranges...)
 }
 
 func (f *fakeKeyUsageRanking) GetAPIKeyNamesByIDs(_ context.Context, ids []int64) (map[int64]string, error) {
@@ -276,14 +298,19 @@ func TestKeyUsageWindowStatsSumModelRows(t *testing.T) {
 	}}
 	svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, stats, nil, time.Minute)
 
-	report := svc.BuildReport(context.Background(), apiKey, "", "")
-	require.Equal(t, int64(12), report.Windows.Today.Requests)
-	require.Equal(t, int64(5300), report.Windows.Today.Tokens)
-	require.InDelta(t, 0.6, report.Windows.Today.CostUSD, 1e-9)
-	require.Len(t, report.Windows.Today.Models, 2)
-	require.Equal(t, "claude-opus-5", report.Windows.Today.Models[0].Model)
-	// 三个窗口结构一致
-	require.Equal(t, report.Windows.Today, report.Windows.Last30d)
+	report := svc.BuildReport(context.Background(), apiKey, "", KeyUsageWindowToday, "")
+	require.Equal(t, KeyUsageWindowToday, report.Window)
+	require.Equal(t, int64(12), report.WindowStat.Requests)
+	require.Equal(t, int64(5300), report.WindowStat.Tokens)
+	require.InDelta(t, 0.6, report.WindowStat.CostUSD, 1e-9)
+	require.Len(t, report.WindowStat.Models, 2)
+	require.Equal(t, "claude-opus-5", report.WindowStat.Models[0].Model)
+	// 每个窗口的结构一致（这份 fake 对任何区间都返回同一批模型行）
+	for _, window := range []string{KeyUsageWindowLast7d, KeyUsageWindowLast30d, KeyUsageWindowAll} {
+		other := svc.BuildReport(context.Background(), apiKey, "", window, "")
+		require.Equal(t, window, other.Window)
+		require.Equal(t, report.WindowStat, other.WindowStat)
+	}
 }
 
 func TestKeyUsageEmptyDataReturnsZeroValues(t *testing.T) {
@@ -291,19 +318,23 @@ func TestKeyUsageEmptyDataReturnsZeroValues(t *testing.T) {
 	ranking := &fakeKeyUsageRanking{}
 	svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, &fakeKeyUsageModelStats{}, ranking, time.Minute)
 
-	report := svc.BuildReport(context.Background(), apiKey, "", "")
-	require.Equal(t, int64(0), report.Windows.Today.Requests)
-	require.NotNil(t, report.Windows.Today.Models)
-	require.Empty(t, report.Windows.Today.Models)
+	// 四个窗口（含全时段）在完全无数据时都必须给出同一套零值，而不是 nil / 空排名。
+	for _, window := range []string{KeyUsageWindowToday, KeyUsageWindowLast7d, KeyUsageWindowLast30d, KeyUsageWindowAll} {
+		report := svc.BuildReport(context.Background(), apiKey, "", window, "")
+		require.Equal(t, window, report.Window)
+		require.Equal(t, int64(0), report.WindowStat.Requests)
+		require.NotNil(t, report.WindowStat.Models)
+		require.Empty(t, report.WindowStat.Models)
 
-	for _, scope := range []KeyUsageRankingScope{report.Rankings.Account, report.Rankings.Site} {
-		require.NotNil(t, scope.Today.Top)
-		require.Empty(t, scope.Today.Top)
-		// 自己没有用量时也要出现在总数里，避免 self_rank > total_keys
-		require.Equal(t, 1, scope.Today.TotalKeys)
-		require.Equal(t, 1, scope.Today.SelfRank)
-		require.True(t, scope.Today.Self.IsSelf)
-		require.Equal(t, "self", scope.Today.Self.KeyName)
+		for _, scope := range []KeyUsageRankingWindow{report.Rankings.Account, report.Rankings.Site} {
+			require.NotNil(t, scope.Top)
+			require.Empty(t, scope.Top)
+			// 自己没有用量时也要出现在总数里，避免 self_rank > total_keys
+			require.Equal(t, 1, scope.TotalKeys)
+			require.Equal(t, 1, scope.SelfRank)
+			require.True(t, scope.Self.IsSelf)
+			require.Equal(t, "self", scope.Self.KeyName)
+		}
 	}
 }
 
@@ -331,8 +362,8 @@ func TestKeyUsageRankingTiesUseCompetitionRanking(t *testing.T) {
 	apiKey := activeTestAPIKey(1, 1, "sk-1", "self")
 	svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, selfWithUsage(5, 500, 5), rankingFixture(), time.Minute)
 
-	report := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, "")
-	account := report.Rankings.Account.Today
+	report := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, KeyUsageWindowToday, "")
+	account := report.Rankings.Account
 
 	require.Equal(t, 4, account.TotalKeys)
 	// cost: 30(id2) > 10(id3)=10(id4) > 5(id1)
@@ -365,10 +396,10 @@ func TestKeyUsageRankingMetricSwitching(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.metric, func(t *testing.T) {
 			svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, selfWithUsage(5, 500, 5), rankingFixture(), time.Minute)
-			report := svc.BuildReport(context.Background(), apiKey, tc.metric, "")
+			report := svc.BuildReport(context.Background(), apiKey, tc.metric, KeyUsageWindowToday, "")
 			require.Equal(t, tc.metric, report.Metric)
-			require.Equal(t, tc.wantNames, namesOf(report.Rankings.Site.Today.Top))
-			require.Equal(t, tc.wantSelf, report.Rankings.Site.Today.SelfRank)
+			require.Equal(t, tc.wantNames, namesOf(report.Rankings.Site.Top))
+			require.Equal(t, tc.wantSelf, report.Rankings.Site.SelfRank)
 		})
 	}
 }
@@ -377,7 +408,7 @@ func TestKeyUsageRankingFallsBackToCostForUnknownMetric(t *testing.T) {
 	apiKey := activeTestAPIKey(1, 1, "sk-1", "self")
 	svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, selfWithUsage(5, 500, 5), rankingFixture(), time.Minute)
 
-	report := svc.BuildReport(context.Background(), apiKey, "DROP TABLE usage_logs", "")
+	report := svc.BuildReport(context.Background(), apiKey, "DROP TABLE usage_logs", KeyUsageWindowToday, "")
 	require.Equal(t, usagestats.KeyRankingMetricCost, report.Metric)
 }
 
@@ -395,7 +426,7 @@ func TestKeyUsageRankingTruncatesTopToTen(t *testing.T) {
 	}}
 	svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, stats, ranking, time.Minute)
 
-	site := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, "").Rankings.Site.Today
+	site := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, KeyUsageWindowToday, "").Rankings.Site
 	require.Len(t, site.Top, KeyUsageTopN)
 	require.Equal(t, "key-25", site.Top[0].KeyName)
 	require.Equal(t, 25, site.TotalKeys)
@@ -417,20 +448,24 @@ func TestKeyUsageSiteRankingCacheIsSharedAndMetricScoped(t *testing.T) {
 	apiKeyB := activeTestAPIKey(9, 2, "sk-9", "other")
 	ctx := context.Background()
 
-	svc.BuildReport(ctx, apiKeyA, usagestats.KeyRankingMetricCost, "")
-	require.Equal(t, 3, ranking.siteCalls, "首次请求：三个窗口各查一次全站榜")
+	svc.BuildReport(ctx, apiKeyA, usagestats.KeyRankingMetricCost, KeyUsageWindowToday, "")
+	require.Equal(t, 1, ranking.siteCalls, "首次请求：只有被请求的那个窗口查一次全站榜")
 
 	// 换一把 key（不同账户）也应命中同一份全站缓存
-	svc.BuildReport(ctx, apiKeyB, usagestats.KeyRankingMetricCost, "")
-	require.Equal(t, 3, ranking.siteCalls, "全站榜与具体 Key 无关，必须复用缓存")
+	svc.BuildReport(ctx, apiKeyB, usagestats.KeyRankingMetricCost, KeyUsageWindowToday, "")
+	require.Equal(t, 1, ranking.siteCalls, "全站榜与具体 Key 无关，必须复用缓存")
 
 	// 换 metric 必须重新聚合，不能串味
-	svc.BuildReport(ctx, apiKeyA, usagestats.KeyRankingMetricTokens, "")
-	require.Equal(t, 6, ranking.siteCalls)
+	svc.BuildReport(ctx, apiKeyA, usagestats.KeyRankingMetricTokens, KeyUsageWindowToday, "")
+	require.Equal(t, 2, ranking.siteCalls)
 
-	tokensTop := svc.BuildReport(ctx, apiKeyA, usagestats.KeyRankingMetricTokens, "").Rankings.Site.Today
-	costTop := svc.BuildReport(ctx, apiKeyA, usagestats.KeyRankingMetricCost, "").Rankings.Site.Today
-	require.Equal(t, 6, ranking.siteCalls, "两个 metric 都已缓存")
+	// 换窗口同样必须重新聚合：缓存 key 里编了窗口边界
+	svc.BuildReport(ctx, apiKeyA, usagestats.KeyRankingMetricCost, KeyUsageWindowAll, "")
+	require.Equal(t, 3, ranking.siteCalls)
+
+	tokensTop := svc.BuildReport(ctx, apiKeyA, usagestats.KeyRankingMetricTokens, KeyUsageWindowToday, "").Rankings.Site
+	costTop := svc.BuildReport(ctx, apiKeyA, usagestats.KeyRankingMetricCost, KeyUsageWindowToday, "").Rankings.Site
+	require.Equal(t, 3, ranking.siteCalls, "两个 metric 都已缓存")
 	require.Equal(t, "third", tokensTop.Top[0].KeyName)
 	require.Equal(t, "top", costTop.Top[0].KeyName)
 }
@@ -441,12 +476,12 @@ func TestKeyUsageSiteRankingCacheExpires(t *testing.T) {
 	apiKey := activeTestAPIKey(1, 1, "sk-1", "self")
 	ctx := context.Background()
 
-	svc.BuildReport(ctx, apiKey, usagestats.KeyRankingMetricCost, "")
-	require.Equal(t, 3, ranking.siteCalls)
+	svc.BuildReport(ctx, apiKey, usagestats.KeyRankingMetricCost, KeyUsageWindowToday, "")
+	require.Equal(t, 1, ranking.siteCalls)
 
 	time.Sleep(40 * time.Millisecond)
-	svc.BuildReport(ctx, apiKey, usagestats.KeyRankingMetricCost, "")
-	require.Equal(t, 6, ranking.siteCalls, "TTL 过期后必须重新聚合")
+	svc.BuildReport(ctx, apiKey, usagestats.KeyRankingMetricCost, KeyUsageWindowToday, "")
+	require.Equal(t, 2, ranking.siteCalls, "TTL 过期后必须重新聚合")
 }
 
 // 账户内榜每次都实时查（数据量小），不吃全站缓存。
@@ -456,13 +491,13 @@ func TestKeyUsageAccountRankingIsNotCached(t *testing.T) {
 	apiKey := activeTestAPIKey(1, 1, "sk-1", "self")
 	ctx := context.Background()
 
-	svc.BuildReport(ctx, apiKey, usagestats.KeyRankingMetricCost, "")
-	svc.BuildReport(ctx, apiKey, usagestats.KeyRankingMetricCost, "")
+	svc.BuildReport(ctx, apiKey, usagestats.KeyRankingMetricCost, KeyUsageWindowToday, "")
+	svc.BuildReport(ctx, apiKey, usagestats.KeyRankingMetricCost, KeyUsageWindowToday, "")
 
 	ranking.mu.Lock()
 	defer ranking.mu.Unlock()
-	require.Equal(t, 3, ranking.siteCalls)
-	require.Equal(t, 9, ranking.aggCalls, "账户榜 2 次 × 3 窗口 + 全站榜 3 次")
+	require.Equal(t, 1, ranking.siteCalls)
+	require.Equal(t, 3, ranking.aggCalls, "账户榜 2 次（不缓存）+ 全站榜 1 次（缓存命中）")
 }
 
 // 排名查询失败时页面其余部分照常渲染，排名板块必须明确标记为"不可用"。
@@ -474,11 +509,11 @@ func TestKeyUsageRankingDegradesOnRepositoryError(t *testing.T) {
 	svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, selfWithUsage(5, 500, 5), ranking, time.Minute)
 	apiKey := activeTestAPIKey(1, 1, "sk-1", "self")
 
-	report := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, "")
-	require.Equal(t, int64(5), report.Windows.Today.Requests, "排名失败不影响窗口汇总")
+	for _, name := range []string{KeyUsageWindowToday, KeyUsageWindowLast7d, KeyUsageWindowLast30d, KeyUsageWindowAll} {
+		report := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, name, "")
+		require.Equal(t, int64(5), report.WindowStat.Requests, "排名失败不影响窗口汇总")
 
-	for _, scope := range []KeyUsageRankingScope{report.Rankings.Account, report.Rankings.Site} {
-		for _, window := range []KeyUsageRankingWindow{scope.Today, scope.Last7d, scope.Last30d} {
+		for _, window := range []KeyUsageRankingWindow{report.Rankings.Account, report.Rankings.Site} {
 			require.NotNil(t, window.Top)
 			require.Empty(t, window.Top)
 			require.Equal(t, 0, window.SelfRank, "0 = 排名不可用")
@@ -553,9 +588,9 @@ func TestKeyUsageTotalKeysNeverBelowSelfRank(t *testing.T) {
 	for name, stats := range cases {
 		t.Run(name, func(t *testing.T) {
 			svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, stats, rankingFixture(), time.Minute)
-			report := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, "")
-			for _, scope := range []KeyUsageRankingScope{report.Rankings.Account, report.Rankings.Site} {
-				for _, window := range []KeyUsageRankingWindow{scope.Today, scope.Last7d, scope.Last30d} {
+			for _, name := range []string{KeyUsageWindowToday, KeyUsageWindowLast7d, KeyUsageWindowLast30d, KeyUsageWindowAll} {
+				report := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, name, "")
+				for _, window := range []KeyUsageRankingWindow{report.Rankings.Account, report.Rankings.Site} {
 					require.Positive(t, window.SelfRank)
 					require.GreaterOrEqual(t, window.TotalKeys, window.SelfRank)
 				}
@@ -694,9 +729,8 @@ func TestKeyUsageSelfRankUsesAggregateValueNotRecomputedSum(t *testing.T) {
 	apiKey := activeTestAPIKey(1, 1, "sk-1", "self")
 	svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, stats, ranking, time.Minute)
 
-	report := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, "")
-	for _, scope := range []KeyUsageRankingScope{report.Rankings.Account, report.Rankings.Site} {
-		window := scope.Today
+	report := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, KeyUsageWindowToday, "")
+	for _, window := range []KeyUsageRankingWindow{report.Rankings.Account, report.Rankings.Site} {
 		require.Equal(t, 2, window.TotalKeys)
 		require.Equal(t, 1, window.SelfRank, "自己就是榜首，名次必须是 1")
 		require.Equal(t, 1, window.Self.Rank)
@@ -715,7 +749,7 @@ func TestKeyUsageSelfRankFallsBackWhenAbsentFromAggregates(t *testing.T) {
 	apiKey := activeTestAPIKey(1, 1, "sk-1", "self")
 	svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, &fakeKeyUsageModelStats{}, ranking, time.Minute)
 
-	window := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, "").Rankings.Site.Today
+	window := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, KeyUsageWindowToday, "").Rankings.Site
 	require.Equal(t, 2, window.TotalKeys)
 	require.Equal(t, 2, window.SelfRank)
 }
@@ -764,4 +798,191 @@ func TestKeyUsageWindowRangesFollowUserTimezone(t *testing.T) {
 	require.True(t, shanghai[KeyUsageWindowToday][1].Equal(time.Date(2026, time.March, 4, 0, 0, 0, 0, loc)))
 	require.True(t, shanghai[KeyUsageWindowLast7d][0].Equal(time.Date(2026, time.February, 25, 0, 0, 0, 0, loc)))
 	require.True(t, shanghai[KeyUsageWindowLast30d][0].Equal(time.Date(2026, time.February, 2, 0, 0, 0, 0, loc)))
+}
+
+// --- 全时段（all）窗口 -----------------------------------------------------
+
+// window 参数来自免登录页的 query string，必须能吃下任意输入并落到已知窗口上。
+// 非法值回落到 today 而不是 400：一个拼错的参数不该把整页打成错误页。
+func TestNormalizeKeyUsageWindow(t *testing.T) {
+	cases := map[string]string{
+		KeyUsageWindowToday:   KeyUsageWindowToday,
+		KeyUsageWindowLast7d:  KeyUsageWindowLast7d,
+		KeyUsageWindowLast30d: KeyUsageWindowLast30d,
+		KeyUsageWindowAll:     KeyUsageWindowAll,
+		"  ALL  ":             KeyUsageWindowAll,
+		"Last_30D":            KeyUsageWindowLast30d,
+		"":                    KeyUsageWindowToday,
+		"   ":                 KeyUsageWindowToday,
+		"bogus":               KeyUsageWindowToday,
+		"1 OR 1=1":            KeyUsageWindowToday,
+		"last_90d":            KeyUsageWindowToday,
+	}
+	for input, want := range cases {
+		require.Equal(t, want, NormalizeKeyUsageWindow(input), "input=%q", input)
+	}
+}
+
+// all 的边界：下界是固定纪元（不随请求漂移），上界与其它窗口共用同一个量化过的值。
+func TestKeyUsageAllWindowBounds(t *testing.T) {
+	now := time.Date(2026, time.March, 2, 3, 14, 15, 0, timezone.Location())
+	ranges := KeyUsageWindowRanges(now, "")
+
+	all, ok := ranges[KeyUsageWindowAll]
+	require.True(t, ok, "all 必须是一个已知窗口")
+	require.True(t, all[0].Equal(keyUsageAllWindowStart), "下界必须是固定纪元")
+	require.True(t, all[0].Before(ranges[KeyUsageWindowLast30d][0]), "全时段起点必须早于 30 天窗口")
+	require.True(t, all[1].Equal(ranges[KeyUsageWindowToday][1]), "上界与其它窗口共用同一个自然日边界")
+}
+
+// 缓存 key 编了窗口边界，all 的边界必须在同一自然日内保持稳定：
+// 只要这里退化成 now，all 就永远命不中缓存，每次页面加载都跑一遍全表 GROUP BY。
+func TestKeyUsageAllWindowCacheKeyIsQuantizedPerDay(t *testing.T) {
+	loc := timezone.Location()
+	keyAt := func(now time.Time) string {
+		return keyUsageSiteCacheKey(usagestats.KeyRankingMetricCost, keyUsageWindowFor(KeyUsageWindowAll, now, ""))
+	}
+
+	justAfterMidnight := time.Date(2026, time.March, 2, 0, 0, 1, 0, loc)
+	noon := time.Date(2026, time.March, 2, 12, 0, 0, 0, loc)
+	justBeforeMidnight := time.Date(2026, time.March, 2, 23, 59, 59, 0, loc)
+	nextDay := time.Date(2026, time.March, 3, 0, 0, 1, 0, loc)
+
+	require.Equal(t, keyAt(justAfterMidnight), keyAt(noon))
+	require.Equal(t, keyAt(noon), keyAt(justBeforeMidnight))
+	require.NotEqual(t, keyAt(noon), keyAt(nextDay), "跨天后必须换 key，否则会一直读到昨天的榜")
+}
+
+// 同一时段内反复请求 all，全站聚合只允许回源一次。
+func TestKeyUsageAllWindowSiteRankingLoadsOnce(t *testing.T) {
+	ranking := rankingFixture()
+	svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, selfWithUsage(5, 500, 5), ranking, time.Minute)
+	apiKeyA := activeTestAPIKey(1, 1, "sk-1", "self")
+	apiKeyB := activeTestAPIKey(9, 2, "sk-9", "other")
+	ctx := context.Background()
+
+	for range 5 {
+		svc.BuildReport(ctx, apiKeyA, usagestats.KeyRankingMetricCost, KeyUsageWindowAll, "")
+	}
+	// 换一把属于其它账户的 key 同样必须命中同一份缓存（全站榜与具体 Key 无关）。
+	svc.BuildReport(ctx, apiKeyB, usagestats.KeyRankingMetricCost, KeyUsageWindowAll, "")
+
+	ranking.mu.Lock()
+	require.Equal(t, 1, ranking.siteCalls, "同一时段内多次请求 all 只允许跑一次全表聚合")
+	ranking.mu.Unlock()
+
+	// 上面那段在同一秒内跑完，即使窗口边界退化成 now 也会碰巧命中（Unix() 只到秒）。
+	// 真正要锁住的是"一整天之内到达的请求共享同一份快照"，所以这里直接按不同时刻
+	// 构造窗口，绕开不可注入的 timezone.Now()。
+	t.Run("同一自然日内不同时刻的请求共享同一份快照", func(t *testing.T) {
+		loc := timezone.Location()
+		arrivals := []time.Time{
+			time.Date(2026, time.March, 2, 0, 0, 1, 0, loc),
+			time.Date(2026, time.March, 2, 7, 13, 59, 0, loc),
+			time.Date(2026, time.March, 2, 12, 0, 0, 0, loc),
+			time.Date(2026, time.March, 2, 23, 59, 59, 0, loc),
+		}
+
+		cache := newKeyUsageSiteCache(time.Minute)
+		loads := 0
+		load := func() (*keyUsageSiteSnapshot, error) {
+			loads++
+			return &keyUsageSiteSnapshot{Values: []float64{1}}, nil
+		}
+
+		for _, at := range arrivals {
+			window := keyUsageWindowFor(KeyUsageWindowAll, at, "")
+			snapshot, err := cache.GetOrLoad(keyUsageSiteCacheKey(usagestats.KeyRankingMetricCost, window), cache.ttlFor(window), load)
+			require.NoError(t, err)
+			require.NotNil(t, snapshot)
+		}
+
+		require.Equal(t, 1, loads, "同一自然日内的多次 all 请求只允许回源一次")
+		require.Equal(t, 1, cache.Len(), "而且只能占用一个缓存条目")
+	})
+}
+
+// all 是最贵的一种聚合，同时相对变化最慢：它的缓存 TTL 必须比其它窗口长。
+func TestKeyUsageAllWindowUsesLongerCacheTTL(t *testing.T) {
+	cache := newKeyUsageSiteCache(time.Minute)
+	now := timezone.Now()
+
+	shortTTL := cache.ttlFor(keyUsageWindowFor(KeyUsageWindowToday, now, ""))
+	longTTL := cache.ttlFor(keyUsageWindowFor(KeyUsageWindowAll, now, ""))
+
+	require.Equal(t, time.Minute, shortTTL)
+	require.Equal(t, time.Minute*keyUsageAllWindowCacheTTLFactor, longTTL)
+	require.Greater(t, longTTL, shortTTL)
+}
+
+// all 窗口的汇总与排名口径与其它窗口完全一致（同一套聚合代码，只是区间更宽）。
+func TestKeyUsageAllWindowAggregatesAndRanks(t *testing.T) {
+	apiKey := activeTestAPIKey(1, 1, "sk-1", "self")
+	stats := &fakeKeyUsageModelStats{byKey: map[int64][]usagestats.ModelStat{
+		1: {
+			{Model: "claude-opus-5", Requests: 40, TotalTokens: 1_200_000, ActualCost: 12.5},
+			{Model: "claude-haiku-5", Requests: 60, TotalTokens: 800_000, ActualCost: 2.5},
+		},
+	}}
+	svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, stats, rankingFixture(), time.Minute)
+
+	report := svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, KeyUsageWindowAll, "")
+
+	require.Equal(t, KeyUsageWindowAll, report.Window)
+	require.Equal(t, int64(100), report.WindowStat.Requests)
+	require.Equal(t, int64(2_000_000), report.WindowStat.Tokens)
+	require.InDelta(t, 15.0, report.WindowStat.CostUSD, 1e-9)
+	require.Len(t, report.WindowStat.Models, 2)
+
+	for _, window := range []KeyUsageRankingWindow{report.Rankings.Account, report.Rankings.Site} {
+		require.Equal(t, 4, window.TotalKeys)
+		require.Equal(t, []string{"top", "third", "fourth", "self"}, namesOf(window.Top))
+		require.Equal(t, 4, window.SelfRank)
+		require.True(t, window.Self.IsSelf)
+	}
+
+}
+
+// 只计算被请求的那一个窗口：其它三个窗口的区间一次都不能出现在仓储调用里。
+//
+// 这是"加了 all 之后不要每次都算四个窗口"的核心性质——把它写死在测试里，
+// 否则以后有人为了省事把四个窗口一起算回来，代价（每次请求跑一遍全表聚合）不会有任何信号。
+func TestKeyUsageBuildReportQueriesOnlyRequestedWindow(t *testing.T) {
+	apiKey := activeTestAPIKey(1, 1, "sk-1", "self")
+	all := []string{KeyUsageWindowToday, KeyUsageWindowLast7d, KeyUsageWindowLast30d, KeyUsageWindowAll}
+
+	for _, name := range all {
+		t.Run(name, func(t *testing.T) {
+			stats := selfWithUsage(5, 500, 5)
+			ranking := rankingFixture()
+			svc := newTestKeyUsageService(t, &fakeKeyUsageAPIKeys{}, stats, ranking, time.Minute)
+
+			svc.BuildReport(context.Background(), apiKey, usagestats.KeyRankingMetricCost, name, "")
+
+			ranges := KeyUsageWindowRanges(timezone.Now(), "")
+			want := ranges[name]
+
+			queried := append(stats.queriedRanges(), ranking.queriedRanges()...)
+			require.NotEmpty(t, queried, "前提：确实发生了查询")
+			for _, got := range queried {
+				require.True(t, got[0].Equal(want[0]) && got[1].Equal(want[1]),
+					"查询区间 %v 不属于被请求的窗口 %s (%v)", got, name, want)
+			}
+
+			// 反向断言：另外三个窗口的起点一次都没被查过。
+			for _, other := range all {
+				if other == name {
+					continue
+				}
+				otherStart := ranges[other][0]
+				if otherStart.Equal(want[0]) {
+					continue // today 与 last_7d 在跨度上不同，起点不会相等；防御性跳过
+				}
+				for _, got := range queried {
+					require.False(t, got[0].Equal(otherStart),
+						"窗口 %s 的区间被计算了，但本次只请求了 %s", other, name)
+				}
+			}
+		})
+	}
 }

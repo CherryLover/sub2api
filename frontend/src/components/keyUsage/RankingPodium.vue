@@ -50,7 +50,7 @@
             </p>
           </div>
           <div class="shrink-0 text-right sm:w-full sm:text-center">
-            <p class="text-sm font-bold tabular-nums text-gray-900 dark:text-white">
+            <p class="text-sm font-bold tabular-nums text-gray-900 dark:text-white" :title="metricTitleOf(entry, metric)">
               {{ metricValueOf(entry, metric) }}
             </p>
             <span
@@ -74,7 +74,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { KeyUsageMetric, KeyUsageRankingEntry } from '@/api/keyUsage'
-import { metricValueOf } from '@/utils/keyUsageFormat'
+import { metricTitleOf, metricValueOf } from '@/utils/keyUsageFormat'
 
 const props = defineProps<{
   entries: KeyUsageRankingEntry[]
