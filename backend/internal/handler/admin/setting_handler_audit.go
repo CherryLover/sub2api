@@ -65,6 +65,17 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.SessionBindingEnabled != after.SessionBindingEnabled {
 		changed = append(changed, "session_binding_enabled")
 	}
+	if before.LoginEntryPublic != after.LoginEntryPublic {
+		changed = append(changed, "login_entry_public")
+	}
+	if before.LoginEntryPath != after.LoginEntryPath {
+		// 只记键名，不记新旧值——diffSettings 的产物会进操作日志，把自定义登录路径
+		// 原样写进日志等于给它多开一个持久化副本。
+		changed = append(changed, "login_entry_path")
+	}
+	if before.DefaultHomePath != after.DefaultHomePath {
+		changed = append(changed, "default_home_path")
+	}
 	if before.StepUpEnabled != after.StepUpEnabled {
 		changed = append(changed, "step_up_enabled")
 	}

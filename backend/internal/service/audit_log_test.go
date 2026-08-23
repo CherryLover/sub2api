@@ -198,3 +198,32 @@ func TestParseAuditLogRetentionDays(t *testing.T) {
 		}
 	}
 }
+
+// 自定义登录路径的全部作用就是不被知道。管理端 PUT /api/v1/admin/settings 的请求体
+// 会整体入库到 audit_logs，不脱敏的话这条路径就会在审计日志里留一份明文副本，
+// 随日志导出/备份一路带出去。改动本身仍然可追溯——settings 的 diff 会记下键名。
+func TestRedactAuditBody_RedactsCustomLoginPath(t *testing.T) {
+	const hiddenPath = "/j7q2m9x4vk3p"
+	raw := []byte(`{"login_entry_public":false,"login_entry_path":"` + hiddenPath + `","default_home_path":"/key-usage"}`)
+
+	out := RedactAuditBody(raw, "application/json")
+
+	if strings.Contains(out, hiddenPath) {
+		t.Fatalf("custom login path leaked into the audit body: %s", out)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
+	}
+	if parsed["login_entry_path"] != auditRedactedPlaceholder {
+		t.Fatalf("login_entry_path = %v, want %q", parsed["login_entry_path"], auditRedactedPlaceholder)
+	}
+	// 非敏感的同组字段保持可见，否则这条审计记录就看不出改了什么。
+	if parsed["login_entry_public"] != false {
+		t.Fatalf("login_entry_public = %v, want false", parsed["login_entry_public"])
+	}
+	if parsed["default_home_path"] != "/key-usage" {
+		t.Fatalf("default_home_path = %v, want /key-usage", parsed["default_home_path"])
+	}
+}

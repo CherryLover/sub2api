@@ -25,10 +25,18 @@ func NewFrontendServer(settingsProvider PublicSettingsProvider) (*FrontendServer
 	return nil, errors.New("frontend not embedded")
 }
 
+// LoginEntryResolver reports where the login page currently lives (stub).
+type LoginEntryResolver func() LoginEntry
+
 // NewFrontendServerWithLoginEntry returns an error when frontend is not embedded.
 // Hidden login entries need the backend-rendered index.html, so they are only
 // available in embed builds.
 func NewFrontendServerWithLoginEntry(settingsProvider PublicSettingsProvider, loginEntry LoginEntry) (*FrontendServer, error) {
+	return nil, errors.New("frontend not embedded")
+}
+
+// NewFrontendServerWithLoginEntryResolver returns an error when frontend is not embedded.
+func NewFrontendServerWithLoginEntryResolver(settingsProvider PublicSettingsProvider, resolve LoginEntryResolver) (*FrontendServer, error) {
 	return nil, errors.New("frontend not embedded")
 }
 

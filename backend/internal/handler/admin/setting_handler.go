@@ -406,6 +406,10 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		payload.DefaultPlatformQuotas = platformQuotas
 	}
 
+	// 登录入口 / 默认首页：回生效值（本地配置 > 数据库 > 默认）而不是数据库原始值。
+	// 界面上要显示"现在登录页到底在哪"，还要显示这一项是不是被配置文件锁住了。
+	webEntrySettingsToDTO(h.settingService.ResolveWebEntry(c.Request.Context()), &payload)
+
 	response.Success(c, systemSettingsResponseData(payload, authSourceDefaults))
 }
 

@@ -41,6 +41,13 @@ type UpdateSettingsRequest struct {
 	LoginAgreementUpdatedAt             string                       `json:"login_agreement_updated_at"`
 	LoginAgreementDocuments             []dto.LoginAgreementDocument `json:"login_agreement_documents"`
 
+	// 登录入口 / 默认首页（省略=保持现值）。
+	// 指针类型是刻意的：不带这几个字段的旧客户端/脚本做一次全量保存时，绝不能把
+	// 登录入口静默重置成公开——那等于替站长撤掉了他刚藏起来的入口。
+	LoginEntryPublic *bool   `json:"login_entry_public"`
+	LoginEntryPath   *string `json:"login_entry_path"`
+	DefaultHomePath  *string `json:"default_home_path"`
+
 	// 邮件服务设置
 	SMTPHost     string `json:"smtp_host"`
 	SMTPPort     int    `json:"smtp_port"`
@@ -497,6 +504,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	previousAuthSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+
+	// 登录入口 / 默认首页：先合并 + 校验，非法值（含"隐藏但路径为空"）在这里就被拒掉，
+	// 绝不允许落库——落库了就是登录页再也打不开、服务却照常运行。
+	webEntryPlan, ok := h.planWebEntryUpdate(c, req, previousSettings, omitted)
+	if !ok {
 		return
 	}
 
@@ -1507,6 +1521,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PasskeyEnabled:                      passkeyEnabled,
 		SessionBindingEnabled:               sessionBindingEnabled,
 		StepUpEnabled:                       stepUpEnabled,
+		LoginEntryPublic:                    webEntryPlan.LoginEntryPublic,
+		LoginEntryPath:                      webEntryPlan.LoginEntryPath,
+		DefaultHomePath:                     webEntryPlan.DefaultHomePath,
 		AuditLogRetentionDays:               req.AuditLogRetentionDays,
 		LoginAgreementEnabled:               req.LoginAgreementEnabled,
 		LoginAgreementMode:                  loginAgreementMode,
@@ -2381,6 +2398,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	} else {
 		payload.DefaultPlatformQuotas = platformQuotas
 	}
+	// 与 GetSettings 一致：回三层合并后的生效值，保存后界面立刻能回显真实的登录入口。
+	webEntrySettingsToDTO(h.settingService.ResolveWebEntry(c.Request.Context()), &payload)
+
 	response.Success(c, systemSettingsResponseData(payload, updatedAuthSourceDefaults))
 }
 

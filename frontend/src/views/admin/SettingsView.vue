@@ -1754,6 +1754,156 @@
             </div>
           </div>
 
+
+          <!-- 登录入口与默认首页 -->
+          <div class="card" data-testid="login-entry-settings">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.loginEntry.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.loginEntry.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <!-- 被本地配置文件锁定时的说明 -->
+              <div
+                v-if="webEntryAnyLocked"
+                data-testid="login-entry-locked-banner"
+                class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+              >
+                <p class="font-medium">
+                  {{ t("admin.settings.loginEntry.lockedTitle") }}
+                </p>
+                <p class="mt-1">
+                  {{
+                    form.login_entry_locked_by_config &&
+                    form.default_home_path_locked_by_config
+                      ? t("admin.settings.loginEntry.lockedBoth")
+                      : form.login_entry_locked_by_config
+                        ? t("admin.settings.loginEntry.lockedLoginEntry")
+                        : t("admin.settings.loginEntry.lockedDefaultHome")
+                  }}
+                </p>
+              </div>
+
+              <!-- 隐藏登录入口 -->
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <label class="font-medium text-gray-900 dark:text-white">{{
+                    t("admin.settings.loginEntry.hideLoginEntry")
+                  }}</label>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.loginEntry.hideLoginEntryHint") }}
+                  </p>
+                  <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.loginEntry.notASecurityBoundary") }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="loginEntryHidden"
+                  data-testid="login-entry-hidden-toggle"
+                  :disabled="form.login_entry_locked_by_config"
+                />
+              </div>
+
+              <!-- 自定义登录路径 -->
+              <div
+                v-if="loginEntryHidden"
+                class="border-t border-gray-100 pt-4 dark:border-dark-700"
+              >
+                <label
+                  for="login-entry-path"
+                  class="font-medium text-gray-900 dark:text-white"
+                >
+                  {{ t("admin.settings.loginEntry.path") }}
+                </label>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.loginEntry.pathHint") }}
+                </p>
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                  <input
+                    id="login-entry-path"
+                    v-model="form.login_entry_path"
+                    type="text"
+                    autocomplete="off"
+                    spellcheck="false"
+                    :disabled="form.login_entry_locked_by_config"
+                    :placeholder="'/j7q2m9x4vk3p'"
+                    class="input min-w-0 flex-1 font-mono"
+                  />
+                  <button
+                    type="button"
+                    class="btn-secondary whitespace-nowrap"
+                    :disabled="form.login_entry_locked_by_config"
+                    @click="generateLoginEntryPath"
+                  >
+                    {{ t("admin.settings.loginEntry.generate") }}
+                  </button>
+                </div>
+                <p
+                  v-if="loginEntryPathError"
+                  data-testid="login-entry-path-error"
+                  class="mt-2 text-sm text-red-600 dark:text-red-400"
+                >
+                  {{ loginEntryPathError }}
+                </p>
+              </div>
+
+              <!-- 最终登录地址回显 -->
+              <div
+                class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-600 dark:bg-dark-700"
+              >
+                <p class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t("admin.settings.loginEntry.resultingUrl") }}
+                </p>
+                <p
+                  data-testid="login-entry-url"
+                  class="mt-1 break-all font-mono text-sm text-gray-700 dark:text-gray-200"
+                >
+                  {{ loginEntryUrl || t("admin.settings.loginEntry.urlUnavailable") }}
+                </p>
+                <p
+                  v-if="loginEntryHidden"
+                  class="mt-2 text-sm text-amber-600 dark:text-amber-400"
+                >
+                  {{ t("admin.settings.loginEntry.saveTheUrl") }}
+                </p>
+              </div>
+
+              <!-- 默认首页 -->
+              <div
+                class="border-t border-gray-100 pt-4 dark:border-dark-700"
+              >
+                <label
+                  for="default-home-path"
+                  class="font-medium text-gray-900 dark:text-white"
+                >
+                  {{ t("admin.settings.loginEntry.defaultHome") }}
+                </label>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.loginEntry.defaultHomeHint") }}
+                </p>
+                <select
+                  id="default-home-path"
+                  v-model="form.default_home_path"
+                  :disabled="form.default_home_path_locked_by_config"
+                  class="input mt-3 w-full sm:w-72"
+                >
+                  <option
+                    v-for="option in defaultHomePathOptions"
+                    :key="option"
+                    :value="option"
+                  >
+                    {{ option }}
+                  </option>
+                </select>
+              </div>
+            </div>
+          </div>
+
           <!-- API Key IP ACL Settings -->
           <div class="card">
             <div
@@ -8697,6 +8847,35 @@
         @confirm="handleDeleteProvider"
         @cancel="showDeleteProviderDialog = false"
       />
+      <!-- 登录入口变更的二次确认：把最终地址完整摆在管理员面前再让他点确认 -->
+      <ConfirmDialog
+        :show="loginEntryConfirm.show"
+        :title="t('admin.settings.loginEntry.confirmTitle')"
+        :message="loginEntryConfirmMessage"
+        :confirm-text="t('admin.settings.loginEntry.confirmAction')"
+        @confirm="confirmLoginEntrySave"
+        @cancel="cancelLoginEntrySave"
+      >
+        <div
+          class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-700"
+        >
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+            {{ t("admin.settings.loginEntry.resultingUrl") }}
+          </p>
+          <a
+            data-testid="login-entry-confirm-url"
+            :href="loginEntryUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="mt-1 block break-all font-mono text-sm text-primary-600 hover:underline dark:text-primary-400"
+          >
+            {{ loginEntryUrl }}
+          </a>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.settings.loginEntry.confirmBreakGlass") }}
+          </p>
+        </div>
+      </ConfirmDialog>
       <ConfirmDialog
         :show="affiliateConfirmDialog.show"
         :title="affiliateConfirmDialog.title"
@@ -9491,6 +9670,13 @@ const form = reactive<SettingsForm>({
   passkey_rp_origins: [],
   session_binding_enabled: false,
   step_up_enabled: false,
+  // 登录入口 / 默认首页：加载后被后端返回的**生效值**覆盖
+  // （本地配置文件 > 数据库 > 内置默认值）。
+  login_entry_public: true,
+  login_entry_path: "",
+  default_home_path: "/key-usage",
+  login_entry_locked_by_config: false,
+  default_home_path_locked_by_config: false,
   audit_log_retention_days: 180,
   login_agreement_enabled: false,
   login_agreement_mode: "modal",
@@ -10778,6 +10964,7 @@ async function loadSettings() {
       settings.forwarded_client_ip_headers,
     );
     forwardedClientIpHeaderDraft.value = "";
+    snapshotWebEntry();
     tablePageSizeOptionsInput.value = formatTablePageSizeOptions(
       Array.isArray(settings.table_page_size_options)
         ? settings.table_page_size_options
@@ -10950,7 +11137,233 @@ function findDuplicateDefaultSubscription(
   });
 }
 
+// ---------------------------------------------------------------------------
+// 登录入口 / 默认首页
+//
+// 这三项以前只能改后端本地配置文件，现在放到了后台。放到后台之后多了一个很真实的
+// 脚枪：点几下就能让登录页再也打不开，而服务照常运行。这里的每一处都冲着它去——
+//   - 保存前先在前端挡一遍非法值（后端还会再挡一次，这里只是让人早点看见原因）；
+//   - 保存前把最终的登录地址完整回显出来并要求二次确认；
+//   - 被后端本地配置文件锁定的项直接禁用并说明原因，而不是让人改了没反应。
+//
+// 破窗恢复：真把自己关在门外时，在后端 config.yaml 的 web 分组里写上
+// login_entry_public / login_entry_path 再重启，配置文件优先级高于这里的设置。
+// ---------------------------------------------------------------------------
+
+/** 去掉尾部斜杠（"/" 除外），与后端 config.NormalizeEntryPath 同规则。 */
+function normalizeEntryPathInput(raw: string): string {
+  const trimmed = (raw || "").trim();
+  if (trimmed === "" || trimmed === "/") return trimmed;
+  return trimmed.replace(/\/+$/, "") || "/";
+}
+
+/** 与后端 config.LoginEntryPathMinLength 保持一致。 */
+const LOGIN_ENTRY_PATH_MIN_LENGTH = 4;
+const LOGIN_ENTRY_PATH_MAX_LENGTH = 128;
+
+/** 与后端 config.reservedEntryPaths / reservedEntryPrefixes 保持一致。 */
+const LOGIN_ENTRY_RESERVED_PATHS = new Set([
+  "/", "/home", "/login", "/register", "/email-verify", "/forgot-password",
+  "/reset-password", "/key-usage", "/model-plaza", "/dashboard", "/keys",
+  "/batch-image", "/usage", "/redeem", "/affiliate", "/available-channels",
+  "/profile", "/subscriptions", "/purchase", "/orders", "/monitor", "/setup",
+  "/health", "/models", "/responses", "/favicon.ico", "/logo.svg", "/robots.txt",
+]);
+const LOGIN_ENTRY_RESERVED_PREFIXES = [
+  "/api", "/v1", "/v1beta", "/backend-api", "/antigravity", "/setup",
+  "/responses", "/alpha", "/images", "/videos", "/auth", "/admin", "/payment",
+  "/legal", "/custom", "/docs", "/assets", "/static",
+];
+
+/** 默认首页白名单，与后端 config.allowedDefaultHomePaths 保持一致。 */
+const DEFAULT_HOME_PATH_CHOICES = ["/key-usage", "/home", "/model-plaza"];
+
+/** 校验自定义登录路径，返回可直接展示的原因；合法时返回空串。 */
+function validateLoginEntryPathInput(raw: string): string {
+  const path = normalizeEntryPathInput(raw);
+  if (!path) return t("admin.settings.loginEntry.errors.required");
+  if (!path.startsWith("/"))
+    return t("admin.settings.loginEntry.errors.leadingSlash");
+  if (path.length > LOGIN_ENTRY_PATH_MAX_LENGTH)
+    return t("admin.settings.loginEntry.errors.tooLong", {
+      max: LOGIN_ENTRY_PATH_MAX_LENGTH,
+    });
+  if (path.length - 1 < LOGIN_ENTRY_PATH_MIN_LENGTH)
+    return t("admin.settings.loginEntry.errors.tooShort", {
+      min: LOGIN_ENTRY_PATH_MIN_LENGTH,
+    });
+  for (const segment of path.slice(1).split("/")) {
+    if (!segment) return t("admin.settings.loginEntry.errors.emptySegment");
+    if (!/^[A-Za-z0-9_~-]+$/.test(segment))
+      return t("admin.settings.loginEntry.errors.charset");
+  }
+  if (LOGIN_ENTRY_RESERVED_PATHS.has(path))
+    return t("admin.settings.loginEntry.errors.reserved", { path });
+  for (const prefix of LOGIN_ENTRY_RESERVED_PREFIXES) {
+    if (path === prefix || path.startsWith(`${prefix}/`))
+      return t("admin.settings.loginEntry.errors.reservedPrefix", { prefix });
+  }
+  return "";
+}
+
+/**
+ * 界面上用"隐藏登录入口"这个正向说法，存储用的是 login_entry_public。
+ * 站长脑子里想的是"把入口藏起来"，让开关和这句话同向，少一次反向推理。
+ */
+const loginEntryHidden = computed<boolean>({
+  get: () => form.login_entry_public === false,
+  set: (hidden: boolean) => {
+    form.login_entry_public = !hidden;
+    // 隐藏模式下 /login 不是可达页面，用它当落地页会让未登录访问无限重定向。
+    if (hidden && normalizeEntryPathInput(form.default_home_path) === "/login") {
+      form.default_home_path = "/key-usage";
+    }
+  },
+});
+
+const defaultHomePathOptions = computed<string[]>(() =>
+  loginEntryHidden.value
+    ? DEFAULT_HOME_PATH_CHOICES
+    : [...DEFAULT_HOME_PATH_CHOICES, "/login"],
+);
+
+const loginEntryPathError = computed(() =>
+  loginEntryHidden.value && !form.login_entry_locked_by_config
+    ? validateLoginEntryPathInput(form.login_entry_path)
+    : "",
+);
+
+const webEntryAnyLocked = computed(
+  () =>
+    form.login_entry_locked_by_config || form.default_home_path_locked_by_config,
+);
+
+/** 保存后登录页的完整地址；隐藏模式下路径不合法时返回空串。 */
+const loginEntryUrl = computed(() => {
+  if (!loginEntryHidden.value) return `${currentOrigin}/login`;
+  const path = normalizeEntryPathInput(form.login_entry_path);
+  if (!path || validateLoginEntryPathInput(path)) return "";
+  return `${currentOrigin}${path}`;
+});
+
+/** 生成一段足够长的随机路径——不被猜到是这条路径的全部作用。 */
+function generateLoginEntryPath() {
+  if (form.login_entry_locked_by_config) return;
+  const alphabet = "abcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = new Uint8Array(14);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  let path = "/";
+  for (const byte of bytes) path += alphabet[byte % alphabet.length];
+  form.login_entry_path = path;
+}
+
+/** 上一次从后端读到的生效值，用来判断这次保存有没有真的动到登录入口。 */
+const savedWebEntry = reactive({
+  login_entry_public: true,
+  login_entry_path: "",
+  default_home_path: "/key-usage",
+});
+
+function snapshotWebEntry() {
+  savedWebEntry.login_entry_public = form.login_entry_public;
+  savedWebEntry.login_entry_path = normalizeEntryPathInput(
+    form.login_entry_path,
+  );
+  savedWebEntry.default_home_path = normalizeEntryPathInput(
+    form.default_home_path,
+  );
+}
+
+function webEntryChanged(): boolean {
+  if (form.login_entry_locked_by_config && form.default_home_path_locked_by_config) {
+    return false;
+  }
+  return (
+    form.login_entry_public !== savedWebEntry.login_entry_public ||
+    normalizeEntryPathInput(form.login_entry_path) !==
+      savedWebEntry.login_entry_path ||
+    normalizeEntryPathInput(form.default_home_path) !==
+      savedWebEntry.default_home_path
+  );
+}
+
+/** 登录入口变更的二次确认。确认后重新走一遍 saveSettings。 */
+const loginEntryConfirm = reactive({ show: false });
+let loginEntryConfirmed = false;
+
+const loginEntryConfirmMessage = computed(() =>
+  loginEntryHidden.value
+    ? t("admin.settings.loginEntry.confirmHiddenMessage")
+    : t("admin.settings.loginEntry.confirmPublicMessage"),
+);
+
+function confirmLoginEntrySave() {
+  loginEntryConfirm.show = false;
+  loginEntryConfirmed = true;
+  void saveSettings();
+}
+
+function cancelLoginEntrySave() {
+  loginEntryConfirm.show = false;
+  loginEntryConfirmed = false;
+}
+
+/**
+ * 保存前的门禁：
+ *   "invalid"      —— 非法值，已经弹过错误，别保存
+ *   "needs-confirm"—— 动了登录入口，先让管理员看清最终地址
+ *   "ok"           —— 放行
+ */
+function webEntrySaveGate(): "invalid" | "needs-confirm" | "ok" {
+  if (!form.login_entry_locked_by_config && loginEntryHidden.value) {
+    const reason = validateLoginEntryPathInput(form.login_entry_path);
+    if (reason) {
+      appStore.showError(reason);
+      return "invalid";
+    }
+  }
+  if (
+    !form.default_home_path_locked_by_config &&
+    !defaultHomePathOptions.value.includes(
+      normalizeEntryPathInput(form.default_home_path),
+    )
+  ) {
+    appStore.showError(t("admin.settings.loginEntry.errors.defaultHome"));
+    return "invalid";
+  }
+  if (loginEntryConfirmed || !webEntryChanged()) return "ok";
+  return "needs-confirm";
+}
+
+/** 保存 payload 里的这三项；被配置文件锁定时整项省略，后端据此保持原值。 */
+function webEntryPayloadFields(): Partial<UpdateSettingsRequest> {
+  const fields: Partial<UpdateSettingsRequest> = {};
+  if (!form.login_entry_locked_by_config) {
+    fields.login_entry_public = form.login_entry_public;
+    fields.login_entry_path = normalizeEntryPathInput(form.login_entry_path);
+  }
+  if (!form.default_home_path_locked_by_config) {
+    fields.default_home_path = normalizeEntryPathInput(form.default_home_path);
+  }
+  return fields;
+}
+
 async function saveSettings() {
+  // 登录入口门禁排在最前面：非法值直接拒绝，动了登录入口先让管理员看清最终地址。
+  const gate = webEntrySaveGate();
+  if (gate === "invalid") return;
+  if (gate === "needs-confirm") {
+    loginEntryConfirm.show = true;
+    return;
+  }
+  loginEntryConfirmed = false;
+
   saving.value = true;
   try {
     const normalizedTableDefaultPageSize = Math.floor(
@@ -11411,6 +11824,8 @@ async function saveSettings() {
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
       allow_user_view_error_requests: form.allow_user_view_error_requests,
+      // 登录入口 / 默认首页（被本地配置文件锁定的项整项省略）
+      ...webEntryPayloadFields(),
     };
 
     // 仅当 openai_fast_policy_settings 已成功从后端加载时才回写，
@@ -11473,6 +11888,7 @@ async function saveSettings() {
       updated.forwarded_client_ip_headers,
     );
     forwardedClientIpHeaderDraft.value = "";
+    snapshotWebEntry();
     tablePageSizeOptionsInput.value = formatTablePageSizeOptions(
       Array.isArray(updated.table_page_size_options)
         ? updated.table_page_size_options

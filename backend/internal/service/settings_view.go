@@ -30,6 +30,12 @@ type SystemSettings struct {
 	LoginAgreementUpdatedAt             string
 	LoginAgreementDocuments             []LoginAgreementDocument
 
+	// 登录入口 / 默认首页（数据库层的值，未与本地配置文件合并）。
+	// LoginEntryPath 是自定义登录路径，只允许流向管理端（管理员鉴权）响应。
+	LoginEntryPublic bool
+	LoginEntryPath   string
+	DefaultHomePath  string
+
 	SMTPHost               string
 	SMTPPort               int
 	SMTPUsername           string

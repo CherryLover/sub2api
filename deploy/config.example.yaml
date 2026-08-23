@@ -742,6 +742,23 @@ key_usage:
 # 前端入口配置（登录入口 / 默认首页，重启生效）
 # =============================================================================
 #
+# THESE THREE KEYS ARE ALSO EDITABLE IN THE ADMIN PANEL (Settings -> Security).
+# Priority is fixed:
+#   this config file / environment variable (when the key is present) >
+#   database (admin panel) > built-in default
+# Leave a key out of this file entirely to let the admin panel own it. Writing a
+# key here PINS it: the admin panel shows it read-only and refuses to change it.
+# That is the break-glass path — if an admin locks themselves out from the panel,
+# set the key here and restart to take the entry back.
+# 这三项现在也能在管理后台改（设置 -> 安全设置）。生效顺序固定为：
+#   本地配置文件/环境变量（写了这个键时） > 数据库（后台设置） > 内置默认值
+# 想让后台管这一项，就把对应的键整行删掉/注释掉；写在这里就等于把它钉死，后台只读
+# 且拒绝修改。这是破窗通道：管理员在后台把自己关在门外时，在这里写一行再重启即可
+# 夺回登录入口。
+# 注意"写了"看的是键是否出现在配置文件（或对应环境变量 WEB_LOGIN_ENTRY_PUBLIC /
+# WEB_LOGIN_ENTRY_PATH / WEB_DEFAULT_HOME_PATH），而不是值等不等于默认值；
+# login_entry_public 与 login_entry_path 作为一组一起锁定。
+#
 # NOTE / 请注意：
 #   Hiding the login page is obscurity, not authentication. It reduces the surface
 #   that scanners and casual probes stumble into — it does NOT stop anyone from
@@ -767,7 +784,11 @@ web:
   # true（默认）：/login 正常可用，首页显示登录入口，与既有行为一致。
   # false       ：/login 不再可用，公开页面不再显示登录入口，登录页只在下面的
   #               login_entry_path 上渲染。
-  login_entry_public: true
+  # Uncommenting this line pins the login entry and makes the admin panel fields
+  # read-only (break-glass). Leave it commented to manage it from the admin panel.
+  # 取消注释这一行就等于把登录入口钉死，后台的这两项会变成只读（破窗用）。
+  # 想在后台管就保持注释状态。
+  # login_entry_public: true
 
   # Custom login path, required when login_entry_public is false.
   # Rules: must start with "/", each segment may only use [A-Za-z0-9_~-], no trailing
@@ -784,7 +805,7 @@ web:
   # 该路径不会写进前端产物，也不会出现在 /api/v1/settings/public 或普通页面注入的
   # 设置里。建议用一段足够长的随机串——它的全部作用就是不被猜到。
   # Example / 示例: "/j7q2m9x4vk3p"
-  login_entry_path: ""
+  # login_entry_path: ""
 
   # Landing page for "/". Allowed: /home, /key-usage, /model-plaza
   # (and /login only while login_entry_public is true).
@@ -792,7 +813,11 @@ web:
   # 访问 "/" 时落到的页面。允许：/home、/key-usage、/model-plaza
   # （login_entry_public 为 true 时还允许 /login）。
   # 默认 /key-usage，即免登录的用量查询页。
-  default_home_path: "/key-usage"
+  #
+  # NOTE: keeping this line pins the landing page and makes the admin panel field
+  # read-only. Comment it out to let the admin panel manage it.
+  # 注意：留着这一行就等于钉死落地页，后台的这一项会变成只读。想在后台管就注释掉。
+  # default_home_path: "/key-usage"
 
 # =============================================================================
 # Dashboard Aggregation Configuration

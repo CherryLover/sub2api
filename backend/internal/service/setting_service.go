@@ -136,6 +136,11 @@ type SettingService struct {
 	cyberSessionBlockRuntimeCache atomic.Value // *cachedCyberSessionBlockRuntime
 	cyberSessionBlockRuntimeSF    singleflight.Group
 
+	// webEntryCache 登录入口 / 默认首页的三层合并结果（*cachedWebEntrySettings）。
+	// 每个 index.html 请求都要判断"是否命中隐藏登录路径"，禁止在这条路径上直接访问 DB。
+	webEntryCache atomic.Value
+	webEntrySF    singleflight.Group
+
 	// panelRateLimitCache 面板 API 限流配置进程内缓存（*cachedPanelRateLimitSettings）。
 	// 面板每个认证请求都会读取，禁止在热路径上直接访问 DB。
 	panelRateLimitCache atomic.Value
