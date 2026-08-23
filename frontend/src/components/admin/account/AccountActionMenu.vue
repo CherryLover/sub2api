@@ -65,30 +65,42 @@
 import { computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
+import { useNowTick } from '@/composables/useNowTick'
 import type { Account } from '@/types'
 
 const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
 const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
 const { t } = useI18n()
+// 共享心跳：限流/超载/临时不可调度都是"到期即失效"的状态，菜单打开期间可能正好越过
+// reset 时刻，靠 new Date() 的 computed 不会重算（见 useNowTick 的说明）
+const { now } = useNowTick()
+
+/** 目标时间是否仍在未来（无效时间视为已过期） */
+const isStillFuture = (value: string | null | undefined, nowMs: number): boolean => {
+  if (!value) return false
+  const ts = Date.parse(value)
+  return Number.isFinite(ts) && ts > nowMs
+}
+
 const canDuplicate = computed(() => {
   if (!props.account || props.account.parent_account_id != null) return false
   return ['apikey', 'upstream', 'bedrock', 'service_account'].includes(props.account.type)
 })
 const isRateLimited = computed(() => {
-  if (props.account?.rate_limit_reset_at && new Date(props.account.rate_limit_reset_at) > new Date()) {
+  const nowMs = now.value
+  if (isStillFuture(props.account?.rate_limit_reset_at, nowMs)) {
     return true
   }
   const modelLimits = (props.account?.extra as Record<string, unknown> | undefined)?.model_rate_limits as
     | Record<string, { rate_limit_reset_at: string }>
     | undefined
   if (modelLimits) {
-    const now = new Date()
-    return Object.values(modelLimits).some(info => new Date(info.rate_limit_reset_at) > now)
+    return Object.values(modelLimits).some(info => isStillFuture(info.rate_limit_reset_at, nowMs))
   }
   return false
 })
-const isOverloaded = computed(() => props.account?.overload_until && new Date(props.account.overload_until) > new Date())
-const isTempUnschedulable = computed(() => props.account?.temp_unschedulable_until && new Date(props.account.temp_unschedulable_until) > new Date())
+const isOverloaded = computed(() => isStillFuture(props.account?.overload_until, now.value))
+const isTempUnschedulable = computed(() => isStillFuture(props.account?.temp_unschedulable_until, now.value))
 const hasRecoverableState = computed(() => {
   return props.account?.status === 'error' || Boolean(isRateLimited.value) || Boolean(isOverloaded.value) || Boolean(isTempUnschedulable.value)
 })

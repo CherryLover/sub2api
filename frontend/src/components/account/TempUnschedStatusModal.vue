@@ -153,6 +153,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useNowTick } from '@/composables/useNowTick'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { Account, TempUnschedulableStatus } from '@/types'
@@ -172,6 +173,9 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const appStore = useAppStore()
 
+// 共享心跳：弹窗可能一直开着跨过 until_unix，靠 Date.now() 的 computed 不会重算
+const { now } = useNowTick()
+
 const loading = ref(false)
 const resetting = ref(false)
 const status = ref<TempUnschedulableStatus | null>(null)
@@ -180,7 +184,7 @@ const state = computed(() => status.value?.state || null)
 
 const isActive = computed(() => {
   if (!status.value?.active || !state.value) return false
-  return state.value.until_unix * 1000 > Date.now()
+  return state.value.until_unix * 1000 > now.value
 })
 
 const ruleIndexDisplay = computed(() => {
@@ -218,7 +222,7 @@ const untilText = computed(() => {
 
 const remainingText = computed(() => {
   if (!state.value) return '-'
-  const remainingMs = state.value.until_unix * 1000 - Date.now()
+  const remainingMs = state.value.until_unix * 1000 - now.value
   if (remainingMs <= 0) {
     return t('admin.accounts.tempUnschedulable.expired')
   }
