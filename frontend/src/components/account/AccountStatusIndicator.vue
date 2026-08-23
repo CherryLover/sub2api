@@ -99,7 +99,7 @@
         >
           <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
           {{ t('admin.accounts.status.creditsExhausted') }}
-          <span class="text-[10px] opacity-70">{{ formatCountdown(item.reset_at) }}</span>
+          <span class="text-[10px] opacity-70">{{ item.countdown }}</span>
         </span>
         <!-- 正在走积分（模型限流但积分可用）-->
         <span
@@ -108,7 +108,7 @@
         >
           <span>⚡</span>
           {{ formatScopeName(item.model) }}
-          <span class="text-[10px] opacity-70">{{ formatCountdown(item.reset_at) }}</span>
+          <span class="text-[10px] opacity-70">{{ item.countdown }}</span>
         </span>
         <!-- 普通模型限流 -->
         <span
@@ -117,7 +117,7 @@
         >
           <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
           {{ formatScopeName(item.model) }}
-          <span class="text-[10px] opacity-70">{{ formatCountdown(item.reset_at) }}</span>
+          <span class="text-[10px] opacity-70">{{ item.countdown }}</span>
         </span>
         <!-- Tooltip -->
         <div
@@ -162,10 +162,24 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import { useNowTick } from '@/composables/useNowTick'
 import type { Account } from '@/types'
 import { formatCountdown, formatDateTime, formatDateTimeToMinute, formatCountdownWithSuffix, formatTime } from '@/utils/format'
 
 const { t } = useI18n()
+
+// 共享心跳：让下面这些"到期即失效"的状态随时间自动重算。
+// 后端不会主动清空 rate_limit_reset_at / overload_until / temp_unschedulable_until，
+// 行数据也不会变（限流账号被调度器跳过，并发/RPM/会话/窗口费用恒为 0，ETag 与行比对
+// 都看不出变化），所以只能由前端自己感知时间流逝，否则徽标渲染后就永远冻住。
+const { now } = useNowTick()
+
+/** 目标时间是否仍在未来（无效时间视为"已过期"，与原先 new Date() 比较的行为一致） */
+const isStillFuture = (value: string | null | undefined, nowMs: number): boolean => {
+  if (!value) return false
+  const ts = Date.parse(value)
+  return Number.isFinite(ts) && ts > nowMs
+}
 
 const props = defineProps<{
   account: Account
@@ -176,16 +190,18 @@ const emit = defineEmits<{
 }>()
 
 // Computed: is rate limited (429)
-const isRateLimited = computed(() => {
-  if (!props.account.rate_limit_reset_at) return false
-  return new Date(props.account.rate_limit_reset_at) > new Date()
-})
+const isRateLimited = computed(() => isStillFuture(props.account.rate_limit_reset_at, now.value))
 
 type AccountModelStatusItem = {
   kind: 'rate_limit' | 'credits_exhausted' | 'credits_active'
   model: string
   reset_at: string
+  /** 随心跳刷新的倒计时文案（模板里不能直接调 formatCountdown，否则不会随时间更新） */
+  countdown: string | null
 }
+
+// 无模型限流时返回同一个常量数组：computed 值引用不变 → 不会每次心跳都触发无谓的重渲染
+const NO_MODEL_STATUSES: AccountModelStatusItem[] = []
 
 // Computed: active model statuses (普通模型限流 + 积分耗尽 + 走积分中)
 const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
@@ -193,32 +209,35 @@ const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
   const modelLimits = extra?.model_rate_limits as
     | Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
     | undefined
-  const now = new Date()
-  const items: AccountModelStatusItem[] = []
+  const nowMs = now.value
 
-  if (!modelLimits) return items
+  if (!modelLimits) return NO_MODEL_STATUSES
+
+  const items: AccountModelStatusItem[] = []
 
   // 检查 AICredits key 是否生效（积分是否耗尽）
   const aiCreditsEntry = modelLimits['AICredits']
-  const hasActiveAICredits = aiCreditsEntry && new Date(aiCreditsEntry.rate_limit_reset_at) > now
+  const hasActiveAICredits = !!aiCreditsEntry && isStillFuture(aiCreditsEntry.rate_limit_reset_at, nowMs)
   const allowOverages = !!(extra?.allow_overages)
 
   for (const [model, info] of Object.entries(modelLimits)) {
-    if (new Date(info.rate_limit_reset_at) <= now) continue
+    if (!isStillFuture(info.rate_limit_reset_at, nowMs)) continue
+
+    const countdown = formatCountdown(info.rate_limit_reset_at, nowMs)
 
     if (model === 'AICredits') {
       // AICredits key → 积分已用尽
-      items.push({ kind: 'credits_exhausted', model, reset_at: info.rate_limit_reset_at })
+      items.push({ kind: 'credits_exhausted', model, reset_at: info.rate_limit_reset_at, countdown })
     } else if (allowOverages && !hasActiveAICredits) {
       // 普通模型限流 + overages 启用 + 积分可用 → 正在走积分
-      items.push({ kind: 'credits_active', model, reset_at: info.rate_limit_reset_at })
+      items.push({ kind: 'credits_active', model, reset_at: info.rate_limit_reset_at, countdown })
     } else {
       // 普通模型限流
-      items.push({ kind: 'rate_limit', model, reset_at: info.rate_limit_reset_at })
+      items.push({ kind: 'rate_limit', model, reset_at: info.rate_limit_reset_at, countdown })
     }
   }
 
-  return items
+  return items.length > 0 ? items : NO_MODEL_STATUSES
 })
 
 const formatScopeName = (scope: string): string => {
@@ -265,16 +284,12 @@ const formatScopeName = (scope: string): string => {
 }
 
 // Computed: is overloaded (529)
-const isOverloaded = computed(() => {
-  if (!props.account.overload_until) return false
-  return new Date(props.account.overload_until) > new Date()
-})
+const isOverloaded = computed(() => isStillFuture(props.account.overload_until, now.value))
 
 // Computed: is temp unschedulable
-const isTempUnschedulable = computed(() => {
-  if (!props.account.temp_unschedulable_until) return false
-  return new Date(props.account.temp_unschedulable_until) > new Date()
-})
+const isTempUnschedulable = computed(() =>
+  isStillFuture(props.account.temp_unschedulable_until, now.value)
+)
 
 // Computed: has error status
 const hasError = computed(() => {
@@ -293,7 +308,7 @@ const isQuotaExceeded = computed(() => {
 
 // Computed: countdown text for rate limit (429)
 const rateLimitCountdown = computed(() => {
-  return formatCountdown(props.account.rate_limit_reset_at)
+  return formatCountdown(props.account.rate_limit_reset_at, now.value)
 })
 
 const rateLimitResumeText = computed(() => {
@@ -303,7 +318,7 @@ const rateLimitResumeText = computed(() => {
 
 // Computed: countdown text for overload (529)
 const overloadCountdown = computed(() => {
-  return formatCountdownWithSuffix(props.account.overload_until)
+  return formatCountdownWithSuffix(props.account.overload_until, now.value)
 })
 
 const tempUnschedRecoveryText = computed(() => {
