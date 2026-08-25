@@ -201,4 +201,3 @@ func TestAdminService_ListProxiesWithAccountCount_WithSearch(t *testing.T) {
 		require.Equal(t, "p2", repo.listWithFiltersAndAccountCountSearch)
 	})
 }
-

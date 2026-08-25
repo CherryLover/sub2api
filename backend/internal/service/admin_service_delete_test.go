@@ -660,4 +660,3 @@ func TestAdminService_DeleteProxy_Error(t *testing.T) {
 	err := svc.DeleteProxy(context.Background(), 33)
 	require.ErrorIs(t, err, deleteErr)
 }
-
