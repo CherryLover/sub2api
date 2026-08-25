@@ -21,7 +21,7 @@ func updateSettingsCodexStatus(t *testing.T, body map[string]any) int {
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{values: map[string]string{service.SettingKeyPromoCodeEnabled: "true"}}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil)
 
 	raw, err := json.Marshal(body)
 	require.NoError(t, err)

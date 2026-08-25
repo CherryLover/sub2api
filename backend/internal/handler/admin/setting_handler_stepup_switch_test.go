@@ -25,7 +25,7 @@ func newStepUpSwitchTestHandler(t *testing.T, stored map[string]string) (*Settin
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{values: stored}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	return NewSettingHandler(svc, nil, nil, nil, nil, nil, nil), repo
+	return NewSettingHandler(svc, nil, nil, nil, nil), repo
 }
 
 func doUpdateSettings(t *testing.T, h *SettingHandler, body map[string]any, prepare func(c *gin.Context)) *httptest.ResponseRecorder {
@@ -182,7 +182,7 @@ func TestUpdateSettingsMalformedForwardedClientIPHeadersRemainFailClosedWhenOmit
 	svc := service.NewSettingService(repo, cfg)
 	require.ErrorContains(t, svc.LoadForwardedClientIPSettings(context.Background()), "load forwarded client ip headers")
 	require.False(t, cfg.ForwardedClientIPSettings().TrustForwardedIP)
-	h := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+	h := NewSettingHandler(svc, nil, nil, nil, nil)
 
 	rec := doUpdateSettings(t, h, map[string]any{"registration_enabled": true}, nil)
 

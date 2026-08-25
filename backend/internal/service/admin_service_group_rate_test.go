@@ -223,3 +223,7 @@ func TestAdminService_BatchSetGroupRPMOverrides(t *testing.T) {
 		require.Zero(t, repo.rpmSyncedGroupID)
 	})
 }
+
+// ptrFloat 原定义在已删除的支付配置测试里，这里保留本包用到的最小实现。
+func ptrFloat(f float64) *float64 { return &f }
+func ptrInt64(i int64) *int64     { return &i }

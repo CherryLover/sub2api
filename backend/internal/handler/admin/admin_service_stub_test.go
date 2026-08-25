@@ -20,7 +20,6 @@ type stubAdminService struct {
 	openAISchedulerScorePoolCalls       int
 	proxies                             []service.Proxy
 	proxyCounts                         []service.ProxyWithAccountCount
-	redeems                             []service.RedeemCode
 	boundAuthIdentity                   *service.AdminBindAuthIdentityInput
 	boundAuthIdentityFor                int64
 	createdAccounts                     []*service.CreateAccountInput
@@ -65,14 +64,6 @@ type stubAdminService struct {
 	}
 	lastListProxies struct {
 		protocol  string
-		status    string
-		search    string
-		sortBy    string
-		sortOrder string
-		calls     int
-	}
-	lastListRedeemCodes struct {
-		codeType  string
 		status    string
 		search    string
 		sortBy    string
@@ -128,14 +119,6 @@ func newStubAdminService() *stubAdminService {
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	redeem := service.RedeemCode{
-		ID:        5,
-		Code:      "R-TEST",
-		Type:      service.RedeemTypeBalance,
-		Value:     10,
-		Status:    service.StatusUnused,
-		CreatedAt: now,
-	}
 	return &stubAdminService{
 		users:       []service.User{user},
 		apiKeys:     []service.APIKey{apiKey},
@@ -143,7 +126,6 @@ func newStubAdminService() *stubAdminService {
 		accounts:    []service.Account{account},
 		proxies:     []service.Proxy{proxy},
 		proxyCounts: []service.ProxyWithAccountCount{{Proxy: proxy, AccountCount: 1}},
-		redeems:     []service.RedeemCode{redeem},
 	}
 }
 
@@ -680,42 +662,6 @@ func (s *stubAdminService) CheckProxyQuality(ctx context.Context, id int64) (*se
 			{Target: "gemini", Status: "pass", HTTPStatus: 200},
 		},
 	}, nil
-}
-
-func (s *stubAdminService) ListRedeemCodes(ctx context.Context, page, pageSize int, codeType, status, search string, sortBy, sortOrder string) ([]service.RedeemCode, int64, error) {
-	s.lastListRedeemCodes.codeType = codeType
-	s.lastListRedeemCodes.status = status
-	s.lastListRedeemCodes.search = search
-	s.lastListRedeemCodes.sortBy = sortBy
-	s.lastListRedeemCodes.sortOrder = sortOrder
-	s.lastListRedeemCodes.calls++
-	return s.redeems, int64(len(s.redeems)), nil
-}
-
-func (s *stubAdminService) GetRedeemCode(ctx context.Context, id int64) (*service.RedeemCode, error) {
-	code := service.RedeemCode{ID: id, Code: "R-TEST", Status: service.StatusUnused}
-	return &code, nil
-}
-
-func (s *stubAdminService) GenerateRedeemCodes(ctx context.Context, input *service.GenerateRedeemCodesInput) ([]service.RedeemCode, error) {
-	return s.redeems, nil
-}
-
-func (s *stubAdminService) DeleteRedeemCode(ctx context.Context, id int64) error {
-	return nil
-}
-
-func (s *stubAdminService) BatchDeleteRedeemCodes(ctx context.Context, ids []int64) (int64, error) {
-	return int64(len(ids)), nil
-}
-
-func (s *stubAdminService) ExpireRedeemCode(ctx context.Context, id int64) (*service.RedeemCode, error) {
-	code := service.RedeemCode{ID: id, Code: "R-TEST", Status: service.StatusUsed}
-	return &code, nil
-}
-
-func (s *stubAdminService) GetUserBalanceHistory(ctx context.Context, userID int64, page, pageSize int, codeType string) ([]service.RedeemCode, int64, float64, error) {
-	return s.redeems, int64(len(s.redeems)), 100.0, nil
 }
 
 func (s *stubAdminService) UpdateGroupSortOrders(ctx context.Context, updates []service.GroupSortOrderUpdate) error {

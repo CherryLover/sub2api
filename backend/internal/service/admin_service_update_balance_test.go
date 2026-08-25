@@ -4,7 +4,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -79,7 +78,7 @@ func TestAdminService_UpdateUserBalance_UsesAtomicPrimitives(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &balanceUserRepoStub{userRepoStub: &userRepoStub{user: &User{ID: 7, Balance: 10}}}
 			svc := &adminServiceImpl{
-				userRepo:       repo,
+				userRepo: repo,
 			}
 
 			user, err := svc.UpdateUserBalance(context.Background(), 7, tt.amount, tt.operation, "")
@@ -93,7 +92,7 @@ func TestAdminService_UpdateUserBalance_UsesAtomicPrimitives(t *testing.T) {
 func TestAdminService_UpdateUserBalance_RejectsNegativeResult(t *testing.T) {
 	repo := &balanceUserRepoStub{userRepoStub: &userRepoStub{user: &User{ID: 7, Balance: 3}}}
 	svc := &adminServiceImpl{
-		userRepo:       repo,
+		userRepo: repo,
 	}
 
 	_, err := svc.UpdateUserBalance(context.Background(), 7, 4, "subtract", "")
@@ -106,7 +105,7 @@ func TestAdminService_UpdateUserBalance_RejectsNegativeResult(t *testing.T) {
 func TestAdminService_UpdateUserBalance_RejectsUnknownOperation(t *testing.T) {
 	repo := &balanceUserRepoStub{userRepoStub: &userRepoStub{user: &User{ID: 7, Balance: 10}}}
 	svc := &adminServiceImpl{
-		userRepo:       repo,
+		userRepo: repo,
 	}
 
 	_, err := svc.UpdateUserBalance(context.Background(), 7, 1, "multiply", "")
@@ -141,4 +140,3 @@ func TestAdminService_UpdateUserBalance_NoChangeNoInvalidate(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, invalidator.userIDs)
 }
-
