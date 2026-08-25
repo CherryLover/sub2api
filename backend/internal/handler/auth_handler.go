@@ -145,13 +145,6 @@ func (h *AuthHandler) ensureBackendModeAllowsUser(ctx context.Context, user *ser
 	return infraerrors.Forbidden("BACKEND_MODE_ADMIN_ONLY", "Backend mode is active. Only admin login is allowed.")
 }
 
-func (h *AuthHandler) ensureBackendModeAllowsNewUserLogin(ctx context.Context) error {
-	if h == nil || !h.isBackendModeEnabled(ctx) {
-		return nil
-	}
-	return infraerrors.Forbidden("BACKEND_MODE_ADMIN_ONLY", "Backend mode is active. Only admin login is allowed.")
-}
-
 func (h *AuthHandler) isBackendModeEnabled(ctx context.Context) bool {
 	if h == nil || h.settingSvc == nil {
 		return false

@@ -111,7 +111,6 @@ func TestNormalizeAndValidateWeb_RejectsBadLoginEntryPaths(t *testing.T) {
 		"admin prefix":          "/admin/secret-gate",
 		"auth prefix":           "/auth/secret-gate",
 		"legal prefix":          "/legal/secret-gate",
-		"payment prefix":        "/payment/secret-gate",
 		"static assets":         "/assets/secret-gate",
 		"file extension":        "/secret.gate.html",
 		"empty segment":         "/secret//gate",

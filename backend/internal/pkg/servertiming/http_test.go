@@ -133,7 +133,6 @@ func TestDependencyModuleClassification(t *testing.T) {
 		"https://cloudcode-pa.googleapis.com/v1internal":      "antigravity",
 		"https://storage.googleapis.com/bucket/object":        "google",
 		"https://bucket.s3.amazonaws.com/object":              "s3",
-		"https://api.stripe.com/v1/refunds":                   "payment",
 		"https://dependency.example.test/path":                "http",
 	}
 	for rawURL, want := range tests {

@@ -43,9 +43,6 @@ var (
 	)
 	ErrRegDisabled             = infraerrors.Forbidden("REGISTRATION_DISABLED", "registration is currently disabled")
 	ErrServiceUnavailable      = infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "service temporarily unavailable")
-	ErrInvitationCodeRequired  = infraerrors.BadRequest("INVITATION_CODE_REQUIRED", "invitation code is required")
-	ErrInvitationCodeInvalid   = infraerrors.BadRequest("INVITATION_CODE_INVALID", "invalid or used invitation code")
-	ErrOAuthInvitationRequired = infraerrors.Forbidden("OAUTH_INVITATION_REQUIRED", "invitation code required to complete oauth registration")
 	ErrCaptchaProviderConflict = infraerrors.ServiceUnavailable("CAPTCHA_PROVIDER_CONFLICT", "multiple captcha providers are enabled")
 )
 
@@ -580,18 +577,6 @@ func authSourceSignupSettings(defaults *AuthSourceDefaultSettings, signupSource 
 	switch strings.ToLower(strings.TrimSpace(signupSource)) {
 	case "email":
 		return defaults.Email, true
-	case "linuxdo":
-		return defaults.LinuxDo, true
-	case "oidc":
-		return defaults.OIDC, true
-	case "wechat":
-		return defaults.WeChat, true
-	case "github":
-		return defaults.GitHub, true
-	case "google":
-		return defaults.Google, true
-	case "dingtalk":
-		return defaults.DingTalk, true
 	default:
 		return ProviderDefaultGrantSettings{}, false
 	}
@@ -784,22 +769,6 @@ func (s *AuthService) ensureEmailAuthIdentity(ctx context.Context, user *User, s
 	}
 
 	return identity, !existed
-}
-
-func inferLegacySignupSource(email string) string {
-	normalized := strings.ToLower(strings.TrimSpace(email))
-	switch {
-	case strings.HasSuffix(normalized, DingTalkConnectSyntheticEmailDomain):
-		return "dingtalk"
-	case strings.HasSuffix(normalized, LinuxDoConnectSyntheticEmailDomain):
-		return "linuxdo"
-	case strings.HasSuffix(normalized, OIDCConnectSyntheticEmailDomain):
-		return "oidc"
-	case strings.HasSuffix(normalized, WeChatConnectSyntheticEmailDomain):
-		return "wechat"
-	default:
-		return "email"
-	}
 }
 
 func (s *AuthService) validateRegistrationEmailPolicy(ctx context.Context, email string) error {

@@ -30,16 +30,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		return fmt.Errorf("check existing settings: %w", err)
 	}
 
-	oidcUsePKCEDefault := true
-	oidcValidateIDTokenDefault := true
-	if s != nil && s.cfg != nil {
-		if s.cfg.OIDC.UsePKCEExplicit {
-			oidcUsePKCEDefault = s.cfg.OIDC.UsePKCE
-		}
-		if s.cfg.OIDC.ValidateIDTokenExplicit {
-			oidcValidateIDTokenDefault = s.cfg.OIDC.ValidateIDToken
-		}
-	}
 	loginAgreementDocumentsJSON, err := marshalLoginAgreementDocuments(defaultLoginAgreementDocuments())
 	if err != nil {
 		return err
@@ -57,120 +47,34 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	defaults := map[string]string{
 		// 单管理员内部部署：注册默认关闭（与 IsRegistrationEnabled 的
 		// fail-closed 语义一致），需要多用户时由管理员在系统设置中显式开启。
-		SettingKeyRegistrationEnabled:                       "false",
-		SettingKeyEmailVerifyEnabled:                        "false",
-		SettingKeyRegistrationEmailSuffixWhitelist:          "[]",
-		SettingKeyRegistrationEmailDomainQuotaEnabled:       "false",
-		SettingKeyPromoCodeEnabled:                          "true", // 默认启用优惠码功能
-		SettingKeyLoginAgreementEnabled:                     "false",
-		SettingKeyLoginAgreementMode:                        defaultLoginAgreementMode,
-		SettingKeyLoginAgreementUpdatedAt:                   defaultLoginAgreementDate,
-		SettingKeyLoginAgreementDocuments:                   loginAgreementDocumentsJSON,
-		SettingKeyAPIKeyACLTrustForwardedIP:                 "true",
-		SettingKeyForwardedClientIPHeaders:                  string(forwardedClientIPHeadersJSON),
-		settingKeyForwardedClientIPModeV2:                   "true",
-		SettingKeySiteName:                                  "Sub2API",
-		SettingKeySiteLogo:                                  "",
-		SettingKeyPurchaseSubscriptionEnabled:               "false",
-		SettingKeyPurchaseSubscriptionURL:                   "",
-		SettingKeyTableDefaultPageSize:                      "20",
-		SettingKeyTablePageSizeOptions:                      "[10,20,50,100]",
-		SettingKeyCustomMenuItems:                           "[]",
-		SettingKeyCustomEndpoints:                           "[]",
-		SettingKeyWeChatConnectEnabled:                      "false",
-		SettingKeyWeChatConnectAppID:                        "",
-		SettingKeyWeChatConnectAppSecret:                    "",
-		SettingKeyWeChatConnectOpenAppID:                    "",
-		SettingKeyWeChatConnectOpenAppSecret:                "",
-		SettingKeyWeChatConnectMPAppID:                      "",
-		SettingKeyWeChatConnectMPAppSecret:                  "",
-		SettingKeyWeChatConnectMobileAppID:                  "",
-		SettingKeyWeChatConnectMobileAppSecret:              "",
-		SettingKeyWeChatConnectOpenEnabled:                  "false",
-		SettingKeyWeChatConnectMPEnabled:                    "false",
-		SettingKeyWeChatConnectMobileEnabled:                "false",
-		SettingKeyWeChatConnectMode:                         "open",
-		SettingKeyWeChatConnectScopes:                       "snsapi_login",
-		SettingKeyWeChatConnectRedirectURL:                  "",
-		SettingKeyWeChatConnectFrontendRedirectURL:          defaultWeChatConnectFrontend,
-		SettingKeyGitHubOAuthEnabled:                        "false",
-		SettingKeyGitHubOAuthClientID:                       "",
-		SettingKeyGitHubOAuthClientSecret:                   "",
-		SettingKeyGitHubOAuthRedirectURL:                    "",
-		SettingKeyGitHubOAuthFrontendRedirectURL:            defaultGitHubOAuthFrontend,
-		SettingKeyGoogleOAuthEnabled:                        "false",
-		SettingKeyGoogleOAuthClientID:                       "",
-		SettingKeyGoogleOAuthClientSecret:                   "",
-		SettingKeyGoogleOAuthRedirectURL:                    "",
-		SettingKeyGoogleOAuthFrontendRedirectURL:            defaultGoogleOAuthFrontend,
-		SettingKeyOIDCConnectEnabled:                        "false",
-		SettingKeyOIDCConnectProviderName:                   "OIDC",
-		SettingKeyOIDCConnectClientID:                       "",
-		SettingKeyOIDCConnectClientSecret:                   "",
-		SettingKeyOIDCConnectIssuerURL:                      "",
-		SettingKeyOIDCConnectDiscoveryURL:                   "",
-		SettingKeyOIDCConnectAuthorizeURL:                   "",
-		SettingKeyOIDCConnectTokenURL:                       "",
-		SettingKeyOIDCConnectUserInfoURL:                    "",
-		SettingKeyOIDCConnectJWKSURL:                        "",
-		SettingKeyOIDCConnectScopes:                         "openid email profile",
-		SettingKeyOIDCConnectRedirectURL:                    "",
-		SettingKeyOIDCConnectFrontendRedirectURL:            "/auth/oidc/callback",
-		SettingKeyOIDCConnectTokenAuthMethod:                "client_secret_post",
-		SettingKeyOIDCConnectUsePKCE:                        strconv.FormatBool(oidcUsePKCEDefault),
-		SettingKeyOIDCConnectValidateIDToken:                strconv.FormatBool(oidcValidateIDTokenDefault),
-		SettingKeyOIDCConnectAllowedSigningAlgs:             "RS256,ES256,PS256",
-		SettingKeyOIDCConnectClockSkewSeconds:               "120",
-		SettingKeyOIDCConnectRequireEmailVerified:           "false",
-		SettingKeyOIDCConnectUserInfoEmailPath:              "",
-		SettingKeyOIDCConnectUserInfoIDPath:                 "",
-		SettingKeyOIDCConnectUserInfoUsernamePath:           "",
-		SettingKeyDefaultConcurrency:                        strconv.Itoa(s.cfg.Default.UserConcurrency),
-		SettingKeyDefaultBalance:                            strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
-		SettingKeyAffiliateRebateRate:                       strconv.FormatFloat(AffiliateRebateRateDefault, 'f', 8, 64),
-		SettingKeyAffiliateRebateFreezeHours:                strconv.Itoa(AffiliateRebateFreezeHoursDefault),
-		SettingKeyAffiliateRebateDurationDays:               strconv.Itoa(AffiliateRebateDurationDaysDefault),
-		SettingKeyAffiliateRebatePerInviteeCap:              strconv.FormatFloat(AffiliateRebatePerInviteeCapDefault, 'f', 2, 64),
-		SettingKeyDefaultUserRPMLimit:                       "0",
-		SettingKeyDefaultSubscriptions:                      "[]",
-		SettingKeyAuthSourceDefaultEmailBalance:             "0",
-		SettingKeyAuthSourceDefaultEmailConcurrency:         "5",
-		SettingKeyAuthSourceDefaultEmailSubscriptions:       "[]",
-		SettingKeyAuthSourceDefaultEmailGrantOnSignup:       "false",
-		SettingKeyAuthSourceDefaultEmailGrantOnFirstBind:    "false",
-		SettingKeyAuthSourceDefaultLinuxDoBalance:           "0",
-		SettingKeyAuthSourceDefaultLinuxDoConcurrency:       "5",
-		SettingKeyAuthSourceDefaultLinuxDoSubscriptions:     "[]",
-		SettingKeyAuthSourceDefaultLinuxDoGrantOnSignup:     "false",
-		SettingKeyAuthSourceDefaultLinuxDoGrantOnFirstBind:  "false",
-		SettingKeyAuthSourceDefaultOIDCBalance:              "0",
-		SettingKeyAuthSourceDefaultOIDCConcurrency:          "5",
-		SettingKeyAuthSourceDefaultOIDCSubscriptions:        "[]",
-		SettingKeyAuthSourceDefaultOIDCGrantOnSignup:        "false",
-		SettingKeyAuthSourceDefaultOIDCGrantOnFirstBind:     "false",
-		SettingKeyAuthSourceDefaultWeChatBalance:            "0",
-		SettingKeyAuthSourceDefaultWeChatConcurrency:        "5",
-		SettingKeyAuthSourceDefaultWeChatSubscriptions:      "[]",
-		SettingKeyAuthSourceDefaultWeChatGrantOnSignup:      "false",
-		SettingKeyAuthSourceDefaultWeChatGrantOnFirstBind:   "false",
-		SettingKeyAuthSourceDefaultGitHubBalance:            "0",
-		SettingKeyAuthSourceDefaultGitHubConcurrency:        "5",
-		SettingKeyAuthSourceDefaultGitHubSubscriptions:      "[]",
-		SettingKeyAuthSourceDefaultGitHubGrantOnSignup:      "false",
-		SettingKeyAuthSourceDefaultGitHubGrantOnFirstBind:   "false",
-		SettingKeyAuthSourceDefaultGoogleBalance:            "0",
-		SettingKeyAuthSourceDefaultGoogleConcurrency:        "5",
-		SettingKeyAuthSourceDefaultGoogleSubscriptions:      "[]",
-		SettingKeyAuthSourceDefaultGoogleGrantOnSignup:      "false",
-		SettingKeyAuthSourceDefaultGoogleGrantOnFirstBind:   "false",
-		SettingKeyAuthSourceDefaultDingTalkBalance:          "0",
-		SettingKeyAuthSourceDefaultDingTalkConcurrency:      "5",
-		SettingKeyAuthSourceDefaultDingTalkSubscriptions:    "[]",
-		SettingKeyAuthSourceDefaultDingTalkGrantOnSignup:    "false",
-		SettingKeyAuthSourceDefaultDingTalkGrantOnFirstBind: "false",
-		SettingKeyForceEmailOnThirdPartySignup:              "false",
-		SettingKeySMTPPort:                                  "587",
-		SettingKeySMTPUseTLS:                                "false",
+		SettingKeyRegistrationEnabled:                    "false",
+		SettingKeyEmailVerifyEnabled:                     "false",
+		SettingKeyRegistrationEmailSuffixWhitelist:       "[]",
+		SettingKeyRegistrationEmailDomainQuotaEnabled:    "false",
+		SettingKeyLoginAgreementEnabled:                  "false",
+		SettingKeyLoginAgreementMode:                     defaultLoginAgreementMode,
+		SettingKeyLoginAgreementUpdatedAt:                defaultLoginAgreementDate,
+		SettingKeyLoginAgreementDocuments:                loginAgreementDocumentsJSON,
+		SettingKeyAPIKeyACLTrustForwardedIP:              "true",
+		SettingKeyForwardedClientIPHeaders:               string(forwardedClientIPHeadersJSON),
+		settingKeyForwardedClientIPModeV2:                "true",
+		SettingKeySiteName:                               "Sub2API",
+		SettingKeySiteLogo:                               "",
+		SettingKeyTableDefaultPageSize:                   "20",
+		SettingKeyTablePageSizeOptions:                   "[10,20,50,100]",
+		SettingKeyCustomMenuItems:                        "[]",
+		SettingKeyCustomEndpoints:                        "[]",
+		SettingKeyDefaultConcurrency:                     strconv.Itoa(s.cfg.Default.UserConcurrency),
+		SettingKeyDefaultBalance:                         strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
+		SettingKeyDefaultUserRPMLimit:                    "0",
+		SettingKeyDefaultSubscriptions:                   "[]",
+		SettingKeyAuthSourceDefaultEmailBalance:          "0",
+		SettingKeyAuthSourceDefaultEmailConcurrency:      "5",
+		SettingKeyAuthSourceDefaultEmailSubscriptions:    "[]",
+		SettingKeyAuthSourceDefaultEmailGrantOnSignup:    "false",
+		SettingKeyAuthSourceDefaultEmailGrantOnFirstBind: "false",
+		SettingKeySMTPPort:                               "587",
+		SettingKeySMTPUseTLS:                             "false",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",
@@ -206,10 +110,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyModelPlazaEnabled:     "false",
 		SettingKeyModelPlazaRequireAuth: "false",
 		SettingKeyModelPlazaDescription: "",
-
-		// Affiliate (邀请返利) feature (default disabled; opt-in)
-		SettingKeyAffiliateEnabled:              "false",
-		SettingKeyAffiliateAdminRechargeEnabled: strconv.FormatBool(AdminRechargeRebateEnabledDefault),
 
 		// 风控中心功能（默认关闭，显式启用）
 		SettingKeyRiskControlEnabled: "false",
@@ -311,10 +211,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		EmailVerifyEnabled:                     emailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:       ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
 		RegistrationEmailDomainQuotaEnabled:    settings[SettingKeyRegistrationEmailDomainQuotaEnabled] == "true",
-		PromoCodeEnabled:                       settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用
 		PasswordResetEnabled:                   emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
 		FrontendURL:                            settings[SettingKeyFrontendURL],
-		InvitationCodeEnabled:                  settings[SettingKeyInvitationCodeEnabled] == "true",
 		TotpEnabled:                            settings[SettingKeyTotpEnabled] == "true",
 		PasskeyEnabled:                         s.passkeySettingEnabled(settings),
 		SessionBindingEnabled:                  settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
@@ -359,8 +257,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		HomeContent:                            settings[SettingKeyHomeContent],
 		CompactHomeEnabled:                     settings[SettingKeyCompactHomeEnabled] == "true",
 		HideCcsImportButton:                    settings[SettingKeyHideCcsImportButton] == "true",
-		PurchaseSubscriptionEnabled:            settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
-		PurchaseSubscriptionURL:                strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
 		CustomMenuItems:                        settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                        settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled:                     settings[SettingKeyBackendModeEnabled] == "true",
@@ -393,27 +289,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	} else {
 		result.DefaultBalance = s.cfg.Default.UserBalance
 	}
-	if rebateRate, err := strconv.ParseFloat(settings[SettingKeyAffiliateRebateRate], 64); err == nil {
-		result.AffiliateRebateRate = clampAffiliateRebateRate(rebateRate)
-	} else {
-		result.AffiliateRebateRate = AffiliateRebateRateDefault
-	}
-	if freezeHours, err := strconv.Atoi(settings[SettingKeyAffiliateRebateFreezeHours]); err == nil && freezeHours >= 0 {
-		if freezeHours > AffiliateRebateFreezeHoursMax {
-			freezeHours = AffiliateRebateFreezeHoursMax
-		}
-		result.AffiliateRebateFreezeHours = freezeHours
-	}
-	if durationDays, err := strconv.Atoi(settings[SettingKeyAffiliateRebateDurationDays]); err == nil && durationDays >= 0 {
-		if durationDays > AffiliateRebateDurationDaysMax {
-			durationDays = AffiliateRebateDurationDaysMax
-		}
-		result.AffiliateRebateDurationDays = durationDays
-	}
-	if perInviteeCap, err := strconv.ParseFloat(settings[SettingKeyAffiliateRebatePerInviteeCap], 64); err == nil && perInviteeCap >= 0 {
-		result.AffiliateRebatePerInviteeCap = perInviteeCap
-	}
-	result.AdminRechargeRebateEnabled = settings[SettingKeyAffiliateAdminRechargeEnabled] == "true"
 	result.DefaultSubscriptions = parseDefaultSubscriptions(settings[SettingKeyDefaultSubscriptions])
 
 	// 敏感信息直接返回，方便测试连接时使用
@@ -424,343 +299,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.TencentCaptchaCloudSecretKey = settings[SettingKeyTencentCaptchaCloudSecretKey]
 	result.AliyunCaptchaAccessKeySecret = settings[SettingKeyAliyunCaptchaAccessKeySecret]
 
-	// LinuxDo Connect 设置：
-	// - 兼容 config.yaml/env（避免老部署因为未迁移到数据库设置而被意外关闭）
-	// - 支持在后台“系统设置”中覆盖并持久化（存储于 DB）
-	linuxDoBase := config.LinuxDoConnectConfig{}
-	if s.cfg != nil {
-		linuxDoBase = s.cfg.LinuxDo
-	}
-
-	if raw, ok := settings[SettingKeyLinuxDoConnectEnabled]; ok {
-		result.LinuxDoConnectEnabled = raw == "true"
-	} else {
-		result.LinuxDoConnectEnabled = linuxDoBase.Enabled
-	}
-
-	if v, ok := settings[SettingKeyLinuxDoConnectClientID]; ok && strings.TrimSpace(v) != "" {
-		result.LinuxDoConnectClientID = strings.TrimSpace(v)
-	} else {
-		result.LinuxDoConnectClientID = linuxDoBase.ClientID
-	}
-
-	if v, ok := settings[SettingKeyLinuxDoConnectRedirectURL]; ok && strings.TrimSpace(v) != "" {
-		result.LinuxDoConnectRedirectURL = strings.TrimSpace(v)
-	} else {
-		result.LinuxDoConnectRedirectURL = linuxDoBase.RedirectURL
-	}
-
-	result.LinuxDoConnectClientSecret = strings.TrimSpace(settings[SettingKeyLinuxDoConnectClientSecret])
-	if result.LinuxDoConnectClientSecret == "" {
-		result.LinuxDoConnectClientSecret = strings.TrimSpace(linuxDoBase.ClientSecret)
-	}
-	result.LinuxDoConnectClientSecretConfigured = result.LinuxDoConnectClientSecret != ""
-
-	// DingTalk Connect 设置：
-	// - 兼容 config.yaml/env
-	// - 支持后台系统设置覆盖并持久化（存储于 DB）
-	dingTalkBase := config.DingTalkConnectConfig{}
-	if s.cfg != nil {
-		dingTalkBase = s.cfg.DingTalk
-	}
-
-	if raw, ok := settings[SettingKeyDingTalkConnectEnabled]; ok {
-		result.DingTalkConnectEnabled = raw == "true"
-	} else {
-		result.DingTalkConnectEnabled = dingTalkBase.Enabled
-	}
-
-	if v, ok := settings[SettingKeyDingTalkConnectClientID]; ok && strings.TrimSpace(v) != "" {
-		result.DingTalkConnectClientID = strings.TrimSpace(v)
-	} else {
-		result.DingTalkConnectClientID = dingTalkBase.ClientID
-	}
-
-	if v, ok := settings[SettingKeyDingTalkConnectRedirectURL]; ok && strings.TrimSpace(v) != "" {
-		result.DingTalkConnectRedirectURL = strings.TrimSpace(v)
-	} else {
-		result.DingTalkConnectRedirectURL = dingTalkBase.RedirectURL
-	}
-
-	result.DingTalkConnectClientSecret = strings.TrimSpace(settings[SettingKeyDingTalkConnectClientSecret])
-	if result.DingTalkConnectClientSecret == "" {
-		result.DingTalkConnectClientSecret = strings.TrimSpace(dingTalkBase.ClientSecret)
-	}
-	result.DingTalkConnectClientSecretConfigured = result.DingTalkConnectClientSecret != ""
-
-	if v, ok := settings[SettingKeyDingTalkConnectCorpRestrictionPolicy]; ok && strings.TrimSpace(v) != "" {
-		result.DingTalkConnectCorpRestrictionPolicy = strings.TrimSpace(v)
-	} else {
-		result.DingTalkConnectCorpRestrictionPolicy = dingTalkBase.CorpRestrictionPolicy
-	}
-	result.DingTalkConnectCorpRestrictionPolicy = coerceDeprecatedDingTalkCorpPolicy(result.DingTalkConnectCorpRestrictionPolicy)
-
-	if v, ok := settings[SettingKeyDingTalkConnectInternalCorpID]; ok && strings.TrimSpace(v) != "" {
-		result.DingTalkConnectInternalCorpID = strings.TrimSpace(v)
-	} else {
-		result.DingTalkConnectInternalCorpID = dingTalkBase.InternalCorpID
-	}
-
-	if v, ok := settings[SettingKeyDingTalkConnectBypassRegistration]; ok && strings.TrimSpace(v) != "" {
-		result.DingTalkConnectBypassRegistration = strings.EqualFold(strings.TrimSpace(v), "true")
-	} else {
-		result.DingTalkConnectBypassRegistration = dingTalkBase.BypassRegistration
-	}
-	// bypass_registration 仅在 internal_only 模式下有意义；其它策略下强制 false，
-	// 以保证加载出的 effective config 永远是一致状态。
-	if result.DingTalkConnectCorpRestrictionPolicy != "internal_only" {
-		result.DingTalkConnectBypassRegistration = false
-	}
-
-	if v, ok := settings[SettingKeyDingTalkConnectSyncCorpEmail]; ok && strings.TrimSpace(v) != "" {
-		result.DingTalkConnectSyncCorpEmail = strings.EqualFold(strings.TrimSpace(v), "true")
-	} else {
-		result.DingTalkConnectSyncCorpEmail = dingTalkBase.SyncCorpEmail
-	}
-	if v, ok := settings[SettingKeyDingTalkConnectSyncDisplayName]; ok && strings.TrimSpace(v) != "" {
-		result.DingTalkConnectSyncDisplayName = strings.EqualFold(strings.TrimSpace(v), "true")
-	} else {
-		result.DingTalkConnectSyncDisplayName = dingTalkBase.SyncDisplayName
-	}
-	if v, ok := settings[SettingKeyDingTalkConnectSyncDept]; ok && strings.TrimSpace(v) != "" {
-		result.DingTalkConnectSyncDept = strings.EqualFold(strings.TrimSpace(v), "true")
-	} else {
-		result.DingTalkConnectSyncDept = dingTalkBase.SyncDept
-	}
-	// 身份同步三开关仅在 internal_only 模式下有意义；其它策略强制 false。
-	if result.DingTalkConnectCorpRestrictionPolicy != "internal_only" {
-		result.DingTalkConnectSyncCorpEmail = false
-		result.DingTalkConnectSyncDisplayName = false
-		result.DingTalkConnectSyncDept = false
-	}
-
-	// 身份同步目标 attr key（DB 空 → fallback 默认值）
-	result.DingTalkConnectSyncCorpEmailAttrKey = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncCorpEmailAttrKey])
-	if result.DingTalkConnectSyncCorpEmailAttrKey == "" {
-		if v := strings.TrimSpace(dingTalkBase.SyncCorpEmailAttrKey); v != "" {
-			result.DingTalkConnectSyncCorpEmailAttrKey = v
-		} else {
-			result.DingTalkConnectSyncCorpEmailAttrKey = "dingtalk_email"
-		}
-	}
-	result.DingTalkConnectSyncDisplayNameAttrKey = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncDisplayNameAttrKey])
-	if result.DingTalkConnectSyncDisplayNameAttrKey == "" {
-		if v := strings.TrimSpace(dingTalkBase.SyncDisplayNameAttrKey); v != "" {
-			result.DingTalkConnectSyncDisplayNameAttrKey = v
-		} else {
-			result.DingTalkConnectSyncDisplayNameAttrKey = "dingtalk_name"
-		}
-	}
-	result.DingTalkConnectSyncDeptAttrKey = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncDeptAttrKey])
-	if result.DingTalkConnectSyncDeptAttrKey == "" {
-		if v := strings.TrimSpace(dingTalkBase.SyncDeptAttrKey); v != "" {
-			result.DingTalkConnectSyncDeptAttrKey = v
-		} else {
-			result.DingTalkConnectSyncDeptAttrKey = "dingtalk_department"
-		}
-	}
-
-	// 身份同步目标 attr 显示名称（DB 空 → fallback 默认中文）
-	result.DingTalkConnectSyncCorpEmailAttrName = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncCorpEmailAttrName])
-	if result.DingTalkConnectSyncCorpEmailAttrName == "" {
-		if v := strings.TrimSpace(dingTalkBase.SyncCorpEmailAttrName); v != "" {
-			result.DingTalkConnectSyncCorpEmailAttrName = v
-		} else {
-			result.DingTalkConnectSyncCorpEmailAttrName = "钉钉企业邮箱"
-		}
-	}
-	result.DingTalkConnectSyncDisplayNameAttrName = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncDisplayNameAttrName])
-	if result.DingTalkConnectSyncDisplayNameAttrName == "" {
-		if v := strings.TrimSpace(dingTalkBase.SyncDisplayNameAttrName); v != "" {
-			result.DingTalkConnectSyncDisplayNameAttrName = v
-		} else {
-			result.DingTalkConnectSyncDisplayNameAttrName = "钉钉姓名"
-		}
-	}
-	result.DingTalkConnectSyncDeptAttrName = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncDeptAttrName])
-	if result.DingTalkConnectSyncDeptAttrName == "" {
-		if v := strings.TrimSpace(dingTalkBase.SyncDeptAttrName); v != "" {
-			result.DingTalkConnectSyncDeptAttrName = v
-		} else {
-			result.DingTalkConnectSyncDeptAttrName = "钉钉部门"
-		}
-	}
-
-	// Generic OIDC 设置：
-	// - 兼容 config.yaml/env
-	// - 支持后台系统设置覆盖并持久化（存储于 DB）
-	oidcBase := config.OIDCConnectConfig{}
-	if s.cfg != nil {
-		oidcBase = s.cfg.OIDC
-	}
-
-	if raw, ok := settings[SettingKeyOIDCConnectEnabled]; ok {
-		result.OIDCConnectEnabled = raw == "true"
-	} else {
-		result.OIDCConnectEnabled = oidcBase.Enabled
-	}
-
-	if v, ok := settings[SettingKeyOIDCConnectProviderName]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectProviderName = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectProviderName = strings.TrimSpace(oidcBase.ProviderName)
-	}
-	if result.OIDCConnectProviderName == "" {
-		result.OIDCConnectProviderName = "OIDC"
-	}
-
-	if v, ok := settings[SettingKeyOIDCConnectClientID]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectClientID = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectClientID = strings.TrimSpace(oidcBase.ClientID)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectIssuerURL]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectIssuerURL = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectIssuerURL = strings.TrimSpace(oidcBase.IssuerURL)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectDiscoveryURL]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectDiscoveryURL = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectDiscoveryURL = strings.TrimSpace(oidcBase.DiscoveryURL)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectAuthorizeURL]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectAuthorizeURL = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectAuthorizeURL = strings.TrimSpace(oidcBase.AuthorizeURL)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectTokenURL]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectTokenURL = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectTokenURL = strings.TrimSpace(oidcBase.TokenURL)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectUserInfoURL]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectUserInfoURL = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectUserInfoURL = strings.TrimSpace(oidcBase.UserInfoURL)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectJWKSURL]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectJWKSURL = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectJWKSURL = strings.TrimSpace(oidcBase.JWKSURL)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectScopes]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectScopes = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectScopes = strings.TrimSpace(oidcBase.Scopes)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectRedirectURL]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectRedirectURL = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectRedirectURL = strings.TrimSpace(oidcBase.RedirectURL)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectFrontendRedirectURL]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectFrontendRedirectURL = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectFrontendRedirectURL = strings.TrimSpace(oidcBase.FrontendRedirectURL)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectTokenAuthMethod]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectTokenAuthMethod = strings.ToLower(strings.TrimSpace(v))
-	} else {
-		result.OIDCConnectTokenAuthMethod = strings.ToLower(strings.TrimSpace(oidcBase.TokenAuthMethod))
-	}
-	if raw, ok := settings[SettingKeyOIDCConnectUsePKCE]; ok {
-		result.OIDCConnectUsePKCE = raw == "true"
-	} else {
-		result.OIDCConnectUsePKCE = oidcUsePKCECompatibilityDefault(oidcBase)
-	}
-	if raw, ok := settings[SettingKeyOIDCConnectValidateIDToken]; ok {
-		result.OIDCConnectValidateIDToken = raw == "true"
-	} else {
-		result.OIDCConnectValidateIDToken = oidcValidateIDTokenCompatibilityDefault(oidcBase)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectAllowedSigningAlgs]; ok && strings.TrimSpace(v) != "" {
-		result.OIDCConnectAllowedSigningAlgs = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectAllowedSigningAlgs = strings.TrimSpace(oidcBase.AllowedSigningAlgs)
-	}
-	clockSkewSet := false
-	if raw, ok := settings[SettingKeyOIDCConnectClockSkewSeconds]; ok && strings.TrimSpace(raw) != "" {
-		if parsed, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
-			result.OIDCConnectClockSkewSeconds = parsed
-			clockSkewSet = true
-		}
-	}
-	if !clockSkewSet {
-		result.OIDCConnectClockSkewSeconds = oidcBase.ClockSkewSeconds
-	}
-	if !clockSkewSet && result.OIDCConnectClockSkewSeconds == 0 {
-		result.OIDCConnectClockSkewSeconds = 120
-	}
-	if raw, ok := settings[SettingKeyOIDCConnectRequireEmailVerified]; ok {
-		result.OIDCConnectRequireEmailVerified = raw == "true"
-	} else {
-		result.OIDCConnectRequireEmailVerified = oidcBase.RequireEmailVerified
-	}
-	if v, ok := settings[SettingKeyOIDCConnectUserInfoEmailPath]; ok {
-		result.OIDCConnectUserInfoEmailPath = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectUserInfoEmailPath = strings.TrimSpace(oidcBase.UserInfoEmailPath)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectUserInfoIDPath]; ok {
-		result.OIDCConnectUserInfoIDPath = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectUserInfoIDPath = strings.TrimSpace(oidcBase.UserInfoIDPath)
-	}
-	if v, ok := settings[SettingKeyOIDCConnectUserInfoUsernamePath]; ok {
-		result.OIDCConnectUserInfoUsernamePath = strings.TrimSpace(v)
-	} else {
-		result.OIDCConnectUserInfoUsernamePath = strings.TrimSpace(oidcBase.UserInfoUsernamePath)
-	}
-	result.OIDCConnectClientSecret = strings.TrimSpace(settings[SettingKeyOIDCConnectClientSecret])
-	if result.OIDCConnectClientSecret == "" {
-		result.OIDCConnectClientSecret = strings.TrimSpace(oidcBase.ClientSecret)
-	}
-	result.OIDCConnectClientSecretConfigured = result.OIDCConnectClientSecret != ""
-
-	gitHubEffective := s.effectiveEmailOAuthConfig(settings, "github")
-	result.GitHubOAuthEnabled = gitHubEffective.Enabled
-	result.GitHubOAuthClientID = strings.TrimSpace(gitHubEffective.ClientID)
-	result.GitHubOAuthClientSecret = strings.TrimSpace(gitHubEffective.ClientSecret)
-	result.GitHubOAuthClientSecretConfigured = result.GitHubOAuthClientSecret != ""
-	result.GitHubOAuthRedirectURL = strings.TrimSpace(gitHubEffective.RedirectURL)
-	result.GitHubOAuthFrontendRedirectURL = strings.TrimSpace(gitHubEffective.FrontendRedirectURL)
-
-	googleEffective := s.effectiveEmailOAuthConfig(settings, "google")
-	result.GoogleOAuthEnabled = googleEffective.Enabled
-	result.GoogleOAuthClientID = strings.TrimSpace(googleEffective.ClientID)
-	result.GoogleOAuthClientSecret = strings.TrimSpace(googleEffective.ClientSecret)
-	result.GoogleOAuthClientSecretConfigured = result.GoogleOAuthClientSecret != ""
-	result.GoogleOAuthRedirectURL = strings.TrimSpace(googleEffective.RedirectURL)
-	result.GoogleOAuthFrontendRedirectURL = strings.TrimSpace(googleEffective.FrontendRedirectURL)
-
-	// WeChat Connect 设置：
-	// - 优先读取 DB 系统设置
-	// - 缺失时回退到 config/env，保持升级兼容
-	weChatEffective := s.effectiveWeChatConnectOAuthConfig(settings)
-	result.WeChatConnectEnabled = weChatEffective.Enabled
-	result.WeChatConnectAppID = weChatEffective.LegacyAppID
-	result.WeChatConnectAppSecret = weChatEffective.LegacyAppSecret
-	result.WeChatConnectAppSecretConfigured = weChatEffective.LegacyAppSecret != ""
-	result.WeChatConnectOpenAppID = weChatEffective.OpenAppID
-	result.WeChatConnectOpenAppSecret = weChatEffective.OpenAppSecret
-	result.WeChatConnectOpenAppSecretConfigured = weChatEffective.OpenAppSecret != ""
-	result.WeChatConnectMPAppID = weChatEffective.MPAppID
-	result.WeChatConnectMPAppSecret = weChatEffective.MPAppSecret
-	result.WeChatConnectMPAppSecretConfigured = weChatEffective.MPAppSecret != ""
-	result.WeChatConnectMobileAppID = weChatEffective.MobileAppID
-	result.WeChatConnectMobileAppSecret = weChatEffective.MobileAppSecret
-	result.WeChatConnectMobileAppSecretConfigured = weChatEffective.MobileAppSecret != ""
-	result.WeChatConnectOpenEnabled = weChatEffective.OpenEnabled
-	result.WeChatConnectMPEnabled = weChatEffective.MPEnabled
-	result.WeChatConnectMobileEnabled = weChatEffective.MobileEnabled
-	result.WeChatConnectMode = weChatEffective.Mode
-	result.WeChatConnectScopes = weChatEffective.Scopes
-	result.WeChatConnectRedirectURL = weChatEffective.RedirectURL
-	result.WeChatConnectFrontendRedirectURL = weChatEffective.FrontendRedirectURL
-
 	// Model fallback settings
-	result.EnableModelFallback = settings[SettingKeyEnableModelFallback] == "true"
 	result.FallbackModelAnthropic = s.getStringOrDefault(settings, SettingKeyFallbackModelAnthropic, "claude-3-5-sonnet-20241022")
 	result.FallbackModelOpenAI = s.getStringOrDefault(settings, SettingKeyFallbackModelOpenAI, "gpt-4o")
 	result.FallbackModelGemini = s.getStringOrDefault(settings, SettingKeyFallbackModelGemini, "gemini-2.5-pro")
@@ -821,9 +360,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"
 	result.ModelPlazaRequireAuth = settings[SettingKeyModelPlazaRequireAuth] == "true"
 	result.ModelPlazaDescription = settings[SettingKeyModelPlazaDescription]
-
-	// Affiliate (邀请返利) feature (default: disabled; strict true)
-	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"
 
 	// 风控中心功能（默认关闭，严格 true 才启用）
 	result.RiskControlEnabled = settings[SettingKeyRiskControlEnabled] == "true"
@@ -972,19 +508,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	})
 
 	return result
-}
-
-func clampAffiliateRebateRate(value float64) float64 {
-	if math.IsNaN(value) || math.IsInf(value, 0) {
-		return AffiliateRebateRateDefault
-	}
-	if value < AffiliateRebateRateMin {
-		return AffiliateRebateRateMin
-	}
-	if value > AffiliateRebateRateMax {
-		return AffiliateRebateRateMax
-	}
-	return value
 }
 
 func isFalseSettingValue(value string) bool {

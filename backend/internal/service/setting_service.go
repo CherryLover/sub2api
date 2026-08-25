@@ -175,15 +175,10 @@ type ProviderDefaultGrantSettings struct {
 	PlatformQuotas   map[string]*DefaultPlatformQuotaSetting // key = platform name
 }
 
+// AuthSourceDefaultSettings 注册来源默认授予配置。
+// 单管理员内部部署只保留 email 渠道（第三方 OAuth 登录渠道已删除）。
 type AuthSourceDefaultSettings struct {
-	Email                        ProviderDefaultGrantSettings
-	LinuxDo                      ProviderDefaultGrantSettings
-	OIDC                         ProviderDefaultGrantSettings
-	WeChat                       ProviderDefaultGrantSettings
-	GitHub                       ProviderDefaultGrantSettings
-	Google                       ProviderDefaultGrantSettings
-	DingTalk                     ProviderDefaultGrantSettings
-	ForceEmailOnThirdPartySignup bool
+	Email ProviderDefaultGrantSettings
 }
 
 type authSourceDefaultKeySet struct {
@@ -198,89 +193,19 @@ type authSourceDefaultKeySet struct {
 	platformQuotas   string // SettingKeyAuthSourcePlatformQuotas(source)
 }
 
-var (
-	emailAuthSourceDefaultKeys = authSourceDefaultKeySet{
-		source:           "email",
-		balance:          SettingKeyAuthSourceDefaultEmailBalance,
-		concurrency:      SettingKeyAuthSourceDefaultEmailConcurrency,
-		subscriptions:    SettingKeyAuthSourceDefaultEmailSubscriptions,
-		grantOnSignup:    SettingKeyAuthSourceDefaultEmailGrantOnSignup,
-		grantOnFirstBind: SettingKeyAuthSourceDefaultEmailGrantOnFirstBind,
-		platformQuotas:   SettingKeyAuthSourcePlatformQuotas("email"),
-	}
-	linuxDoAuthSourceDefaultKeys = authSourceDefaultKeySet{
-		source:           "linuxdo",
-		balance:          SettingKeyAuthSourceDefaultLinuxDoBalance,
-		concurrency:      SettingKeyAuthSourceDefaultLinuxDoConcurrency,
-		subscriptions:    SettingKeyAuthSourceDefaultLinuxDoSubscriptions,
-		grantOnSignup:    SettingKeyAuthSourceDefaultLinuxDoGrantOnSignup,
-		grantOnFirstBind: SettingKeyAuthSourceDefaultLinuxDoGrantOnFirstBind,
-		platformQuotas:   SettingKeyAuthSourcePlatformQuotas("linuxdo"),
-	}
-	oidcAuthSourceDefaultKeys = authSourceDefaultKeySet{
-		source:           "oidc",
-		balance:          SettingKeyAuthSourceDefaultOIDCBalance,
-		concurrency:      SettingKeyAuthSourceDefaultOIDCConcurrency,
-		subscriptions:    SettingKeyAuthSourceDefaultOIDCSubscriptions,
-		grantOnSignup:    SettingKeyAuthSourceDefaultOIDCGrantOnSignup,
-		grantOnFirstBind: SettingKeyAuthSourceDefaultOIDCGrantOnFirstBind,
-		platformQuotas:   SettingKeyAuthSourcePlatformQuotas("oidc"),
-	}
-	weChatAuthSourceDefaultKeys = authSourceDefaultKeySet{
-		source:           "wechat",
-		balance:          SettingKeyAuthSourceDefaultWeChatBalance,
-		concurrency:      SettingKeyAuthSourceDefaultWeChatConcurrency,
-		subscriptions:    SettingKeyAuthSourceDefaultWeChatSubscriptions,
-		grantOnSignup:    SettingKeyAuthSourceDefaultWeChatGrantOnSignup,
-		grantOnFirstBind: SettingKeyAuthSourceDefaultWeChatGrantOnFirstBind,
-		platformQuotas:   SettingKeyAuthSourcePlatformQuotas("wechat"),
-	}
-	gitHubAuthSourceDefaultKeys = authSourceDefaultKeySet{
-		source:           "github",
-		balance:          SettingKeyAuthSourceDefaultGitHubBalance,
-		concurrency:      SettingKeyAuthSourceDefaultGitHubConcurrency,
-		subscriptions:    SettingKeyAuthSourceDefaultGitHubSubscriptions,
-		grantOnSignup:    SettingKeyAuthSourceDefaultGitHubGrantOnSignup,
-		grantOnFirstBind: SettingKeyAuthSourceDefaultGitHubGrantOnFirstBind,
-		platformQuotas:   SettingKeyAuthSourcePlatformQuotas("github"),
-	}
-	googleAuthSourceDefaultKeys = authSourceDefaultKeySet{
-		source:           "google",
-		balance:          SettingKeyAuthSourceDefaultGoogleBalance,
-		concurrency:      SettingKeyAuthSourceDefaultGoogleConcurrency,
-		subscriptions:    SettingKeyAuthSourceDefaultGoogleSubscriptions,
-		grantOnSignup:    SettingKeyAuthSourceDefaultGoogleGrantOnSignup,
-		grantOnFirstBind: SettingKeyAuthSourceDefaultGoogleGrantOnFirstBind,
-		platformQuotas:   SettingKeyAuthSourcePlatformQuotas("google"),
-	}
-	dingTalkAuthSourceDefaultKeys = authSourceDefaultKeySet{
-		source:           "dingtalk",
-		balance:          SettingKeyAuthSourceDefaultDingTalkBalance,
-		concurrency:      SettingKeyAuthSourceDefaultDingTalkConcurrency,
-		subscriptions:    SettingKeyAuthSourceDefaultDingTalkSubscriptions,
-		grantOnSignup:    SettingKeyAuthSourceDefaultDingTalkGrantOnSignup,
-		grantOnFirstBind: SettingKeyAuthSourceDefaultDingTalkGrantOnFirstBind,
-		platformQuotas:   SettingKeyAuthSourcePlatformQuotas("dingtalk"),
-	}
-)
+var emailAuthSourceDefaultKeys = authSourceDefaultKeySet{
+	source:           "email",
+	balance:          SettingKeyAuthSourceDefaultEmailBalance,
+	concurrency:      SettingKeyAuthSourceDefaultEmailConcurrency,
+	subscriptions:    SettingKeyAuthSourceDefaultEmailSubscriptions,
+	grantOnSignup:    SettingKeyAuthSourceDefaultEmailGrantOnSignup,
+	grantOnFirstBind: SettingKeyAuthSourceDefaultEmailGrantOnFirstBind,
+	platformQuotas:   SettingKeyAuthSourcePlatformQuotas("email"),
+}
 
 const (
 	defaultAuthSourceBalance     = 0
 	defaultAuthSourceConcurrency = 5
-	defaultWeChatConnectMode     = "open"
-	defaultWeChatConnectScopes   = "snsapi_login"
-	defaultWeChatConnectFrontend = "/auth/wechat/callback"
-	defaultGitHubOAuthAuthorize  = "https://github.com/login/oauth/authorize"
-	defaultGitHubOAuthToken      = "https://github.com/login/oauth/access_token"
-	defaultGitHubOAuthUserInfo   = "https://api.github.com/user"
-	defaultGitHubOAuthEmails     = "https://api.github.com/user/emails"
-	defaultGitHubOAuthScopes     = "read:user user:email"
-	defaultGitHubOAuthFrontend   = "/auth/oauth/callback"
-	defaultGoogleOAuthAuthorize  = "https://accounts.google.com/o/oauth2/v2/auth"
-	defaultGoogleOAuthToken      = "https://oauth2.googleapis.com/token"
-	defaultGoogleOAuthUserInfo   = "https://openidconnect.googleapis.com/v1/userinfo"
-	defaultGoogleOAuthScopes     = "openid email profile"
-	defaultGoogleOAuthFrontend   = "/auth/oauth/callback"
 	defaultLoginAgreementMode    = "modal"
 	defaultLoginAgreementDate    = "2026-03-31"
 )

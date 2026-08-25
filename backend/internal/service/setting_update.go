@@ -118,36 +118,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if err := s.normalizeOpenAIAdvancedSchedulerOverrides(settings); err != nil {
 		return nil, err
 	}
-	settings.WeChatConnectAppID = strings.TrimSpace(settings.WeChatConnectAppID)
-	settings.WeChatConnectAppSecret = strings.TrimSpace(settings.WeChatConnectAppSecret)
-	settings.WeChatConnectOpenAppID = strings.TrimSpace(firstNonEmpty(settings.WeChatConnectOpenAppID, settings.WeChatConnectAppID))
-	settings.WeChatConnectOpenAppSecret = strings.TrimSpace(firstNonEmpty(settings.WeChatConnectOpenAppSecret, settings.WeChatConnectAppSecret))
-	settings.WeChatConnectMPAppID = strings.TrimSpace(firstNonEmpty(settings.WeChatConnectMPAppID, settings.WeChatConnectAppID))
-	settings.WeChatConnectMPAppSecret = strings.TrimSpace(firstNonEmpty(settings.WeChatConnectMPAppSecret, settings.WeChatConnectAppSecret))
-	settings.WeChatConnectMobileAppID = strings.TrimSpace(firstNonEmpty(settings.WeChatConnectMobileAppID, settings.WeChatConnectAppID))
-	settings.WeChatConnectMobileAppSecret = strings.TrimSpace(firstNonEmpty(settings.WeChatConnectMobileAppSecret, settings.WeChatConnectAppSecret))
-	settings.WeChatConnectMode = normalizeWeChatConnectStoredMode(
-		settings.WeChatConnectOpenEnabled,
-		settings.WeChatConnectMPEnabled,
-		settings.WeChatConnectMobileEnabled,
-		settings.WeChatConnectMode,
-	)
-	settings.WeChatConnectScopes = normalizeWeChatConnectScopeSetting(settings.WeChatConnectScopes, settings.WeChatConnectMode)
-	settings.WeChatConnectRedirectURL = strings.TrimSpace(settings.WeChatConnectRedirectURL)
-	settings.WeChatConnectFrontendRedirectURL = strings.TrimSpace(settings.WeChatConnectFrontendRedirectURL)
-	if settings.WeChatConnectFrontendRedirectURL == "" {
-		settings.WeChatConnectFrontendRedirectURL = defaultWeChatConnectFrontend
-	}
-	settings.GitHubOAuthRedirectURL = strings.TrimSpace(settings.GitHubOAuthRedirectURL)
-	settings.GitHubOAuthFrontendRedirectURL = strings.TrimSpace(settings.GitHubOAuthFrontendRedirectURL)
-	if settings.GitHubOAuthFrontendRedirectURL == "" {
-		settings.GitHubOAuthFrontendRedirectURL = defaultGitHubOAuthFrontend
-	}
-	settings.GoogleOAuthRedirectURL = strings.TrimSpace(settings.GoogleOAuthRedirectURL)
-	settings.GoogleOAuthFrontendRedirectURL = strings.TrimSpace(settings.GoogleOAuthFrontendRedirectURL)
-	if settings.GoogleOAuthFrontendRedirectURL == "" {
-		settings.GoogleOAuthFrontendRedirectURL = defaultGoogleOAuthFrontend
-	}
 
 	updates := make(map[string]string)
 
@@ -160,10 +130,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	updates[SettingKeyRegistrationEmailSuffixWhitelist] = string(registrationEmailSuffixWhitelistJSON)
 	updates[SettingKeyRegistrationEmailDomainQuotaEnabled] = strconv.FormatBool(settings.RegistrationEmailDomainQuotaEnabled)
-	updates[SettingKeyPromoCodeEnabled] = strconv.FormatBool(settings.PromoCodeEnabled)
 	updates[SettingKeyPasswordResetEnabled] = strconv.FormatBool(settings.PasswordResetEnabled)
 	updates[SettingKeyFrontendURL] = settings.FrontendURL
-	updates[SettingKeyInvitationCodeEnabled] = strconv.FormatBool(settings.InvitationCodeEnabled)
 	updates[SettingKeyTotpEnabled] = strconv.FormatBool(settings.TotpEnabled)
 	updates[SettingKeyPasskeyEnabled] = strconv.FormatBool(settings.PasskeyEnabled)
 	updates[SettingKeySessionBindingEnabled] = strconv.FormatBool(settings.SessionBindingEnabled)
@@ -235,102 +203,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	updates[SettingKeyForwardedClientIPHeaders] = string(forwardedClientIPHeadersJSON)
 
-	// LinuxDo Connect OAuth 登录
-	updates[SettingKeyLinuxDoConnectEnabled] = strconv.FormatBool(settings.LinuxDoConnectEnabled)
-	updates[SettingKeyLinuxDoConnectClientID] = settings.LinuxDoConnectClientID
-	updates[SettingKeyLinuxDoConnectRedirectURL] = settings.LinuxDoConnectRedirectURL
-	if settings.LinuxDoConnectClientSecret != "" {
-		updates[SettingKeyLinuxDoConnectClientSecret] = settings.LinuxDoConnectClientSecret
-	}
-
-	// DingTalk Connect OAuth 登录
-	updates[SettingKeyDingTalkConnectEnabled] = strconv.FormatBool(settings.DingTalkConnectEnabled)
-	updates[SettingKeyDingTalkConnectClientID] = settings.DingTalkConnectClientID
-	updates[SettingKeyDingTalkConnectRedirectURL] = settings.DingTalkConnectRedirectURL
-	if settings.DingTalkConnectClientSecret != "" {
-		updates[SettingKeyDingTalkConnectClientSecret] = settings.DingTalkConnectClientSecret
-	}
-	updates[SettingKeyDingTalkConnectCorpRestrictionPolicy] = settings.DingTalkConnectCorpRestrictionPolicy
-	updates[SettingKeyDingTalkConnectInternalCorpID] = settings.DingTalkConnectInternalCorpID
-	updates[SettingKeyDingTalkConnectBypassRegistration] = strconv.FormatBool(settings.DingTalkConnectBypassRegistration)
-	updates[SettingKeyDingTalkConnectSyncCorpEmail] = strconv.FormatBool(settings.DingTalkConnectSyncCorpEmail)
-	updates[SettingKeyDingTalkConnectSyncDisplayName] = strconv.FormatBool(settings.DingTalkConnectSyncDisplayName)
-	updates[SettingKeyDingTalkConnectSyncDept] = strconv.FormatBool(settings.DingTalkConnectSyncDept)
-	updates[SettingKeyDingTalkConnectSyncCorpEmailAttrKey] = settings.DingTalkConnectSyncCorpEmailAttrKey
-	updates[SettingKeyDingTalkConnectSyncDisplayNameAttrKey] = settings.DingTalkConnectSyncDisplayNameAttrKey
-	updates[SettingKeyDingTalkConnectSyncDeptAttrKey] = settings.DingTalkConnectSyncDeptAttrKey
-	updates[SettingKeyDingTalkConnectSyncCorpEmailAttrName] = settings.DingTalkConnectSyncCorpEmailAttrName
-	updates[SettingKeyDingTalkConnectSyncDisplayNameAttrName] = settings.DingTalkConnectSyncDisplayNameAttrName
-	updates[SettingKeyDingTalkConnectSyncDeptAttrName] = settings.DingTalkConnectSyncDeptAttrName
-
-	// Generic OIDC OAuth 登录
-	updates[SettingKeyOIDCConnectEnabled] = strconv.FormatBool(settings.OIDCConnectEnabled)
-	updates[SettingKeyOIDCConnectProviderName] = settings.OIDCConnectProviderName
-	updates[SettingKeyOIDCConnectClientID] = settings.OIDCConnectClientID
-	updates[SettingKeyOIDCConnectIssuerURL] = settings.OIDCConnectIssuerURL
-	updates[SettingKeyOIDCConnectDiscoveryURL] = settings.OIDCConnectDiscoveryURL
-	updates[SettingKeyOIDCConnectAuthorizeURL] = settings.OIDCConnectAuthorizeURL
-	updates[SettingKeyOIDCConnectTokenURL] = settings.OIDCConnectTokenURL
-	updates[SettingKeyOIDCConnectUserInfoURL] = settings.OIDCConnectUserInfoURL
-	updates[SettingKeyOIDCConnectJWKSURL] = settings.OIDCConnectJWKSURL
-	updates[SettingKeyOIDCConnectScopes] = settings.OIDCConnectScopes
-	updates[SettingKeyOIDCConnectRedirectURL] = settings.OIDCConnectRedirectURL
-	updates[SettingKeyOIDCConnectFrontendRedirectURL] = settings.OIDCConnectFrontendRedirectURL
-	updates[SettingKeyOIDCConnectTokenAuthMethod] = settings.OIDCConnectTokenAuthMethod
-	updates[SettingKeyOIDCConnectUsePKCE] = strconv.FormatBool(settings.OIDCConnectUsePKCE)
-	updates[SettingKeyOIDCConnectValidateIDToken] = strconv.FormatBool(settings.OIDCConnectValidateIDToken)
-	updates[SettingKeyOIDCConnectAllowedSigningAlgs] = settings.OIDCConnectAllowedSigningAlgs
-	updates[SettingKeyOIDCConnectClockSkewSeconds] = strconv.Itoa(settings.OIDCConnectClockSkewSeconds)
-	updates[SettingKeyOIDCConnectRequireEmailVerified] = strconv.FormatBool(settings.OIDCConnectRequireEmailVerified)
-	updates[SettingKeyOIDCConnectUserInfoEmailPath] = settings.OIDCConnectUserInfoEmailPath
-	updates[SettingKeyOIDCConnectUserInfoIDPath] = settings.OIDCConnectUserInfoIDPath
-	updates[SettingKeyOIDCConnectUserInfoUsernamePath] = settings.OIDCConnectUserInfoUsernamePath
-	if settings.OIDCConnectClientSecret != "" {
-		updates[SettingKeyOIDCConnectClientSecret] = settings.OIDCConnectClientSecret
-	}
-
-	// GitHub / Google 邮箱快捷登录
-	updates[SettingKeyGitHubOAuthEnabled] = strconv.FormatBool(settings.GitHubOAuthEnabled)
-	updates[SettingKeyGitHubOAuthClientID] = strings.TrimSpace(settings.GitHubOAuthClientID)
-	updates[SettingKeyGitHubOAuthRedirectURL] = settings.GitHubOAuthRedirectURL
-	updates[SettingKeyGitHubOAuthFrontendRedirectURL] = settings.GitHubOAuthFrontendRedirectURL
-	if settings.GitHubOAuthClientSecret != "" {
-		updates[SettingKeyGitHubOAuthClientSecret] = strings.TrimSpace(settings.GitHubOAuthClientSecret)
-	}
-	updates[SettingKeyGoogleOAuthEnabled] = strconv.FormatBool(settings.GoogleOAuthEnabled)
-	updates[SettingKeyGoogleOAuthClientID] = strings.TrimSpace(settings.GoogleOAuthClientID)
-	updates[SettingKeyGoogleOAuthRedirectURL] = settings.GoogleOAuthRedirectURL
-	updates[SettingKeyGoogleOAuthFrontendRedirectURL] = settings.GoogleOAuthFrontendRedirectURL
-	if settings.GoogleOAuthClientSecret != "" {
-		updates[SettingKeyGoogleOAuthClientSecret] = strings.TrimSpace(settings.GoogleOAuthClientSecret)
-	}
-
-	// WeChat Connect OAuth 登录
-	updates[SettingKeyWeChatConnectEnabled] = strconv.FormatBool(settings.WeChatConnectEnabled)
-	updates[SettingKeyWeChatConnectAppID] = settings.WeChatConnectAppID
-	updates[SettingKeyWeChatConnectOpenAppID] = settings.WeChatConnectOpenAppID
-	updates[SettingKeyWeChatConnectMPAppID] = settings.WeChatConnectMPAppID
-	updates[SettingKeyWeChatConnectMobileAppID] = settings.WeChatConnectMobileAppID
-	updates[SettingKeyWeChatConnectOpenEnabled] = strconv.FormatBool(settings.WeChatConnectOpenEnabled)
-	updates[SettingKeyWeChatConnectMPEnabled] = strconv.FormatBool(settings.WeChatConnectMPEnabled)
-	updates[SettingKeyWeChatConnectMobileEnabled] = strconv.FormatBool(settings.WeChatConnectMobileEnabled)
-	updates[SettingKeyWeChatConnectMode] = settings.WeChatConnectMode
-	updates[SettingKeyWeChatConnectScopes] = settings.WeChatConnectScopes
-	updates[SettingKeyWeChatConnectRedirectURL] = settings.WeChatConnectRedirectURL
-	updates[SettingKeyWeChatConnectFrontendRedirectURL] = settings.WeChatConnectFrontendRedirectURL
-	if settings.WeChatConnectAppSecret != "" {
-		updates[SettingKeyWeChatConnectAppSecret] = settings.WeChatConnectAppSecret
-	}
-	if settings.WeChatConnectOpenAppSecret != "" {
-		updates[SettingKeyWeChatConnectOpenAppSecret] = settings.WeChatConnectOpenAppSecret
-	}
-	if settings.WeChatConnectMPAppSecret != "" {
-		updates[SettingKeyWeChatConnectMPAppSecret] = settings.WeChatConnectMPAppSecret
-	}
-	if settings.WeChatConnectMobileAppSecret != "" {
-		updates[SettingKeyWeChatConnectMobileAppSecret] = settings.WeChatConnectMobileAppSecret
-	}
-
 	// OEM设置
 	updates[SettingKeySiteName] = settings.SiteName
 	updates[SettingKeySiteLogo] = settings.SiteLogo
@@ -341,8 +213,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyHomeContent] = settings.HomeContent
 	updates[SettingKeyCompactHomeEnabled] = strconv.FormatBool(settings.CompactHomeEnabled)
 	updates[SettingKeyHideCcsImportButton] = strconv.FormatBool(settings.HideCcsImportButton)
-	updates[SettingKeyPurchaseSubscriptionEnabled] = strconv.FormatBool(settings.PurchaseSubscriptionEnabled)
-	updates[SettingKeyPurchaseSubscriptionURL] = strings.TrimSpace(settings.PurchaseSubscriptionURL)
 	tableDefaultPageSize, tablePageSizeOptions := normalizeTablePreferences(
 		settings.TableDefaultPageSize,
 		settings.TablePageSizeOptions,
@@ -359,27 +229,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	// 默认配置
 	updates[SettingKeyDefaultConcurrency] = strconv.Itoa(settings.DefaultConcurrency)
 	updates[SettingKeyDefaultBalance] = strconv.FormatFloat(settings.DefaultBalance, 'f', 8, 64)
-	settings.AffiliateRebateRate = clampAffiliateRebateRate(settings.AffiliateRebateRate)
-	updates[SettingKeyAffiliateRebateRate] = strconv.FormatFloat(settings.AffiliateRebateRate, 'f', 8, 64)
-	if settings.AffiliateRebateFreezeHours < 0 {
-		settings.AffiliateRebateFreezeHours = AffiliateRebateFreezeHoursDefault
-	}
-	if settings.AffiliateRebateFreezeHours > AffiliateRebateFreezeHoursMax {
-		settings.AffiliateRebateFreezeHours = AffiliateRebateFreezeHoursMax
-	}
-	updates[SettingKeyAffiliateRebateFreezeHours] = strconv.Itoa(settings.AffiliateRebateFreezeHours)
-	if settings.AffiliateRebateDurationDays < 0 {
-		settings.AffiliateRebateDurationDays = AffiliateRebateDurationDaysDefault
-	}
-	if settings.AffiliateRebateDurationDays > AffiliateRebateDurationDaysMax {
-		settings.AffiliateRebateDurationDays = AffiliateRebateDurationDaysMax
-	}
-	updates[SettingKeyAffiliateRebateDurationDays] = strconv.Itoa(settings.AffiliateRebateDurationDays)
-	if settings.AffiliateRebatePerInviteeCap < 0 {
-		settings.AffiliateRebatePerInviteeCap = AffiliateRebatePerInviteeCapDefault
-	}
-	updates[SettingKeyAffiliateRebatePerInviteeCap] = strconv.FormatFloat(settings.AffiliateRebatePerInviteeCap, 'f', 8, 64)
-	updates[SettingKeyAffiliateAdminRechargeEnabled] = strconv.FormatBool(settings.AdminRechargeRebateEnabled)
 	updates[SettingKeyDefaultUserRPMLimit] = strconv.Itoa(settings.DefaultUserRPMLimit)
 	defaultSubsJSON, err := json.Marshal(settings.DefaultSubscriptions)
 	if err != nil {
@@ -431,9 +280,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyModelPlazaEnabled] = strconv.FormatBool(settings.ModelPlazaEnabled)
 	updates[SettingKeyModelPlazaRequireAuth] = strconv.FormatBool(settings.ModelPlazaRequireAuth)
 	updates[SettingKeyModelPlazaDescription] = settings.ModelPlazaDescription
-
-	// Affiliate (邀请返利) feature switch
-	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
 
 	// 风控中心功能开关
 	updates[SettingKeyRiskControlEnabled] = strconv.FormatBool(settings.RiskControlEnabled)
@@ -623,49 +469,19 @@ func (s *SettingService) buildAuthSourceDefaultUpdates(ctx context.Context, sett
 		return nil, nil
 	}
 
-	for _, subscriptions := range [][]DefaultSubscriptionSetting{
-		settings.Email.Subscriptions,
-		settings.LinuxDo.Subscriptions,
-		settings.OIDC.Subscriptions,
-		settings.WeChat.Subscriptions,
-		settings.GitHub.Subscriptions,
-		settings.Google.Subscriptions,
-		settings.DingTalk.Subscriptions,
-	} {
-		if err := s.validateDefaultSubscriptionGroups(ctx, subscriptions); err != nil {
+	if err := s.validateDefaultSubscriptionGroups(ctx, settings.Email.Subscriptions); err != nil {
+		return nil, err
+	}
+
+	// 校验 email auth source 的 platform quota map（对等系统层校验）
+	if settings.Email.PlatformQuotas != nil {
+		if err := validateDefaultPlatformQuotaMap(settings.Email.PlatformQuotas); err != nil {
 			return nil, err
 		}
 	}
 
-	// 校验各 auth source 的 platform quota map（改动 C：对等系统层校验）
-	for _, pgs := range []struct {
-		name string
-		pq   map[string]*DefaultPlatformQuotaSetting
-	}{
-		{"email", settings.Email.PlatformQuotas},
-		{"linuxdo", settings.LinuxDo.PlatformQuotas},
-		{"oidc", settings.OIDC.PlatformQuotas},
-		{"wechat", settings.WeChat.PlatformQuotas},
-		{"github", settings.GitHub.PlatformQuotas},
-		{"google", settings.Google.PlatformQuotas},
-		{"dingtalk", settings.DingTalk.PlatformQuotas},
-	} {
-		if pgs.pq != nil {
-			if err := validateDefaultPlatformQuotaMap(pgs.pq); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	updates := make(map[string]string, 36)
+	updates := make(map[string]string, 6)
 	writeProviderDefaultGrantUpdates(updates, emailAuthSourceDefaultKeys, settings.Email)
-	writeProviderDefaultGrantUpdates(updates, linuxDoAuthSourceDefaultKeys, settings.LinuxDo)
-	writeProviderDefaultGrantUpdates(updates, oidcAuthSourceDefaultKeys, settings.OIDC)
-	writeProviderDefaultGrantUpdates(updates, weChatAuthSourceDefaultKeys, settings.WeChat)
-	writeProviderDefaultGrantUpdates(updates, gitHubAuthSourceDefaultKeys, settings.GitHub)
-	writeProviderDefaultGrantUpdates(updates, googleAuthSourceDefaultKeys, settings.Google)
-	writeProviderDefaultGrantUpdates(updates, dingTalkAuthSourceDefaultKeys, settings.DingTalk)
-	updates[SettingKeyForceEmailOnThirdPartySignup] = strconv.FormatBool(settings.ForceEmailOnThirdPartySignup)
 	return updates, nil
 }
 

@@ -137,6 +137,9 @@ var auditBodySensitiveExactKeys = func() map[string]struct{} {
 		// audit_logs 里留一份明文副本，被日志导出/备份一路带出去。
 		// 改动本身仍然可追溯——diffSettings 会记下 "login_entry_path" 这个键名。
 		"login_entry_path",
+		// 支付敏感字段表随支付模块删除；这些精确匹配键原先由它提供，
+		// 内置补回以防未来新端点回声同名密钥字段时漏脱敏。
+		"pkey", "apiv3key", "publickey", "alipay_public_key",
 	}
 	set := make(map[string]struct{}, len(builtin)+len(SensitiveCredentialKeys)+16)
 	for _, k := range builtin {

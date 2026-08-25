@@ -185,6 +185,8 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/auth/oauth/oidc/start",
 		"/api/v1/auth/oauth/dingtalk/start",
 		"/api/v1/auth/oauth/pending/exchange",
+		// 第三方绑定启动（OAuth 登录删除后已成死胡同端点，随 WP4 一并移除）
+		"/api/v1/user/auth-identities/bind/start",
 	}
 	for _, path := range absentPaths {
 		_, exists := paths[path]
@@ -285,6 +287,27 @@ func TestPublicSettingsHasNoPaymentKey(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
 	require.NotContains(t, resp.Data, "payment_enabled")
+	// 六种第三方 OAuth 登录的公开开关键随 WP4 清扫一并移除，不许回流。
+	for _, key := range []string{
+		"linuxdo_oauth_enabled",
+		"dingtalk_oauth_enabled",
+		"wechat_oauth_enabled",
+		"oidc_oauth_enabled",
+		"github_oauth_enabled",
+		"google_oauth_enabled",
+	} {
+		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含 OAuth 登录开关键 %s", key)
+	}
+	// promo/invitation/affiliate/purchase 的惰性设置键同样不许回流。
+	for _, key := range []string{
+		"promo_code_enabled",
+		"invitation_code_enabled",
+		"affiliate_enabled",
+		"purchase_subscription_enabled",
+		"purchase_subscription_url",
+	} {
+		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪功能键 %s", key)
+	}
 	// 公开设置同时应体现注册默认关闭。
 	require.JSONEq(t, "false", string(resp.Data["registration_enabled"]))
 }
