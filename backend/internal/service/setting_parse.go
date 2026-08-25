@@ -55,7 +55,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 	// 初始化默认设置
 	defaults := map[string]string{
-		SettingKeyRegistrationEnabled:                       "true",
+		// 单管理员内部部署：注册默认关闭（与 IsRegistrationEnabled 的
+		// fail-closed 语义一致），需要多用户时由管理员在系统设置中显式开启。
+		SettingKeyRegistrationEnabled:                       "false",
 		SettingKeyEmailVerifyEnabled:                        "false",
 		SettingKeyRegistrationEmailSuffixWhitelist:          "[]",
 		SettingKeyRegistrationEmailDomainQuotaEnabled:       "false",
