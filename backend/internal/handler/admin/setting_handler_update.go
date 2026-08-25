@@ -272,11 +272,6 @@ type UpdateSettingsRequest struct {
 	CodexCLIOnlyAllowAppServerClients    *bool  `json:"codex_cli_only_allow_app_server_clients"`
 	CodexCLIOnlyEngineFingerprintSignals string `json:"codex_cli_only_engine_fingerprint_signals"`
 
-	// Payment visible method routing
-	PaymentVisibleMethodAlipaySource  *string `json:"payment_visible_method_alipay_source"`
-	PaymentVisibleMethodWxpaySource   *string `json:"payment_visible_method_wxpay_source"`
-	PaymentVisibleMethodAlipayEnabled *bool   `json:"payment_visible_method_alipay_enabled"`
-	PaymentVisibleMethodWxpayEnabled  *bool   `json:"payment_visible_method_wxpay_enabled"`
 
 	// OpenAI account scheduling
 	OpenAILowUpstreamRatePriorityEnabled               *bool    `json:"openai_low_upstream_rate_priority_enabled"`
@@ -304,35 +299,10 @@ type UpdateSettingsRequest struct {
 	AccountQuotaNotifyEnabled       *bool                   `json:"account_quota_notify_enabled"`
 	AccountQuotaNotifyEmails        *[]dto.NotifyEmailEntry `json:"account_quota_notify_emails"`
 
-	// Payment configuration (integrated into settings, full replace)
-	PaymentEnabled                   *bool    `json:"payment_enabled"`
-	PaymentMinAmount                 *float64 `json:"payment_min_amount"`
-	PaymentMaxAmount                 *float64 `json:"payment_max_amount"`
-	PaymentDailyLimit                *float64 `json:"payment_daily_limit"`
-	PaymentOrderTimeoutMin           *int     `json:"payment_order_timeout_minutes"`
-	PaymentMaxPendingOrders          *int     `json:"payment_max_pending_orders"`
-	PaymentEnabledTypes              []string `json:"payment_enabled_types"`
-	PaymentBalanceDisabled           *bool    `json:"payment_balance_disabled"`
-	PaymentBalanceRechargeMultiplier *float64 `json:"payment_balance_recharge_multiplier"`
-	PaymentSubscriptionUSDToCNYRate  *float64 `json:"payment_subscription_usd_to_cny_rate"`
-	PaymentRechargeFeeRate           *float64 `json:"payment_recharge_fee_rate"`
-	PaymentLoadBalanceStrat          *string  `json:"payment_load_balance_strategy"`
-	PaymentProductNamePrefix         *string  `json:"payment_product_name_prefix"`
-	PaymentProductNameSuffix         *string  `json:"payment_product_name_suffix"`
-	PaymentHelpImageURL              *string  `json:"payment_help_image_url"`
-	PaymentHelpText                  *string  `json:"payment_help_text"`
 
 	// Cancel rate limit
-	PaymentCancelRateLimitEnabled *bool   `json:"payment_cancel_rate_limit_enabled"`
-	PaymentCancelRateLimitMax     *int    `json:"payment_cancel_rate_limit_max"`
-	PaymentCancelRateLimitWindow  *int    `json:"payment_cancel_rate_limit_window"`
-	PaymentCancelRateLimitUnit    *string `json:"payment_cancel_rate_limit_unit"`
-	PaymentCancelRateLimitMode    *string `json:"payment_cancel_rate_limit_window_mode"`
 
-	// Force Alipay mobile clients to use QR code payment instead of mobile redirect
-	PaymentAlipayForceQRCode *bool `json:"payment_alipay_force_qrcode"`
 	// Use Alipay face-to-face precreate and an app deep link on mobile clients.
-	PaymentAlipayMobilePrecreateDeepLink *bool `json:"payment_alipay_mobile_precreate_deep_link"`
 
 	// Channel Monitor feature switch
 	ChannelMonitorEnabled                *bool   `json:"channel_monitor_enabled"`
@@ -1782,30 +1752,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return previousSettings.CodexCLIOnlyAllowAppServerClients
 		}(),
 		CodexCLIOnlyEngineFingerprintSignals: strings.TrimSpace(req.CodexCLIOnlyEngineFingerprintSignals),
-		PaymentVisibleMethodAlipaySource: func() string {
-			if req.PaymentVisibleMethodAlipaySource != nil {
-				return strings.TrimSpace(*req.PaymentVisibleMethodAlipaySource)
-			}
-			return previousSettings.PaymentVisibleMethodAlipaySource
-		}(),
-		PaymentVisibleMethodWxpaySource: func() string {
-			if req.PaymentVisibleMethodWxpaySource != nil {
-				return strings.TrimSpace(*req.PaymentVisibleMethodWxpaySource)
-			}
-			return previousSettings.PaymentVisibleMethodWxpaySource
-		}(),
-		PaymentVisibleMethodAlipayEnabled: func() bool {
-			if req.PaymentVisibleMethodAlipayEnabled != nil {
-				return *req.PaymentVisibleMethodAlipayEnabled
-			}
-			return previousSettings.PaymentVisibleMethodAlipayEnabled
-		}(),
-		PaymentVisibleMethodWxpayEnabled: func() bool {
-			if req.PaymentVisibleMethodWxpayEnabled != nil {
-				return *req.PaymentVisibleMethodWxpayEnabled
-			}
-			return previousSettings.PaymentVisibleMethodWxpayEnabled
-		}(),
 		OpenAILowUpstreamRatePriorityEnabled: func() bool {
 			if req.OpenAILowUpstreamRatePriorityEnabled != nil {
 				return *req.OpenAILowUpstreamRatePriorityEnabled
@@ -2058,44 +2004,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
-	// Update payment configuration (integrated into system settings).
-	// Skip if no payment fields were provided (prevents accidental wipe).
-	if h.paymentConfigService != nil && hasPaymentFields(req) {
-		paymentReq := service.UpdatePaymentConfigRequest{
-			Enabled:                       req.PaymentEnabled,
-			MinAmount:                     req.PaymentMinAmount,
-			MaxAmount:                     req.PaymentMaxAmount,
-			DailyLimit:                    req.PaymentDailyLimit,
-			OrderTimeoutMin:               req.PaymentOrderTimeoutMin,
-			MaxPendingOrders:              req.PaymentMaxPendingOrders,
-			EnabledTypes:                  req.PaymentEnabledTypes,
-			BalanceDisabled:               req.PaymentBalanceDisabled,
-			BalanceRechargeMultiplier:     req.PaymentBalanceRechargeMultiplier,
-			SubscriptionUSDToCNYRate:      req.PaymentSubscriptionUSDToCNYRate,
-			RechargeFeeRate:               req.PaymentRechargeFeeRate,
-			LoadBalanceStrategy:           req.PaymentLoadBalanceStrat,
-			ProductNamePrefix:             req.PaymentProductNamePrefix,
-			ProductNameSuffix:             req.PaymentProductNameSuffix,
-			HelpImageURL:                  req.PaymentHelpImageURL,
-			HelpText:                      req.PaymentHelpText,
-			CancelRateLimitEnabled:        req.PaymentCancelRateLimitEnabled,
-			CancelRateLimitMax:            req.PaymentCancelRateLimitMax,
-			CancelRateLimitWindow:         req.PaymentCancelRateLimitWindow,
-			CancelRateLimitUnit:           req.PaymentCancelRateLimitUnit,
-			CancelRateLimitMode:           req.PaymentCancelRateLimitMode,
-			AlipayForceQRCode:             req.PaymentAlipayForceQRCode,
-			AlipayMobilePrecreateDeepLink: req.PaymentAlipayMobilePrecreateDeepLink,
-		}
-		if err := h.paymentConfigService.UpdatePaymentConfig(c.Request.Context(), paymentReq); err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
-		// Refresh in-memory provider registry so config changes take effect immediately
-		if h.paymentService != nil {
-			h.paymentService.RefreshProviders(c.Request.Context())
-		}
-	}
-
 	h.auditSettingsUpdate(c, previousSettings, settings, previousAuthSourceDefaults, authSourceDefaults, auditReq)
 
 	// 重新获取设置返回
@@ -2118,14 +2026,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		})
 	}
 
-	// Reload payment config for response
-	var updatedPaymentCfg *service.PaymentConfig
-	if h.paymentConfigService != nil {
-		updatedPaymentCfg, _ = h.paymentConfigService.GetPaymentConfig(c.Request.Context())
-	}
-	if updatedPaymentCfg == nil {
-		updatedPaymentCfg = &service.PaymentConfig{}
-	}
 	passkeyConfigured, passkeyRPID, passkeyRPOrigins := h.settingService.PasskeyConfiguration()
 
 	payload := dto.SystemSettings{
@@ -2301,10 +2201,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CodexCLIOnlyWhitelist:                                  updatedSettings.CodexCLIOnlyWhitelist,
 		CodexCLIOnlyAllowAppServerClients:                      updatedSettings.CodexCLIOnlyAllowAppServerClients,
 		CodexCLIOnlyEngineFingerprintSignals:                   updatedSettings.CodexCLIOnlyEngineFingerprintSignals,
-		PaymentVisibleMethodAlipaySource:                       updatedSettings.PaymentVisibleMethodAlipaySource,
-		PaymentVisibleMethodWxpaySource:                        updatedSettings.PaymentVisibleMethodWxpaySource,
-		PaymentVisibleMethodAlipayEnabled:                      updatedSettings.PaymentVisibleMethodAlipayEnabled,
-		PaymentVisibleMethodWxpayEnabled:                       updatedSettings.PaymentVisibleMethodWxpayEnabled,
 		OpenAILowUpstreamRatePriorityEnabled:                   updatedSettings.OpenAILowUpstreamRatePriorityEnabled,
 		OpenAIOAuthSchedulingRateMultiplier:                    updatedSettings.OpenAIOAuthSchedulingRateMultiplier,
 		OpenAIAdvancedSchedulerEnabled:                         updatedSettings.OpenAIAdvancedSchedulerEnabled,
@@ -2338,29 +2234,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SubscriptionExpiryNotifyEnabled:                        updatedSettings.SubscriptionExpiryNotifyEnabled,
 		AccountQuotaNotifyEnabled:                              updatedSettings.AccountQuotaNotifyEnabled,
 		AccountQuotaNotifyEmails:                               dto.NotifyEmailEntriesFromService(updatedSettings.AccountQuotaNotifyEmails),
-		PaymentEnabled:                                         updatedPaymentCfg.Enabled,
-		PaymentMinAmount:                                       updatedPaymentCfg.MinAmount,
-		PaymentMaxAmount:                                       updatedPaymentCfg.MaxAmount,
-		PaymentDailyLimit:                                      updatedPaymentCfg.DailyLimit,
-		PaymentOrderTimeoutMin:                                 updatedPaymentCfg.OrderTimeoutMin,
-		PaymentMaxPendingOrders:                                updatedPaymentCfg.MaxPendingOrders,
-		PaymentEnabledTypes:                                    updatedPaymentCfg.EnabledTypes,
-		PaymentBalanceDisabled:                                 updatedPaymentCfg.BalanceDisabled,
-		PaymentBalanceRechargeMultiplier:                       updatedPaymentCfg.BalanceRechargeMultiplier,
-		PaymentSubscriptionUSDToCNYRate:                        updatedPaymentCfg.SubscriptionUSDToCNYRate,
-		PaymentRechargeFeeRate:                                 updatedPaymentCfg.RechargeFeeRate,
-		PaymentLoadBalanceStrat:                                updatedPaymentCfg.LoadBalanceStrategy,
-		PaymentProductNamePrefix:                               updatedPaymentCfg.ProductNamePrefix,
-		PaymentProductNameSuffix:                               updatedPaymentCfg.ProductNameSuffix,
-		PaymentHelpImageURL:                                    updatedPaymentCfg.HelpImageURL,
-		PaymentHelpText:                                        updatedPaymentCfg.HelpText,
-		PaymentCancelRateLimitEnabled:                          updatedPaymentCfg.CancelRateLimitEnabled,
-		PaymentCancelRateLimitMax:                              updatedPaymentCfg.CancelRateLimitMax,
-		PaymentCancelRateLimitWindow:                           updatedPaymentCfg.CancelRateLimitWindow,
-		PaymentCancelRateLimitUnit:                             updatedPaymentCfg.CancelRateLimitUnit,
-		PaymentCancelRateLimitMode:                             updatedPaymentCfg.CancelRateLimitMode,
-		PaymentAlipayForceQRCode:                               updatedPaymentCfg.AlipayForceQRCode,
-		PaymentAlipayMobilePrecreateDeepLink:                   updatedPaymentCfg.AlipayMobilePrecreateDeepLink,
 
 		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
 		ChannelMonitorMode:                   updatedSettings.ChannelMonitorMode,
@@ -2404,7 +2277,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	response.Success(c, systemSettingsResponseData(payload, updatedAuthSourceDefaults))
 }
 
-// hasPaymentFields returns true if any payment-related field was explicitly provided.
 // mapDingTalkValidateError maps ValidateDingTalkConfig errors to machine-readable reason codes.
 func mapDingTalkValidateError(err error) string {
 	switch {
@@ -2415,21 +2287,6 @@ func mapDingTalkValidateError(err error) string {
 	default:
 		return "dingtalk_corp_config_invalid"
 	}
-}
-
-func hasPaymentFields(req UpdateSettingsRequest) bool {
-	return req.PaymentEnabled != nil || req.PaymentMinAmount != nil ||
-		req.PaymentMaxAmount != nil || req.PaymentDailyLimit != nil ||
-		req.PaymentOrderTimeoutMin != nil || req.PaymentMaxPendingOrders != nil ||
-		req.PaymentEnabledTypes != nil || req.PaymentBalanceDisabled != nil ||
-		req.PaymentBalanceRechargeMultiplier != nil || req.PaymentSubscriptionUSDToCNYRate != nil ||
-		req.PaymentRechargeFeeRate != nil ||
-		req.PaymentLoadBalanceStrat != nil || req.PaymentProductNamePrefix != nil ||
-		req.PaymentProductNameSuffix != nil || req.PaymentHelpImageURL != nil ||
-		req.PaymentHelpText != nil || req.PaymentCancelRateLimitEnabled != nil ||
-		req.PaymentCancelRateLimitMax != nil || req.PaymentCancelRateLimitWindow != nil ||
-		req.PaymentCancelRateLimitUnit != nil || req.PaymentCancelRateLimitMode != nil ||
-		req.PaymentAlipayForceQRCode != nil || req.PaymentAlipayMobilePrecreateDeepLink != nil
 }
 
 // ensureDingTalkSyncAttributes 在保存 settings 后，按 admin 配置的 (attr key, attr name)
