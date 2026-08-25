@@ -795,25 +795,11 @@ export default {
       authSourceDefaults: {
         title: '认证来源默认值',
         description: '按注册来源配置新用户默认余额、并发、订阅与授权策略。',
-        requireEmailLabel: '第三方注册强制补充邮箱',
-        requireEmailHint: '启用后，Linux DO、OIDC、微信注册缺少邮箱时必须先补充邮箱地址。',
         enabledHint: '以下默认值会在该来源注册新用户时发放；首次绑定时授权仅作用于已有账号绑定该来源。',
         sources: {
           email: {
             title: '邮箱注册',
             description: '适用于邮箱密码注册的新用户默认配额。'
-          },
-          linuxdo: {
-            title: 'Linux DO 登录',
-            description: '适用于 Linux DO 第三方注册的新用户默认配额。'
-          },
-          oidc: {
-            title: 'OIDC 登录',
-            description: '适用于 OIDC 第三方注册的新用户默认配额。'
-          },
-          wechat: {
-            title: '微信登录',
-            description: '适用于微信第三方注册的新用户默认配额。'
           }
         },
         grantOnFirstBindLabel: '首次绑定时授权',

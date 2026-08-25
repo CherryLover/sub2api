@@ -28,13 +28,6 @@ describe("admin settings auth source defaults helpers", () => {
       ],
       auth_source_default_email_grant_on_signup: false,
       auth_source_default_email_grant_on_first_bind: true,
-      auth_source_default_linuxdo_balance: 6,
-      auth_source_default_linuxdo_concurrency: 8,
-      auth_source_default_linuxdo_subscriptions: [
-        { group_id: 2, validity_days: 60 },
-      ],
-      auth_source_default_linuxdo_grant_on_signup: true,
-      auth_source_default_linuxdo_grant_on_first_bind: false,
     });
 
     expect(state.email).toEqual({
@@ -45,39 +38,12 @@ describe("admin settings auth source defaults helpers", () => {
       grant_on_first_bind: true,
       platform_quotas: allNullQuotas,
     });
-    expect(state.linuxdo).toEqual({
-      balance: 6,
-      concurrency: 8,
-      subscriptions: [{ group_id: 2, validity_days: 60 }],
-      grant_on_signup: true,
-      grant_on_first_bind: false,
-      platform_quotas: allNullQuotas,
-    });
-    expect(state.oidc).toEqual({
-      balance: 0,
-      concurrency: 5,
-      subscriptions: [],
-      grant_on_signup: false,
-      grant_on_first_bind: false,
-      platform_quotas: allNullQuotas,
-    });
-    expect(state.wechat).toEqual({
-      balance: 0,
-      concurrency: 5,
-      subscriptions: [],
-      grant_on_signup: false,
-      grant_on_first_bind: false,
-      platform_quotas: allNullQuotas,
-    });
   });
 
   it("defaults grant-on-signup to disabled when settings are missing", () => {
     const state = buildAuthSourceDefaultsState({});
 
     expect(state.email.grant_on_signup).toBe(false);
-    expect(state.linuxdo.grant_on_signup).toBe(false);
-    expect(state.oidc.grant_on_signup).toBe(false);
-    expect(state.wechat.grant_on_signup).toBe(false);
   });
 
   it("reads nested platform_quotas from settings into auth source state", () => {
@@ -111,54 +77,6 @@ describe("admin settings auth source defaults helpers", () => {
         grant_on_first_bind: false,
         platform_quotas: {},
       },
-      linuxdo: {
-        balance: 0,
-        concurrency: 6,
-        subscriptions: [],
-        grant_on_signup: false,
-        grant_on_first_bind: true,
-        platform_quotas: {},
-      },
-      oidc: {
-        balance: 4,
-        concurrency: 9,
-        subscriptions: [{ group_id: 9, validity_days: 90 }],
-        grant_on_signup: true,
-        grant_on_first_bind: true,
-        platform_quotas: {},
-      },
-      wechat: {
-        balance: 2,
-        concurrency: 5,
-        subscriptions: [],
-        grant_on_signup: false,
-        grant_on_first_bind: false,
-        platform_quotas: {},
-      },
-      github: {
-        balance: 0,
-        concurrency: 5,
-        subscriptions: [],
-        grant_on_signup: false,
-        grant_on_first_bind: false,
-        platform_quotas: {},
-      },
-      google: {
-        balance: 0,
-        concurrency: 5,
-        subscriptions: [],
-        grant_on_signup: false,
-        grant_on_first_bind: false,
-        platform_quotas: {},
-      },
-      dingtalk: {
-        balance: 0,
-        concurrency: 5,
-        subscriptions: [],
-        grant_on_signup: false,
-        grant_on_first_bind: false,
-        platform_quotas: {},
-      },
     });
 
     expect(payload).toMatchObject({
@@ -170,31 +88,8 @@ describe("admin settings auth source defaults helpers", () => {
       ],
       auth_source_default_email_grant_on_signup: true,
       auth_source_default_email_grant_on_first_bind: false,
-      auth_source_default_linuxdo_balance: 0,
-      auth_source_default_linuxdo_concurrency: 6,
-      auth_source_default_linuxdo_subscriptions: [],
-      auth_source_default_linuxdo_grant_on_signup: false,
-      auth_source_default_linuxdo_grant_on_first_bind: true,
-      auth_source_default_oidc_balance: 4,
-      auth_source_default_oidc_concurrency: 9,
-      auth_source_default_oidc_subscriptions: [
-        { group_id: 9, validity_days: 90 },
-      ],
-      auth_source_default_oidc_grant_on_signup: true,
-      auth_source_default_oidc_grant_on_first_bind: true,
-      auth_source_default_wechat_balance: 2,
-      auth_source_default_wechat_concurrency: 5,
-      auth_source_default_wechat_subscriptions: [],
-      auth_source_default_wechat_grant_on_signup: false,
-      auth_source_default_wechat_grant_on_first_bind: false,
       // 嵌套 platform_quotas 字段
       auth_source_default_email_platform_quotas: allNullQuotas,
-      auth_source_default_linuxdo_platform_quotas: allNullQuotas,
-      auth_source_default_oidc_platform_quotas: allNullQuotas,
-      auth_source_default_wechat_platform_quotas: allNullQuotas,
-      auth_source_default_github_platform_quotas: allNullQuotas,
-      auth_source_default_google_platform_quotas: allNullQuotas,
-      auth_source_default_dingtalk_platform_quotas: allNullQuotas,
     });
   });
 

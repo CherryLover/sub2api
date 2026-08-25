@@ -799,25 +799,11 @@ export default {
       authSourceDefaults: {
         title: 'Auth Source Defaults',
         description: 'Configure per-source default balance, concurrency, subscriptions, and grant rules.',
-        requireEmailLabel: 'Require email on third-party signup',
-        requireEmailHint: 'When enabled, Linux DO, OIDC, and WeChat signups must provide an email before account creation.',
         enabledHint: 'These defaults apply when a new user registers through this source. Grant on first bind only applies when an existing user binds this source.',
         sources: {
           email: {
             title: 'Email signup',
             description: 'Default quota grants for email-password signups.'
-          },
-          linuxdo: {
-            title: 'Linux DO signup',
-            description: 'Default quota grants for Linux DO signups.'
-          },
-          oidc: {
-            title: 'OIDC signup',
-            description: 'Default quota grants for OIDC signups.'
-          },
-          wechat: {
-            title: 'WeChat signup',
-            description: 'Default quota grants for WeChat signups.'
           }
         },
         grantOnFirstBindLabel: 'Grant on first bind',

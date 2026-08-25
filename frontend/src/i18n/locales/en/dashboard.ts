@@ -790,19 +790,9 @@ export default {
       },
       providers: {
         email: 'Email',
-        linuxdo: 'LinuxDo',
-        dingtalk: 'DingTalk',
-        oidc: '{providerName}',
-        wechat: 'WeChat',
       },
       notes: {
         emailManagedFromProfile: 'Primary email is managed in the profile form',
-        canUnbind: 'You can unbind this sign-in method',
-        bindAnotherBeforeUnbind: 'Bind another sign-in method before unbinding',
-      },
-      source: {
-        avatar: 'Avatar is currently synced from {providerName}',
-        username: 'Nickname is currently synced from {providerName}',
       },
     }
   },

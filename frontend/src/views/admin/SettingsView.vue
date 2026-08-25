@@ -2848,20 +2848,6 @@
               </p>
             </div>
             <div class="space-y-6 p-6">
-              <div
-                class="flex items-center justify-between rounded border border-gray-200 px-4 py-3 dark:border-dark-700"
-              >
-                <div>
-                  <label class="font-medium text-gray-900 dark:text-white">
-                    {{ t("admin.settings.authSourceDefaults.requireEmailLabel") }}
-                  </label>
-                  <p class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.authSourceDefaults.requireEmailHint") }}
-                  </p>
-                </div>
-                <Toggle v-model="form.force_email_on_third_party_signup" />
-              </div>
-
               <div class="space-y-4">
                 <div
                   v-for="authSource in authSourceDefaultsMeta"
@@ -7181,7 +7167,6 @@ type SettingsForm = SystemSettings & {
   tencent_captcha_cloud_secret_id: string;
   tencent_captcha_cloud_secret_key: string;
   aliyun_captcha_access_key_secret: string;
-  force_email_on_third_party_signup: boolean;
   openai_low_upstream_rate_priority_enabled: boolean;
   openai_oauth_scheduling_rate_multiplier: number;
   openai_advanced_scheduler_enabled: boolean;
@@ -7236,7 +7221,6 @@ const form = reactive<SettingsForm>({
   account_scheduling_thresholds: normalizeAccountSchedulingThresholdsMap(),
   default_concurrency: 1,
   default_subscriptions: [],
-  force_email_on_third_party_signup: false,
   default_user_rpm_limit: 0,
   site_name: "Sub2API",
   site_logo: "",
@@ -7547,45 +7531,6 @@ const authSourceDefaultsMeta = computed(() => [
     source: "email" as AuthSourceType,
     title: t("admin.settings.authSourceDefaults.sources.email.title"),
     description: t("admin.settings.authSourceDefaults.sources.email.description"),
-  },
-  {
-    source: "linuxdo" as AuthSourceType,
-    title: t("admin.settings.authSourceDefaults.sources.linuxdo.title"),
-    description: t("admin.settings.authSourceDefaults.sources.linuxdo.description"),
-  },
-  {
-    source: "oidc" as AuthSourceType,
-    title: t("admin.settings.authSourceDefaults.sources.oidc.title"),
-    description: t("admin.settings.authSourceDefaults.sources.oidc.description"),
-  },
-  {
-    source: "wechat" as AuthSourceType,
-    title: t("admin.settings.authSourceDefaults.sources.wechat.title"),
-    description: t("admin.settings.authSourceDefaults.sources.wechat.description"),
-  },
-  {
-    source: "github" as AuthSourceType,
-    title: "GitHub",
-    description: localText(
-      "通过 GitHub 已验证邮箱首次注册或首次绑定时应用。",
-      "Applied on first signup or first bind through a verified GitHub email.",
-    ),
-  },
-  {
-    source: "google" as AuthSourceType,
-    title: "Google",
-    description: localText(
-      "通过 Google 已验证邮箱首次注册或首次绑定时应用。",
-      "Applied on first signup or first bind through a verified Google email.",
-    ),
-  },
-  {
-    source: "dingtalk" as AuthSourceType,
-    title: t("auth.dingtalkProviderName"),
-    description: localText(
-      "通过钉钉首次注册或首次绑定时应用。",
-      "Applied on first signup or first bind through DingTalk.",
-    ),
   },
 ]);
 
@@ -8414,13 +8359,13 @@ const LOGIN_ENTRY_PATH_MAX_LENGTH = 128;
 const LOGIN_ENTRY_RESERVED_PATHS = new Set([
   "/", "/home", "/login", "/register", "/email-verify", "/forgot-password",
   "/reset-password", "/key-usage", "/model-plaza", "/dashboard", "/keys",
-  "/batch-image", "/usage", "/redeem", "/affiliate", "/available-channels",
-  "/profile", "/subscriptions", "/purchase", "/orders", "/monitor", "/setup",
+  "/batch-image", "/usage", "/available-channels",
+  "/profile", "/subscriptions", "/monitor", "/setup",
   "/health", "/models", "/responses", "/favicon.ico", "/logo.svg", "/robots.txt",
 ]);
 const LOGIN_ENTRY_RESERVED_PREFIXES = [
   "/api", "/v1", "/v1beta", "/backend-api", "/antigravity", "/setup",
-  "/responses", "/alpha", "/images", "/videos", "/auth", "/admin", "/payment",
+  "/responses", "/alpha", "/images", "/videos", "/auth", "/admin",
   "/legal", "/custom", "/docs", "/assets", "/static",
 ];
 
@@ -8771,7 +8716,6 @@ async function saveSettings() {
       default_balance: form.default_balance,
       default_concurrency: form.default_concurrency,
       default_subscriptions: normalizedDefaultSubscriptions,
-      force_email_on_third_party_signup: form.force_email_on_third_party_signup,
       default_user_rpm_limit: form.default_user_rpm_limit,
       site_name: form.site_name,
       site_logo: form.site_logo,

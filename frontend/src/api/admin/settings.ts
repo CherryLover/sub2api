@@ -95,14 +95,8 @@ export function sanitizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | nul
   return result
 }
 
-export type AuthSourceType =
-  | "email"
-  | "linuxdo"
-  | "oidc"
-  | "wechat"
-  | "github"
-  | "google"
-  | "dingtalk";
+// 单管理员内部部署：注册来源默认授予只保留 email 渠道（第三方 OAuth 登录已删除）。
+export type AuthSourceType = "email";
 
 export interface AuthSourceDefaultsValue {
   balance: number;
@@ -119,15 +113,7 @@ export type AuthSourceDefaultsState = Record<
   AuthSourceDefaultsValue
 >;
 
-const AUTH_SOURCE_TYPES: AuthSourceType[] = [
-  "email",
-  "linuxdo",
-  "oidc",
-  "wechat",
-  "github",
-  "google",
-  "dingtalk",
-];
+const AUTH_SOURCE_TYPES: AuthSourceType[] = ["email"];
 const AUTH_SOURCE_DEFAULT_BALANCE = 0;
 const AUTH_SOURCE_DEFAULT_CONCURRENCY = 5;
 
@@ -252,46 +238,9 @@ export interface SystemSettings {
   auth_source_default_email_subscriptions?: DefaultSubscriptionSetting[];
   auth_source_default_email_grant_on_signup?: boolean;
   auth_source_default_email_grant_on_first_bind?: boolean;
-  auth_source_default_linuxdo_balance?: number;
-  auth_source_default_linuxdo_concurrency?: number;
-  auth_source_default_linuxdo_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_linuxdo_grant_on_signup?: boolean;
-  auth_source_default_linuxdo_grant_on_first_bind?: boolean;
-  auth_source_default_oidc_balance?: number;
-  auth_source_default_oidc_concurrency?: number;
-  auth_source_default_oidc_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_oidc_grant_on_signup?: boolean;
-  auth_source_default_oidc_grant_on_first_bind?: boolean;
-  auth_source_default_wechat_balance?: number;
-  auth_source_default_wechat_concurrency?: number;
-  auth_source_default_wechat_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_wechat_grant_on_signup?: boolean;
-  auth_source_default_wechat_grant_on_first_bind?: boolean;
-  auth_source_default_dingtalk_balance?: number;
-  auth_source_default_dingtalk_concurrency?: number;
-  auth_source_default_dingtalk_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_dingtalk_grant_on_signup?: boolean;
-  auth_source_default_dingtalk_grant_on_first_bind?: boolean;
-  auth_source_default_github_balance?: number;
-  auth_source_default_github_concurrency?: number;
-  auth_source_default_github_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_github_grant_on_signup?: boolean;
-  auth_source_default_github_grant_on_first_bind?: boolean;
-  auth_source_default_google_balance?: number;
-  auth_source_default_google_concurrency?: number;
-  auth_source_default_google_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_google_grant_on_signup?: boolean;
-  auth_source_default_google_grant_on_first_bind?: boolean;
-  force_email_on_third_party_signup?: boolean;
-  // ── 平台限额（嵌套 JSON，系统层 + 7 auth-source 层）────────────────────────────────
+  // ── 平台限额（嵌套 JSON，系统层 + email auth-source 层）────────────────────────────────
   default_platform_quotas?: DefaultPlatformQuotasMap;
   auth_source_default_email_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_linuxdo_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_oidc_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_wechat_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_github_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_google_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_dingtalk_platform_quotas?: DefaultPlatformQuotasMap;
   // OEM settings
   site_name: string;
   site_logo: string;
@@ -481,46 +430,9 @@ export interface UpdateSettingsRequest {
   auth_source_default_email_subscriptions?: DefaultSubscriptionSetting[];
   auth_source_default_email_grant_on_signup?: boolean;
   auth_source_default_email_grant_on_first_bind?: boolean;
-  auth_source_default_linuxdo_balance?: number;
-  auth_source_default_linuxdo_concurrency?: number;
-  auth_source_default_linuxdo_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_linuxdo_grant_on_signup?: boolean;
-  auth_source_default_linuxdo_grant_on_first_bind?: boolean;
-  auth_source_default_oidc_balance?: number;
-  auth_source_default_oidc_concurrency?: number;
-  auth_source_default_oidc_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_oidc_grant_on_signup?: boolean;
-  auth_source_default_oidc_grant_on_first_bind?: boolean;
-  auth_source_default_wechat_balance?: number;
-  auth_source_default_wechat_concurrency?: number;
-  auth_source_default_wechat_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_wechat_grant_on_signup?: boolean;
-  auth_source_default_wechat_grant_on_first_bind?: boolean;
-  auth_source_default_dingtalk_balance?: number;
-  auth_source_default_dingtalk_concurrency?: number;
-  auth_source_default_dingtalk_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_dingtalk_grant_on_signup?: boolean;
-  auth_source_default_dingtalk_grant_on_first_bind?: boolean;
-  auth_source_default_github_balance?: number;
-  auth_source_default_github_concurrency?: number;
-  auth_source_default_github_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_github_grant_on_signup?: boolean;
-  auth_source_default_github_grant_on_first_bind?: boolean;
-  auth_source_default_google_balance?: number;
-  auth_source_default_google_concurrency?: number;
-  auth_source_default_google_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_google_grant_on_signup?: boolean;
-  auth_source_default_google_grant_on_first_bind?: boolean;
-  force_email_on_third_party_signup?: boolean;
-  // ── 平台限额（嵌套 JSON，系统层 + 7 auth-source 层）────────────────────────────────
+  // ── 平台限额（嵌套 JSON，系统层 + email auth-source 层）────────────────────────────────
   default_platform_quotas?: DefaultPlatformQuotasMap;
   auth_source_default_email_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_linuxdo_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_oidc_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_wechat_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_github_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_google_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_dingtalk_platform_quotas?: DefaultPlatformQuotasMap;
   site_name?: string;
   site_logo?: string;
   site_subtitle?: string;
