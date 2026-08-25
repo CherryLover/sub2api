@@ -446,9 +446,6 @@ const routes: RouteRecordRaw[] = [
     }
   },
 
-
-  // ==================== Payment Admin Routes ====================
-
   // ==================== 404 Not Found ====================
   {
     path: '/:pathMatch(.*)*',
@@ -510,21 +507,10 @@ const navigationLoading = useNavigationLoadingState()
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
 // '/login' 只在登录入口公开时才是一条真实路由；隐藏模式下的登录入口靠
 // isLoginRoute() 按路由名放行，路径本身不进这份常量（它会被编译进产物）。
-const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/payment/result', '/payment/airwallex', '/legal']
-const BACKEND_MODE_CALLBACK_PATHS = [
-  '/auth/callback',
-  '/auth/linuxdo/callback',
-  '/auth/dingtalk/callback',
-  '/auth/dingtalk/email-completion',
-  '/auth/oidc/callback',
-  '/auth/wechat/callback',
-  '/auth/wechat/payment/callback',
-]
-const BACKEND_MODE_PENDING_AUTH_PATHS = ['/register', '/email-verify']
+const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/legal']
 
 function isBackendModePublicRouteAllowed(
   path: string,
-  hasPendingAuthSession: boolean,
   isLoginEntryRoute = false
 ): boolean {
   // 隐藏登录入口在 backend mode 下和 /login 等价放行。
@@ -532,19 +518,9 @@ function isBackendModePublicRouteAllowed(
     return true
   }
 
-  if (BACKEND_MODE_ALLOWED_PATHS.some((allowedPath) => path === allowedPath || path.startsWith(allowedPath))) {
-    return true
-  }
-
-  if (BACKEND_MODE_CALLBACK_PATHS.some((callbackPath) => path === callbackPath)) {
-    return true
-  }
-
-  if (hasPendingAuthSession && BACKEND_MODE_PENDING_AUTH_PATHS.some((allowedPath) => path === allowedPath)) {
-    return true
-  }
-
-  return false
+  return BACKEND_MODE_ALLOWED_PATHS.some(
+    (allowedPath) => path === allowedPath || path.startsWith(allowedPath)
+  )
 }
 
 /** 当前导航目标是不是登录页（公开的 /login 或隐藏模式下动态注册的入口）。 */
@@ -583,10 +559,7 @@ router.beforeEach(async (to, _from, next) => {
    */
   const blockedTarget = (redirectFullPath?: string) => {
     const target = resolveUnauthenticatedTarget(appStore.cachedPublicSettings, redirectFullPath)
-    if (
-      appStore.backendModeEnabled &&
-      !isBackendModePublicRouteAllowed(target.path, authStore.hasPendingAuthSession)
-    ) {
+    if (appStore.backendModeEnabled && !isBackendModePublicRouteAllowed(target.path)) {
       return { path: '/key-usage' }
     }
     return target
@@ -673,11 +646,7 @@ router.beforeEach(async (to, _from, next) => {
     }
     // Backend mode: block public pages for unauthenticated users (except login, key-usage, setup)
     if (appStore.backendModeEnabled && !authStore.isAuthenticated) {
-      const isAllowed = isBackendModePublicRouteAllowed(
-        to.path,
-        authStore.hasPendingAuthSession,
-        to.meta.loginEntry === true
-      )
+      const isAllowed = isBackendModePublicRouteAllowed(to.path, to.meta.loginEntry === true)
       if (!isAllowed) {
         next(blockedTarget())
         return
@@ -719,9 +688,9 @@ router.beforeEach(async (to, _from, next) => {
 
 
   // 公共设置可能尚未加载（App.vue 的 onMounted 异步拉取晚于首次导航，且纯静态部署
-  // 无 __APP_CONFIG__ 注入）。此时 cachedPublicSettings 为空会把 payment/risk_control
+  // 无 __APP_CONFIG__ 注入）。此时 cachedPublicSettings 为空会把 risk_control
   // 误判为“未启用”而错误拦截，故这里先确保设置加载完成。
-  if ((to.meta.requiresPayment || to.meta.requiresRiskControl) && !appStore.publicSettingsLoaded) {
+  if (to.meta.requiresRiskControl && !appStore.publicSettingsLoaded) {
     try {
       await appStore.fetchPublicSettings()
     } catch (error) {
@@ -731,15 +700,6 @@ router.beforeEach(async (to, _from, next) => {
 
   // Only an explicit value from successfully loaded settings can disable a route.
   // A transient settings failure is unknown state, not a confirmed feature toggle.
-  if (
-    to.meta.requiresPayment &&
-    appStore.publicSettingsLoaded &&
-    appStore.cachedPublicSettings?.payment_enabled === false
-  ) {
-    next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
-    return
-  }
-
   if (
     to.meta.requiresRiskControl &&
     appStore.publicSettingsLoaded &&
@@ -754,9 +714,7 @@ router.beforeEach(async (to, _from, next) => {
     const restrictedPaths = [
       '/admin/groups',
       '/admin/subscriptions',
-      '/admin/redeem',
-      '/subscriptions',
-      '/redeem'
+      '/subscriptions'
     ]
 
     if (restrictedPaths.some((path) => to.path.startsWith(path))) {
@@ -772,11 +730,7 @@ router.beforeEach(async (to, _from, next) => {
       next()
       return
     }
-    const isAllowed = isBackendModePublicRouteAllowed(
-      to.path,
-      authStore.hasPendingAuthSession,
-      to.meta.loginEntry === true
-    )
+    const isAllowed = isBackendModePublicRouteAllowed(to.path, to.meta.loginEntry === true)
     if (!isAllowed) {
       next(blockedTarget())
       return
