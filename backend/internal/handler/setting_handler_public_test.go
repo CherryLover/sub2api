@@ -53,7 +53,6 @@ func (s *settingHandlerPublicRepoStub) Delete(ctx context.Context, key string) e
 	panic("unexpected Delete call")
 }
 
-
 func TestSettingHandler_GetPublicSettings_ExposesTencentCaptchaConfiguration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -88,7 +87,6 @@ func TestSettingHandler_GetPublicSettings_ExposesTencentCaptchaConfiguration(t *
 	require.Equal(t, "123456789", resp.Data.TencentCaptchaAppID)
 	require.Equal(t, service.TencentCaptchaRegionINTL, resp.Data.TencentCaptchaRegion)
 }
-
 
 // The custom login path is the one setting that must never leave the process.
 // /api/v1/settings/public is unauthenticated, so anything in this payload is

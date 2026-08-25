@@ -744,9 +744,6 @@ func TestLoadSchedulingConfigFromEnv(t *testing.T) {
 	}
 }
 
-
-
-
 func TestLoadForcedCodexInstructionsTemplate(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
@@ -857,11 +854,6 @@ func TestLoadDefaultDatabaseSSLMode(t *testing.T) {
 		t.Fatalf("Database.SSLMode = %q, want %q", cfg.Database.SSLMode, "prefer")
 	}
 }
-
-
-
-
-
 
 func TestLoadDefaultDashboardCacheConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
@@ -1270,7 +1262,6 @@ func TestProvideConfig(t *testing.T) {
 		t.Fatalf("ProvideConfig() error: %v", err)
 	}
 }
-
 
 func TestValidateJWTSecretStrength(t *testing.T) {
 	if !isWeakJWTSecret("change-me-in-production") {

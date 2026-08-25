@@ -139,7 +139,6 @@ func TestSettingService_ChannelMonitorShowQuotaFailsClosed(t *testing.T) {
 	}
 }
 
-
 func TestSettingService_GetPublicSettings_ExposesAllowUserViewErrorRequests(t *testing.T) {
 	repo := &settingPublicRepoStub{
 		values: map[string]string{
@@ -152,6 +151,3 @@ func TestSettingService_GetPublicSettings_ExposesAllowUserViewErrorRequests(t *t
 	require.NoError(t, err)
 	require.True(t, settings.AllowUserViewErrorRequests)
 }
-
-
-

@@ -194,9 +194,6 @@ func TestUserHandlerUpdateProfileReturnsAvatarURL(t *testing.T) {
 	require.Equal(t, "handler-avatar", resp.Data.Username)
 }
 
-
-
-
 type userHandlerEmailCacheStub struct {
 	data *service.VerificationCodeData
 }
@@ -554,4 +551,3 @@ func TestUserHandlerBindEmailIdentityRejectsWrongCurrentPasswordForBoundEmail(t 
 	require.Equal(t, "current password is incorrect", resp.Message)
 	require.Equal(t, "current@example.com", repo.user.Email)
 }
-

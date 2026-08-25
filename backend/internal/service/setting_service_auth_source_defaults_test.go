@@ -61,10 +61,10 @@ func (s *authSourceDefaultsRepoStub) Delete(ctx context.Context, key string) err
 func TestSettingService_GetAuthSourceDefaultSettings_ParsesValuesAndDefaults(t *testing.T) {
 	repo := &authSourceDefaultsRepoStub{
 		values: map[string]string{
-			SettingKeyAuthSourceDefaultEmailBalance:            "12.5",
-			SettingKeyAuthSourceDefaultEmailConcurrency:        "7",
-			SettingKeyAuthSourceDefaultEmailSubscriptions:      `[{"group_id":11,"validity_days":30}]`,
-			SettingKeyAuthSourceDefaultEmailGrantOnSignup:      "false",
+			SettingKeyAuthSourceDefaultEmailBalance:       "12.5",
+			SettingKeyAuthSourceDefaultEmailConcurrency:   "7",
+			SettingKeyAuthSourceDefaultEmailSubscriptions: `[{"group_id":11,"validity_days":30}]`,
+			SettingKeyAuthSourceDefaultEmailGrantOnSignup: "false",
 		},
 	}
 	svc := NewSettingService(repo, &config.Config{})

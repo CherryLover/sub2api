@@ -186,7 +186,6 @@ type defaultSubGroupReaderStub struct {
 	calls []int64
 }
 
-
 func (s *defaultSubGroupReaderStub) GetByID(ctx context.Context, id int64) (*Group, error) {
 	s.calls = append(s.calls, id)
 	if err, ok := s.errBy[id]; ok {

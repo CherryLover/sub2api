@@ -780,7 +780,6 @@ func userAuthIdentitySortTime(record UserAuthIdentityRecord) time.Time {
 	return time.Time{}
 }
 
-
 func firstStringIdentityValue(values map[string]any, keys ...string) string {
 	for _, key := range keys {
 		raw, ok := values[key]
