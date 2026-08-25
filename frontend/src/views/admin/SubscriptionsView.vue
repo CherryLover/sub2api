@@ -192,7 +192,7 @@
               </div>
               <span class="font-medium text-gray-900 dark:text-white">
                 {{ userColumnMode === 'email'
-                  ? (row.user?.email || t('admin.redeem.userPrefix', { id: row.user_id }))
+                  ? (row.user?.email || t('admin.users.userPrefix', { id: row.user_id }))
                   : (row.user?.username || '-')
                 }}
               </span>
