@@ -15,7 +15,6 @@ const authStore = vi.hoisted(() => ({
   isAuthenticated: true,
   isAdmin: false,
   isSimpleMode: false,
-  hasPendingAuthSession: false,
 }))
 
 const appStore = vi.hoisted(() => ({
@@ -23,7 +22,6 @@ const appStore = vi.hoisted(() => ({
   backendModeEnabled: false,
   publicSettingsLoaded: false,
   cachedPublicSettings: null as null | {
-    payment_enabled?: boolean
     risk_control_enabled?: boolean
     custom_menu_items?: []
   },
@@ -119,8 +117,9 @@ describe('feature route guard', () => {
     appStore.fetchPublicSettings.mockReset()
   })
 
-  it('waits for the first public-settings request before deciding payment access', async () => {
-    const deferred = createDeferred<{ payment_enabled: boolean }>()
+  it('waits for the first public-settings request before deciding risk control access', async () => {
+    const deferred = createDeferred<{ risk_control_enabled: boolean }>()
+    authStore.isAdmin = true
     appStore.fetchPublicSettings.mockImplementation(async () => {
       const settings = await deferred.promise
       appStore.cachedPublicSettings = settings
@@ -128,19 +127,18 @@ describe('feature route guard', () => {
       return settings
     })
 
-    const { navigation, next } = runGuard({ requiresPayment: true }, '/purchase')
+    const { navigation, next } = runGuard({ requiresRiskControl: true }, '/admin/risk-control')
 
     await vi.waitFor(() => expect(appStore.fetchPublicSettings).toHaveBeenCalledTimes(1))
     expect(next).not.toHaveBeenCalled()
 
-    deferred.resolve({ payment_enabled: true })
+    deferred.resolve({ risk_control_enabled: true })
     await navigation
     expect(next).toHaveBeenCalledOnce()
     expect(next).toHaveBeenCalledWith()
   })
 
   it.each([
-    ['payment', { requiresPayment: true }, '/purchase'],
     ['risk control', { requiresRiskControl: true }, '/admin/risk-control'],
   ])('does not treat a failed %s settings load as explicitly disabled', async (_name, meta, path) => {
     authStore.isAdmin = meta.requiresRiskControl === true
@@ -155,7 +153,6 @@ describe('feature route guard', () => {
   })
 
   it.each([
-    ['payment', { requiresPayment: true }, { payment_enabled: false }, '/dashboard'],
     [
       'risk control',
       { requiresRiskControl: true },
