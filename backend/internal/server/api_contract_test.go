@@ -451,47 +451,6 @@ func TestAPIContracts(t *testing.T) {
 			}`,
 		},
 		{
-			name: "GET /api/v1/redeem/history",
-			setup: func(t *testing.T, deps *contractDeps) {
-				t.Helper()
-				// 普通用户兑换历史不应包含 notes 等内部字段。
-				deps.redeemRepo.SetByUser(1, []service.RedeemCode{
-					{
-						ID:        900,
-						Code:      "CODE-123",
-						Type:      service.RedeemTypeBalance,
-						Value:     1.25,
-						Status:    service.StatusUsed,
-						UsedBy:    ptr(int64(1)),
-						UsedAt:    ptr(deps.now),
-						Notes:     "internal-note",
-						CreatedAt: deps.now,
-					},
-				})
-			},
-			method:     http.MethodGet,
-			path:       "/api/v1/redeem/history",
-			wantStatus: http.StatusOK,
-			wantJSON: `{
-				"code": 0,
-				"message": "success",
-				"data": [
-					{
-						"id": 900,
-						"code": "CODE-123",
-						"type": "balance",
-						"value": 1.25,
-						"status": "used",
-						"used_by": 1,
-						"used_at": "2025-01-02T03:04:05Z",
-						"created_at": "2025-01-02T03:04:05Z",
-						"group_id": null,
-						"validity_days": 0
-					}
-				]
-			}`,
-		},
-		{
 			name: "GET /api/v1/usage/stats",
 			setup: func(t *testing.T, deps *contractDeps) {
 				t.Helper()
@@ -694,10 +653,6 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingKeyOpsRealtimeMonitoringEnabled:                       "true",
 					service.SettingKeyOpsQueryModeDefault:                                "auto",
 					service.SettingKeyOpsMetricsIntervalSeconds:                          "60",
-					service.SettingPaymentVisibleMethodAlipaySource:                      service.VisibleMethodSourceEasyPayAlipay,
-					service.SettingPaymentVisibleMethodWxpaySource:                       service.VisibleMethodSourceOfficialWechat,
-					service.SettingPaymentVisibleMethodAlipayEnabled:                     "true",
-					service.SettingPaymentVisibleMethodWxpayEnabled:                      "false",
 					service.SettingKeyOpenAILowUpstreamRatePriorityEnabled:               "true",
 					service.SettingKeyOpenAIOAuthSchedulingRateMultiplier:                "0.05",
 					"openai_advanced_scheduler_enabled":                                  "true",
@@ -920,10 +875,6 @@ func TestAPIContracts(t *testing.T) {
 					"enable_fingerprint_unification": true,
 					"enable_metadata_passthrough": false,
 					"web_search_emulation_enabled": false,
-					"payment_visible_method_alipay_source": "easypay_alipay",
-					"payment_visible_method_wxpay_source": "official_wxpay",
-					"payment_visible_method_alipay_enabled": true,
-					"payment_visible_method_wxpay_enabled": false,
 					"openai_low_upstream_rate_priority_enabled": true,
 					"openai_oauth_scheduling_rate_multiplier": 0.05,
 					"openai_advanced_scheduler_enabled": true,
@@ -960,29 +911,6 @@ func TestAPIContracts(t *testing.T) {
 					},
 					"custom_menu_items": [],
 					"custom_endpoints": [],
-					"payment_enabled": false,
-					"payment_min_amount": 0,
-					"payment_max_amount": 0,
-					"payment_daily_limit": 0,
-					"payment_order_timeout_minutes": 0,
-					"payment_max_pending_orders": 0,
-					"payment_balance_disabled": false,
-					"payment_balance_recharge_multiplier": 0,
-					"payment_subscription_usd_to_cny_rate": 0,
-					"payment_recharge_fee_rate": 0,
-					"payment_load_balance_strategy": "",
-					"payment_product_name_prefix": "",
-					"payment_product_name_suffix": "",
-					"payment_help_image_url": "",
-					"payment_help_text": "",
-					"payment_enabled_types": null,
-					"payment_cancel_rate_limit_enabled": false,
-					"payment_cancel_rate_limit_max": 0,
-					"payment_cancel_rate_limit_window": 0,
-					"payment_cancel_rate_limit_unit": "",
-					"payment_cancel_rate_limit_window_mode": "",
-					"payment_alipay_force_qrcode": false,
-					"payment_alipay_mobile_precreate_deep_link": false,
 					"balance_low_notify_enabled": false,
 					"account_quota_notify_enabled": false,
 					"account_scheduling_thresholds": {"anthropic":100,"grok":100,"openai":100},
@@ -1238,10 +1166,6 @@ func TestAPIContracts(t *testing.T) {
 					"codex_cli_only_allow_app_server_clients": false,
 					"codex_cli_only_engine_fingerprint_signals": "[{\"type\":\"header_prefix\",\"match\":[\"x-codex-\"],\"required\":true},{\"type\":\"header_exact\",\"match\":[\"session-id\",\"session_id\"],\"required\":false},{\"type\":\"header_exact\",\"match\":[\"thread-id\",\"thread_id\"],\"required\":false},{\"type\":\"body_path\",\"match\":[\"client_metadata.x-codex-window-id\",\"client_metadata.x-codex-installation-id\"],\"required\":false}]",
 					"web_search_emulation_enabled": false,
-					"payment_visible_method_alipay_source": "",
-					"payment_visible_method_wxpay_source": "",
-					"payment_visible_method_alipay_enabled": false,
-					"payment_visible_method_wxpay_enabled": false,
 					"openai_low_upstream_rate_priority_enabled": false,
 					"openai_oauth_scheduling_rate_multiplier": 1,
 					"openai_advanced_scheduler_enabled": false,
@@ -1276,29 +1200,6 @@ func TestAPIContracts(t *testing.T) {
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
-					"payment_enabled": false,
-					"payment_min_amount": 0,
-					"payment_max_amount": 0,
-					"payment_daily_limit": 0,
-					"payment_order_timeout_minutes": 0,
-					"payment_max_pending_orders": 0,
-					"payment_enabled_types": null,
-					"payment_balance_disabled": false,
-					"payment_balance_recharge_multiplier": 0,
-					"payment_subscription_usd_to_cny_rate": 0,
-					"payment_recharge_fee_rate": 0,
-					"payment_load_balance_strategy": "",
-					"payment_product_name_prefix": "",
-					"payment_product_name_suffix": "",
-					"payment_help_image_url": "",
-					"payment_help_text": "",
-					"payment_cancel_rate_limit_enabled": false,
-					"payment_cancel_rate_limit_max": 0,
-					"payment_cancel_rate_limit_window": 0,
-					"payment_cancel_rate_limit_unit": "",
-					"payment_cancel_rate_limit_window_mode": "",
-					"payment_alipay_force_qrcode": false,
-					"payment_alipay_mobile_precreate_deep_link": false,
 					"balance_low_notify_enabled": false,
 					"account_quota_notify_enabled": false,
 					"account_scheduling_thresholds": {"anthropic":100,"grok":100,"openai":100},
@@ -1424,7 +1325,6 @@ type contractDeps struct {
 	userSubRepo *stubUserSubscriptionRepo
 	usageRepo   *stubUsageLogRepo
 	settingRepo *stubSettingRepo
-	redeemRepo  *stubRedeemCodeRepo
 }
 
 func newContractDeps(t *testing.T) *contractDeps {
@@ -1456,7 +1356,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 	userSubRepo := &stubUserSubscriptionRepo{}
 	accountRepo := stubAccountRepo{}
 	proxyRepo := stubProxyRepo{}
-	redeemRepo := &stubRedeemCodeRepo{}
 
 	cfg := &config.Config{
 		Default: config.DefaultConfig{
@@ -1474,17 +1373,14 @@ func newContractDeps(t *testing.T) *contractDeps {
 	subscriptionService := service.NewSubscriptionService(groupRepo, userSubRepo, nil, nil, cfg)
 	subscriptionHandler := handler.NewSubscriptionHandler(subscriptionService)
 
-	redeemService := service.NewRedeemService(redeemRepo, userRepo, subscriptionService, nil, nil, nil, nil, nil)
-	redeemHandler := handler.NewRedeemHandler(redeemService)
-
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
+	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
-	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil, nil)
+	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil)
 	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {
@@ -1527,10 +1423,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 	v1Subs.Use(jwtAuth)
 	v1Subs.GET("/subscriptions", subscriptionHandler.List)
 
-	v1Redeem := v1.Group("")
-	v1Redeem.Use(jwtAuth)
-	v1Redeem.GET("/redeem/history", redeemHandler.GetHistory)
-
 	v1Admin := v1.Group("/admin")
 	v1Admin.Use(adminAuth)
 	v1Admin.GET("/settings", adminSettingHandler.GetSettings)
@@ -1545,7 +1437,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 		userSubRepo: userSubRepo,
 		usageRepo:   usageRepo,
 		settingRepo: settingRepo,
-		redeemRepo:  redeemRepo,
 	}
 }
 
@@ -2127,76 +2018,6 @@ func (stubProxyRepo) CountExpired(ctx context.Context) (int64, error) {
 
 func (stubProxyRepo) CountExpiringSoon(ctx context.Context, now time.Time) (int64, error) {
 	return 0, nil
-}
-
-type stubRedeemCodeRepo struct {
-	byUser map[int64][]service.RedeemCode
-}
-
-func (r *stubRedeemCodeRepo) SetByUser(userID int64, codes []service.RedeemCode) {
-	if r.byUser == nil {
-		r.byUser = make(map[int64][]service.RedeemCode)
-	}
-	r.byUser[userID] = append([]service.RedeemCode(nil), codes...)
-}
-
-func (stubRedeemCodeRepo) Create(ctx context.Context, code *service.RedeemCode) error {
-	return errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) CreateBatch(ctx context.Context, codes []service.RedeemCode) error {
-	return errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) GetByID(ctx context.Context, id int64) (*service.RedeemCode, error) {
-	return nil, service.ErrRedeemCodeNotFound
-}
-
-func (stubRedeemCodeRepo) GetByCode(ctx context.Context, code string) (*service.RedeemCode, error) {
-	return nil, service.ErrRedeemCodeNotFound
-}
-
-func (stubRedeemCodeRepo) Update(ctx context.Context, code *service.RedeemCode) error {
-	return errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) BatchUpdate(ctx context.Context, ids []int64, fields service.RedeemCodeBatchUpdateFields) (int64, error) {
-	return int64(len(ids)), nil
-}
-
-func (stubRedeemCodeRepo) Delete(ctx context.Context, id int64) error {
-	return errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) Use(ctx context.Context, id, userID int64) error {
-	return errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) List(ctx context.Context, params pagination.PaginationParams) ([]service.RedeemCode, *pagination.PaginationResult, error) {
-	return nil, nil, errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, codeType, status, search string) ([]service.RedeemCode, *pagination.PaginationResult, error) {
-	return nil, nil, errors.New("not implemented")
-}
-
-func (r *stubRedeemCodeRepo) ListByUser(ctx context.Context, userID int64, limit int) ([]service.RedeemCode, error) {
-	if r.byUser == nil {
-		return nil, nil
-	}
-	codes := r.byUser[userID]
-	if limit > 0 && len(codes) > limit {
-		codes = codes[:limit]
-	}
-	return append([]service.RedeemCode(nil), codes...), nil
-}
-
-func (stubRedeemCodeRepo) ListByUserPaginated(ctx context.Context, userID int64, params pagination.PaginationParams, codeType string) ([]service.RedeemCode, *pagination.PaginationResult, error) {
-	return nil, nil, errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) SumPositiveBalanceByUser(ctx context.Context, userID int64) (float64, error) {
-	return 0, errors.New("not implemented")
 }
 
 type stubUserSubscriptionRepo struct {
