@@ -3255,15 +3255,6 @@ func ValidateFrontendRedirectURL(raw string) error {
 	return nil
 }
 
-func scopeContainsOpenID(scopes string) bool {
-	for _, scope := range strings.Fields(strings.ToLower(strings.TrimSpace(scopes))) {
-		if scope == "openid" {
-			return true
-		}
-	}
-	return false
-}
-
 // isHTTPScheme 检查是否为 HTTP 或 HTTPS 协议
 func isHTTPScheme(scheme string) bool {
 	return strings.EqualFold(scheme, "http") || strings.EqualFold(scheme, "https")
