@@ -22,37 +22,26 @@
         </p>
       </div>
 
-      <div
-        v-for="item in providerItems"
-        :key="item.provider"
-        :class="rowClass"
-      >
+      <div :class="rowClass">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div class="flex min-w-0 flex-1 items-start gap-4">
             <div
-              :class="providerIconClass(item.provider)"
-              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-sm font-semibold"
+              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary-100 text-sm font-semibold text-primary-600 dark:bg-primary-900/20 dark:text-primary-300"
             >
-              <Icon
-                v-if="item.provider === 'email'"
-                name="mail"
-                size="sm"
-                class="text-current"
-              />
-              <span v-else>{{ providerInitial(item.provider) }}</span>
+              <Icon name="mail" size="sm" class="text-current" />
             </div>
 
             <div class="min-w-0 flex-1 space-y-3">
               <div class="flex flex-wrap items-center gap-2">
                 <h3 class="font-medium text-gray-900 dark:text-white">
-                  {{ item.label }}
+                  {{ t('profile.authBindings.providers.email') }}
                 </h3>
                 <span
-                  :data-testid="`profile-binding-${item.provider}-status`"
-                  :class="['badge', item.bound ? 'badge-success' : 'badge-gray']"
+                  data-testid="profile-binding-email-status"
+                  :class="['badge', emailBound ? 'badge-success' : 'badge-gray']"
                 >
                   {{
-                    item.bound
+                    emailBound
                       ? t('profile.authBindings.status.bound')
                       : t('profile.authBindings.status.notBound')
                   }}
@@ -60,35 +49,26 @@
               </div>
 
               <p
-                v-if="providerSummary(item.provider)"
+                v-if="displayableEmail"
                 class="text-sm text-gray-600 dark:text-gray-300"
               >
-                {{ providerSummary(item.provider) }}
+                {{ displayableEmail }}
               </p>
 
               <div
-                v-if="hasBindingDetails(item.provider, item.details)"
+                v-if="hasBindingDetails(emailDetails)"
                 class="grid gap-1 text-sm text-gray-500 dark:text-gray-400"
               >
-                <p
-                  v-if="item.provider !== 'email' && item.details?.display_name"
-                  class="font-medium text-gray-700 dark:text-gray-200"
-                >
-                  {{ item.details.display_name }}
+                <p v-if="bindingCountLabel(emailDetails)">
+                  {{ bindingCountLabel(emailDetails) }}
                 </p>
-                <p v-if="item.provider !== 'email' && item.details?.subject_hint">
-                  {{ item.details.subject_hint }}
-                </p>
-                <p v-if="bindingCountLabel(item.details)">
-                  {{ bindingCountLabel(item.details) }}
-                </p>
-                <p v-if="bindingNote(item.details)">
-                  {{ bindingNote(item.details) }}
+                <p v-if="bindingNote(emailDetails)">
+                  {{ bindingNote(emailDetails) }}
                 </p>
               </div>
 
               <div
-                v-if="item.provider === 'email' && showEmailForm"
+                v-if="showEmailForm"
                 data-testid="profile-binding-email-form"
                 class="grid gap-2 sm:grid-cols-[minmax(0,1.4fr)_auto]"
               >
@@ -150,7 +130,7 @@
 
           <div class="flex shrink-0 flex-wrap items-center gap-3">
             <button
-              v-if="item.provider === 'email' && compact"
+              v-if="compact"
               data-testid="profile-binding-email-toggle"
               type="button"
               class="btn btn-secondary btn-sm"
@@ -160,29 +140,6 @@
                 showEmailForm
                   ? t('profile.authBindings.hideEmailFormAction')
                   : t('profile.authBindings.manageEmailAction')
-              }}
-            </button>
-            <button
-              v-if="item.canBind"
-              :data-testid="`profile-binding-${item.provider}-action`"
-              type="button"
-              class="btn btn-primary btn-sm"
-              @click="startBinding(item.provider)"
-            >
-              {{ t('profile.authBindings.bindAction', { providerName: item.label }) }}
-            </button>
-            <button
-              v-if="item.canUnbind"
-              :data-testid="`profile-binding-${item.provider}-unbind`"
-              type="button"
-              class="btn btn-secondary btn-sm"
-              :disabled="unbindingProvider === item.provider"
-              @click="handleUnbindForItem(item.provider, item.label)"
-            >
-              {{
-                unbindingProvider === item.provider
-                  ? t('common.loading')
-                  : t('profile.authBindings.unbindAction')
               }}
             </button>
           </div>
@@ -195,52 +152,24 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
-import {
-  hasExplicitWeChatOAuthCapabilities,
-  resolveWeChatOAuthStartStrict,
-  type WeChatOAuthPublicSettings,
-} from '@/api/auth'
-import {
-  bindEmailIdentity,
-  sendEmailBindingCode,
-  startOAuthBinding,
-  unbindAuthIdentity,
-} from '@/api/user'
+import { bindEmailIdentity, sendEmailBindingCode } from '@/api/user'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore, useAuthStore } from '@/stores'
-import type { User, UserAuthBindingStatus, UserAuthProvider } from '@/types'
-
-type BindableProvider = Exclude<UserAuthProvider, 'email'>
+import type { User, UserAuthBindingStatus } from '@/types'
 
 const props = withDefaults(
   defineProps<{
     user: User | null
-    linuxdoEnabled?: boolean
-    dingtalkEnabled?: boolean
-    oidcEnabled?: boolean
-    oidcProviderName?: string
-    wechatEnabled?: boolean
-    wechatOpenEnabled?: boolean
-    wechatMpEnabled?: boolean
     embedded?: boolean
     compact?: boolean
   }>(),
   {
-    linuxdoEnabled: false,
-    dingtalkEnabled: false,
-    oidcEnabled: false,
-    oidcProviderName: 'OIDC',
-    wechatEnabled: false,
-    wechatOpenEnabled: undefined,
-    wechatMpEnabled: undefined,
     embedded: false,
     compact: false,
   }
 )
 
 const { t } = useI18n()
-const route = useRoute()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
@@ -248,7 +177,6 @@ const localUser = ref<User | null>(null)
 const isSendingEmailCode = ref(false)
 const isBindingEmail = ref(false)
 const isEmailFormExpanded = ref(!props.compact)
-const unbindingProvider = ref<BindableProvider | null>(null)
 const emailBindingForm = reactive({
   email: '',
   verifyCode: '',
@@ -288,7 +216,16 @@ const rowClass = computed(() =>
       : 'rounded-2xl border border-gray-100 bg-gray-50/70 p-4 dark:border-dark-700 dark:bg-dark-900/30'
     : 'px-6 py-5'
 )
-const emailBound = computed(() => getBindingStatus('email'))
+const emailBound = computed(() => getEmailBindingStatusForUser(currentUser.value))
+const emailDetails = computed(() => {
+  const binding =
+    currentUser.value?.auth_bindings?.email ?? currentUser.value?.identity_bindings?.email
+  if (!binding || typeof binding === 'boolean') {
+    return null
+  }
+  return binding
+})
+const displayableEmail = computed(() => getDisplayableEmail(currentUser.value))
 const showEmailForm = computed(() => !compact.value || isEmailFormExpanded.value)
 const emailPasswordPlaceholder = computed(() =>
   emailBound.value
@@ -303,50 +240,7 @@ const emailSubmitActionLabel = computed(() =>
 const legacyBindingNoteKeys: Record<string, string> = {
   'Primary account email is managed from the profile form.':
     'profile.authBindings.notes.emailManagedFromProfile',
-  'You can unbind this sign-in method.': 'profile.authBindings.notes.canUnbind',
-  'Bind another sign-in method before unbinding.':
-    'profile.authBindings.notes.bindAnotherBeforeUnbind',
 }
-
-function resolveLegacyCompatibleWeChatSettings(
-  settings: WeChatOAuthPublicSettings | null | undefined
-): (WeChatOAuthPublicSettings & {
-  wechat_oauth_open_enabled: boolean
-  wechat_oauth_mp_enabled: boolean
-}) | null {
-  if (!settings) {
-    return null
-  }
-
-  if (hasExplicitWeChatOAuthCapabilities(settings)) {
-    return settings
-  }
-
-  if (typeof settings.wechat_oauth_enabled !== 'boolean') {
-    return null
-  }
-
-  return {
-    ...settings,
-    wechat_oauth_open_enabled: settings.wechat_oauth_enabled,
-    wechat_oauth_mp_enabled: settings.wechat_oauth_enabled,
-  }
-}
-
-const wechatOAuthSettings = computed<WeChatOAuthPublicSettings | null>(() => {
-  const cachedSettings = resolveLegacyCompatibleWeChatSettings(appStore.cachedPublicSettings)
-  if (cachedSettings) {
-    return cachedSettings
-  }
-
-  return resolveLegacyCompatibleWeChatSettings({
-    wechat_oauth_enabled: props.wechatEnabled,
-    wechat_oauth_open_enabled: props.wechatOpenEnabled,
-    wechat_oauth_mp_enabled: props.wechatMpEnabled,
-  })
-})
-
-const resolvedWeChatBinding = computed(() => resolveWeChatOAuthStartStrict(wechatOAuthSettings.value))
 
 function normalizeBindingStatus(binding: boolean | UserAuthBindingStatus | undefined): boolean | null {
   if (typeof binding === 'boolean') {
@@ -361,36 +255,13 @@ function normalizeBindingStatus(binding: boolean | UserAuthBindingStatus | undef
   return Boolean(binding.provider_subject || binding.issuer || binding.provider_key)
 }
 
-function getBindingStatus(provider: UserAuthProvider): boolean {
-  return getBindingStatusForUser(currentUser.value, provider)
-}
-
-function getBindingStatusForUser(user: User | null | undefined, provider: UserAuthProvider): boolean {
-  if (provider === 'email') {
-    if (typeof user?.email_bound === 'boolean') {
-      return user.email_bound
-    }
-    const nested = user?.auth_bindings?.email ?? user?.identity_bindings?.email
-    const normalized = normalizeBindingStatus(nested)
-    return normalized ?? false
+function getEmailBindingStatusForUser(user: User | null | undefined): boolean {
+  if (typeof user?.email_bound === 'boolean') {
+    return user.email_bound
   }
-
-  const directFlag = user?.[`${provider}_bound` as keyof User]
-  if (typeof directFlag === 'boolean') {
-    return directFlag
-  }
-
-  const nested = user?.auth_bindings?.[provider] ?? user?.identity_bindings?.[provider]
+  const nested = user?.auth_bindings?.email ?? user?.identity_bindings?.email
   const normalized = normalizeBindingStatus(nested)
   return normalized ?? false
-}
-
-function getBindingDetails(provider: UserAuthProvider): UserAuthBindingStatus | null {
-  const binding = currentUser.value?.auth_bindings?.[provider] ?? currentUser.value?.identity_bindings?.[provider]
-  if (!binding || typeof binding === 'boolean') {
-    return null
-  }
-  return binding
 }
 
 function getDisplayableEmail(user: User | null | undefined): string {
@@ -398,117 +269,10 @@ function getDisplayableEmail(user: User | null | undefined): string {
   if (!email) {
     return ''
   }
-  if (email.endsWith('.invalid') && !getBindingStatusForUser(user, 'email')) {
+  if (email.endsWith('.invalid') && !getEmailBindingStatusForUser(user)) {
     return ''
   }
   return email
-}
-
-function isProviderEnabledForBinding(provider: BindableProvider): boolean {
-  if (provider === 'linuxdo') {
-    return props.linuxdoEnabled
-  }
-  if (provider === 'dingtalk') {
-    return props.dingtalkEnabled
-  }
-  if (provider === 'oidc') {
-    return props.oidcEnabled
-  }
-  return resolvedWeChatBinding.value.mode !== null
-}
-
-const providerItems = computed(() => [
-  {
-    provider: 'email' as const,
-    label: t('profile.authBindings.providers.email'),
-    bound: getBindingStatus('email'),
-    canBind: false,
-    canUnbind: false,
-    details: getBindingDetails('email'),
-  },
-  {
-    provider: 'linuxdo' as const,
-    label: t('profile.authBindings.providers.linuxdo'),
-    bound: getBindingStatus('linuxdo'),
-    canBind:
-      !getBindingStatus('linuxdo') &&
-      isProviderEnabledForBinding('linuxdo') &&
-      (getBindingDetails('linuxdo')?.can_bind ?? true),
-    canUnbind: Boolean(getBindingStatus('linuxdo') && getBindingDetails('linuxdo')?.can_unbind),
-    details: getBindingDetails('linuxdo'),
-  },
-  {
-    provider: 'dingtalk' as const,
-    label: t('profile.authBindings.providers.dingtalk'),
-    bound: getBindingStatus('dingtalk'),
-    canBind:
-      !getBindingStatus('dingtalk') &&
-      isProviderEnabledForBinding('dingtalk') &&
-      (getBindingDetails('dingtalk')?.can_bind ?? true),
-    canUnbind: Boolean(getBindingStatus('dingtalk') && getBindingDetails('dingtalk')?.can_unbind),
-    details: getBindingDetails('dingtalk'),
-  },
-  {
-    provider: 'oidc' as const,
-    label: t('profile.authBindings.providers.oidc', { providerName: props.oidcProviderName }),
-    bound: getBindingStatus('oidc'),
-    canBind:
-      !getBindingStatus('oidc') &&
-      isProviderEnabledForBinding('oidc') &&
-      (getBindingDetails('oidc')?.can_bind ?? true),
-    canUnbind: Boolean(getBindingStatus('oidc') && getBindingDetails('oidc')?.can_unbind),
-    details: getBindingDetails('oidc'),
-  },
-  {
-    provider: 'wechat' as const,
-    label: t('profile.authBindings.providers.wechat'),
-    bound: getBindingStatus('wechat'),
-    canBind:
-      !getBindingStatus('wechat') &&
-      isProviderEnabledForBinding('wechat') &&
-      (getBindingDetails('wechat')?.can_bind ?? true),
-    canUnbind: Boolean(getBindingStatus('wechat') && getBindingDetails('wechat')?.can_unbind),
-    details: getBindingDetails('wechat'),
-  },
-])
-
-function providerInitial(provider: UserAuthProvider): string {
-  if (provider === 'linuxdo') {
-    return 'L'
-  }
-  if (provider === 'dingtalk') {
-    return 'D'
-  }
-  if (provider === 'wechat') {
-    return 'W'
-  }
-  if (provider === 'oidc') {
-    return 'O'
-  }
-  return 'E'
-}
-
-function providerIconClass(provider: UserAuthProvider): string {
-  if (provider === 'linuxdo') {
-    return 'bg-orange-100 text-orange-600 dark:bg-orange-900/20 dark:text-orange-300'
-  }
-  if (provider === 'dingtalk') {
-    return 'bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-300'
-  }
-  if (provider === 'wechat') {
-    return 'bg-green-100 text-green-600 dark:bg-green-900/20 dark:text-green-300'
-  }
-  if (provider === 'oidc') {
-    return 'bg-sky-100 text-sky-600 dark:bg-sky-900/20 dark:text-sky-300'
-  }
-  return 'bg-primary-100 text-primary-600 dark:bg-primary-900/20 dark:text-primary-300'
-}
-
-function providerSummary(provider: UserAuthProvider): string {
-  if (provider === 'email') {
-    return getDisplayableEmail(currentUser.value)
-  }
-  return ''
 }
 
 function bindingCountLabel(details: UserAuthBindingStatus | null): string {
@@ -534,57 +298,20 @@ function bindingNote(details: UserAuthBindingStatus | null): string {
   return details.note?.trim() || ''
 }
 
-function hasBindingDetails(
-  provider: UserAuthProvider,
-  details: UserAuthBindingStatus | null
-): boolean {
+function hasBindingDetails(details: UserAuthBindingStatus | null): boolean {
   if (!details) {
     return false
   }
-
-  const showsProviderIdentityDetails =
-    provider !== 'email' && Boolean(details.display_name || details.subject_hint)
-
-  return Boolean(showsProviderIdentityDetails || bindingCountLabel(details) || bindingNote(details))
+  return Boolean(bindingCountLabel(details) || bindingNote(details))
 }
 
 function toggleEmailForm(): void {
   isEmailFormExpanded.value = !isEmailFormExpanded.value
 }
 
-function startBinding(provider: UserAuthProvider): void {
-  if (provider === 'email') {
-    return
-  }
-  startOAuthBinding(provider, {
-    redirectTo: route.fullPath || '/profile',
-    wechatOAuthSettings: provider === 'wechat' ? wechatOAuthSettings.value : null,
-  })
-}
-
 function applyUpdatedUser(user: User): void {
   localUser.value = user
   authStore.user = user
-}
-
-async function handleUnbind(provider: BindableProvider, providerLabel: string): Promise<void> {
-  unbindingProvider.value = provider
-  try {
-    const user = await unbindAuthIdentity(provider)
-    applyUpdatedUser(user)
-    appStore.showSuccess(t('profile.authBindings.unbindSuccess', { providerName: providerLabel }))
-  } catch (error) {
-    appStore.showError((error as { message?: string }).message || t('common.tryAgain'))
-  } finally {
-    unbindingProvider.value = null
-  }
-}
-
-function handleUnbindForItem(provider: UserAuthProvider, providerLabel: string): void {
-  if (provider === 'email') {
-    return
-  }
-  void handleUnbind(provider, providerLabel)
 }
 
 function validateEmailBindingForm(requireCode: boolean): boolean {
