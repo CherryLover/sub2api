@@ -1,0 +1,210 @@
+# =============================================================================
+# 分支内部验证镜像的手动构建
+# =============================================================================
+# 分工（与 main-docker-image.yml 正好互补）：
+#   - main-docker-image.yml：只允许 main 分支，产出 :main / :main-<short-sha>，
+#     作为发版流程（release.yml）之外的手动兜底。
+#   - 本 workflow：只允许非 main 分支，产出内部验证镜像
+#     :internal-rc / :internal-<short-sha>，供站长在内网实际部署验证
+#     （空库全新部署 + 老库升级演练）通过后再合并 main。
+#     典型场景：功能分支需要先出镜像做部署验收，不想也不应该动 :main。
+#
+# ⚠️ 不要给本 workflow 加回 push / workflow_run 自动触发 ⚠️
+# 内部验证镜像只在需要验收时手动构建一次即可；自动触发会让每次分支提交
+# 都构建多架构镜像，纯浪费额度，而且 :internal-rc 会被最新提交不停顶掉，
+# 站长验证到一半镜像就换了内容，验证结论不可信。
+# =============================================================================
+name: Branch Docker Image
+
+on:
+  # 只保留手动触发。注意：手动触发不看 CI 结论，请自行确认目标提交的 CI 是绿的。
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: "构建的目标架构（逗号分隔）。内网验收机若只有单一架构，可改成 linux/amd64 或 linux/arm64 提速"
+        required: false
+        type: string
+        default: "linux/amd64,linux/arm64"
+
+# 同一分支的新构建取消掉还在跑的旧构建：省额度，也避免旧 commit 的镜像
+# 在后面覆盖掉新 commit 的 internal-rc 标签。
+concurrency:
+  group: branch-docker-image-${{ github.ref_name }}
+  cancel-in-progress: true
+
+# 默认最小权限，需要写包的权限只在 build job 里单独放开。
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 预检：确认触发分支合法 + 计算镜像标签/版本等元数据
+  # ---------------------------------------------------------------------------
+  check:
+    name: 预检与元数据
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+      version: ${{ steps.meta.outputs.version }}
+      build_date: ${{ steps.meta.outputs.build_date }}
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      # 与 main-docker-image.yml 的预检正好相反：main 分支被拦掉。
+      # main 的镜像归 main-docker-image.yml / release.yml 管；从 main 跑本
+      # workflow 会让 :internal-rc 指向 main 提交，站长以为验的是分支代码，
+      # 实际验的是 main —— 验证结论作废，直接拦掉。
+      - name: 校验手动触发的分支
+        if: github.ref_name == 'main'
+        run: |
+          echo "::error::本 workflow 只用于构建非 main 分支的内部验证镜像，main 分支请用 Main Docker Image workflow"
+          exit 1
+
+      - name: 计算镜像元数据
+        id: meta
+        env:
+          DISPATCH_SHA: ${{ github.sha }}
+          DISPATCH_REF_NAME: ${{ github.ref_name }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          SHA="${DISPATCH_SHA}"
+          SHORT_SHA="${SHA:0:7}"
+
+          # 分支短名做 tag-safe 处理：镜像 tag 只允许 [A-Za-z0-9_.-] 且不能
+          # 以分隔符开头，分支名里的 / 等非法字符统一替换成 -，再限长，
+          # 避免超出 128 字符的 tag 上限。
+          SAFE_BRANCH="$(echo "${DISPATCH_REF_NAME}" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9._-]+/-/g; s/^[.-]+//; s/[.-]+$//')"
+          SAFE_BRANCH="${SAFE_BRANCH:0:40}"
+          SAFE_BRANCH="$(echo "${SAFE_BRANCH}" | sed -E 's/[.-]+$//')"
+          if [ -z "${SAFE_BRANCH}" ]; then
+            SAFE_BRANCH="branch"
+          fi
+
+          # 内部验证版本号，刻意带 internal- 前缀 + 分支短名，
+          # 绝不伪装成正式版本号（v1.2.3），也不伪装成 main 开发版（main-xxx）
+          VERSION="internal-${SAFE_BRANCH}-${SHORT_SHA}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # GHCR 的 owner 必须小写（与 .goreleaser.yaml 里的 GITHUB_REPO_OWNER_LOWER 一致）
+          OWNER_LOWER="$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          GHCR_IMAGE="ghcr.io/${OWNER_LOWER}/sub2api"
+
+          # ---------------------------------------------------------------
+          # 标签策略：
+          #   :internal-rc          浮动标签，内网验证 compose 固定引用这个
+          #   :internal-<short-sha> 不可变标签，用于回滚定位到具体提交
+          #
+          # ⚠️ 绝对不要在这里打 :main 或 :latest ⚠️
+          # :main 归 main-docker-image.yml / release.yml 的 retag-main-image
+          # 管，:latest 归正式发版（.goreleaser.yaml 的 docker_manifests）管。
+          # 如果内部验证构建也去覆盖它们，所有盯 :main / :latest 做部署的
+          # 环境会静默吃到一个尚未合并、尚未验证通过的分支版本 ——
+          # 后来者请不要"顺手加上"。
+          # ---------------------------------------------------------------
+          TAGS="${GHCR_IMAGE}:internal-rc"
+          TAGS="${TAGS}"$'\n'"${GHCR_IMAGE}:internal-${SHORT_SHA}"
+
+          {
+            echo "sha=${SHA}"
+            echo "short_sha=${SHORT_SHA}"
+            echo "version=${VERSION}"
+            echo "build_date=${BUILD_DATE}"
+            echo "tags<<TAGS_EOF"
+            echo "${TAGS}"
+            echo "TAGS_EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "将构建 ${SHA} -> ${VERSION}"
+          echo "${TAGS}"
+
+  # ---------------------------------------------------------------------------
+  # 构建并推送多架构镜像（只推 GHCR，内部验证镜像不进 Docker Hub）
+  # ---------------------------------------------------------------------------
+  build:
+    name: 构建并推送镜像
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write # 推 GHCR 用内置的 GITHUB_TOKEN，站长不需要额外配 secret
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          persist-credentials: false
+
+      # Dockerfile 的 frontend-builder / backend-builder 都是 FROM --platform=$BUILDPLATFORM
+      # 的交叉编译，不走模拟；但最终运行阶段（alpine 里的 apk add / adduser 等 RUN）
+      # 是目标架构，构建 linux/arm64 时这几条仍需要 QEMU，所以这一步不能省。
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ inputs.platforms }}
+          push: true
+          # 关掉 provenance attestation，否则 GHCR 的镜像列表里会多出
+          # unknown/unknown 架构条目，和 release.yml 产出的 manifest 形态不一致
+          provenance: false
+          tags: ${{ needs.check.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=sub2api
+            org.opencontainers.image.description=Sub2API - AI API Gateway Platform
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.check.outputs.sha }}
+            org.opencontainers.image.created=${{ needs.check.outputs.build_date }}
+            org.opencontainers.image.version=${{ needs.check.outputs.version }}
+          build-args: |
+            VERSION=${{ needs.check.outputs.version }}
+            COMMIT=${{ needs.check.outputs.sha }}
+            DATE=${{ needs.check.outputs.build_date }}
+            GOPROXY=https://proxy.golang.org,direct
+            GOSUMDB=sum.golang.org
+          # GitHub Actions 缓存加速：跨次构建复用 pnpm install / go mod download 等层。
+          # scope 与 main 构建（main-docker-image）分开，避免分支构建污染 main 的缓存。
+          cache-from: type=gha,scope=branch-docker-image
+          cache-to: type=gha,mode=max,scope=branch-docker-image
+
+      - name: 输出镜像信息
+        env:
+          TAGS: ${{ needs.check.outputs.tags }}
+          SHA: ${{ needs.check.outputs.sha }}
+          BRANCH: ${{ github.ref_name }}
+          SHORT_SHA: ${{ needs.check.outputs.short_sha }}
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          {
+            echo "### 已推送镜像（分支内部验证构建）"
+            echo
+            echo '```'
+            echo "${TAGS}"
+            echo '```'
+            echo
+            echo "- 分支: \`${BRANCH}\`"
+            echo "- commit: \`${SHA}\`"
+            echo "- 架构: \`${PLATFORMS}\`"
+            echo "- 内网验证 compose 请固定引用浮动标签 \`:internal-rc\`"
+            echo "- 需要回滚定位到本次构建用不可变标签 \`:internal-${SHORT_SHA}\`"
+            echo "- \`:main\` / \`:latest\` 分别由 main 构建与正式发版产出，本流程不会动它们"
+          } >> "${GITHUB_STEP_SUMMARY}"
