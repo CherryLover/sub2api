@@ -9,15 +9,16 @@
 #     （空库全新部署 + 老库升级演练）通过后再合并 main。
 #     典型场景：功能分支需要先出镜像做部署验收，不想也不应该动 :main。
 #
-# ⚠️ 不要给本 workflow 加回 push / workflow_run 自动触发 ⚠️
-# 内部验证镜像只在需要验收时手动构建一次即可；自动触发会让每次分支提交
-# 都构建多架构镜像，纯浪费额度，而且 :internal-rc 会被最新提交不停顶掉，
-# 站长验证到一半镜像就换了内容，验证结论不可信。
+# ⚠️ 不要给本 workflow 加回分支 push / workflow_run 自动触发 ⚠️
+# 内部验证镜像只在需要验收时构建一次即可；分支每次提交都自动构建纯浪费
+# 额度，而且 :internal-rc 会被最新提交不停顶掉，站长验证到一半镜像就换了
+# 内容，验证结论不可信。下面的 internal-rc-* 标签触发不在此列：推 tag
+# 本身就是一次显式的人为动作，与手动 dispatch 等效，不会随分支提交自动跑。
 # =============================================================================
 name: Branch Docker Image
 
 on:
-  # 只保留手动触发。注意：手动触发不看 CI 结论，请自行确认目标提交的 CI 是绿的。
+  # 手动触发。注意：手动触发不看 CI 结论，请自行确认目标提交的 CI 是绿的。
   workflow_dispatch:
     inputs:
       platforms:
@@ -25,6 +26,15 @@ on:
         required: false
         type: string
         default: "linux/amd64,linux/arm64"
+  # 等效触发：推送 internal-rc-* 标签。适用于 GitHub 集成没有 actions:write
+  # 权限、workflow_dispatch API 被 403 拒绝的场景（git push tag 只需要
+  # contents 写权限），同时 tag 本身给这次 RC 构建留下可追溯标记：
+  #   git tag internal-rc-<short_sha> <commit>
+  #   git push origin internal-rc-<short_sha>
+  # tag 触发时没有 platforms input，构建走默认双架构（见 build job 的兜底）。
+  push:
+    tags:
+      - "internal-rc-*"
 
 # 同一分支的新构建取消掉还在跑的旧构建：省额度，也避免旧 commit 的镜像
 # 在后面覆盖掉新 commit 的 internal-rc 标签。
@@ -55,7 +65,9 @@ jobs:
       # main 的镜像归 main-docker-image.yml / release.yml 管；从 main 跑本
       # workflow 会让 :internal-rc 指向 main 提交，站长以为验的是分支代码，
       # 实际验的是 main —— 验证结论作废，直接拦掉。
-      - name: 校验手动触发的分支
+      # tag 触发时 github.ref_name 是标签名，且触发条件已限定 internal-rc-*
+      # 开头，天然不等于 main，本预检自动放行。
+      - name: 校验触发的分支
         if: github.ref_name == 'main'
         run: |
           echo "::error::本 workflow 只用于构建非 main 分支的内部验证镜像，main 分支请用 Main Docker Image workflow"
@@ -64,30 +76,43 @@ jobs:
       - name: 计算镜像元数据
         id: meta
         env:
-          DISPATCH_SHA: ${{ github.sha }}
-          DISPATCH_REF_NAME: ${{ github.ref_name }}
+          TRIGGER_SHA: ${{ github.sha }}
+          TRIGGER_REF_NAME: ${{ github.ref_name }}
           REPO_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
 
-          SHA="${DISPATCH_SHA}"
+          SHA="${TRIGGER_SHA}"
           SHORT_SHA="${SHA:0:7}"
 
-          # 分支短名做 tag-safe 处理：镜像 tag 只允许 [A-Za-z0-9_.-] 且不能
-          # 以分隔符开头，分支名里的 / 等非法字符统一替换成 -，再限长，
-          # 避免超出 128 字符的 tag 上限。
-          SAFE_BRANCH="$(echo "${DISPATCH_REF_NAME}" \
+          # 分支/标签短名做 tag-safe 处理：镜像 tag 只允许 [A-Za-z0-9_.-]
+          # 且不能以分隔符开头，分支名里的 / 等非法字符统一替换成 -，再限长，
+          # 避免超出 128 字符的 tag 上限。分支触发和 internal-rc-* 标签触发
+          # 时 github.ref_name 分别是分支名 / 标签名，这里统一处理。
+          SAFE_REF="$(echo "${TRIGGER_REF_NAME}" \
             | tr '[:upper:]' '[:lower:]' \
             | sed -E 's/[^a-z0-9._-]+/-/g; s/^[.-]+//; s/[.-]+$//')"
-          SAFE_BRANCH="${SAFE_BRANCH:0:40}"
-          SAFE_BRANCH="$(echo "${SAFE_BRANCH}" | sed -E 's/[.-]+$//')"
-          if [ -z "${SAFE_BRANCH}" ]; then
-            SAFE_BRANCH="branch"
+          SAFE_REF="${SAFE_REF:0:40}"
+          SAFE_REF="$(echo "${SAFE_REF}" | sed -E 's/[.-]+$//')"
+          if [ -z "${SAFE_REF}" ]; then
+            SAFE_REF="branch"
           fi
 
-          # 内部验证版本号，刻意带 internal- 前缀 + 分支短名，
-          # 绝不伪装成正式版本号（v1.2.3），也不伪装成 main 开发版（main-xxx）
-          VERSION="internal-${SAFE_BRANCH}-${SHORT_SHA}"
+          # 内部验证版本号，刻意带 internal- 前缀 + 分支/标签短名，
+          # 绝不伪装成正式版本号（v1.2.3），也不伪装成 main 开发版（main-xxx）。
+          # 两处去重防叠词：
+          #   - 标签触发时标签名本来就以 internal-rc- 开头，不再重复加前缀，
+          #     避免出现 internal-internal-rc-... 叠词；
+          #   - 标签名末尾若已带本次 short sha（如 internal-rc-<short_sha>），
+          #     不再重复追加。
+          case "${SAFE_REF}" in
+            internal-*) VERSION="${SAFE_REF}" ;;
+            *) VERSION="internal-${SAFE_REF}" ;;
+          esac
+          case "${VERSION}" in
+            *-"${SHORT_SHA}") ;;
+            *) VERSION="${VERSION}-${SHORT_SHA}" ;;
+          esac
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           # GHCR 的 owner 必须小写（与 .goreleaser.yaml 里的 GITHUB_REPO_OWNER_LOWER 一致）
@@ -161,7 +186,9 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: ${{ inputs.platforms }}
+          # tag 触发（push: tags）时不存在 workflow_dispatch 的 inputs，
+          # || 兜底回默认双架构，与 input 的 default 保持一致。
+          platforms: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
           push: true
           # 关掉 provenance attestation，否则 GHCR 的镜像列表里会多出
           # unknown/unknown 架构条目，和 release.yml 产出的 manifest 形态不一致
@@ -190,9 +217,9 @@ jobs:
         env:
           TAGS: ${{ needs.check.outputs.tags }}
           SHA: ${{ needs.check.outputs.sha }}
-          BRANCH: ${{ github.ref_name }}
+          TRIGGER_REF: ${{ github.ref_name }}
           SHORT_SHA: ${{ needs.check.outputs.short_sha }}
-          PLATFORMS: ${{ inputs.platforms }}
+          PLATFORMS: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
         run: |
           {
             echo "### 已推送镜像（分支内部验证构建）"
@@ -201,7 +228,7 @@ jobs:
             echo "${TAGS}"
             echo '```'
             echo
-            echo "- 分支: \`${BRANCH}\`"
+            echo "- 触发 ref（分支或 internal-rc-* 标签）: \`${TRIGGER_REF}\`"
             echo "- commit: \`${SHA}\`"
             echo "- 架构: \`${PLATFORMS}\`"
             echo "- 内网验证 compose 请固定引用浮动标签 \`:internal-rc\`"
