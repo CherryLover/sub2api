@@ -238,7 +238,15 @@ export default {
     passwordMinLength: '密码至少需要 6 个字符',
     loginFailed: '登录失败，请检查您的凭据后重试。',
     errors: {
+      INVALID_CREDENTIALS: '邮箱或密码错误',
       USER_NOT_ACTIVE: '账号已被禁用',
+      REGISTRATION_DISABLED: '注册功能暂时关闭，请联系管理员',
+      BACKEND_MODE_ADMIN_ONLY: '当前为后台模式，仅管理员可登录',
+      EMAIL_VERIFY_REQUIRED: '请先完成邮箱验证',
+      SERVICE_UNAVAILABLE: '服务暂时不可用，请稍后重试',
+      TOTP_INVALID_CODE: '两步验证码错误，请重新输入',
+      TOTP_NOT_SETUP: '该账号尚未完成两步验证设置',
+      TOTP_TOO_MANY_ATTEMPTS: '验证尝试次数过多，请稍后再试',
     },
     registrationFailed: '注册失败，请重试。',
     emailDomainRegistrationLimit:

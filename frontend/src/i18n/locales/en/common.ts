@@ -238,7 +238,15 @@ export default {
     passwordMinLength: 'Password must be at least 6 characters',
     loginFailed: 'Login failed. Please check your credentials and try again.',
     errors: {
+      INVALID_CREDENTIALS: 'Incorrect email or password.',
       USER_NOT_ACTIVE: 'Account has been disabled.',
+      REGISTRATION_DISABLED: 'Registration is currently disabled. Please contact the administrator.',
+      BACKEND_MODE_ADMIN_ONLY: 'Backend mode is active. Only administrators can sign in.',
+      EMAIL_VERIFY_REQUIRED: 'Please verify your email address first.',
+      SERVICE_UNAVAILABLE: 'Service is temporarily unavailable. Please try again later.',
+      TOTP_INVALID_CODE: 'Invalid two-factor code. Please try again.',
+      TOTP_NOT_SETUP: 'Two-factor authentication is not set up for this account.',
+      TOTP_TOO_MANY_ATTEMPTS: 'Too many verification attempts. Please try again later.',
     },
     registrationFailed: 'Registration failed. Please try again.',
     emailDomainRegistrationLimit:

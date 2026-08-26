@@ -605,8 +605,8 @@ async function handle2FAVerify(code: string): Promise<void> {
     const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
     await router.push(redirectTo)
   } catch (error: unknown) {
-    const err = error as { message?: string; response?: { data?: { message?: string } } }
-    const message = err.response?.data?.message || err.message || t('profile.totp.loginFailed')
+    // 与登录/passkey 走同一张错误码映射表，TOTP_* 错误才能落到本地化文案上。
+    const message = extractI18nErrorMessage(error, t, 'auth.errors', t('profile.totp.loginFailed'))
 
     if (totpModalRef.value) {
       totpModalRef.value.setError(message)
