@@ -187,6 +187,11 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/auth/oauth/pending/exchange",
 		// 第三方绑定启动（OAuth 登录删除后已成死胡同端点，随 WP4 一并移除）
 		"/api/v1/user/auth-identities/bind/start",
+		// 应用内更新检查/在线升级/回滚（内部部署由镜像或部署脚本升级）
+		"/api/v1/admin/system/check-updates",
+		"/api/v1/admin/system/rollback-versions",
+		"/api/v1/admin/system/update",
+		"/api/v1/admin/system/rollback",
 	}
 	for _, path := range absentPaths {
 		_, exists := paths[path]
@@ -220,6 +225,9 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodGet, "/api/v1/user/aff"},
 		{http.MethodGet, "/api/v1/admin/payment/dashboard"},
 		{http.MethodGet, "/api/v1/auth/oauth/linuxdo/start"},
+		{http.MethodGet, "/api/v1/admin/system/check-updates"},
+		{http.MethodPost, "/api/v1/admin/system/update"},
+		{http.MethodPost, "/api/v1/admin/system/rollback"},
 	} {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(probe.method, probe.path, nil)
@@ -241,6 +249,24 @@ func TestRetainedAuthSurfaceStillRegistered(t *testing.T) {
 		"POST /api/v1/auth/login",
 		"POST /api/v1/auth/login/2fa",
 		"POST /api/v1/auth/passkey/login/begin",
+	} {
+		_, exists := routes[want]
+		require.Truef(t, exists, "保留面路由 %s 不应被误删", want)
+	}
+}
+
+// TestRetainedSystemSurfaceStillRegistered 守住裁掉自更新后 system 段该留的两条：
+// 版本号展示（侧边栏用）与服务重启（运维用）。
+func TestRetainedSystemSurfaceStillRegistered(t *testing.T) {
+	router, _ := newTrimmedSurfaceRouter(t)
+
+	routes := make(map[string]struct{})
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = struct{}{}
+	}
+	for _, want := range []string{
+		"GET /api/v1/admin/system/version",
+		"POST /api/v1/admin/system/restart",
 	} {
 		_, exists := routes[want]
 		require.Truef(t, exists, "保留面路由 %s 不应被误删", want)

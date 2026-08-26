@@ -28,6 +28,7 @@ func ProvideConcurrencyCache(rdb *redis.Client, cfg *config.Config) service.Conc
 
 // ProvideGitHubReleaseClient 创建 GitHub Release 客户端
 // 从配置中读取代理设置，支持国内服务器通过代理访问 GitHub
+// 唯一消费方是 OpenAICodexVersionSyncService（跟随官方 Codex 客户端版本号）
 func ProvideGitHubReleaseClient(cfg *config.Config) service.GitHubReleaseClient {
 	return NewGitHubReleaseClient(cfg.Update.ProxyURL, cfg.Security.ProxyFallback.AllowDirectOnError)
 }
@@ -118,7 +119,6 @@ var ProviderSet = wire.NewSet(
 	NewDashboardCache,
 	NewEmailCache,
 	NewIdentityCache,
-	NewUpdateCache,
 	NewGeminiTokenCache,
 	NewImageTaskStore,
 	NewBatchImageQueue,

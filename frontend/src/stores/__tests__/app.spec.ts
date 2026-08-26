@@ -53,10 +53,6 @@ function createPublicSettings(overrides: Partial<PublicSettings> = {}): PublicSe
 }
 
 // Mock API 模块
-vi.mock('@/api/admin/system', () => ({
-  checkUpdates: vi.fn(),
-}))
-
 vi.mock('@/api/auth', () => ({
   getPublicSettings: vi.fn(),
 }))

@@ -608,11 +608,9 @@ func registerBackupRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAut
 func registerSystemRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	system := admin.Group("/system")
 	{
+		// 应用内更新检查/在线升级/回滚已整套移除（升级由镜像或部署脚本负责），
+		// 这里只留版本号展示与服务重启。
 		system.GET("/version", h.Admin.System.GetVersion)
-		system.GET("/check-updates", h.Admin.System.CheckUpdates)
-		system.GET("/rollback-versions", h.Admin.System.GetRollbackVersions)
-		system.POST("/update", h.Admin.System.PerformUpdate)
-		system.POST("/rollback", h.Admin.System.Rollback)
 		system.POST("/restart", h.Admin.System.RestartService)
 	}
 }
