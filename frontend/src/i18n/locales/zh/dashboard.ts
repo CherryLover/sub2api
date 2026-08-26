@@ -772,7 +772,7 @@ export default {
     },
     authBindings: {
       title: '登录方式绑定',
-      description: '查看当前绑定状态，并将更多第三方登录方式关联到这个账号。',
+      description: '本账号仅支持邮箱登录，可在此查看邮箱绑定状态并管理主邮箱。',
       bindAction: '绑定 {providerName}',
       bindSuccess: '账号绑定成功',
       emailPlaceholder: '输入邮箱地址',

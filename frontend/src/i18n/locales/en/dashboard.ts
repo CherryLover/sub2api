@@ -767,7 +767,7 @@ export default {
     },
     authBindings: {
       title: 'Connected Sign-In Methods',
-      description: 'View current bindings and connect another provider to this account.',
+      description: 'Email is the only sign-in method for this account. Review its binding status and manage the primary email here.',
       bindAction: 'Bind {providerName}',
       bindSuccess: 'Account linked successfully',
       emailPlaceholder: 'Enter email address',
