@@ -162,7 +162,7 @@
     </div>
 
     <!-- Footer -->
-    <template v-if="!backendModeEnabled" #footer>
+    <template v-if="!backendModeEnabled && registrationEnabled" #footer>
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.dontHaveAccount') }}
         <router-link
@@ -232,6 +232,9 @@ const aliyunCaptchaSceneId = ref<string>('')
 const aliyunCaptchaPrefix = ref<string>('')
 const aliyunCaptchaRegion = ref<string>('cn')
 const backendModeEnabled = ref<boolean>(false)
+// 注册入口默认隐藏（fail-closed）：public settings 未加载或加载失败时不渲染注册链接，
+// 避免注册已关闭却仍暴露入口。
+const registrationEnabled = ref<boolean>(false)
 const passwordResetEnabled = ref<boolean>(false)
 const passkeyEnabled = ref<boolean>(false)
 const loginAgreementEnabled = ref<boolean>(false)
@@ -325,11 +328,13 @@ onMounted(async () => {
     aliyunCaptchaPrefix.value = settings.aliyun_captcha_prefix || ''
     aliyunCaptchaRegion.value = settings.aliyun_captcha_region || 'cn'
     backendModeEnabled.value = settings.backend_mode_enabled
+    registrationEnabled.value = settings.registration_enabled === true
     passwordResetEnabled.value = settings.password_reset_enabled
     passkeyEnabled.value = settings.passkey_enabled === true
     applyLoginAgreementSettings(settings)
   } catch (error) {
     console.error('Failed to load public settings:', error)
+    registrationEnabled.value = false
     loginAgreementEnabled.value = false
     agreementAccepted.value = true
   } finally {
