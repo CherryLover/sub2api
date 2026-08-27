@@ -20,7 +20,7 @@ This directory contains files for deploying Sub2API on Linux servers and Apple-s
 | `apple-container.sh` | Native Apple `container` lifecycle script |
 | `APPLE_CONTAINER.md` | Apple `container` deployment and operations guide |
 | `.env.example` | Container environment variables template |
-| `DOCKER.md` | Docker Hub documentation |
+| `DOCKER.md` | Container image reference (also published as the registry description) |
 | `install.sh` | One-click binary installation script |
 | `install-datamanagementd.sh` | datamanagementd 一键安装脚本 |
 | `sub2api.service` | Systemd service unit file |
@@ -49,6 +49,12 @@ See [APPLE_CONTAINER.md](./APPLE_CONTAINER.md) for configuration, upgrades, pers
 ---
 
 ## Docker Deployment (Recommended)
+
+The compose files pull `ghcr.io/cherrylover/sub2api:latest`. Pin a specific build
+by editing the `image:` line (the release pipeline also publishes `x.y.z`, `x.y`
+and `x` tags). Do not point these at the upstream `weishaw/sub2api` image: it is
+the untrimmed build and still carries the payment, registration and third-party
+login surfaces this deployment removes.
 
 ### Method 1: Scripted Preparation (Recommended)
 
