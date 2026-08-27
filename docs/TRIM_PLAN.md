@@ -77,6 +77,9 @@
 | B3 | 注册体系彻底移除 | ✅ 已交付，待 RC 验证（⚠️ 破坏性） |
 | B4 | 人机验证全部移除 | ✅ 已交付，待 RC 验证 |
 | A1 尾款 | install.sh 的 update/rollback 子命令、`deploy/docker-compose*.yml`、`.env.example`、`deploy/README.md` 的过时"在线更新"注释 | ✅ 已交付（A1 应用内部分批次 1 已完成） |
+
+**CI 状态**：`3b7b3c39` 的 CI 四个 job（shell / test 含 Unit+Integration / frontend / golangci-lint）
+与 Security Scan 全部 success。下一步：出 `internal-rc-3b7b3c3` 镜像做 way-rc 验证。
 | B5 | 邮件体系收敛 | ⏸️ **本批不实施**，调研结论见下方 B5 专节，待站长拍板 |
 | D | 本文档（TRIM_PLAN.md）更新 | ✅ 已交付 |
 
@@ -355,6 +358,27 @@ IsPasswordResetEnabled = email_verify_enabled==true
 - `.gitignore` 对 `docs/*` 为白名单模式，docs 新文件需 `git add -f`
 - 本会话 GitHub 集成无 actions:write，workflow 触发走 `internal-rc-*` 标签推送
 - 迁移 229 为幂等 UPDATE；本轮未删表未改列，镜像回滚无兼容性问题
+
+### ⚠️ 验证盲区：Docker 门控的集成测试本地会静默跳过
+
+全仓 3 处 testcontainers 集成测试都带同款「无 Docker 则 skip」守卫，在没有
+`/var/run/docker.sock` 的开发/沙箱环境里会**静默跳过而非失败**，此时"本地集成测试通过"
+对这三处不构成任何证据，必须以 CI 结论为准（或用 `miniredis` 走旁路复现）：
+
+- `backend/internal/server/routes/auth_rate_limit_integration_test.go`（批次 2 踩中：register 路由删除后本地全绿、CI 报 404）
+- `backend/internal/middleware/rate_limiter_integration_test.go`
+- `backend/internal/repository/integration_harness_test.go`
+
+后续批次凡动到**限流、认证入口、repository 层**，务必留意这条。
+
+### ⚠️ CI 的 lint 输出不是完整清单
+
+`golangci-lint` 默认 `max-same-issues=3`，同类问题只报前 3 个。批次 2 首轮 CI 报 3 个 gofmt，
+实际有 6 个——只照 CI 输出修会再红一轮。正确做法是用 CI 同版本二进制本地跑
+`--max-same-issues=0 --max-issues-per-linter=0 ./...` 拿全量清单。
+
+另注：`unused` 检查不带 build tag 编译，因此**仅被 `//go:build unit` 测试引用的死函数会被判定为 unused**
+（单测绿但 lint 红）。批次 1 与批次 2 各栽过一次，删除批量代码后需专门留意。
 
 ### 批次 2 实施中记录的后续候选项（均未处理，待排期）
 
