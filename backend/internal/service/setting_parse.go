@@ -185,30 +185,30 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		}
 	}
 	result := &SystemSettings{
-		EmailVerifyEnabled:                     emailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist:       ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
-		RegistrationEmailDomainQuotaEnabled:    settings[SettingKeyRegistrationEmailDomainQuotaEnabled] == "true",
-		PasswordResetEnabled:                   emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
-		FrontendURL:                            settings[SettingKeyFrontendURL],
-		TotpEnabled:                            settings[SettingKeyTotpEnabled] == "true",
-		PasskeyEnabled:                         s.passkeySettingEnabled(settings),
-		SessionBindingEnabled:                  settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
-		StepUpEnabled:                          settings[SettingKeyStepUpEnabled] == "true",         // 默认关闭
-		AuditLogRetentionDays:                  parseAuditLogRetentionDays(settings[SettingKeyAuditLogRetentionDays]),
-		LoginEntryPublic:                       strings.TrimSpace(settings[SettingKeyWebLoginEntryPublic]) != "false", // 缺失=公开
-		LoginEntryPath:                         config.NormalizeEntryPath(settings[SettingKeyWebLoginEntryPath]),
-		DefaultHomePath:                        config.NormalizeEntryPath(settings[SettingKeyWebDefaultHomePath]),
-		SMTPHost:                               settings[SettingKeySMTPHost],
-		SMTPUsername:                           settings[SettingKeySMTPUsername],
-		SMTPFrom:                               settings[SettingKeySMTPFrom],
-		SMTPFromName:                           settings[SettingKeySMTPFromName],
-		SMTPUseTLS:                             settings[SettingKeySMTPUseTLS] == "true",
-		SMTPPasswordConfigured:                 settings[SettingKeySMTPPassword] != "",
-		APIKeyACLTrustForwardedIP:              apiKeyACLTrustForwardedIP,
-		ForwardedClientIPHeaders:               forwardedClientIPHeaders,
-		DocURL:                                 settings[SettingKeyDocURL],
-		CustomEndpoints:                        settings[SettingKeyCustomEndpoints],
-		BackendModeEnabled:                     settings[SettingKeyBackendModeEnabled] == "true",
+		EmailVerifyEnabled:                  emailVerifyEnabled,
+		RegistrationEmailSuffixWhitelist:    ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
+		RegistrationEmailDomainQuotaEnabled: settings[SettingKeyRegistrationEmailDomainQuotaEnabled] == "true",
+		PasswordResetEnabled:                emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
+		FrontendURL:                         settings[SettingKeyFrontendURL],
+		TotpEnabled:                         settings[SettingKeyTotpEnabled] == "true",
+		PasskeyEnabled:                      s.passkeySettingEnabled(settings),
+		SessionBindingEnabled:               settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
+		StepUpEnabled:                       settings[SettingKeyStepUpEnabled] == "true",         // 默认关闭
+		AuditLogRetentionDays:               parseAuditLogRetentionDays(settings[SettingKeyAuditLogRetentionDays]),
+		LoginEntryPublic:                    strings.TrimSpace(settings[SettingKeyWebLoginEntryPublic]) != "false", // 缺失=公开
+		LoginEntryPath:                      config.NormalizeEntryPath(settings[SettingKeyWebLoginEntryPath]),
+		DefaultHomePath:                     config.NormalizeEntryPath(settings[SettingKeyWebDefaultHomePath]),
+		SMTPHost:                            settings[SettingKeySMTPHost],
+		SMTPUsername:                        settings[SettingKeySMTPUsername],
+		SMTPFrom:                            settings[SettingKeySMTPFrom],
+		SMTPFromName:                        settings[SettingKeySMTPFromName],
+		SMTPUseTLS:                          settings[SettingKeySMTPUseTLS] == "true",
+		SMTPPasswordConfigured:              settings[SettingKeySMTPPassword] != "",
+		APIKeyACLTrustForwardedIP:           apiKeyACLTrustForwardedIP,
+		ForwardedClientIPHeaders:            forwardedClientIPHeaders,
+		DocURL:                              settings[SettingKeyDocURL],
+		CustomEndpoints:                     settings[SettingKeyCustomEndpoints],
+		BackendModeEnabled:                  settings[SettingKeyBackendModeEnabled] == "true",
 	}
 
 	// 解析整数类型

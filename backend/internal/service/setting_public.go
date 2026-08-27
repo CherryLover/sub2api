@@ -281,16 +281,16 @@ func (s *SettingService) IsUserErrorViewAllowed(ctx context.Context) bool {
 // A unit test diffs this struct's JSON keys against dto.PublicSettings to catch
 // drift automatically (see setting_service_injection_test.go).
 type PublicSettingsInjectionPayload struct {
-	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`
-	RegistrationEmailSuffixWhitelist    []string                 `json:"registration_email_suffix_whitelist"`
-	RegistrationEmailDomainQuotaEnabled bool                     `json:"registration_email_domain_quota_enabled"`
-	PasswordResetEnabled                bool                     `json:"password_reset_enabled"`
-	TotpEnabled                         bool                     `json:"totp_enabled"`
-	PasskeyEnabled                      bool                     `json:"passkey_enabled"`
-	DocURL                              string                   `json:"doc_url"`
-	CustomEndpoints                     json.RawMessage          `json:"custom_endpoints"`
-	BackendModeEnabled                  bool                     `json:"backend_mode_enabled"`
-	Version                             string                   `json:"version"`
+	EmailVerifyEnabled                  bool            `json:"email_verify_enabled"`
+	RegistrationEmailSuffixWhitelist    []string        `json:"registration_email_suffix_whitelist"`
+	RegistrationEmailDomainQuotaEnabled bool            `json:"registration_email_domain_quota_enabled"`
+	PasswordResetEnabled                bool            `json:"password_reset_enabled"`
+	TotpEnabled                         bool            `json:"totp_enabled"`
+	PasskeyEnabled                      bool            `json:"passkey_enabled"`
+	DocURL                              string          `json:"doc_url"`
+	CustomEndpoints                     json.RawMessage `json:"custom_endpoints"`
+	BackendModeEnabled                  bool            `json:"backend_mode_enabled"`
+	Version                             string          `json:"version"`
 	// 服务器全局时区（IANA 名称与当前 UTC 偏移），高峰时段等服务端本地时间窗口的展示标注用
 	ServerTimezone              string  `json:"server_timezone"`
 	ServerUTCOffset             string  `json:"server_utc_offset"`

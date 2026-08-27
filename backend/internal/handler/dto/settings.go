@@ -16,20 +16,20 @@ type CustomEndpoint struct {
 
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
-	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`
-	RegistrationEmailSuffixWhitelist    []string                 `json:"registration_email_suffix_whitelist"`
-	RegistrationEmailDomainQuotaEnabled bool                     `json:"registration_email_domain_quota_enabled"`
-	PasswordResetEnabled                bool                     `json:"password_reset_enabled"`
-	FrontendURL                         string                   `json:"frontend_url"`
-	TotpEnabled                         bool                     `json:"totp_enabled"`                   // TOTP 双因素认证
-	TotpEncryptionKeyConfigured         bool                     `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
-	PasskeyEnabled                      bool                     `json:"passkey_enabled"`
-	PasskeyConfigured                   bool                     `json:"passkey_configured"`
-	PasskeyRPID                         string                   `json:"passkey_rp_id"`
-	PasskeyRPOrigins                    []string                 `json:"passkey_rp_origins"`
-	SessionBindingEnabled               bool                     `json:"session_binding_enabled"`  // 会话 IP/UA 绑定
-	StepUpEnabled                       bool                     `json:"step_up_enabled"`          // 敏感操作 step-up 2FA
-	AuditLogRetentionDays               int                      `json:"audit_log_retention_days"` // 审计日志保留天数
+	EmailVerifyEnabled                  bool     `json:"email_verify_enabled"`
+	RegistrationEmailSuffixWhitelist    []string `json:"registration_email_suffix_whitelist"`
+	RegistrationEmailDomainQuotaEnabled bool     `json:"registration_email_domain_quota_enabled"`
+	PasswordResetEnabled                bool     `json:"password_reset_enabled"`
+	FrontendURL                         string   `json:"frontend_url"`
+	TotpEnabled                         bool     `json:"totp_enabled"`                   // TOTP 双因素认证
+	TotpEncryptionKeyConfigured         bool     `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
+	PasskeyEnabled                      bool     `json:"passkey_enabled"`
+	PasskeyConfigured                   bool     `json:"passkey_configured"`
+	PasskeyRPID                         string   `json:"passkey_rp_id"`
+	PasskeyRPOrigins                    []string `json:"passkey_rp_origins"`
+	SessionBindingEnabled               bool     `json:"session_binding_enabled"`  // 会话 IP/UA 绑定
+	StepUpEnabled                       bool     `json:"step_up_enabled"`          // 敏感操作 step-up 2FA
+	AuditLogRetentionDays               int      `json:"audit_log_retention_days"` // 审计日志保留天数
 
 	// 登录入口 / 默认首页（三层合并后的**生效值**）。
 	//
@@ -50,8 +50,8 @@ type SystemSettings struct {
 	SMTPFromName           string `json:"smtp_from_name"`
 	SMTPUseTLS             bool   `json:"smtp_use_tls"`
 
-	APIKeyACLTrustForwardedIP              bool     `json:"api_key_acl_trust_forwarded_ip"`
-	ForwardedClientIPHeaders               []string `json:"forwarded_client_ip_headers"`
+	APIKeyACLTrustForwardedIP bool     `json:"api_key_acl_trust_forwarded_ip"`
+	ForwardedClientIPHeaders  []string `json:"forwarded_client_ip_headers"`
 
 	DocURL          string           `json:"doc_url"`
 	CustomEndpoints []CustomEndpoint `json:"custom_endpoints"`
@@ -197,16 +197,16 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
-	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`
-	RegistrationEmailSuffixWhitelist    []string                 `json:"registration_email_suffix_whitelist"`
-	RegistrationEmailDomainQuotaEnabled bool                     `json:"registration_email_domain_quota_enabled"`
-	PasswordResetEnabled                bool                     `json:"password_reset_enabled"`
-	TotpEnabled                         bool                     `json:"totp_enabled"` // TOTP 双因素认证
-	PasskeyEnabled                      bool                     `json:"passkey_enabled"`
-	DocURL                              string                   `json:"doc_url"`
-	CustomEndpoints                     []CustomEndpoint         `json:"custom_endpoints"`
-	BackendModeEnabled                  bool                     `json:"backend_mode_enabled"`
-	Version                             string                   `json:"version"`
+	EmailVerifyEnabled                  bool             `json:"email_verify_enabled"`
+	RegistrationEmailSuffixWhitelist    []string         `json:"registration_email_suffix_whitelist"`
+	RegistrationEmailDomainQuotaEnabled bool             `json:"registration_email_domain_quota_enabled"`
+	PasswordResetEnabled                bool             `json:"password_reset_enabled"`
+	TotpEnabled                         bool             `json:"totp_enabled"` // TOTP 双因素认证
+	PasskeyEnabled                      bool             `json:"passkey_enabled"`
+	DocURL                              string           `json:"doc_url"`
+	CustomEndpoints                     []CustomEndpoint `json:"custom_endpoints"`
+	BackendModeEnabled                  bool             `json:"backend_mode_enabled"`
+	Version                             string           `json:"version"`
 	// 服务器全局时区（IANA 名称与当前 UTC 偏移，如 "Asia/Shanghai" / "+08:00"）。
 	// 高峰时段等按服务器本地时间判定的窗口，前端展示时据此标注，避免用户按浏览器本地时间误读。
 	ServerTimezone              string  `json:"server_timezone"`

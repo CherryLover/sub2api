@@ -20,12 +20,14 @@ import (
 
 const authRouteRedisImageTag = "redis:8.4-alpine"
 
-func TestAuthRegisterRateLimitThresholdHitReturns429(t *testing.T) {
+// 注册体系已裁剪，改用同样 5 次/分钟 + fail-close 的忘记密码入口守住
+// 「认证入口限流达阈值返回 429」这条行为。
+func TestAuthForgotPasswordRateLimitThresholdHitReturns429(t *testing.T) {
 	ctx := context.Background()
 	rdb := startAuthRouteRedis(t, ctx)
 
 	router := newAuthRoutesTestRouter(rdb)
-	const path = "/api/v1/auth/register"
+	const path = "/api/v1/auth/forgot-password"
 
 	for i := 1; i <= 6; i++ {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))

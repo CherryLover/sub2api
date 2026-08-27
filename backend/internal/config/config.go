@@ -1753,7 +1753,6 @@ func setDefaults() {
 	viper.SetDefault("billing.user_platform_quota_cache_ttl_seconds", 86400)
 	viper.SetDefault("billing.user_platform_quota_sentinel_ttl_seconds", 3600)
 
-
 	// Database
 	viper.SetDefault("database.host", "localhost")
 	viper.SetDefault("database.port", 5432)

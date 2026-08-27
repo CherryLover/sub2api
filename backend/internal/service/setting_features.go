@@ -893,20 +893,3 @@ func (s *SettingService) GetAuthSourcePlatformQuotas(ctx context.Context, source
 	}
 	return out // 仅含已配置平台，保持 override 语义
 }
-
-// mergePlatformQuotaDefaults 按字段级 patch：src 中非 nil 字段覆盖 dst。
-// 区分 nil（"未配置"，保留 dst）vs &0.0（"显式禁用"，覆盖 dst 为 0）
-func mergePlatformQuotaDefaults(dst, src *DefaultPlatformQuotaSetting) {
-	if src == nil || dst == nil {
-		return
-	}
-	if src.DailyLimitUSD != nil {
-		dst.DailyLimitUSD = src.DailyLimitUSD
-	}
-	if src.WeeklyLimitUSD != nil {
-		dst.WeeklyLimitUSD = src.WeeklyLimitUSD
-	}
-	if src.MonthlyLimitUSD != nil {
-		dst.MonthlyLimitUSD = src.MonthlyLimitUSD
-	}
-}

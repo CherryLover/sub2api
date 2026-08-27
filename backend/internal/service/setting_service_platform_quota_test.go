@@ -11,45 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMergePlatformQuotaDefaults_PatchSemantics(t *testing.T) {
-	five := 5.0
-	base := DefaultPlatformQuotaSetting{
-		DailyLimitUSD:  &five,
-		WeeklyLimitUSD: &five,
-	}
-	ten := 10.0
-	patch := DefaultPlatformQuotaSetting{DailyLimitUSD: &ten}
-
-	mergePlatformQuotaDefaults(&base, &patch)
-	if base.DailyLimitUSD == nil || *base.DailyLimitUSD != 10.0 {
-		t.Errorf("daily not patched: %+v", base.DailyLimitUSD)
-	}
-	if base.WeeklyLimitUSD == nil || *base.WeeklyLimitUSD != 5.0 {
-		t.Errorf("weekly should remain 5.0: %+v", base.WeeklyLimitUSD)
-	}
-}
-
-func TestMergePlatformQuotaDefaults_ZeroIsExplicitDisable(t *testing.T) {
-	five := 5.0
-	base := DefaultPlatformQuotaSetting{DailyLimitUSD: &five}
-	zero := 0.0
-	patch := DefaultPlatformQuotaSetting{DailyLimitUSD: &zero}
-
-	mergePlatformQuotaDefaults(&base, &patch)
-	if base.DailyLimitUSD == nil || *base.DailyLimitUSD != 0 {
-		t.Errorf("explicit 0 should patch base, got %+v", base.DailyLimitUSD)
-	}
-}
-
-func TestMergePlatformQuotaDefaults_NilSrcIsNoop(t *testing.T) {
-	five := 5.0
-	base := DefaultPlatformQuotaSetting{DailyLimitUSD: &five}
-	mergePlatformQuotaDefaults(&base, nil)
-	if base.DailyLimitUSD == nil || *base.DailyLimitUSD != 5.0 {
-		t.Errorf("nil src should be no-op: %+v", base.DailyLimitUSD)
-	}
-}
-
 func floatPtrPQ(v float64) *float64 { return &v }
 
 func newSettingServiceForPlatformQuotaTest(seed map[string]string) *SettingService {

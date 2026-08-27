@@ -64,7 +64,6 @@ func TestDiffSettings_NoChangeWhenEqual(t *testing.T) {
 	}
 }
 
-
 func TestEqualNullableFloat(t *testing.T) {
 	five := 5.0
 	five2 := 5.0
