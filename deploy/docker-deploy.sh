@@ -3,9 +3,13 @@
 # Sub2API Docker Deployment Preparation Script
 # =============================================================================
 # This script prepares deployment files for Sub2API:
-#   - Downloads docker-compose.local.yml and .env.example
+#   - Copies docker-compose.local.yml and .env.example from this deploy/ directory
 #   - Generates secure secrets (JWT_SECRET, TOTP_ENCRYPTION_KEY, POSTGRES_PASSWORD)
 #   - Creates necessary data directories
+#
+# Run it from an empty deployment directory, e.g.:
+#   mkdir -p /opt/sub2api-deploy && cd /opt/sub2api-deploy
+#   /path/to/sub2api/deploy/docker-deploy.sh
 #
 # After running this script, you can start services with:
 #   docker-compose up -d
@@ -13,15 +17,15 @@
 
 set -e
 
+# Directory holding this script and the deployment templates it copies
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
-
-# GitHub raw content base URL
-GITHUB_RAW_URL="https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy"
 
 # Print colored message
 print_info() {
@@ -64,6 +68,25 @@ main() {
         exit 1
     fi
 
+    # Refuse to run inside deploy/ itself: it would overwrite the repository's
+    # own docker-compose.yml with the local-directory variant.
+    if [ "$(pwd -P)" = "$SCRIPT_DIR" ]; then
+        print_error "Do not run this script inside the repository's deploy/ directory."
+        print_info "Run it from an empty deployment directory instead:"
+        print_info "  mkdir -p /opt/sub2api-deploy && cd /opt/sub2api-deploy"
+        print_info "  ${SCRIPT_DIR}/docker-deploy.sh"
+        exit 1
+    fi
+
+    # Check that the deployment templates are next to this script
+    for template in docker-compose.local.yml .env.example; do
+        if [ ! -f "${SCRIPT_DIR}/${template}" ]; then
+            print_error "Missing ${SCRIPT_DIR}/${template}"
+            print_info "Run this script from a checkout of the repository (deploy/ directory)."
+            exit 1
+        fi
+    done
+
     # Check if deployment already exists
     if [ -f "docker-compose.yml" ] && [ -f ".env" ]; then
         print_warning "Deployment files already exist in current directory."
@@ -75,26 +98,15 @@ main() {
         fi
     fi
 
-    # Download docker-compose.local.yml and save as docker-compose.yml
-    print_info "Downloading docker-compose.yml..."
-    if command_exists curl; then
-        curl -sSL "${GITHUB_RAW_URL}/docker-compose.local.yml" -o docker-compose.yml
-    elif command_exists wget; then
-        wget -q "${GITHUB_RAW_URL}/docker-compose.local.yml" -O docker-compose.yml
-    else
-        print_error "Neither curl nor wget is installed. Please install one of them."
-        exit 1
-    fi
-    print_success "Downloaded docker-compose.yml"
+    # Copy docker-compose.local.yml and save as docker-compose.yml
+    print_info "Preparing docker-compose.yml..."
+    cp "${SCRIPT_DIR}/docker-compose.local.yml" docker-compose.yml
+    print_success "Created docker-compose.yml"
 
-    # Download .env.example
-    print_info "Downloading .env.example..."
-    if command_exists curl; then
-        curl -sSL "${GITHUB_RAW_URL}/.env.example" -o .env.example
-    else
-        wget -q "${GITHUB_RAW_URL}/.env.example" -O .env.example
-    fi
-    print_success "Downloaded .env.example"
+    # Copy .env.example
+    print_info "Preparing .env.example..."
+    cp "${SCRIPT_DIR}/.env.example" .env.example
+    print_success "Created .env.example"
 
     # Generate .env file with auto-generated secrets
     print_info "Generating secure secrets..."

@@ -16,7 +16,7 @@ This directory contains files for deploying Sub2API on Linux servers and Apple-s
 |------|-------------|
 | `docker-compose.yml` | Docker Compose configuration (named volumes) |
 | `docker-compose.local.yml` | Docker Compose configuration (local directories, easy migration) |
-| `docker-deploy.sh` | **One-click Docker deployment script (recommended)** |
+| `docker-deploy.sh` | **Docker deployment preparation script (recommended)** |
 | `apple-container.sh` | Native Apple `container` lifecycle script |
 | `APPLE_CONTAINER.md` | Apple `container` deployment and operations guide |
 | `.env.example` | Container environment variables template |
@@ -50,37 +50,41 @@ See [APPLE_CONTAINER.md](./APPLE_CONTAINER.md) for configuration, upgrades, pers
 
 ## Docker Deployment (Recommended)
 
-### Method 1: One-Click Deployment (Recommended)
+### Method 1: Scripted Preparation (Recommended)
 
-Use the automated preparation script for the easiest setup:
+`docker-deploy.sh` prepares a deployment directory from the files in this
+`deploy/` directory. It reads no remote sources, so the deployment always
+matches the checkout you run it from.
 
 ```bash
-# Download and run the preparation script
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
+# Get the repository
+git clone https://github.com/CherryLover/sub2api.git
 
-# Or download first, then run
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh -o docker-deploy.sh
-chmod +x docker-deploy.sh
-./docker-deploy.sh
+# Run the script from an empty deployment directory
+mkdir -p /opt/sub2api-deploy && cd /opt/sub2api-deploy
+bash /path/to/sub2api/deploy/docker-deploy.sh
 ```
 
 **What the script does:**
-- Downloads `docker-compose.local.yml` and `.env.example`
+- Copies `docker-compose.local.yml` to `docker-compose.yml` and `.env.example` into the deployment directory
 - Automatically generates secure secrets (JWT_SECRET, TOTP_ENCRYPTION_KEY, POSTGRES_PASSWORD)
 - Creates `.env` file with generated secrets
 - Creates necessary data directories (data/, postgres_data/, redis_data/)
 - **Displays generated credentials** (POSTGRES_PASSWORD, JWT_SECRET, etc.)
 
+It refuses to run inside `deploy/` itself, so the repository's own
+`docker-compose.yml` is never overwritten.
+
 **After running the script:**
 ```bash
-# Start services
-docker compose -f docker-compose.local.yml up -d
+# Start services (from the deployment directory)
+docker compose up -d
 
 # View logs
-docker compose -f docker-compose.local.yml logs -f sub2api
+docker compose logs -f sub2api
 
 # If admin password was auto-generated, find it in logs:
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose logs sub2api | grep "admin password"
 
 # Access Web UI
 # http://localhost:8080
@@ -92,7 +96,7 @@ If you prefer manual control:
 
 ```bash
 # Clone repository
-git clone https://github.com/Wei-Shaw/sub2api.git
+git clone https://github.com/CherryLover/sub2api.git
 cd sub2api/deploy
 
 # Configure environment
@@ -126,7 +130,7 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 | **docker-compose.local.yml** | Local directories (./data, ./postgres_data, ./redis_data) | ✅ Easy (tar entire directory) | Production, need frequent backups/migration |
 | **docker-compose.yml** | Named volumes (/var/lib/docker/volumes/) | ⚠️ Requires docker commands | Simple setup, don't need migration |
 
-**Recommendation:** Use `docker-compose.local.yml` (deployed by `docker-deploy.sh`) for easier data management and migration.
+**Recommendation:** Use `docker-compose.local.yml` (copied into the deployment directory by `docker-deploy.sh`) for easier data management and migration.
 
 ### How Auto-Setup Works
 
@@ -238,7 +242,7 @@ docker compose down -v
 | `ADMIN_EMAIL` | No | `admin@sub2api.local` | Admin email |
 | `ADMIN_PASSWORD` | No | *(auto-generated)* | Admin password |
 | `TZ` | No | `Asia/Shanghai` | Timezone |
-| `UPDATE_GITHUB_TOKEN` | No | *(empty)* | Token for `api.github.com` release checks only; asset downloads remain anonymous. |
+| `UPDATE_GITHUB_TOKEN` | No | *(empty)* | Token for `api.github.com` release reads (Codex client version sync) only; asset downloads remain anonymous. |
 | `GEMINI_OAUTH_CLIENT_ID` | No | *(builtin)* | Google OAuth client ID (Gemini OAuth). Leave empty to use the built-in Gemini CLI client. |
 | `GEMINI_OAUTH_CLIENT_SECRET` | No | *(builtin)* | Google OAuth client secret (Gemini OAuth). Leave empty to use the built-in Gemini CLI client. |
 | `GEMINI_OAUTH_SCOPES` | No | *(default)* | OAuth scopes (Gemini OAuth) |
@@ -376,12 +380,16 @@ For production servers using systemd.
 ### One-Line Installation
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/CherryLover/sub2api/main/deploy/install.sh | sudo bash
 ```
+
+`install.sh` installs the latest release and nothing else: there is no in-place
+upgrade or rollback command. To move to another version, install that release
+manually (below) or redeploy.
 
 ### Manual Installation
 
-1. Download the latest release from [GitHub Releases](https://github.com/Wei-Shaw/sub2api/releases)
+1. Download a release from [GitHub Releases](https://github.com/CherryLover/sub2api/releases)
 2. Extract and copy the binary to `/opt/sub2api/`
 3. Copy `sub2api.service` to `/etc/systemd/system/`
 4. Run:
@@ -395,14 +403,14 @@ curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install
 ### Commands
 
 ```bash
-# Install
+# Install (latest release)
 sudo ./install.sh
-
-# Upgrade
-sudo ./install.sh upgrade
 
 # Uninstall
 sudo ./install.sh uninstall
+
+# Uninstall and remove /etc/sub2api as well
+sudo ./install.sh uninstall -y --purge
 ```
 
 ### Service Management
@@ -498,7 +506,6 @@ The main config file is at `/etc/sub2api/config.yaml` (created by Setup Wizard).
 ```
 /opt/sub2api/
 ├── sub2api              # Main binary
-├── sub2api.backup       # Backup (after upgrade)
 └── data/                # Runtime data
 
 /etc/sub2api/

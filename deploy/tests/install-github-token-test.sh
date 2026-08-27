@@ -94,7 +94,8 @@ assert_unsafe_invocation_rejected url-option -s --url \
     "https://api.github.com/repos/Wei-Shaw/sub2api/releases/latest"
 
 # Every installer release API request must use the scoped helper.
-test "$(grep -c 'github_api_curl .*https://api.github.com/' "$ROOT_DIR/deploy/install.sh")" -eq 3
+# The installer only resolves the latest release; update/rollback were removed.
+test "$(grep -c 'github_api_curl .*https://api.github.com/' "$ROOT_DIR/deploy/install.sh")" -eq 1
 
 # Asset and checksum downloads must continue to call curl directly.
 grep -Fq 'curl -sL "$download_url"' "$ROOT_DIR/deploy/install.sh"

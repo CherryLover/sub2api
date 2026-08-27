@@ -149,9 +149,11 @@ services:
       - SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS=${SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS:-}
 
       # =======================================================================
-      # Update Configuration (在线更新配置)
+      # GitHub Outbound Proxy (访问 GitHub 的出站代理)
       # =======================================================================
-      # Proxy for accessing GitHub (online updates + pricing data)
+      # Proxy for accessing GitHub (pricing data + Codex client version sync)
+      # 访问 GitHub 的代理地址（定价表拉取、Codex 客户端版本同步）
+      # 键名沿用 UPDATE_* 以兼容既有部署
       # Examples: http://host:port, socks5://host:port
       - UPDATE_PROXY_URL=${UPDATE_PROXY_URL:-}
 

@@ -4,7 +4,7 @@
 # Copy this file to /etc/sub2api/config.yaml and modify as needed
 # 复制此文件到 /etc/sub2api/config.yaml 并根据需要修改
 #
-# Documentation / 文档: https://github.com/Wei-Shaw/sub2api
+# Documentation / 文档: https://github.com/CherryLover/sub2api
 
 # =============================================================================
 # Server Configuration
@@ -197,9 +197,10 @@ security:
     #   - url: "https://api64.ipify.org?format=json"
     #     parser: "ipify"
   proxy_fallback:
-    # Allow auxiliary services (update check, pricing data) to fallback to direct
-    # connection when proxy initialization fails. Does NOT affect AI gateway connections.
-    # 辅助服务（更新检查、定价数据拉取）代理初始化失败时是否允许回退直连。
+    # Allow auxiliary services (pricing data, Codex client version sync) to fallback
+    # to direct connection when proxy initialization fails. Does NOT affect AI gateway
+    # connections.
+    # 辅助服务（定价表拉取、Codex 客户端版本同步）代理初始化失败时是否允许回退直连。
     # 不影响 AI 账号网关连接。默认 false：fail-fast 防止 IP 泄露。
     allow_direct_on_error: false
 
@@ -887,7 +888,7 @@ idempotency:
   observe_only: true
   # 关键写接口幂等记录 TTL（秒）
   default_ttl_seconds: 86400
-  # 系统操作接口（update/rollback/restart）幂等记录 TTL（秒）
+  # 系统操作接口（restart）幂等记录 TTL（秒）
   system_operation_ttl_seconds: 3600
   # processing 锁超时（秒）
   processing_timeout_seconds: 30
