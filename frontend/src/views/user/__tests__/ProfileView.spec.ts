@@ -61,7 +61,6 @@ describe('ProfileView', () => {
       updated_at: '2026-04-20T00:00:00Z'
     }
     fetchPublicSettingsMock.mockResolvedValue({
-      contact_info: '',
       balance_low_notify_enabled: false,
       balance_low_notify_threshold: 0
     })
