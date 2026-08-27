@@ -6,12 +6,14 @@ package server
 //
 // 本项目按"单管理员内部部署"裁剪掉了支付/订单、卡密（redeem）、优惠码
 // （promo）、返佣（affiliate）、六种第三方 OAuth 登录（LinuxDo/微信/钉钉/
-// OIDC/GitHub/Google），以及注册体系与人机验证。这里用生产 registerRoutes
-// 装配完整路由表后断言：
+// OIDC/GitHub/Google），以及注册体系与人机验证；批次 2 又整套删掉了管理员
+// 合规确认（/admin/compliance + AdminComplianceGuard）、登录条款与自定义
+// 菜单页面（/pages）。这里用生产 registerRoutes 装配完整路由表后断言：
 //
 //  1. 被裁剪的 SaaS 面路由不存在（精确路径 + 前缀兜底 + 请求级 404）；
 //  2. 注册体系的两条入口（register / send-verify-code）路由整体缺席；
-//  3. GET /api/v1/settings/public 不再泄露 payment_enabled 与人机验证键；
+//  3. GET /api/v1/settings/public 不再泄露 payment_enabled、人机验证键，
+//     以及登录条款与已裁剪的站点/表格/自定义菜单设置键；
 //  4. 保留面（login/2fa/passkey 登录/忘记密码/重置密码）完好，防止误删。
 //
 // 将来任何人把这些面加回 router.go / routes/*.go，CI 会立即变红。
@@ -195,6 +197,13 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/admin/system/rollback-versions",
 		"/api/v1/admin/system/update",
 		"/api/v1/admin/system/rollback",
+		// 管理员部署与运营合规确认（登录后先弹"我已同意"的那一套）
+		"/api/v1/admin/compliance",
+		"/api/v1/admin/compliance/accept",
+		// 自定义菜单页面（iframe/Markdown 映射页）
+		"/api/v1/pages",
+		"/api/v1/pages/:slug",
+		"/api/v1/pages/:slug/images/*filename",
 	}
 	for _, path := range absentPaths {
 		_, exists := paths[path]
@@ -213,6 +222,8 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/admin/promo-codes",
 		"/api/v1/admin/affiliates",
 		"/api/v1/auth/oauth",
+		"/api/v1/admin/compliance",
+		"/api/v1/pages",
 	}
 	for path := range paths {
 		for _, prefix := range forbiddenPrefixes {
@@ -233,6 +244,9 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/system/check-updates"},
 		{http.MethodPost, "/api/v1/admin/system/update"},
 		{http.MethodPost, "/api/v1/admin/system/rollback"},
+		{http.MethodGet, "/api/v1/admin/compliance"},
+		{http.MethodPost, "/api/v1/admin/compliance/accept"},
+		{http.MethodGet, "/api/v1/pages/help"},
 	} {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(probe.method, probe.path, nil)
@@ -358,5 +372,26 @@ func TestPublicSettingsHasNoPaymentKey(t *testing.T) {
 		"aliyun_captcha_scene_id",
 	} {
 		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪的注册/人机验证键 %s", key)
+	}
+	// 批次 2 裁掉的登录条款与通用设置冗余项，公开设置里同样不许回流。
+	for _, key := range []string{
+		"login_agreement_enabled",
+		"login_agreement_mode",
+		"login_agreement_updated_at",
+		"login_agreement_revision",
+		"login_agreement_documents",
+		"site_name",
+		"site_subtitle",
+		"site_logo",
+		"api_base_url",
+		"contact_info",
+		"home_content",
+		"compact_home_enabled",
+		"hide_ccs_import_button",
+		"table_default_page_size",
+		"table_page_size_options",
+		"custom_menu_items",
+	} {
+		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪设置键 %s", key)
 	}
 }
