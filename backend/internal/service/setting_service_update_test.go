@@ -186,37 +186,6 @@ type defaultSubGroupReaderStub struct {
 	calls []int64
 }
 
-func TestSettingService_AffiliateAdminRechargeSetting(t *testing.T) {
-	t.Run("missing value defaults to disabled", func(t *testing.T) {
-		svc := NewSettingService(&settingGetAllRepoStub{values: map[string]string{}}, &config.Config{})
-
-		settings, err := svc.GetAllSettings(context.Background())
-		require.NoError(t, err)
-		require.False(t, settings.AdminRechargeRebateEnabled)
-	})
-
-	t.Run("explicit value is parsed", func(t *testing.T) {
-		svc := NewSettingService(&settingGetAllRepoStub{values: map[string]string{
-			SettingKeyAffiliateAdminRechargeEnabled: "true",
-		}}, &config.Config{})
-
-		settings, err := svc.GetAllSettings(context.Background())
-		require.NoError(t, err)
-		require.True(t, settings.AdminRechargeRebateEnabled)
-	})
-
-	t.Run("value is persisted", func(t *testing.T) {
-		repo := &settingUpdateRepoStub{}
-		svc := NewSettingService(repo, &config.Config{})
-
-		err := svc.UpdateSettings(context.Background(), &SystemSettings{
-			AdminRechargeRebateEnabled: true,
-		})
-		require.NoError(t, err)
-		require.Equal(t, "true", repo.updates[SettingKeyAffiliateAdminRechargeEnabled])
-	})
-}
-
 func (s *defaultSubGroupReaderStub) GetByID(ctx context.Context, id int64) (*Group, error) {
 	s.calls = append(s.calls, id)
 	if err, ok := s.errBy[id]; ok {
@@ -397,7 +366,7 @@ func TestSettingService_UpdateSettings_TablePreferences(t *testing.T) {
 	require.Equal(t, "[20,100]", repo.updates[SettingKeyTablePageSizeOptions])
 }
 
-func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler(t *testing.T) {
+func TestSettingService_UpdateSettings_AdvancedScheduler(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
 
@@ -405,10 +374,6 @@ func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler
 	svc := NewSettingService(repo, &config.Config{})
 
 	err := svc.UpdateSettings(context.Background(), &SystemSettings{
-		PaymentVisibleMethodAlipaySource:                   "alipay",
-		PaymentVisibleMethodWxpaySource:                    "easypay",
-		PaymentVisibleMethodAlipayEnabled:                  true,
-		PaymentVisibleMethodWxpayEnabled:                   false,
 		OpenAILowUpstreamRatePriorityEnabled:               true,
 		OpenAIOAuthSchedulingRateMultiplier:                0.05,
 		OpenAIAdvancedSchedulerEnabled:                     true,
@@ -427,10 +392,6 @@ func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler
 		OpenAIAdvancedSchedulerWeightSessionSticky:         "4",
 	})
 	require.NoError(t, err)
-	require.Equal(t, VisibleMethodSourceOfficialAlipay, repo.updates[SettingPaymentVisibleMethodAlipaySource])
-	require.Equal(t, VisibleMethodSourceEasyPayWechat, repo.updates[SettingPaymentVisibleMethodWxpaySource])
-	require.Equal(t, "true", repo.updates[SettingPaymentVisibleMethodAlipayEnabled])
-	require.Equal(t, "false", repo.updates[SettingPaymentVisibleMethodWxpayEnabled])
 	require.Equal(t, "true", repo.updates[SettingKeyOpenAILowUpstreamRatePriorityEnabled])
 	require.Equal(t, "0.05", repo.updates[SettingKeyOpenAIOAuthSchedulingRateMultiplier])
 	require.Equal(t, "true", repo.updates[openAIAdvancedSchedulerSettingKey])
@@ -847,18 +808,6 @@ func TestSettingService_GetAntigravityUserAgentVersion_Precedence(t *testing.T) 
 
 		require.Equal(t, antigravity.GetDefaultUserAgentVersion(), svc.GetAntigravityUserAgentVersion(context.Background()))
 	})
-}
-
-func TestSettingService_UpdateSettings_RejectsInvalidPaymentVisibleMethodSource(t *testing.T) {
-	repo := &settingUpdateRepoStub{}
-	svc := NewSettingService(repo, &config.Config{})
-
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
-		PaymentVisibleMethodAlipaySource: "not-a-provider",
-	})
-	require.Error(t, err)
-	require.Equal(t, "INVALID_PAYMENT_VISIBLE_METHOD_SOURCE", infraerrors.Reason(err))
-	require.Nil(t, repo.updates)
 }
 
 func TestSettingService_PasskeySwitchPersistsAndDefaultsToConfigured(t *testing.T) {

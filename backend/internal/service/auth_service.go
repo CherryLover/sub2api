@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/mail"
 	"strconv"
 	"strings"
 	"time"
@@ -44,9 +43,6 @@ var (
 	)
 	ErrRegDisabled             = infraerrors.Forbidden("REGISTRATION_DISABLED", "registration is currently disabled")
 	ErrServiceUnavailable      = infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "service temporarily unavailable")
-	ErrInvitationCodeRequired  = infraerrors.BadRequest("INVITATION_CODE_REQUIRED", "invitation code is required")
-	ErrInvitationCodeInvalid   = infraerrors.BadRequest("INVITATION_CODE_INVALID", "invalid or used invitation code")
-	ErrOAuthInvitationRequired = infraerrors.Forbidden("OAUTH_INVITATION_REQUIRED", "invitation code required to complete oauth registration")
 	ErrCaptchaProviderConflict = infraerrors.ServiceUnavailable("CAPTCHA_PROVIDER_CONFLICT", "multiple captcha providers are enabled")
 )
 
@@ -73,7 +69,6 @@ type JWTClaims struct {
 type AuthService struct {
 	entClient             *dbent.Client
 	userRepo              UserRepository
-	redeemRepo            RedeemCodeRepository
 	refreshTokenCache     RefreshTokenCache
 	cfg                   *config.Config
 	settingService        *SettingService
@@ -82,8 +77,6 @@ type AuthService struct {
 	tencentCaptchaService *TencentCaptchaService
 	aliyunCaptchaService  *AliyunCaptchaService
 	emailQueueService     *EmailQueueService
-	promoService          *PromoService
-	affiliateService      *AffiliateService
 	defaultSubAssigner    DefaultSubscriptionAssigner
 	userPlatformQuotaRepo UserPlatformQuotaRepository
 }
@@ -110,30 +103,24 @@ type signupGrantPlan struct {
 func NewAuthService(
 	entClient *dbent.Client,
 	userRepo UserRepository,
-	redeemRepo RedeemCodeRepository,
 	refreshTokenCache RefreshTokenCache,
 	cfg *config.Config,
 	settingService *SettingService,
 	emailService *EmailService,
 	turnstileService *TurnstileService,
 	emailQueueService *EmailQueueService,
-	promoService *PromoService,
 	defaultSubAssigner DefaultSubscriptionAssigner,
-	affiliateService *AffiliateService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 ) *AuthService {
 	return &AuthService{
 		entClient:             entClient,
 		userRepo:              userRepo,
-		redeemRepo:            redeemRepo,
 		refreshTokenCache:     refreshTokenCache,
 		cfg:                   cfg,
 		settingService:        settingService,
 		emailService:          emailService,
 		turnstileService:      turnstileService,
 		emailQueueService:     emailQueueService,
-		promoService:          promoService,
-		affiliateService:      affiliateService,
 		defaultSubAssigner:    defaultSubAssigner,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
 	}
@@ -156,11 +143,11 @@ func (s *AuthService) SetAliyunCaptchaService(aliyunCaptchaService *AliyunCaptch
 
 // Register 用户注册，返回token和用户
 func (s *AuthService) Register(ctx context.Context, email, password string) (string, *User, error) {
-	return s.RegisterWithVerification(ctx, email, password, "", "", "", "")
+	return s.RegisterWithVerification(ctx, email, password, "")
 }
 
-// RegisterWithVerification 用户注册（支持邮件验证、优惠码、邀请码和邀请返利码），返回token和用户。
-func (s *AuthService) RegisterWithVerification(ctx context.Context, email, password, verifyCode, promoCode, invitationCode, affiliateCode string) (string, *User, error) {
+// RegisterWithVerification 用户注册（支持邮件验证），返回token和用户。
+func (s *AuthService) RegisterWithVerification(ctx context.Context, email, password, verifyCode string) (string, *User, error) {
 	// 检查是否开放注册（默认关闭：settingService 未配置时不允许注册）
 	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
 		return "", nil, ErrRegDisabled
@@ -169,25 +156,6 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	// 防止用户注册 LinuxDo OAuth 合成邮箱，避免第三方登录与本地账号发生碰撞。
 	if isReservedEmail(email) {
 		return "", nil, ErrEmailReserved
-	}
-	// 检查是否需要邀请码
-	var invitationRedeemCode *RedeemCode
-	if s.settingService != nil && s.settingService.IsInvitationCodeEnabled(ctx) {
-		if invitationCode == "" {
-			return "", nil, ErrInvitationCodeRequired
-		}
-		// 验证邀请码
-		redeemCode, err := s.redeemRepo.GetByCode(ctx, invitationCode)
-		if err != nil {
-			logger.LegacyPrintf("service.auth", "[Auth] Invalid invitation code: %s, error: %v", invitationCode, err)
-			return "", nil, ErrInvitationCodeInvalid
-		}
-		// 检查类型和状态
-		if redeemCode.Type != RedeemTypeInvitation || !redeemCode.CanUse() {
-			logger.LegacyPrintf("service.auth", "[Auth] Invitation code invalid: type=%s, status=%s", redeemCode.Type, redeemCode.Status)
-			return "", nil, ErrInvitationCodeInvalid
-		}
-		invitationRedeemCode = redeemCode
 	}
 
 	// 检查是否需要邮件验证
@@ -245,15 +213,13 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		Status:       StatusActive,
 	}
 
-	if err := s.createUserAndClaimInvitation(ctx, user, invitationRedeemCode); err != nil {
+	if err := s.createUserWithEmailQuota(ctx, user); err != nil {
 		// 优先检查邮箱冲突错误（竞态条件下可能发生）
 		switch {
 		case errors.Is(err, ErrEmailExists):
 			return "", nil, ErrEmailExists
 		case errors.Is(err, ErrEmailDomainRegistrationLimit):
 			return "", nil, ErrEmailDomainRegistrationLimit
-		case errors.Is(err, ErrInvitationCodeInvalid):
-			return "", nil, ErrInvitationCodeInvalid
 		default:
 			logger.LegacyPrintf("service.auth", "[Auth] Database error creating user: %v", err)
 			return "", nil, ErrServiceUnavailable
@@ -263,32 +229,6 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 	// snapshot user × platform quota（fail-open）
 	_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
-	if s.affiliateService != nil {
-		if _, err := s.affiliateService.EnsureUserAffiliate(ctx, user.ID); err != nil {
-			logger.LegacyPrintf("service.auth", "[Auth] Failed to initialize affiliate profile for user %d: %v", user.ID, err)
-		}
-		if code := strings.TrimSpace(affiliateCode); code != "" {
-			if err := s.affiliateService.BindInviterByCode(ctx, user.ID, code); err != nil {
-				// 邀请返利码绑定失败不影响注册，只记录日志
-				logger.LegacyPrintf("service.auth", "[Auth] Failed to bind affiliate inviter for user %d: %v", user.ID, err)
-			}
-		}
-	}
-
-	// 邀请码占用已由 createUserAndClaimInvitation 在“用户创建 + 邀请码占用”的
-	// 同一个数据库事务内原子完成（一次性约束，见函数注释），此处不再单独标记。
-	// 应用优惠码（如果提供且功能已启用）
-	if promoCode != "" && s.promoService != nil && s.settingService != nil && s.settingService.IsPromoCodeEnabled(ctx) {
-		if err := s.promoService.ApplyPromoCode(ctx, user.ID, promoCode); err != nil {
-			// 优惠码应用失败不影响注册，只记录日志
-			logger.LegacyPrintf("service.auth", "[Auth] Failed to apply promo code for user %d: %v", user.ID, err)
-		} else {
-			// 重新获取用户信息以获取更新后的余额
-			if updatedUser, err := s.userRepo.GetByID(ctx, user.ID); err == nil {
-				user = updatedUser
-			}
-		}
-	}
 
 	// 生成token
 	token, err := s.GenerateToken(ctx, user)
@@ -563,323 +503,6 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	return token, user, nil
 }
 
-// LoginOrRegisterOAuth 用于第三方 OAuth/SSO 登录：
-// - 如果邮箱已存在：直接登录（不需要本地密码）
-// - 如果邮箱不存在：创建新用户并登录
-//
-// 注意：该函数用于 LinuxDo OAuth 登录场景（不同于上游账号的 OAuth，例如 Claude/OpenAI/Gemini）。
-// 为了满足现有数据库约束（需要密码哈希），新用户会生成随机密码并进行哈希保存。
-func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username string) (string, *User, error) {
-	email = strings.TrimSpace(email)
-	if email == "" || len(email) > 255 {
-		return "", nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
-	}
-	if _, err := mail.ParseAddress(email); err != nil {
-		return "", nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
-	}
-
-	username = strings.TrimSpace(username)
-	if len([]rune(username)) > 100 {
-		username = string([]rune(username)[:100])
-	}
-
-	user, err := s.userRepo.GetByEmail(ctx, email)
-	if err != nil {
-		if errors.Is(err, ErrUserNotFound) {
-			// OAuth 首次登录视为注册（fail-close：settingService 未配置时不允许注册）
-			if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
-				return "", nil, ErrRegDisabled
-			}
-
-			randomPassword, err := randomHexString(32)
-			if err != nil {
-				logger.LegacyPrintf("service.auth", "[Auth] Failed to generate random password for oauth signup: %v", err)
-				return "", nil, ErrServiceUnavailable
-			}
-			hashedPassword, err := s.HashPassword(randomPassword)
-			if err != nil {
-				return "", nil, fmt.Errorf("hash password: %w", err)
-			}
-
-			signupSource := inferLegacySignupSource(email)
-			grantPlan := s.resolveSignupGrantPlan(ctx, signupSource)
-			var defaultRPMLimit int
-			if s.settingService != nil {
-				defaultRPMLimit = s.settingService.GetDefaultUserRPMLimit(ctx)
-			}
-
-			newUser := &User{
-				Email:        email,
-				Username:     username,
-				PasswordHash: hashedPassword,
-				Role:         RoleUser,
-				Balance:      grantPlan.Balance,
-				Concurrency:  grantPlan.Concurrency,
-				RPMLimit:     defaultRPMLimit,
-				Status:       StatusActive,
-				SignupSource: signupSource,
-			}
-
-			if err := s.userRepo.Create(ctx, newUser); err != nil {
-				if errors.Is(err, ErrEmailExists) {
-					// 并发场景：GetByEmail 与 Create 之间用户被创建。
-					user, err = s.userRepo.GetByEmail(ctx, email)
-					if err != nil {
-						logger.LegacyPrintf("service.auth", "[Auth] Database error getting user after conflict: %v", err)
-						return "", nil, ErrServiceUnavailable
-					}
-				} else {
-					logger.LegacyPrintf("service.auth", "[Auth] Database error creating oauth user: %v", err)
-					return "", nil, ErrServiceUnavailable
-				}
-			} else {
-				user = newUser
-				s.postAuthUserBootstrap(ctx, user, signupSource, false)
-				s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
-				// snapshot user × platform quota（fail-open）
-				_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
-			}
-		} else {
-			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)
-			return "", nil, ErrServiceUnavailable
-		}
-	}
-
-	if !user.IsActive() {
-		return "", nil, ErrUserNotActive
-	}
-
-	// 尽力补全：当用户名为空时，使用第三方返回的用户名回填。
-	if user.Username == "" && username != "" {
-		user.Username = username
-		if err := s.userRepo.Update(ctx, user, UserUpdateFields{Username: true}); err != nil {
-			logger.LegacyPrintf("service.auth", "[Auth] Failed to update username after oauth login: %v", err)
-		}
-	}
-	token, err := s.GenerateToken(ctx, user)
-	if err != nil {
-		return "", nil, fmt.Errorf("generate token: %w", err)
-	}
-	return token, user, nil
-}
-
-// canBypassRegistrationDisabledForOAuth 在钉钉企业模式（internal_only）且
-// dingtalk_connect_bypass_registration=true 时，允许跳过全局 registration_enabled 检查。
-func (s *AuthService) canBypassRegistrationDisabledForOAuth(ctx context.Context, signupSource string) bool {
-	if signupSource != "dingtalk" {
-		return false
-	}
-	cfg, err := s.settingService.GetDingTalkConnectOAuthConfig(ctx)
-	if err != nil || !cfg.Enabled || !cfg.BypassRegistration {
-		return false
-	}
-	return cfg.CorpRestrictionPolicy == "internal_only"
-}
-
-// LoginOrRegisterOAuthWithTokenPair 用于第三方 OAuth/SSO 登录，返回完整的 TokenPair。
-// 与 LoginOrRegisterOAuth 功能相同，但返回 TokenPair 而非单个 token。
-// invitationCode 仅在邀请码注册模式下新用户注册时使用；已有账号登录时忽略。
-// affiliateCode 用于邀请返利绑定，仅在新用户注册时使用。
-// signupSource 标识来源渠道（"dingtalk"/"linuxdo"/"wechat"/"oidc" 等），仅用于豁免检查。
-func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, email, username, invitationCode, affiliateCode, signupSource string) (*TokenPair, *User, error) {
-	return s.loginOrRegisterOAuthWithTokenPair(ctx, email, username, invitationCode, affiliateCode, "", signupSource)
-}
-
-// LoginOrRegisterOAuthWithTokenPairAndPromoCode behaves like
-// LoginOrRegisterOAuthWithTokenPair and applies promoCode only when a new user
-// is created.
-func (s *AuthService) LoginOrRegisterOAuthWithTokenPairAndPromoCode(ctx context.Context, email, username, invitationCode, affiliateCode, promoCode, signupSource string) (*TokenPair, *User, error) {
-	return s.loginOrRegisterOAuthWithTokenPair(ctx, email, username, invitationCode, affiliateCode, promoCode, signupSource)
-}
-
-func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, email, username, invitationCode, affiliateCode, promoCode, signupSource string) (*TokenPair, *User, error) {
-	// 检查 refreshTokenCache 是否可用
-	if s.refreshTokenCache == nil {
-		return nil, nil, errors.New("refresh token cache not configured")
-	}
-
-	email = strings.TrimSpace(email)
-	if email == "" || len(email) > 255 {
-		return nil, nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
-	}
-	if _, err := mail.ParseAddress(email); err != nil {
-		return nil, nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
-	}
-
-	username = strings.TrimSpace(username)
-	if len([]rune(username)) > 100 {
-		username = string([]rune(username)[:100])
-	}
-
-	user, err := s.userRepo.GetByEmail(ctx, email)
-	created := false
-	if err != nil {
-		if errors.Is(err, ErrUserNotFound) {
-			// OAuth 首次登录视为注册
-			if s.settingService == nil || (!s.settingService.IsRegistrationEnabled(ctx) && !s.canBypassRegistrationDisabledForOAuth(ctx, signupSource)) {
-				return nil, nil, ErrRegDisabled
-			}
-
-			// 检查是否需要邀请码
-			var invitationRedeemCode *RedeemCode
-			if s.settingService != nil && s.settingService.IsInvitationCodeEnabled(ctx) {
-				if invitationCode == "" {
-					return nil, nil, ErrOAuthInvitationRequired
-				}
-				redeemCode, err := s.redeemRepo.GetByCode(ctx, invitationCode)
-				if err != nil {
-					return nil, nil, ErrInvitationCodeInvalid
-				}
-				if redeemCode.Type != RedeemTypeInvitation || !redeemCode.CanUse() {
-					return nil, nil, ErrInvitationCodeInvalid
-				}
-				invitationRedeemCode = redeemCode
-			}
-
-			randomPassword, err := randomHexString(32)
-			if err != nil {
-				logger.LegacyPrintf("service.auth", "[Auth] Failed to generate random password for oauth signup: %v", err)
-				return nil, nil, ErrServiceUnavailable
-			}
-			hashedPassword, err := s.HashPassword(randomPassword)
-			if err != nil {
-				return nil, nil, fmt.Errorf("hash password: %w", err)
-			}
-
-			// 优先用 caller 显式传入的 signupSource（如 "dingtalk" / "linuxdo" / "oidc" / "wechat"），
-			// 否则才按邮箱后缀推断——避免有真实邮箱的 OAuth 用户被推断为 "email" 渠道，导致渠道授权错读。
-			if strings.TrimSpace(signupSource) == "" {
-				signupSource = inferLegacySignupSource(email)
-			}
-			grantPlan := s.resolveSignupGrantPlan(ctx, signupSource)
-			var defaultRPMLimit int
-			if s.settingService != nil {
-				defaultRPMLimit = s.settingService.GetDefaultUserRPMLimit(ctx)
-			}
-
-			newUser := &User{
-				Email:        email,
-				Username:     username,
-				PasswordHash: hashedPassword,
-				Role:         RoleUser,
-				Balance:      grantPlan.Balance,
-				Concurrency:  grantPlan.Concurrency,
-				RPMLimit:     defaultRPMLimit,
-				Status:       StatusActive,
-				SignupSource: signupSource,
-			}
-
-			if s.entClient != nil && invitationRedeemCode != nil {
-				tx, err := s.entClient.Tx(ctx)
-				if err != nil {
-					logger.LegacyPrintf("service.auth", "[Auth] Failed to begin transaction for oauth registration: %v", err)
-					return nil, nil, ErrServiceUnavailable
-				}
-				defer func() { _ = tx.Rollback() }()
-				txCtx := dbent.NewTxContext(ctx, tx)
-
-				if err := s.userRepo.Create(txCtx, newUser); err != nil {
-					if errors.Is(err, ErrEmailExists) {
-						user, err = s.userRepo.GetByEmail(ctx, email)
-						if err != nil {
-							logger.LegacyPrintf("service.auth", "[Auth] Database error getting user after conflict: %v", err)
-							return nil, nil, ErrServiceUnavailable
-						}
-					} else {
-						logger.LegacyPrintf("service.auth", "[Auth] Database error creating oauth user: %v", err)
-						return nil, nil, ErrServiceUnavailable
-					}
-				} else {
-					if err := s.redeemRepo.Use(txCtx, invitationRedeemCode.ID, newUser.ID); err != nil {
-						return nil, nil, ErrInvitationCodeInvalid
-					}
-					if err := tx.Commit(); err != nil {
-						logger.LegacyPrintf("service.auth", "[Auth] Failed to commit oauth registration transaction: %v", err)
-						return nil, nil, ErrServiceUnavailable
-					}
-					user = newUser
-					created = true
-					s.postAuthUserBootstrap(ctx, user, signupSource, false)
-					s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
-					// snapshot user × platform quota（fail-open）
-					_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
-					s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
-				}
-			} else {
-				if err := s.userRepo.Create(ctx, newUser); err != nil {
-					if errors.Is(err, ErrEmailExists) {
-						user, err = s.userRepo.GetByEmail(ctx, email)
-						if err != nil {
-							logger.LegacyPrintf("service.auth", "[Auth] Database error getting user after conflict: %v", err)
-							return nil, nil, ErrServiceUnavailable
-						}
-					} else {
-						logger.LegacyPrintf("service.auth", "[Auth] Database error creating oauth user: %v", err)
-						return nil, nil, ErrServiceUnavailable
-					}
-				} else {
-					user = newUser
-					created = true
-					s.postAuthUserBootstrap(ctx, user, signupSource, false)
-					s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
-					// snapshot user × platform quota（fail-open）
-					_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
-					s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
-					if invitationRedeemCode != nil {
-						if err := s.redeemRepo.Use(ctx, invitationRedeemCode.ID, user.ID); err != nil {
-							return nil, nil, ErrInvitationCodeInvalid
-						}
-					}
-				}
-			}
-		} else {
-			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)
-			return nil, nil, ErrServiceUnavailable
-		}
-	}
-
-	if !user.IsActive() {
-		return nil, nil, ErrUserNotActive
-	}
-
-	if user.Username == "" && username != "" {
-		user.Username = username
-		if err := s.userRepo.Update(ctx, user, UserUpdateFields{Username: true}); err != nil {
-			logger.LegacyPrintf("service.auth", "[Auth] Failed to update username after oauth login: %v", err)
-		}
-	}
-	if created {
-		user = s.applyOAuthSignupPromoCode(ctx, user, promoCode)
-	}
-	tokenPair, err := s.GenerateTokenPair(ctx, user, "")
-	if err != nil {
-		return nil, nil, fmt.Errorf("generate token pair: %w", err)
-	}
-	return tokenPair, user, nil
-}
-
-func (s *AuthService) ApplyOAuthSignupPromoCode(ctx context.Context, userID int64, promoCode string) {
-	if userID <= 0 {
-		return
-	}
-	s.applyOAuthSignupPromoCode(ctx, &User{ID: userID}, promoCode)
-}
-
-func (s *AuthService) applyOAuthSignupPromoCode(ctx context.Context, user *User, promoCode string) *User {
-	promoCode = strings.TrimSpace(promoCode)
-	if user == nil || user.ID <= 0 || promoCode == "" || s.promoService == nil || s.settingService == nil || !s.settingService.IsPromoCodeEnabled(ctx) {
-		return user
-	}
-	if err := s.promoService.ApplyPromoCode(ctx, user.ID, promoCode); err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to apply promo code for oauth user %d: %v", user.ID, err)
-		return user
-	}
-	if updatedUser, err := s.userRepo.GetByID(ctx, user.ID); err == nil {
-		return updatedUser
-	}
-	return user
-}
-
 func (s *AuthService) assignSubscriptions(ctx context.Context, userID int64, items []DefaultSubscriptionSetting, notes string) {
 	if s.settingService == nil || s.defaultSubAssigner == nil || userID <= 0 {
 		return
@@ -954,36 +577,8 @@ func authSourceSignupSettings(defaults *AuthSourceDefaultSettings, signupSource 
 	switch strings.ToLower(strings.TrimSpace(signupSource)) {
 	case "email":
 		return defaults.Email, true
-	case "linuxdo":
-		return defaults.LinuxDo, true
-	case "oidc":
-		return defaults.OIDC, true
-	case "wechat":
-		return defaults.WeChat, true
-	case "github":
-		return defaults.GitHub, true
-	case "google":
-		return defaults.Google, true
-	case "dingtalk":
-		return defaults.DingTalk, true
 	default:
 		return ProviderDefaultGrantSettings{}, false
-	}
-}
-
-// bindOAuthAffiliate initializes the affiliate profile and binds the inviter
-// for an OAuth-registered user. Failures are logged but never block registration.
-func (s *AuthService) bindOAuthAffiliate(ctx context.Context, userID int64, affiliateCode string) {
-	if s.affiliateService == nil || userID <= 0 {
-		return
-	}
-	if _, err := s.affiliateService.EnsureUserAffiliate(ctx, userID); err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to initialize affiliate profile for user %d: %v", userID, err)
-	}
-	if code := strings.TrimSpace(affiliateCode); code != "" {
-		if err := s.affiliateService.BindInviterByCode(ctx, userID, code); err != nil {
-			logger.LegacyPrintf("service.auth", "[Auth] Failed to bind affiliate inviter for user %d: %v", userID, err)
-		}
 	}
 }
 
@@ -1176,22 +771,6 @@ func (s *AuthService) ensureEmailAuthIdentity(ctx context.Context, user *User, s
 	return identity, !existed
 }
 
-func inferLegacySignupSource(email string) string {
-	normalized := strings.ToLower(strings.TrimSpace(email))
-	switch {
-	case strings.HasSuffix(normalized, DingTalkConnectSyntheticEmailDomain):
-		return "dingtalk"
-	case strings.HasSuffix(normalized, LinuxDoConnectSyntheticEmailDomain):
-		return "linuxdo"
-	case strings.HasSuffix(normalized, OIDCConnectSyntheticEmailDomain):
-		return "oidc"
-	case strings.HasSuffix(normalized, WeChatConnectSyntheticEmailDomain):
-		return "wechat"
-	default:
-		return "email"
-	}
-}
-
 func (s *AuthService) validateRegistrationEmailPolicy(ctx context.Context, email string) error {
 	if s.settingService == nil {
 		return nil
@@ -1271,62 +850,9 @@ func (s *AuthService) createUserWithRegistrationEmailGuard(ctx context.Context, 
 	return quotaRepo.CreateWithEmailAliasGuardAndDomainLimit(ctx, user, domain)
 }
 
-// createUserAndClaimInvitation 原子化完成“用户创建 + 邀请码占用”。
-//
-// 背景：邀请码属于一次性凭证，必须保证“一个邀请码最多注册一个账号”。旧实现先检查
-// CanUse()、再创建用户、最后才 redeemRepo.Use()（且失败仅记日志），检查与消耗分离且
-// 不在同一事务，并发注册可在同一邀请码上同时通过检查并各自创建账号（TOCTOU 竞态）。
-//
-// 本实现把两者放入同一个数据库事务：
-//   - 占用走 redeemRepo.Use 的条件更新（WHERE status='unused'，乐观锁）；
-//   - 并发下只有一个事务能占用成功，其余事务回滚——既不产生多余账号，也不让码被烧掉；
-//   - 事务回滚同时撤销用户创建，避免“账号已建、码被占用”的中间态。
-//
-// 无邀请码时保持原单次创建路径（不开事务）；entClient 缺失的异常配置下退化为顺序执行，
-// 并发正确性仍由 Use 的条件更新兜底（可能产生孤儿用户，但不会放行第二个注册）。
-func (s *AuthService) createUserAndClaimInvitation(ctx context.Context, user *User, invitation *RedeemCode) error {
-	commitUser := func(execCtx context.Context) error {
-		if err := s.createUserWithRegistrationEmailGuard(execCtx, user); err != nil {
-			return err
-		}
-		if invitation == nil {
-			return nil
-		}
-		// createUserWithRegistrationEmailGuard 会回填 user.ID（applyUserEntityToService），
-		// 直接以其原子占用邀请码；占用失败即整体回滚（含用户创建，见 user_repo.create
-		// 对外部事务的复用）。
-		if err := s.redeemRepo.Use(execCtx, invitation.ID, user.ID); err != nil {
-			// 并发下唯一的合法失败路径：另一个注册已占用该码
-			logger.LegacyPrintf("service.auth",
-				"[Auth] Rejected registration: invitation code %s already claimed (user_id=%d err=%v)",
-				invitation.Code, user.ID, err)
-			return ErrInvitationCodeInvalid
-		}
-		return nil
-	}
-
-	if invitation == nil {
-		return commitUser(ctx)
-	}
-	if s.entClient == nil {
-		return commitUser(ctx)
-	}
-
-	tx, err := s.entClient.Tx(ctx)
-	if err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to start registration transaction: %v", err)
-		return ErrServiceUnavailable
-	}
-	defer func() { _ = tx.Rollback() }()
-	execCtx := dbent.NewTxContext(ctx, tx)
-	if err := commitUser(execCtx); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to commit registration transaction: %v", err)
-		return ErrServiceUnavailable
-	}
-	return nil
+// createUserWithEmailQuota 创建用户（带邮箱别名与域名配额守卫）。
+func (s *AuthService) createUserWithEmailQuota(ctx context.Context, user *User) error {
+	return s.createUserWithRegistrationEmailGuard(ctx, user)
 }
 
 func buildEmailSuffixNotAllowedError(whitelist []string) error {
@@ -1959,4 +1485,16 @@ func (s *AuthService) snapshotPlatformQuotaDefaults(ctx context.Context, userID 
 		return nil // fail-open：返回 nil，让调用方继续
 	}
 	return nil
+}
+
+// RecordSuccessfulLogin updates last-login activity after a non-standard login
+// flow finishes with a real session.
+func (s *AuthService) RecordSuccessfulLogin(ctx context.Context, userID int64) {
+	if s != nil && s.userRepo != nil && userID > 0 {
+		user, err := s.userRepo.GetByID(ctx, userID)
+		if err == nil && user != nil && !isReservedEmail(user.Email) {
+			s.backfillEmailIdentityOnSuccessfulLogin(ctx, user)
+		}
+	}
+	s.touchUserLogin(ctx, userID)
 }

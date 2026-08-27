@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -52,24 +51,6 @@ func (s *SettingService) GetRegistrationEmailSuffixWhitelist(ctx context.Context
 	return ParseRegistrationEmailSuffixWhitelist(value)
 }
 
-// IsPromoCodeEnabled 检查是否启用优惠码功能
-func (s *SettingService) IsPromoCodeEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyPromoCodeEnabled)
-	if err != nil {
-		return true // 默认启用
-	}
-	return value != "false"
-}
-
-// IsInvitationCodeEnabled 检查是否启用邀请码注册功能
-func (s *SettingService) IsInvitationCodeEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyInvitationCodeEnabled)
-	if err != nil {
-		return false // 默认关闭
-	}
-	return value == "true"
-}
-
 // GetCustomMenuItemsRaw returns the raw JSON string of custom_menu_items setting.
 func (s *SettingService) GetCustomMenuItemsRaw(ctx context.Context) string {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyCustomMenuItems)
@@ -77,88 +58,6 @@ func (s *SettingService) GetCustomMenuItemsRaw(ctx context.Context) string {
 		return "[]"
 	}
 	return value
-}
-
-// IsAffiliateEnabled 检查是否启用邀请返利功能（总开关）
-func (s *SettingService) IsAffiliateEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyAffiliateEnabled)
-	if err != nil {
-		return false // 默认关闭
-	}
-	return value == "true"
-}
-
-// IsAffiliateAdminRechargeEnabled reports whether admin balance
-// deposits should participate in the affiliate rebate program.
-func (s *SettingService) IsAffiliateAdminRechargeEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyAffiliateAdminRechargeEnabled)
-	if err != nil {
-		return AdminRechargeRebateEnabledDefault
-	}
-	return value == "true"
-}
-
-// GetAffiliateRebateRatePercent 读取并 clamp 全局返利比例。
-// 解析失败、缺失或越界都回退到 AffiliateRebateRateDefault — 该比例从不抛错，
-// 调用方只关心一个可用的数值。
-func (s *SettingService) GetAffiliateRebateRatePercent(ctx context.Context) float64 {
-	raw, err := s.settingRepo.GetValue(ctx, SettingKeyAffiliateRebateRate)
-	if err != nil {
-		return AffiliateRebateRateDefault
-	}
-	rate, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
-	if err != nil || math.IsNaN(rate) || math.IsInf(rate, 0) {
-		return AffiliateRebateRateDefault
-	}
-	return clampAffiliateRebateRate(rate)
-}
-
-// GetAffiliateRebateFreezeHours 返回返利冻结期（小时）。
-// 返回 0 表示不冻结（向后兼容）。
-func (s *SettingService) GetAffiliateRebateFreezeHours(ctx context.Context) int {
-	raw, err := s.settingRepo.GetValue(ctx, SettingKeyAffiliateRebateFreezeHours)
-	if err != nil {
-		return AffiliateRebateFreezeHoursDefault
-	}
-	hours, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil || hours < 0 {
-		return AffiliateRebateFreezeHoursDefault
-	}
-	if hours > AffiliateRebateFreezeHoursMax {
-		return AffiliateRebateFreezeHoursMax
-	}
-	return hours
-}
-
-// GetAffiliateRebateDurationDays 返回返利有效期（天）。
-// 返回 0 表示永久有效。
-func (s *SettingService) GetAffiliateRebateDurationDays(ctx context.Context) int {
-	raw, err := s.settingRepo.GetValue(ctx, SettingKeyAffiliateRebateDurationDays)
-	if err != nil {
-		return AffiliateRebateDurationDaysDefault
-	}
-	days, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil || days < 0 {
-		return AffiliateRebateDurationDaysDefault
-	}
-	if days > AffiliateRebateDurationDaysMax {
-		return AffiliateRebateDurationDaysMax
-	}
-	return days
-}
-
-// GetAffiliateRebatePerInviteeCap 返回单人返利上限。
-// 返回 0 表示无上限。
-func (s *SettingService) GetAffiliateRebatePerInviteeCap(ctx context.Context) float64 {
-	raw, err := s.settingRepo.GetValue(ctx, SettingKeyAffiliateRebatePerInviteeCap)
-	if err != nil {
-		return AffiliateRebatePerInviteeCapDefault
-	}
-	cap, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
-	if err != nil || cap < 0 || math.IsNaN(cap) || math.IsInf(cap, 0) {
-		return AffiliateRebatePerInviteeCapDefault
-	}
-	return cap
 }
 
 // IsPasswordResetEnabled 检查是否启用密码重置功能
@@ -348,44 +247,7 @@ func (s *SettingService) GetAuthSourceDefaultSettings(ctx context.Context) (*Aut
 		SettingKeyAuthSourceDefaultEmailSubscriptions,
 		SettingKeyAuthSourceDefaultEmailGrantOnSignup,
 		SettingKeyAuthSourceDefaultEmailGrantOnFirstBind,
-		SettingKeyAuthSourceDefaultLinuxDoBalance,
-		SettingKeyAuthSourceDefaultLinuxDoConcurrency,
-		SettingKeyAuthSourceDefaultLinuxDoSubscriptions,
-		SettingKeyAuthSourceDefaultLinuxDoGrantOnSignup,
-		SettingKeyAuthSourceDefaultLinuxDoGrantOnFirstBind,
-		SettingKeyAuthSourceDefaultOIDCBalance,
-		SettingKeyAuthSourceDefaultOIDCConcurrency,
-		SettingKeyAuthSourceDefaultOIDCSubscriptions,
-		SettingKeyAuthSourceDefaultOIDCGrantOnSignup,
-		SettingKeyAuthSourceDefaultOIDCGrantOnFirstBind,
-		SettingKeyAuthSourceDefaultWeChatBalance,
-		SettingKeyAuthSourceDefaultWeChatConcurrency,
-		SettingKeyAuthSourceDefaultWeChatSubscriptions,
-		SettingKeyAuthSourceDefaultWeChatGrantOnSignup,
-		SettingKeyAuthSourceDefaultWeChatGrantOnFirstBind,
-		SettingKeyAuthSourceDefaultGitHubBalance,
-		SettingKeyAuthSourceDefaultGitHubConcurrency,
-		SettingKeyAuthSourceDefaultGitHubSubscriptions,
-		SettingKeyAuthSourceDefaultGitHubGrantOnSignup,
-		SettingKeyAuthSourceDefaultGitHubGrantOnFirstBind,
-		SettingKeyAuthSourceDefaultGoogleBalance,
-		SettingKeyAuthSourceDefaultGoogleConcurrency,
-		SettingKeyAuthSourceDefaultGoogleSubscriptions,
-		SettingKeyAuthSourceDefaultGoogleGrantOnSignup,
-		SettingKeyAuthSourceDefaultGoogleGrantOnFirstBind,
-		SettingKeyAuthSourceDefaultDingTalkBalance,
-		SettingKeyAuthSourceDefaultDingTalkConcurrency,
-		SettingKeyAuthSourceDefaultDingTalkSubscriptions,
-		SettingKeyAuthSourceDefaultDingTalkGrantOnSignup,
-		SettingKeyAuthSourceDefaultDingTalkGrantOnFirstBind,
 		SettingKeyAuthSourcePlatformQuotas("email"),
-		SettingKeyAuthSourcePlatformQuotas("linuxdo"),
-		SettingKeyAuthSourcePlatformQuotas("oidc"),
-		SettingKeyAuthSourcePlatformQuotas("wechat"),
-		SettingKeyAuthSourcePlatformQuotas("github"),
-		SettingKeyAuthSourcePlatformQuotas("google"),
-		SettingKeyAuthSourcePlatformQuotas("dingtalk"),
-		SettingKeyForceEmailOnThirdPartySignup,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -394,14 +256,7 @@ func (s *SettingService) GetAuthSourceDefaultSettings(ctx context.Context) (*Aut
 	}
 
 	return &AuthSourceDefaultSettings{
-		Email:                        parseProviderDefaultGrantSettings(settings, emailAuthSourceDefaultKeys),
-		LinuxDo:                      parseProviderDefaultGrantSettings(settings, linuxDoAuthSourceDefaultKeys),
-		OIDC:                         parseProviderDefaultGrantSettings(settings, oidcAuthSourceDefaultKeys),
-		WeChat:                       parseProviderDefaultGrantSettings(settings, weChatAuthSourceDefaultKeys),
-		GitHub:                       parseProviderDefaultGrantSettings(settings, gitHubAuthSourceDefaultKeys),
-		Google:                       parseProviderDefaultGrantSettings(settings, googleAuthSourceDefaultKeys),
-		DingTalk:                     parseProviderDefaultGrantSettings(settings, dingTalkAuthSourceDefaultKeys),
-		ForceEmailOnThirdPartySignup: settings[SettingKeyForceEmailOnThirdPartySignup] == "true",
+		Email: parseProviderDefaultGrantSettings(settings, emailAuthSourceDefaultKeys),
 	}, nil
 }
 

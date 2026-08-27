@@ -48,13 +48,11 @@ describe('User UI request marker', () => {
   it.each([
     '/auth/me',
     '/auth/revoke-all-sessions',
-    '/auth/oauth/bind-token',
     '/user',
     '/user/profile',
     '/user/password',
     '/user/notify-email/send-code',
     '/user/totp/status',
-    '/user/aff',
     '/user/platform-quotas',
     '/keys',
     '/keys/12',
@@ -66,19 +64,12 @@ describe('User UI request marker', () => {
     '/usage/dashboard/snapshot-v2',
     '/announcements',
     '/announcements/3/read',
-    '/redeem',
-    '/redeem/history',
     '/subscriptions',
     '/subscriptions/active',
     '/channel-monitors',
     '/channel-monitors/9/status',
-    '/payment/config',
-    '/payment/plans',
-    '/payment/orders',
-    '/payment/orders/my',
     '/api/v1/auth/me',
     '/api/v1/keys?page=1',
-    'https://api.example.test/api/v1/payment/orders/1',
   ])('marks user timing API %s', (requestURL) => {
     expect(shouldMarkUserUIRequest(requestURL)).toBe(true)
     expect(isUserTimingAPIPath(requestURL)).toBe(true)
@@ -90,9 +81,11 @@ describe('User UI request marker', () => {
     '/admin/users',
     '/groups',
     '/channels',
-    '/payment/public/orders/verify',
-    '/payment/webhook/stripe',
-    '/api/v1/payment/public/orders/resolve',
+    '/redeem',
+    '/redeem/history',
+    '/payment/config',
+    '/payment/orders',
+    '/auth/oauth/bind-token',
     '',
   ])('does not mark non-user timing API %s', (requestURL) => {
     expect(shouldMarkUserUIRequest(requestURL)).toBe(false)

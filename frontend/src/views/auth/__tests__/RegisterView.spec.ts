@@ -11,18 +11,10 @@ const { getPublicSettingsMock, registerMock, showErrorMock } = vi.hoisted(() => 
 const publicSettings = {
   registration_enabled: true,
   email_verify_enabled: false,
-  promo_code_enabled: false,
-  invitation_code_enabled: false,
-  affiliate_enabled: true,
   turnstile_enabled: true,
   turnstile_site_key: 'site-key',
   site_name: 'Sub2API',
-  registration_email_suffix_whitelist: [],
-  linuxdo_oauth_enabled: false,
-  wechat_oauth_enabled: false,
-  oidc_oauth_enabled: false,
-  github_oauth_enabled: false,
-  google_oauth_enabled: false
+  registration_email_suffix_whitelist: []
 }
 
 vi.mock('vue-router', () => ({
@@ -70,10 +62,6 @@ function mountRegister() {
         Icon: true,
         TurnstileWidget: { template: '<div data-testid="turnstile-widget" />' },
         LoginAgreementPrompt: true,
-        EmailOAuthButtons: true,
-        LinuxDoOAuthSection: true,
-        WechatOAuthSection: true,
-        OidcOAuthSection: true,
         RouterLink: true,
         transition: false
       }
@@ -88,34 +76,6 @@ describe('RegisterView invitation layout', () => {
     showErrorMock.mockReset()
     getPublicSettingsMock.mockResolvedValue(publicSettings)
     registerMock.mockResolvedValue({})
-  })
-
-  it('keeps the optional affiliate invitation field before Turnstile', async () => {
-    const wrapper = mountRegister()
-    await flushPromises()
-
-    const invitationField = wrapper.get('[data-testid="affiliate-invitation-field"]')
-    const turnstile = wrapper.get('[data-testid="registration-turnstile"]')
-
-    expect(invitationField.get('input').attributes('id')).toBe('affiliate_code')
-    expect(invitationField.text()).toContain('common.optional')
-    expect(
-      invitationField.element.compareDocumentPosition(turnstile.element) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-  })
-
-  it('uses the mandatory invitation field without duplicating the affiliate field', async () => {
-    getPublicSettingsMock.mockResolvedValueOnce({
-      ...publicSettings,
-      invitation_code_enabled: true
-    })
-
-    const wrapper = mountRegister()
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="affiliate-invitation-field"]').exists()).toBe(false)
-    expect(wrapper.get('#invitation_code').exists()).toBe(true)
   })
 
   it('submits a non-whitelist email domain so the backend can enforce its registration quota', async () => {

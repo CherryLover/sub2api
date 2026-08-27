@@ -170,7 +170,6 @@ describe('admin UsersView', () => {
           UserApiKeysModal: true,
           UserAllowedGroupsModal: true,
           UserBalanceModal: true,
-          UserBalanceHistoryModal: true,
           GroupReplaceModal: true,
           Icon: true,
           Teleport: true
@@ -256,7 +255,6 @@ describe('admin UsersView', () => {
           UserApiKeysModal: true,
           UserAllowedGroupsModal: true,
           UserBalanceModal: true,
-          UserBalanceHistoryModal: true,
           GroupReplaceModal: true,
           Icon: true,
           Teleport: true
@@ -334,7 +332,6 @@ describe('admin UsersView', () => {
           UserApiKeysModal: true,
           UserAllowedGroupsModal: true,
           UserBalanceModal: true,
-          UserBalanceHistoryModal: true,
           GroupReplaceModal: true,
           Icon: true,
           Teleport: true

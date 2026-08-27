@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -15,11 +16,16 @@ import (
 //   - 非激活账号完全跳过。
 
 type fakeCNQuotaProber struct {
+	// runOnce 以 cnQuotaProbeConcurrency 并发调用 QueryUsage，
+	// 共享切片必须加锁，否则并发 append 丢元素导致断言偶发失败。
+	mu     sync.Mutex
 	probed []int64
 }
 
 func (f *fakeCNQuotaProber) QueryUsage(ctx context.Context, accountID int64) (*CNProviderQuotaProbeResult, error) {
+	f.mu.Lock()
 	f.probed = append(f.probed, accountID)
+	f.mu.Unlock()
 	return &CNProviderQuotaProbeResult{Success: true, Persisted: true}, nil
 }
 

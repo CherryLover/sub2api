@@ -54,7 +54,6 @@ func TestAdminService_UpdateUser_PromoteToAdmin(t *testing.T) {
 	invalidator := &authCacheInvalidatorStub{}
 	svc := &adminServiceImpl{
 		userRepo:             repo,
-		redeemCodeRepo:       &redeemRepoStub{},
 		authCacheInvalidator: invalidator,
 	}
 
@@ -67,7 +66,7 @@ func TestAdminService_UpdateUser_PromoteToAdmin(t *testing.T) {
 func TestAdminService_UpdateUser_RoleOmittedKeepsExisting(t *testing.T) {
 	base := &userRepoStub{user: &User{ID: 42, Email: "u@example.com", Role: RoleAdmin}}
 	repo := &rpmUserRepoStub{userRepoStub: base}
-	svc := &adminServiceImpl{userRepo: repo, redeemCodeRepo: &redeemRepoStub{}}
+	svc := &adminServiceImpl{userRepo: repo}
 
 	newName := "renamed"
 	updated, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{Username: &newName})
@@ -78,7 +77,7 @@ func TestAdminService_UpdateUser_RoleOmittedKeepsExisting(t *testing.T) {
 func TestAdminService_UpdateUser_InvalidRoleRejected(t *testing.T) {
 	base := &userRepoStub{user: &User{ID: 42, Email: "u@example.com", Role: RoleUser}}
 	repo := &rpmUserRepoStub{userRepoStub: base}
-	svc := &adminServiceImpl{userRepo: repo, redeemCodeRepo: &redeemRepoStub{}}
+	svc := &adminServiceImpl{userRepo: repo}
 
 	_, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{Role: "root"})
 	require.Error(t, err)
@@ -101,7 +100,7 @@ func (s *roleGuardUserRepoStub) ListWithFilters(_ context.Context, _ pagination.
 func TestAdminService_UpdateUser_DemoteLastAdminRejected(t *testing.T) {
 	base := &userRepoStub{user: &User{ID: 42, Email: "a@example.com", Role: RoleAdmin}}
 	repo := &roleGuardUserRepoStub{rpmUserRepoStub: &rpmUserRepoStub{userRepoStub: base}, adminTotal: 1}
-	svc := &adminServiceImpl{userRepo: repo, redeemCodeRepo: &redeemRepoStub{}}
+	svc := &adminServiceImpl{userRepo: repo}
 
 	_, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{Role: RoleUser})
 	require.Error(t, err)
@@ -116,7 +115,6 @@ func TestAdminService_UpdateUser_DemoteAdminAllowedWhenOthersExist(t *testing.T)
 	invalidator := &authCacheInvalidatorStub{}
 	svc := &adminServiceImpl{
 		userRepo:             repo,
-		redeemCodeRepo:       &redeemRepoStub{},
 		authCacheInvalidator: invalidator,
 	}
 
@@ -132,7 +130,6 @@ func TestAdminService_UpdateUser_PromoteDoesNotCountAdmins(t *testing.T) {
 	repo := &roleGuardUserRepoStub{rpmUserRepoStub: &rpmUserRepoStub{userRepoStub: base}, adminTotal: 1}
 	svc := &adminServiceImpl{
 		userRepo:             repo,
-		redeemCodeRepo:       &redeemRepoStub{},
 		authCacheInvalidator: &authCacheInvalidatorStub{},
 	}
 

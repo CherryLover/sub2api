@@ -42,41 +42,12 @@ func backendModeAllowsAuthPath(path string) bool {
 		}
 	}
 
-	for _, suffix := range []string{
-		"/auth/oauth/linuxdo/callback",
-		"/auth/oauth/wechat/callback",
-		"/auth/oauth/wechat/payment/callback",
-		"/auth/oauth/oidc/callback",
-		"/auth/oauth/github/callback",
-		"/auth/oauth/google/callback",
-		"/auth/oauth/dingtalk/callback",
-		"/auth/oauth/github/complete-registration",
-		"/auth/oauth/google/complete-registration",
-		"/auth/oauth/linuxdo/complete-registration",
-		"/auth/oauth/wechat/complete-registration",
-		"/auth/oauth/oidc/complete-registration",
-		"/auth/oauth/dingtalk/complete-registration",
-		"/auth/oauth/linuxdo/create-account",
-		"/auth/oauth/wechat/create-account",
-		"/auth/oauth/oidc/create-account",
-		"/auth/oauth/dingtalk/create-account",
-		"/auth/oauth/linuxdo/bind-login",
-		"/auth/oauth/wechat/bind-login",
-		"/auth/oauth/oidc/bind-login",
-		"/auth/oauth/dingtalk/bind-login",
-	} {
-		if strings.HasSuffix(path, suffix) {
-			return true
-		}
-	}
-
-	return strings.Contains(path, "/auth/oauth/pending/")
+	return false
 }
 
 // BackendModeAuthGuard selectively blocks auth endpoints when backend mode is enabled.
-// Allows the minimal auth surface admins still need in backend mode, including
-// OAuth callbacks and pending continuations. Handler-level backend mode checks
-// still enforce admin-only login and forbid self-service registration.
+// Allows the minimal auth surface admins still need in backend mode. Handler-level
+// backend mode checks still enforce admin-only login and forbid self-service registration.
 func BackendModeAuthGuard(settingService *service.SettingService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if settingService == nil || !settingService.IsBackendModeEnabled(c.Request.Context()) {

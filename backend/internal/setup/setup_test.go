@@ -72,6 +72,21 @@ func TestSetupDefaultAdminConcurrency(t *testing.T) {
 	})
 }
 
+func TestBootstrapAdminBalance(t *testing.T) {
+	t.Parallel()
+
+	// 全新部署的管理员必须带足够余额，否则首条转发请求会被 INSUFFICIENT_BALANCE 拒绝。
+	if bootstrapAdminBalance < 1_000_000_000 {
+		t.Fatalf("bootstrapAdminBalance=%d, want >= 1e9", bootstrapAdminBalance)
+	}
+
+	// users.balance 为 NUMERIC(20,8)，整数位最多 12 位，超出会在 INSERT 时溢出。
+	const maxBalanceIntegerPart = 1_000_000_000_000
+	if bootstrapAdminBalance >= maxBalanceIntegerPart {
+		t.Fatalf("bootstrapAdminBalance=%d exceeds NUMERIC(20,8) integer range", bootstrapAdminBalance)
+	}
+}
+
 func TestNeedsSetupSkipsWhenSkipSetupIsEnabled(t *testing.T) {
 	tests := []struct {
 		name  string

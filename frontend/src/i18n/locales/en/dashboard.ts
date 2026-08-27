@@ -613,96 +613,6 @@ export default {
     }
   },
 
-  affiliate: {
-    title: 'Affiliate Rebates',
-    description: 'Invite new users and convert your rebate quota into account balance',
-    yourCode: 'Your Affiliate Code',
-    inviteLink: 'Invite Link',
-    copyCode: 'Copy Code',
-    copyLink: 'Copy Link',
-    codeCopied: 'Affiliate code copied',
-    linkCopied: 'Invite link copied',
-    loadFailed: 'Failed to load affiliate data',
-    transferFailed: 'Failed to transfer affiliate quota',
-    stats: {
-      rebateRate: 'My Rebate Rate',
-      rebateRateHint: 'What you earn each time an invitee recharges',
-      invitedUsers: 'Invited Users',
-      availableQuota: 'Available Rebate Quota',
-      frozenQuota: 'Frozen',
-      frozenQuotaHint: 'Recently earned rebates pending release',
-      totalQuota: 'Historical Rebate Quota'
-    },
-    transfer: {
-      title: 'Transfer Rebate Quota',
-      description: 'Move available rebate quota into your account balance',
-      button: 'Transfer to Balance',
-      transferring: 'Transferring...',
-      empty: 'No available rebate quota',
-      success: '{amount} has been transferred to your balance'
-    },
-    invitees: {
-      title: 'Invited Users',
-      empty: 'No invited users yet',
-      columns: {
-        email: 'Email',
-        username: 'Username',
-        rebate: 'Rebate',
-        joinedAt: 'Joined At'
-      }
-    },
-    tips: {
-      title: 'How It Works',
-      line1: 'Share your affiliate code or invite link with new users.',
-      line2: 'When invitees recharge, you receive {rate} of the recharge as rebate quota.',
-      line3: 'Transfer rebate quota to balance at any time.',
-      line4: 'Newly earned rebates may have a waiting period before they can be transferred.'
-    }
-  },
-
-  // Redeem
-  redeem: {
-    title: 'Redeem Code',
-    description: 'Enter your redeem code to add balance or increase concurrency',
-    currentBalance: 'Current Balance',
-    concurrency: 'Concurrency',
-    requests: 'requests',
-    redeemCodeLabel: 'Redeem Code',
-    redeemCodePlaceholder: 'Enter your redeem code',
-    redeemCodeHint: 'Redeem codes are case-sensitive',
-    redeeming: 'Redeeming...',
-    redeemButton: 'Redeem Code',
-    redeemSuccess: 'Code Redeemed Successfully!',
-    redeemFailed: 'Redemption Failed',
-    added: 'Added',
-    concurrentRequests: 'concurrent requests',
-    newBalance: 'New Balance',
-    newConcurrency: 'New Concurrency',
-    aboutCodes: 'About Redeem Codes',
-    codeRule1: 'Each code can only be used once',
-    codeRule2: 'Codes may add balance, increase concurrency, or grant trial access',
-    codeRule3: 'Contact support if you have issues redeeming a code',
-    codeRule4: 'Balance and concurrency updates are immediate',
-    recentActivity: 'Recent Activity',
-    historyWillAppear: 'Your redemption history will appear here',
-    balanceAddedRedeem: 'Balance Added (Redeem)',
-    balanceAddedAffiliate: 'Balance Added (Affiliate Transfer)',
-    balanceAddedAdmin: 'Balance Added (Admin)',
-    balanceDeductedAdmin: 'Balance Deducted (Admin)',
-    concurrencyAddedRedeem: 'Concurrency Added (Redeem)',
-    concurrencyAddedAdmin: 'Concurrency Added (Admin)',
-    concurrencyReducedAdmin: 'Concurrency Reduced (Admin)',
-    adminAdjustment: 'Admin Adjustment',
-    subscriptionAssigned: 'Subscription Assigned',
-    subscriptionAssignedDesc: 'You have been granted access to {groupName}',
-    subscriptionDays: '{days} days',
-    days: ' days',
-    codeRedeemSuccess: 'Code redeemed successfully!',
-    failedToRedeem: 'Failed to redeem code. Please check the code and try again.',
-    subscriptionRefreshFailed: 'Redeemed successfully, but failed to refresh subscription status.',
-    pleaseEnterCode: 'Please enter a redeem code'
-  },
-
   // Profile
   profile: {
     title: 'Profile Settings',
@@ -857,7 +767,7 @@ export default {
     },
     authBindings: {
       title: 'Connected Sign-In Methods',
-      description: 'View current bindings and connect another provider to this account.',
+      description: 'Email is the only sign-in method for this account. Review its binding status and manage the primary email here.',
       bindAction: 'Bind {providerName}',
       bindSuccess: 'Account linked successfully',
       emailPlaceholder: 'Enter email address',
@@ -880,19 +790,9 @@ export default {
       },
       providers: {
         email: 'Email',
-        linuxdo: 'LinuxDo',
-        dingtalk: 'DingTalk',
-        oidc: '{providerName}',
-        wechat: 'WeChat',
       },
       notes: {
         emailManagedFromProfile: 'Primary email is managed in the profile form',
-        canUnbind: 'You can unbind this sign-in method',
-        bindAnotherBeforeUnbind: 'Bind another sign-in method before unbinding',
-      },
-      source: {
-        avatar: 'Avatar is currently synced from {providerName}',
-        username: 'Nickname is currently synced from {providerName}',
       },
     }
   },

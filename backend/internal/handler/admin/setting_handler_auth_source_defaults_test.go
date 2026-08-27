@@ -129,15 +129,13 @@ func TestSettingHandler_GetSettings_InjectsAuthSourceDefaults(t *testing.T) {
 	repo := &settingHandlerRepoStub{
 		values: map[string]string{
 			service.SettingKeyRegistrationEnabled:                 "true",
-			service.SettingKeyPromoCodeEnabled:                    "true",
 			service.SettingKeyAuthSourceDefaultEmailBalance:       "9.5",
 			service.SettingKeyAuthSourceDefaultEmailConcurrency:   "8",
 			service.SettingKeyAuthSourceDefaultEmailSubscriptions: `[{"group_id":31,"validity_days":15}]`,
-			service.SettingKeyForceEmailOnThirdPartySignup:        "true",
 		},
 	}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -152,7 +150,6 @@ func TestSettingHandler_GetSettings_InjectsAuthSourceDefaults(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 9.5, data["auth_source_default_email_balance"])
 	require.Equal(t, float64(8), data["auth_source_default_email_concurrency"])
-	require.Equal(t, true, data["force_email_on_third_party_signup"])
 
 	subscriptions, ok := data["auth_source_default_email_subscriptions"].([]any)
 	require.True(t, ok)
@@ -164,21 +161,18 @@ func TestSettingHandler_UpdateSettings_PreservesOmittedAuthSourceDefaults(t *tes
 	repo := &settingHandlerRepoStub{
 		values: map[string]string{
 			service.SettingKeyRegistrationEnabled:                    "false",
-			service.SettingKeyPromoCodeEnabled:                       "true",
 			service.SettingKeyAuthSourceDefaultEmailBalance:          "9.5",
 			service.SettingKeyAuthSourceDefaultEmailConcurrency:      "8",
 			service.SettingKeyAuthSourceDefaultEmailSubscriptions:    `[{"group_id":31,"validity_days":15}]`,
 			service.SettingKeyAuthSourceDefaultEmailGrantOnSignup:    "true",
 			service.SettingKeyAuthSourceDefaultEmailGrantOnFirstBind: "false",
-			service.SettingKeyForceEmailOnThirdPartySignup:           "true",
 		},
 	}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil)
 
 	body := map[string]any{
 		"registration_enabled":              true,
-		"promo_code_enabled":                true,
 		"auth_source_default_email_balance": 12.75,
 	}
 	rawBody, err := json.Marshal(body)
@@ -195,7 +189,6 @@ func TestSettingHandler_UpdateSettings_PreservesOmittedAuthSourceDefaults(t *tes
 	require.Equal(t, "12.75000000", repo.values[service.SettingKeyAuthSourceDefaultEmailBalance])
 	require.Equal(t, "8", repo.values[service.SettingKeyAuthSourceDefaultEmailConcurrency])
 	require.Equal(t, `[{"group_id":31,"validity_days":15}]`, repo.values[service.SettingKeyAuthSourceDefaultEmailSubscriptions])
-	require.Equal(t, "true", repo.values[service.SettingKeyForceEmailOnThirdPartySignup])
 
 	var resp response.Response
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -203,25 +196,17 @@ func TestSettingHandler_UpdateSettings_PreservesOmittedAuthSourceDefaults(t *tes
 	require.True(t, ok)
 	require.Equal(t, 12.75, data["auth_source_default_email_balance"])
 	require.Equal(t, float64(8), data["auth_source_default_email_concurrency"])
-	require.Equal(t, true, data["force_email_on_third_party_signup"])
 }
 
-func TestSettingHandler_UpdateSettings_PersistsPaymentVisibleMethodsAndAdvancedScheduler(t *testing.T) {
+func TestSettingHandler_UpdateSettings_PersistsAdvancedScheduler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{
-		values: map[string]string{
-			service.SettingKeyPromoCodeEnabled: "true",
-		},
+		values: map[string]string{},
 	}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil)
 
 	body := map[string]any{
-		"promo_code_enabled":                                      true,
-		"payment_visible_method_alipay_source":                    "easypay",
-		"payment_visible_method_wxpay_source":                     "wxpay",
-		"payment_visible_method_alipay_enabled":                   true,
-		"payment_visible_method_wxpay_enabled":                    false,
 		"openai_advanced_scheduler_enabled":                       true,
 		"openai_oauth_scheduling_rate_multiplier":                 0.05,
 		"openai_advanced_scheduler_subscription_priority_enabled": true,
@@ -237,10 +222,6 @@ func TestSettingHandler_UpdateSettings_PersistsPaymentVisibleMethodsAndAdvancedS
 	handler.UpdateSettings(c)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, service.VisibleMethodSourceEasyPayAlipay, repo.values[service.SettingPaymentVisibleMethodAlipaySource])
-	require.Equal(t, service.VisibleMethodSourceOfficialWechat, repo.values[service.SettingPaymentVisibleMethodWxpaySource])
-	require.Equal(t, "true", repo.values[service.SettingPaymentVisibleMethodAlipayEnabled])
-	require.Equal(t, "false", repo.values[service.SettingPaymentVisibleMethodWxpayEnabled])
 	require.Equal(t, "true", repo.values["openai_advanced_scheduler_enabled"])
 	require.Equal(t, "0.05", repo.values[service.SettingKeyOpenAIOAuthSchedulingRateMultiplier])
 	require.Equal(t, "true", repo.values[service.SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled])
@@ -249,198 +230,9 @@ func TestSettingHandler_UpdateSettings_PersistsPaymentVisibleMethodsAndAdvancedS
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	data, ok := resp.Data.(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, service.VisibleMethodSourceEasyPayAlipay, data["payment_visible_method_alipay_source"])
-	require.Equal(t, service.VisibleMethodSourceOfficialWechat, data["payment_visible_method_wxpay_source"])
-	require.Equal(t, true, data["payment_visible_method_alipay_enabled"])
-	require.Equal(t, false, data["payment_visible_method_wxpay_enabled"])
 	require.Equal(t, true, data["openai_advanced_scheduler_enabled"])
 	require.Equal(t, 0.05, data["openai_oauth_scheduling_rate_multiplier"])
 	require.Equal(t, true, data["openai_advanced_scheduler_subscription_priority_enabled"])
-}
-
-func TestSettingHandler_UpdateSettings_PreservesLegacyBlankPaymentVisibleMethodSource(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	repo := &settingHandlerRepoStub{
-		values: map[string]string{
-			service.SettingKeyPromoCodeEnabled:               "true",
-			service.SettingPaymentVisibleMethodAlipayEnabled: "true",
-			service.SettingPaymentVisibleMethodAlipaySource:  "",
-			service.SettingPaymentVisibleMethodWxpayEnabled:  "false",
-			service.SettingPaymentVisibleMethodWxpaySource:   "",
-		},
-	}
-	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
-
-	body := map[string]any{
-		"promo_code_enabled": false,
-	}
-	rawBody, err := json.Marshal(body)
-	require.NoError(t, err)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	handler.UpdateSettings(c)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "", repo.values[service.SettingPaymentVisibleMethodAlipaySource])
-	require.Equal(t, "true", repo.values[service.SettingPaymentVisibleMethodAlipayEnabled])
-}
-
-func TestSettingHandler_UpdateSettings_PersistsExplicitFalseOIDCCompatibilityFlags(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	repo := &settingHandlerRepoStub{
-		values: map[string]string{
-			service.SettingKeyPromoCodeEnabled:               "true",
-			service.SettingKeyOIDCConnectEnabled:             "true",
-			service.SettingKeyOIDCConnectProviderName:        "OIDC",
-			service.SettingKeyOIDCConnectClientID:            "oidc-client",
-			service.SettingKeyOIDCConnectClientSecret:        "oidc-secret",
-			service.SettingKeyOIDCConnectIssuerURL:           "https://issuer.example.com",
-			service.SettingKeyOIDCConnectAuthorizeURL:        "https://issuer.example.com/auth",
-			service.SettingKeyOIDCConnectTokenURL:            "https://issuer.example.com/token",
-			service.SettingKeyOIDCConnectUserInfoURL:         "https://issuer.example.com/userinfo",
-			service.SettingKeyOIDCConnectJWKSURL:             "https://issuer.example.com/jwks",
-			service.SettingKeyOIDCConnectScopes:              "openid email profile",
-			service.SettingKeyOIDCConnectRedirectURL:         "https://example.com/api/v1/auth/oauth/oidc/callback",
-			service.SettingKeyOIDCConnectFrontendRedirectURL: "/auth/oidc/callback",
-			service.SettingKeyOIDCConnectTokenAuthMethod:     "client_secret_post",
-			service.SettingKeyOIDCConnectUsePKCE:             "true",
-			service.SettingKeyOIDCConnectValidateIDToken:     "true",
-			service.SettingKeyOIDCConnectAllowedSigningAlgs:  "RS256",
-			service.SettingKeyOIDCConnectClockSkewSeconds:    "120",
-		},
-	}
-	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
-
-	body := map[string]any{
-		"promo_code_enabled":                true,
-		"oidc_connect_enabled":              true,
-		"oidc_connect_use_pkce":             false,
-		"oidc_connect_validate_id_token":    false,
-		"oidc_connect_allowed_signing_algs": "",
-	}
-	rawBody, err := json.Marshal(body)
-	require.NoError(t, err)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	handler.UpdateSettings(c)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "false", repo.values[service.SettingKeyOIDCConnectUsePKCE])
-	require.Equal(t, "false", repo.values[service.SettingKeyOIDCConnectValidateIDToken])
-
-	var resp response.Response
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	data, ok := resp.Data.(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, false, data["oidc_connect_use_pkce"])
-	require.Equal(t, false, data["oidc_connect_validate_id_token"])
-}
-
-func TestSettingHandler_UpdateSettings_DoesNotSolidifyImplicitOIDCSecurityDefaultsOnLegacyUpgrade(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	repo := &settingHandlerRepoStub{
-		values: map[string]string{
-			service.SettingKeyPromoCodeEnabled:                "true",
-			service.SettingKeyOIDCConnectEnabled:              "true",
-			service.SettingKeyOIDCConnectProviderName:         "OIDC",
-			service.SettingKeyOIDCConnectClientID:             "oidc-client",
-			service.SettingKeyOIDCConnectClientSecret:         "oidc-secret",
-			service.SettingKeyOIDCConnectIssuerURL:            "https://issuer.example.com",
-			service.SettingKeyOIDCConnectAuthorizeURL:         "https://issuer.example.com/auth",
-			service.SettingKeyOIDCConnectTokenURL:             "https://issuer.example.com/token",
-			service.SettingKeyOIDCConnectUserInfoURL:          "https://issuer.example.com/userinfo",
-			service.SettingKeyOIDCConnectJWKSURL:              "https://issuer.example.com/jwks",
-			service.SettingKeyOIDCConnectScopes:               "openid email profile",
-			service.SettingKeyOIDCConnectRedirectURL:          "https://example.com/api/v1/auth/oauth/oidc/callback",
-			service.SettingKeyOIDCConnectFrontendRedirectURL:  "/auth/oidc/callback",
-			service.SettingKeyOIDCConnectTokenAuthMethod:      "client_secret_post",
-			service.SettingKeyOIDCConnectAllowedSigningAlgs:   "RS256",
-			service.SettingKeyOIDCConnectClockSkewSeconds:     "120",
-			service.SettingKeyOIDCConnectRequireEmailVerified: "false",
-			service.SettingKeyOIDCConnectUserInfoEmailPath:    "",
-			service.SettingKeyOIDCConnectUserInfoIDPath:       "",
-			service.SettingKeyOIDCConnectUserInfoUsernamePath: "",
-		},
-	}
-	svc := service.NewSettingService(repo, &config.Config{
-		Default: config.DefaultConfig{UserConcurrency: 5},
-		OIDC: config.OIDCConnectConfig{
-			Enabled:             true,
-			ProviderName:        "OIDC",
-			ClientID:            "oidc-client",
-			ClientSecret:        "oidc-secret",
-			IssuerURL:           "https://issuer.example.com",
-			AuthorizeURL:        "https://issuer.example.com/auth",
-			TokenURL:            "https://issuer.example.com/token",
-			UserInfoURL:         "https://issuer.example.com/userinfo",
-			JWKSURL:             "https://issuer.example.com/jwks",
-			Scopes:              "openid email profile",
-			RedirectURL:         "https://example.com/api/v1/auth/oauth/oidc/callback",
-			FrontendRedirectURL: "/auth/oidc/callback",
-			TokenAuthMethod:     "client_secret_post",
-			UsePKCE:             true,
-			ValidateIDToken:     true,
-			AllowedSigningAlgs:  "RS256",
-			ClockSkewSeconds:    120,
-		},
-	})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
-
-	body := map[string]any{
-		"promo_code_enabled":   true,
-		"oidc_connect_enabled": true,
-	}
-	rawBody, err := json.Marshal(body)
-	require.NoError(t, err)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	handler.UpdateSettings(c)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "false", repo.values[service.SettingKeyOIDCConnectUsePKCE])
-	require.Equal(t, "false", repo.values[service.SettingKeyOIDCConnectValidateIDToken])
-}
-
-func TestSettingHandler_UpdateSettings_RejectsInvalidPaymentVisibleMethodSource(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	repo := &settingHandlerRepoStub{
-		values: map[string]string{
-			service.SettingKeyPromoCodeEnabled: "true",
-		},
-	}
-	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
-
-	body := map[string]any{
-		"promo_code_enabled":                   true,
-		"payment_visible_method_alipay_source": "bogus",
-	}
-	rawBody, err := json.Marshal(body)
-	require.NoError(t, err)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	handler.UpdateSettings(c)
-
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.NotContains(t, repo.values, service.SettingPaymentVisibleMethodAlipaySource)
 }
 
 func TestSettingHandler_UpdateSettings_DoesNotPersistPartialSystemSettingsWhenAuthSourceDefaultsFail(t *testing.T) {
@@ -448,7 +240,6 @@ func TestSettingHandler_UpdateSettings_DoesNotPersistPartialSystemSettingsWhenAu
 	repo := &failingAuthSourceSettingsRepoStub{
 		values: map[string]string{
 			service.SettingKeyRegistrationEnabled:                 "false",
-			service.SettingKeyPromoCodeEnabled:                    "true",
 			service.SettingKeyAuthSourceDefaultEmailBalance:       "9.5",
 			service.SettingKeyAuthSourceDefaultEmailConcurrency:   "8",
 			service.SettingKeyAuthSourceDefaultEmailSubscriptions: `[{"group_id":31,"validity_days":15}]`,
@@ -456,11 +247,10 @@ func TestSettingHandler_UpdateSettings_DoesNotPersistPartialSystemSettingsWhenAu
 		err: errors.New("write auth source defaults failed"),
 	}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil)
 
 	body := map[string]any{
 		"registration_enabled":              true,
-		"promo_code_enabled":                true,
 		"auth_source_default_email_balance": 12.75,
 	}
 	rawBody, err := json.Marshal(body)
@@ -478,7 +268,7 @@ func TestSettingHandler_UpdateSettings_DoesNotPersistPartialSystemSettingsWhenAu
 	require.Equal(t, "9.5", repo.values[service.SettingKeyAuthSourceDefaultEmailBalance])
 }
 
-func TestDiffSettings_IncludesAuthSourceDefaultsAndForceEmail(t *testing.T) {
+func TestDiffSettings_IncludesAuthSourceDefaults(t *testing.T) {
 	changed := diffSettings(
 		&service.SystemSettings{},
 		&service.SystemSettings{},
@@ -490,7 +280,6 @@ func TestDiffSettings_IncludesAuthSourceDefaultsAndForceEmail(t *testing.T) {
 				GrantOnSignup:    true,
 				GrantOnFirstBind: false,
 			},
-			ForceEmailOnThirdPartySignup: false,
 		},
 		&service.AuthSourceDefaultSettings{
 			Email: service.ProviderDefaultGrantSettings{
@@ -500,7 +289,6 @@ func TestDiffSettings_IncludesAuthSourceDefaultsAndForceEmail(t *testing.T) {
 				GrantOnSignup:    false,
 				GrantOnFirstBind: true,
 			},
-			ForceEmailOnThirdPartySignup: true,
 		},
 		UpdateSettingsRequest{},
 	)
@@ -510,5 +298,4 @@ func TestDiffSettings_IncludesAuthSourceDefaultsAndForceEmail(t *testing.T) {
 	require.Contains(t, changed, "auth_source_default_email_subscriptions")
 	require.Contains(t, changed, "auth_source_default_email_grant_on_signup")
 	require.Contains(t, changed, "auth_source_default_email_grant_on_first_bind")
-	require.Contains(t, changed, "force_email_on_third_party_signup")
 }

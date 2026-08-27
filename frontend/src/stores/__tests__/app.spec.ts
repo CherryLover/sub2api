@@ -19,11 +19,8 @@ function createPublicSettings(overrides: Partial<PublicSettings> = {}): PublicSe
   return {
     registration_enabled: false,
     email_verify_enabled: false,
-    force_email_on_third_party_signup: false,
     registration_email_suffix_whitelist: [],
-    promo_code_enabled: true,
     password_reset_enabled: false,
-    invitation_code_enabled: false,
     turnstile_enabled: false,
     turnstile_site_key: '',
     site_name: 'Test Site',
@@ -35,18 +32,11 @@ function createPublicSettings(overrides: Partial<PublicSettings> = {}): PublicSe
     home_content: '',
     compact_home_enabled: false,
     hide_ccs_import_button: false,
-    payment_enabled: false,
     risk_control_enabled: false,
     table_default_page_size: 20,
     table_page_size_options: [10, 20, 50, 100],
     custom_menu_items: [],
     custom_endpoints: [],
-    linuxdo_oauth_enabled: false,
-    wechat_oauth_enabled: false,
-    oidc_oauth_enabled: false,
-    oidc_oauth_provider_name: 'OIDC',
-    github_oauth_enabled: false,
-    google_oauth_enabled: false,
     backend_mode_enabled: false,
     version: '1.0.0',
     balance_low_notify_enabled: false,
@@ -58,16 +48,11 @@ function createPublicSettings(overrides: Partial<PublicSettings> = {}): PublicSe
     model_plaza_enabled: false,
     model_plaza_require_auth: false,
     service_quota_enabled: false,
-    affiliate_enabled: false,
     ...overrides,
   }
 }
 
 // Mock API 模块
-vi.mock('@/api/admin/system', () => ({
-  checkUpdates: vi.fn(),
-}))
-
 vi.mock('@/api/auth', () => ({
   getPublicSettings: vi.fn(),
 }))
@@ -436,15 +421,72 @@ describe('useAppStore', () => {
       expect(store.cachedPublicSettings).toBeNull()
     })
 
+    it('注入快照带版本号时不额外请求接口', async () => {
+      const windowAny = window as any
+      windowAny.__APP_CONFIG__ = createPublicSettings({ version: 'internal-rc-6a1452d' })
+
+      const store = useAppStore()
+      await store.fetchPublicSettings()
+
+      expect(getPublicSettings).not.toHaveBeenCalled()
+      expect(store.siteVersion).toBe('internal-rc-6a1452d')
+    })
+
+    it('注入快照缺版本号时，首次 fetch 就回落读接口补齐', async () => {
+      const windowAny = window as any
+      windowAny.__APP_CONFIG__ = createPublicSettings({ version: '' })
+      vi.mocked(getPublicSettings).mockResolvedValue(
+        createPublicSettings({ version: 'internal-rc-6a1452d' }),
+      )
+
+      const store = useAppStore()
+      await store.fetchPublicSettings()
+
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+      expect(store.siteVersion).toBe('internal-rc-6a1452d')
+    })
+
+    it('注入快照已被 initFromInjectedConfig 套用时，缺版本号仍会回落读接口', async () => {
+      const windowAny = window as any
+      windowAny.__APP_CONFIG__ = createPublicSettings({ version: '' })
+      vi.mocked(getPublicSettings).mockResolvedValue(
+        createPublicSettings({ version: 'internal-rc-6a1452d' }),
+      )
+
+      const store = useAppStore()
+      expect(store.initFromInjectedConfig()).toBe(true)
+      expect(store.siteVersion).toBe('')
+
+      await store.fetchPublicSettings()
+
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+      expect(store.siteVersion).toBe('internal-rc-6a1452d')
+
+      await store.fetchPublicSettings()
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+    })
+
+    it('接口也拿不到版本号时不会反复请求', async () => {
+      const windowAny = window as any
+      windowAny.__APP_CONFIG__ = createPublicSettings({ version: '' })
+      vi.mocked(getPublicSettings).mockResolvedValue(createPublicSettings({ version: '' }))
+
+      const store = useAppStore()
+      await store.fetchPublicSettings()
+      await store.fetchPublicSettings()
+      await store.fetchPublicSettings()
+
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+      expect(store.siteVersion).toBe('')
+    })
+
     it('fetchPublicSettings(force) 会同步更新运行时注入配置', async () => {
       vi.mocked(getPublicSettings).mockResolvedValue({
         registration_enabled: false,
         email_verify_enabled: false,
         registration_email_suffix_whitelist: [],
-        promo_code_enabled: true,
-        password_reset_enabled: false,
-        invitation_code_enabled: false,
-        turnstile_enabled: false,
+            password_reset_enabled: false,
+            turnstile_enabled: false,
         turnstile_site_key: '',
         site_name: 'Updated Site',
         site_logo: '',
@@ -461,8 +503,7 @@ describe('useAppStore', () => {
         table_page_size_options: [20, 100, 1000],
         custom_menu_items: [],
         custom_endpoints: [],
-        linuxdo_oauth_enabled: false,
-        backend_mode_enabled: false,
+            backend_mode_enabled: false,
         version: '1.0.0'
       })
 

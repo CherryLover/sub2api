@@ -744,52 +744,6 @@ func TestLoadSchedulingConfigFromEnv(t *testing.T) {
 	}
 }
 
-func TestLoadWeChatConnectConfigFromLegacyEnv(t *testing.T) {
-	resetViperWithJWTSecret(t)
-	t.Setenv("WECHAT_OAUTH_OPEN_APP_ID", "wx-open-app")
-	t.Setenv("WECHAT_OAUTH_OPEN_APP_SECRET", "wx-open-secret")
-	t.Setenv("WECHAT_OAUTH_MP_APP_ID", "wx-mp-app")
-	t.Setenv("WECHAT_OAUTH_MP_APP_SECRET", "wx-mp-secret")
-	t.Setenv("WECHAT_OAUTH_FRONTEND_REDIRECT_URL", "/auth/wechat/legacy-callback")
-
-	cfg, err := Load()
-	require.NoError(t, err)
-	require.True(t, cfg.WeChat.Enabled)
-	require.True(t, cfg.WeChat.OpenEnabled)
-	require.True(t, cfg.WeChat.MPEnabled)
-	require.False(t, cfg.WeChat.MobileEnabled)
-	require.Equal(t, "open", cfg.WeChat.Mode)
-	require.Equal(t, "wx-open-app", cfg.WeChat.OpenAppID)
-	require.Equal(t, "wx-open-secret", cfg.WeChat.OpenAppSecret)
-	require.Equal(t, "wx-mp-app", cfg.WeChat.MPAppID)
-	require.Equal(t, "wx-mp-secret", cfg.WeChat.MPAppSecret)
-	require.Equal(t, "/auth/wechat/legacy-callback", cfg.WeChat.FrontendRedirectURL)
-}
-
-func TestLoadDefaultOIDCSecurityDefaults(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	require.NoError(t, err)
-	require.True(t, cfg.OIDC.UsePKCE)
-	require.True(t, cfg.OIDC.ValidateIDToken)
-	require.False(t, cfg.OIDC.UsePKCEExplicit)
-	require.False(t, cfg.OIDC.ValidateIDTokenExplicit)
-}
-
-func TestLoadExplicitOIDCSecurityDefaultsFromEnvMarksFlagsExplicit(t *testing.T) {
-	resetViperWithJWTSecret(t)
-	t.Setenv("OIDC_CONNECT_USE_PKCE", "false")
-	t.Setenv("OIDC_CONNECT_VALIDATE_ID_TOKEN", "false")
-
-	cfg, err := Load()
-	require.NoError(t, err)
-	require.False(t, cfg.OIDC.UsePKCE)
-	require.False(t, cfg.OIDC.ValidateIDToken)
-	require.True(t, cfg.OIDC.UsePKCEExplicit)
-	require.True(t, cfg.OIDC.ValidateIDTokenExplicit)
-}
-
 func TestLoadForcedCodexInstructionsTemplate(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
@@ -898,138 +852,6 @@ func TestLoadDefaultDatabaseSSLMode(t *testing.T) {
 
 	if cfg.Database.SSLMode != "prefer" {
 		t.Fatalf("Database.SSLMode = %q, want %q", cfg.Database.SSLMode, "prefer")
-	}
-}
-
-func TestValidateLinuxDoFrontendRedirectURL(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.LinuxDo.Enabled = true
-	cfg.LinuxDo.ClientID = "test-client"
-	cfg.LinuxDo.ClientSecret = "test-secret"
-	cfg.LinuxDo.RedirectURL = "https://example.com/api/v1/auth/oauth/linuxdo/callback"
-	cfg.LinuxDo.TokenAuthMethod = "client_secret_post"
-	cfg.LinuxDo.UsePKCE = true
-
-	cfg.LinuxDo.FrontendRedirectURL = "javascript:alert(1)"
-	err = cfg.Validate()
-	if err == nil {
-		t.Fatalf("Validate() expected error for javascript scheme, got nil")
-	}
-	if !strings.Contains(err.Error(), "linuxdo_connect.frontend_redirect_url") {
-		t.Fatalf("Validate() expected frontend_redirect_url error, got: %v", err)
-	}
-}
-
-func TestValidateLinuxDoAllowsDisablingPKCEForCompatibility(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.LinuxDo.Enabled = true
-	cfg.LinuxDo.ClientID = "test-client"
-	cfg.LinuxDo.ClientSecret = ""
-	cfg.LinuxDo.RedirectURL = "https://example.com/api/v1/auth/oauth/linuxdo/callback"
-	cfg.LinuxDo.FrontendRedirectURL = "/auth/linuxdo/callback"
-	cfg.LinuxDo.TokenAuthMethod = "none"
-	cfg.LinuxDo.UsePKCE = false
-
-	err = cfg.Validate()
-	if err != nil {
-		t.Fatalf("Validate() expected LinuxDo config without PKCE to pass for compatibility, got: %v", err)
-	}
-}
-
-func TestValidateOIDCScopesMustContainOpenID(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.OIDC.Enabled = true
-	cfg.OIDC.ClientID = "oidc-client"
-	cfg.OIDC.ClientSecret = "oidc-secret"
-	cfg.OIDC.IssuerURL = "https://issuer.example.com"
-	cfg.OIDC.AuthorizeURL = "https://issuer.example.com/auth"
-	cfg.OIDC.TokenURL = "https://issuer.example.com/token"
-	cfg.OIDC.JWKSURL = "https://issuer.example.com/jwks"
-	cfg.OIDC.RedirectURL = "https://example.com/api/v1/auth/oauth/oidc/callback"
-	cfg.OIDC.FrontendRedirectURL = "/auth/oidc/callback"
-	cfg.OIDC.Scopes = "profile email"
-	cfg.OIDC.UsePKCE = true
-
-	err = cfg.Validate()
-	if err == nil {
-		t.Fatalf("Validate() expected error when scopes do not include openid, got nil")
-	}
-	if !strings.Contains(err.Error(), "oidc_connect.scopes") {
-		t.Fatalf("Validate() expected oidc_connect.scopes error, got: %v", err)
-	}
-}
-
-func TestValidateOIDCAllowsIssuerOnlyEndpointsWithDiscoveryFallback(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.OIDC.Enabled = true
-	cfg.OIDC.ClientID = "oidc-client"
-	cfg.OIDC.ClientSecret = "oidc-secret"
-	cfg.OIDC.IssuerURL = "https://issuer.example.com"
-	cfg.OIDC.AuthorizeURL = ""
-	cfg.OIDC.TokenURL = ""
-	cfg.OIDC.JWKSURL = ""
-	cfg.OIDC.RedirectURL = "https://example.com/api/v1/auth/oauth/oidc/callback"
-	cfg.OIDC.FrontendRedirectURL = "/auth/oidc/callback"
-	cfg.OIDC.Scopes = "openid email profile"
-	cfg.OIDC.ValidateIDToken = true
-	cfg.OIDC.UsePKCE = true
-
-	err = cfg.Validate()
-	if err != nil {
-		t.Fatalf("Validate() expected issuer-only OIDC config to pass with discovery fallback, got: %v", err)
-	}
-}
-
-func TestValidateOIDCAllowsExplicitCompatibilityOverridesForPKCEAndIDTokenValidation(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.OIDC.Enabled = true
-	cfg.OIDC.ClientID = "oidc-client"
-	cfg.OIDC.ClientSecret = "oidc-secret"
-	cfg.OIDC.IssuerURL = "https://issuer.example.com"
-	cfg.OIDC.AuthorizeURL = "https://issuer.example.com/auth"
-	cfg.OIDC.TokenURL = "https://issuer.example.com/token"
-	cfg.OIDC.UserInfoURL = "https://issuer.example.com/userinfo"
-	cfg.OIDC.RedirectURL = "https://example.com/api/v1/auth/oauth/oidc/callback"
-	cfg.OIDC.FrontendRedirectURL = "/auth/oidc/callback"
-	cfg.OIDC.Scopes = "openid email profile"
-	cfg.OIDC.UsePKCE = false
-	cfg.OIDC.ValidateIDToken = false
-	cfg.OIDC.JWKSURL = ""
-	cfg.OIDC.AllowedSigningAlgs = ""
-
-	err = cfg.Validate()
-	if err != nil {
-		t.Fatalf("Validate() expected OIDC config without PKCE/id_token validation to pass for compatibility, got: %v", err)
 	}
 }
 
@@ -1441,33 +1263,6 @@ func TestProvideConfig(t *testing.T) {
 	}
 }
 
-func TestValidateConfigWithLinuxDoEnabled(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.Security.CSP.Enabled = true
-	cfg.Security.CSP.Policy = "default-src 'self'"
-
-	cfg.LinuxDo.Enabled = true
-	cfg.LinuxDo.ClientID = "client"
-	cfg.LinuxDo.ClientSecret = "secret"
-	cfg.LinuxDo.AuthorizeURL = "https://example.com/oauth2/authorize"
-	cfg.LinuxDo.TokenURL = "https://example.com/oauth2/token"
-	cfg.LinuxDo.UserInfoURL = "https://example.com/oauth2/userinfo"
-	cfg.LinuxDo.RedirectURL = "https://example.com/api/v1/auth/oauth/linuxdo/callback"
-	cfg.LinuxDo.FrontendRedirectURL = "/auth/linuxdo/callback"
-	cfg.LinuxDo.TokenAuthMethod = "client_secret_post"
-	cfg.LinuxDo.UsePKCE = true
-
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() unexpected error: %v", err)
-	}
-}
-
 func TestValidateJWTSecretStrength(t *testing.T) {
 	if !isWeakJWTSecret("change-me-in-production") {
 		t.Fatalf("isWeakJWTSecret should detect weak secret")
@@ -1652,31 +1447,6 @@ func TestValidateConfigErrors(t *testing.T) {
 			name:    "csp policy required",
 			mutate:  func(c *Config) { c.Security.CSP.Enabled = true; c.Security.CSP.Policy = "" },
 			wantErr: "security.csp.policy",
-		},
-		{
-			name: "linuxdo client id required",
-			mutate: func(c *Config) {
-				c.LinuxDo.Enabled = true
-				c.LinuxDo.UsePKCE = true
-				c.LinuxDo.ClientID = ""
-			},
-			wantErr: "linuxdo_connect.client_id",
-		},
-		{
-			name: "linuxdo token auth method",
-			mutate: func(c *Config) {
-				c.LinuxDo.Enabled = true
-				c.LinuxDo.UsePKCE = true
-				c.LinuxDo.ClientID = "client"
-				c.LinuxDo.ClientSecret = "secret"
-				c.LinuxDo.AuthorizeURL = "https://example.com/authorize"
-				c.LinuxDo.TokenURL = "https://example.com/token"
-				c.LinuxDo.UserInfoURL = "https://example.com/userinfo"
-				c.LinuxDo.RedirectURL = "https://example.com/callback"
-				c.LinuxDo.FrontendRedirectURL = "/auth/callback"
-				c.LinuxDo.TokenAuthMethod = "invalid"
-			},
-			wantErr: "linuxdo_connect.token_auth_method",
 		},
 		{
 			name:    "billing circuit breaker threshold",

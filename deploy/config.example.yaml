@@ -1254,11 +1254,14 @@ gemini:
         cooldown_minutes: 5
 
 # =============================================================================
-# Update Configuration (在线更新配置)
+# GitHub Outbound Proxy (访问 GitHub 的出站代理)
 # =============================================================================
+# 应用内的版本检查/在线升级/回滚已移除，升级由镜像或部署脚本负责。
+# 本节只剩访问 GitHub 公开数据的代理设置（定价表拉取、Codex 客户端版本同步），
+# 键名沿用 update.* 以兼容既有部署的配置文件。
 update:
-  # Proxy URL for accessing GitHub (used for online updates and pricing data)
-  # 用于访问 GitHub 的代理地址（用于在线更新和定价数据获取）
+  # Proxy URL for accessing GitHub (pricing data, Codex client version sync)
+  # 用于访问 GitHub 的代理地址（定价数据获取、Codex 客户端版本同步）
   # Supports: http, https, socks5, socks5h
   # Examples:
   #   - HTTP proxy: "http://127.0.0.1:7890"
@@ -1267,14 +1270,6 @@ update:
   # Leave empty for direct connection (recommended for overseas servers)
   # 留空表示直连（适用于海外服务器）
   proxy_url: ""
-
-  # Repository used for version check / online update (owner/name)
-  # 版本检查与在线更新读取 Release 的仓库（owner/name）
-  # Env / 环境变量: UPDATE_GITHUB_REPO
-  # 默认指向本仓库自己的 Release；要跟随上游改成 "Wei-Shaw/sub2api"
-  # 注意：目标仓库的 Release 必须包含 sub2api_<版本>_<os>_<arch>.tar.gz 和
-  #      checksums.txt，否则能检查到新版本但无法下载安装
-  github_repo: "CherryLover/sub2api"
 
 # =============================================================================
 # Image Storage (异步图片任务结果对象存储)

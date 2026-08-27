@@ -19,9 +19,9 @@ import (
 func updateSettingsCodexStatus(t *testing.T, body map[string]any) int {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	repo := &settingHandlerRepoStub{values: map[string]string{service.SettingKeyPromoCodeEnabled: "true"}}
+	repo := &settingHandlerRepoStub{values: map[string]string{service.SettingKeyRegistrationEnabled: "false"}}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil, nil, nil)
 
 	raw, err := json.Marshal(body)
 	require.NoError(t, err)

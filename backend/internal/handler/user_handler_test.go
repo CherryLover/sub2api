@@ -168,7 +168,7 @@ func TestUserHandlerUpdateProfileReturnsAvatarURL(t *testing.T) {
 			Status:   service.StatusActive,
 		},
 	}
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil, nil, nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil, nil, nil)
 
 	body := []byte(`{"avatar_url":"https://cdn.example.com/avatar.png"}`)
 	recorder := httptest.NewRecorder()
@@ -192,222 +192,6 @@ func TestUserHandlerUpdateProfileReturnsAvatarURL(t *testing.T) {
 	require.Equal(t, 0, resp.Code)
 	require.Equal(t, "https://cdn.example.com/avatar.png", resp.Data.AvatarURL)
 	require.Equal(t, "handler-avatar", resp.Data.Username)
-}
-
-func TestUserHandlerGetProfileReturnsIdentitySummaries(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	verifiedAt := time.Date(2026, 4, 20, 8, 30, 0, 0, time.UTC)
-	repo := &userHandlerRepoStub{
-		user: &service.User{
-			ID:       11,
-			Email:    "identity@example.com",
-			Username: "identity-user",
-			Role:     service.RoleUser,
-			Status:   service.StatusActive,
-		},
-		identities: []service.UserAuthIdentityRecord{
-			{
-				ProviderType:    "linuxdo",
-				ProviderKey:     "linuxdo",
-				ProviderSubject: "linuxdo-subject-123456",
-				VerifiedAt:      &verifiedAt,
-				Metadata: map[string]any{
-					"username": "linuxdo-handle",
-				},
-			},
-			{
-				ProviderType:    "oidc",
-				ProviderKey:     "https://issuer.example.com",
-				ProviderSubject: "oidc-user-abc",
-				Metadata: map[string]any{
-					"suggested_display_name": "OIDC Display",
-				},
-			},
-		},
-	}
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil, nil, nil, nil)
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/user/profile", nil)
-	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 11})
-
-	handler.GetProfile(c)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-
-	var resp struct {
-		Code int `json:"code"`
-		Data struct {
-			Identities struct {
-				Email struct {
-					Bound       bool   `json:"bound"`
-					BoundCount  int    `json:"bound_count"`
-					DisplayName string `json:"display_name"`
-				} `json:"email"`
-				LinuxDo struct {
-					Bound       bool   `json:"bound"`
-					BoundCount  int    `json:"bound_count"`
-					DisplayName string `json:"display_name"`
-					ProviderKey string `json:"provider_key"`
-				} `json:"linuxdo"`
-				OIDC struct {
-					Bound       bool   `json:"bound"`
-					DisplayName string `json:"display_name"`
-					ProviderKey string `json:"provider_key"`
-				} `json:"oidc"`
-				WeChat struct {
-					Bound         bool   `json:"bound"`
-					CanBind       bool   `json:"can_bind"`
-					BindStartPath string `json:"bind_start_path"`
-				} `json:"wechat"`
-			} `json:"identities"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
-	require.Equal(t, 0, resp.Code)
-	require.True(t, resp.Data.Identities.Email.Bound)
-	require.Equal(t, 1, resp.Data.Identities.Email.BoundCount)
-	require.Equal(t, "identity@example.com", resp.Data.Identities.Email.DisplayName)
-	require.True(t, resp.Data.Identities.LinuxDo.Bound)
-	require.Equal(t, 1, resp.Data.Identities.LinuxDo.BoundCount)
-	require.Equal(t, "linuxdo-handle", resp.Data.Identities.LinuxDo.DisplayName)
-	require.Equal(t, "linuxdo", resp.Data.Identities.LinuxDo.ProviderKey)
-	require.True(t, resp.Data.Identities.OIDC.Bound)
-	require.Equal(t, "OIDC Display", resp.Data.Identities.OIDC.DisplayName)
-	require.Equal(t, "https://issuer.example.com", resp.Data.Identities.OIDC.ProviderKey)
-	require.False(t, resp.Data.Identities.WeChat.Bound)
-	require.True(t, resp.Data.Identities.WeChat.CanBind)
-	require.Contains(t, resp.Data.Identities.WeChat.BindStartPath, "/api/v1/auth/oauth/wechat/bind/start")
-}
-
-func TestUserHandlerGetProfileReturnsLegacyCompatibilityFields(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	verifiedAt := time.Date(2026, 4, 20, 8, 30, 0, 0, time.UTC)
-	repo := &userHandlerRepoStub{
-		user: &service.User{
-			ID:           21,
-			Email:        "legacy-profile@example.com",
-			Username:     "linuxdo-handle",
-			Role:         service.RoleUser,
-			Status:       service.StatusActive,
-			AvatarURL:    "https://cdn.example.com/linuxdo.png",
-			AvatarSource: "remote_url",
-		},
-		identities: []service.UserAuthIdentityRecord{
-			{
-				ProviderType:    "linuxdo",
-				ProviderKey:     "linuxdo",
-				ProviderSubject: "linuxdo-subject-21",
-				VerifiedAt:      &verifiedAt,
-				Metadata: map[string]any{
-					"username":   "linuxdo-handle",
-					"avatar_url": "https://cdn.example.com/linuxdo.png",
-				},
-			},
-		},
-	}
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil, nil, nil, nil)
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/user/profile", nil)
-	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 21})
-
-	handler.GetProfile(c)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-
-	var resp struct {
-		Code int            `json:"code"`
-		Data map[string]any `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
-	require.Equal(t, 0, resp.Code)
-	require.Equal(t, true, resp.Data["email_bound"])
-	require.Equal(t, true, resp.Data["linuxdo_bound"])
-	require.Equal(t, false, resp.Data["oidc_bound"])
-	require.Equal(t, false, resp.Data["wechat_bound"])
-	require.Equal(t, "https://cdn.example.com/linuxdo.png", resp.Data["avatar_url"])
-
-	avatarSource, ok := resp.Data["avatar_source"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "linuxdo", avatarSource["provider"])
-	require.Equal(t, "linuxdo", avatarSource["source"])
-
-	authBindings, ok := resp.Data["auth_bindings"].(map[string]any)
-	require.True(t, ok)
-	linuxdoBinding, ok := authBindings["linuxdo"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, true, linuxdoBinding["bound"])
-	require.Equal(t, "linuxdo", linuxdoBinding["provider"])
-
-	identityBindings, ok := resp.Data["identity_bindings"].(map[string]any)
-	require.True(t, ok)
-	emailBinding, ok := identityBindings["email"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, true, emailBinding["bound"])
-	require.Equal(t, "profile.authBindings.notes.emailManagedFromProfile", emailBinding["note_key"])
-
-	linuxdoCompatBinding, ok := identityBindings["linuxdo"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "profile.authBindings.notes.canUnbind", linuxdoCompatBinding["note_key"])
-
-	profileSources, ok := resp.Data["profile_sources"].(map[string]any)
-	require.True(t, ok)
-	usernameSource, ok := profileSources["username"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "linuxdo", usernameSource["provider"])
-	require.Equal(t, "linuxdo", usernameSource["source"])
-}
-
-func TestUserHandlerGetProfileDoesNotInferEditedProfileSourcesWithoutMatchingIdentityMetadata(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	repo := &userHandlerRepoStub{
-		user: &service.User{
-			ID:           22,
-			Email:        "edited-profile@example.com",
-			Username:     "custom-name",
-			Role:         service.RoleUser,
-			Status:       service.StatusActive,
-			AvatarURL:    "https://cdn.example.com/custom.png",
-			AvatarSource: "remote_url",
-		},
-		identities: []service.UserAuthIdentityRecord{
-			{
-				ProviderType:    "linuxdo",
-				ProviderKey:     "linuxdo",
-				ProviderSubject: "linuxdo-subject-22",
-				Metadata: map[string]any{
-					"username":   "linuxdo-handle",
-					"avatar_url": "https://cdn.example.com/linuxdo.png",
-				},
-			},
-		},
-	}
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil, nil, nil, nil)
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/user/profile", nil)
-	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 22})
-
-	handler.GetProfile(c)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-
-	var resp struct {
-		Code int            `json:"code"`
-		Data map[string]any `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
-	require.Equal(t, 0, resp.Code)
-	require.NotContains(t, resp.Data, "avatar_source")
-	require.NotContains(t, resp.Data, "username_source")
-	require.NotContains(t, resp.Data, "profile_sources")
 }
 
 type userHandlerEmailCacheStub struct {
@@ -537,8 +321,8 @@ func TestUserHandlerBindEmailIdentityReturnsProfileResponse(t *testing.T) {
 		},
 	}
 	emailService := service.NewEmailService(nil, emailCache)
-	authService := service.NewAuthService(nil, repo, nil, nil, cfg, nil, emailService, nil, nil, nil, nil, nil, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil, nil)
+	authService := service.NewAuthService(nil, repo, nil, cfg, nil, emailService, nil, nil, nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil)
 
 	body := []byte(`{"email":"new@example.com","verify_code":"123456","password":"new-password"}`)
 	recorder := httptest.NewRecorder()
@@ -592,7 +376,7 @@ func TestUserHandlerUnbindIdentityReturnsUpdatedProfile(t *testing.T) {
 			},
 		},
 	}
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil, nil, nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil, nil, nil)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -612,11 +396,11 @@ func TestUserHandlerUnbindIdentityReturnsUpdatedProfile(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
 	require.Equal(t, 0, resp.Code)
 
+	// 绑定摘要已收敛为只含 email：解绑成功后响应中不再出现第三方 provider 条目。
 	authBindings, ok := resp.Data["auth_bindings"].(map[string]any)
 	require.True(t, ok)
-	linuxdoBinding, ok := authBindings["linuxdo"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, false, linuxdoBinding["bound"])
+	require.Contains(t, authBindings, "email")
+	require.NotContains(t, authBindings, "linuxdo")
 }
 
 func TestUserHandlerUnbindIdentityRevokesAllUserSessionsWhenAuthServiceConfigured(t *testing.T) {
@@ -651,8 +435,8 @@ func TestUserHandlerUnbindIdentityRevokesAllUserSessionsWhenAuthServiceConfigure
 			ExpireHour: 1,
 		},
 	}
-	authService := service.NewAuthService(nil, repo, nil, refreshTokenCache, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil, nil)
+	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil, nil, nil, nil, nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -698,8 +482,8 @@ func TestUserHandlerUnbindIdentityDoesNotRevokeSessionsWhenNothingWasUnbound(t *
 			ExpireHour: 1,
 		},
 	}
-	authService := service.NewAuthService(nil, repo, nil, refreshTokenCache, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil, nil)
+	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil, nil, nil, nil, nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -742,8 +526,8 @@ func TestUserHandlerBindEmailIdentityRejectsWrongCurrentPasswordForBoundEmail(t 
 		},
 	}
 	emailService := service.NewEmailService(nil, emailCache)
-	authService := service.NewAuthService(nil, repo, nil, nil, cfg, nil, emailService, nil, nil, nil, nil, nil, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil, nil)
+	authService := service.NewAuthService(nil, repo, nil, cfg, nil, emailService, nil, nil, nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil)
 
 	body := []byte(`{"email":"new@example.com","verify_code":"123456","password":"wrong-password"}`)
 	recorder := httptest.NewRecorder()
@@ -766,48 +550,4 @@ func TestUserHandlerBindEmailIdentityRejectsWrongCurrentPasswordForBoundEmail(t 
 	require.Equal(t, "PASSWORD_INCORRECT", resp.Reason)
 	require.Equal(t, "current password is incorrect", resp.Message)
 	require.Equal(t, "current@example.com", repo.user.Email)
-}
-
-func TestUserHandlerStartIdentityBindingReturnsAuthorizeURL(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	repo := &userHandlerRepoStub{
-		user: &service.User{
-			ID:       11,
-			Email:    "identity@example.com",
-			Username: "identity-user",
-			Role:     service.RoleUser,
-			Status:   service.StatusActive,
-		},
-	}
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil, nil, nil, nil)
-
-	body := []byte(`{"provider":"wechat","redirect_to":"/settings/profile"}`)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/user/auth-identities/bind/start", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 11})
-
-	handler.StartIdentityBinding(c)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-
-	var resp struct {
-		Code int `json:"code"`
-		Data struct {
-			Provider           string `json:"provider"`
-			AuthorizeURL       string `json:"authorize_url"`
-			Method             string `json:"method"`
-			UseBrowserRedirect bool   `json:"use_browser_redirect"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
-	require.Equal(t, 0, resp.Code)
-	require.Equal(t, "wechat", resp.Data.Provider)
-	require.Equal(t, "GET", resp.Data.Method)
-	require.True(t, resp.Data.UseBrowserRedirect)
-	require.Contains(t, resp.Data.AuthorizeURL, "/api/v1/auth/oauth/wechat/bind/start")
-	require.Contains(t, resp.Data.AuthorizeURL, "intent=bind_current_user")
-	require.Contains(t, resp.Data.AuthorizeURL, "redirect=%2Fsettings%2Fprofile")
 }

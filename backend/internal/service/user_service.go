@@ -38,7 +38,6 @@ var (
 	ErrAvatarTooLarge           = infraerrors.BadRequest("AVATAR_TOO_LARGE", "avatar image must be 100KB or smaller")
 	ErrAvatarNotImage           = infraerrors.BadRequest("AVATAR_NOT_IMAGE", "avatar content must be an image")
 	ErrIdentityProviderInvalid  = infraerrors.BadRequest("IDENTITY_PROVIDER_INVALID", "identity provider is invalid")
-	ErrIdentityRedirectInvalid  = infraerrors.BadRequest("IDENTITY_REDIRECT_INVALID", "identity redirect path is invalid")
 	ErrIdentityUnbindLastMethod = infraerrors.Conflict(
 		"IDENTITY_UNBIND_LAST_METHOD",
 		"bind another sign-in method before unbinding this provider",
@@ -54,9 +53,8 @@ const (
 	notifyCodeUserRateLimit  = 5
 	notifyCodeUserRateWindow = 10 * time.Minute
 
-	defaultUserIdentityRedirect = "/settings/profile"
-	userLastActiveMinTouch      = 10 * time.Minute
-	userLastActiveFailBackoff   = 30 * time.Second
+	userLastActiveMinTouch    = 10 * time.Minute
+	userLastActiveFailBackoff = 30 * time.Second
 )
 
 var (
@@ -208,46 +206,27 @@ type UserAuthIdentityRecord struct {
 }
 
 type UserIdentitySummary struct {
-	Provider      string     `json:"provider"`
-	Bound         bool       `json:"bound"`
-	BoundCount    int        `json:"bound_count"`
-	DisplayName   string     `json:"display_name,omitempty"`
-	AvatarURL     string     `json:"-"`
-	SubjectHint   string     `json:"subject_hint,omitempty"`
-	ProviderKey   string     `json:"provider_key,omitempty"`
-	VerifiedAt    *time.Time `json:"verified_at,omitempty"`
-	BindStartPath string     `json:"bind_start_path,omitempty"`
-	CanBind       bool       `json:"can_bind"`
-	CanUnbind     bool       `json:"can_unbind"`
-	NoteKey       string     `json:"note_key,omitempty"`
-	Note          string     `json:"note,omitempty"`
+	Provider    string     `json:"provider"`
+	Bound       bool       `json:"bound"`
+	BoundCount  int        `json:"bound_count"`
+	DisplayName string     `json:"display_name,omitempty"`
+	AvatarURL   string     `json:"-"`
+	SubjectHint string     `json:"subject_hint,omitempty"`
+	ProviderKey string     `json:"provider_key,omitempty"`
+	VerifiedAt  *time.Time `json:"verified_at,omitempty"`
+	CanBind     bool       `json:"can_bind"`
+	CanUnbind   bool       `json:"can_unbind"`
+	NoteKey     string     `json:"note_key,omitempty"`
+	Note        string     `json:"note,omitempty"`
 }
 
+// UserIdentitySummarySet 只保留 email 绑定摘要：第三方 OAuth 登录已删除，
+// 历史第三方身份行仍可通过 DELETE /user/account-bindings/:provider 解绑。
 type UserIdentitySummarySet struct {
-	Email    UserIdentitySummary `json:"email"`
-	LinuxDo  UserIdentitySummary `json:"linuxdo"`
-	OIDC     UserIdentitySummary `json:"oidc"`
-	WeChat   UserIdentitySummary `json:"wechat"`
-	DingTalk UserIdentitySummary `json:"dingtalk"`
+	Email UserIdentitySummary `json:"email"`
 }
 
-type StartUserIdentityBindingRequest struct {
-	Provider   string
-	RedirectTo string
-}
-
-type StartUserIdentityBindingResult struct {
-	Provider           string `json:"provider"`
-	AuthorizeURL       string `json:"authorize_url"`
-	Method             string `json:"method"`
-	UseBrowserRedirect bool   `json:"use_browser_redirect"`
-}
-
-const (
-	userIdentityNoteEmailManagedFromProfile = "profile.authBindings.notes.emailManagedFromProfile"
-	userIdentityNoteCanUnbind               = "profile.authBindings.notes.canUnbind"
-	userIdentityNoteBindAnotherBeforeUnbind = "profile.authBindings.notes.bindAnotherBeforeUnbind"
-)
+const userIdentityNoteEmailManagedFromProfile = "profile.authBindings.notes.emailManagedFromProfile"
 
 // UpdateProfileRequest 更新用户资料请求
 type UpdateProfileRequest struct {
@@ -343,82 +322,8 @@ func (s *UserService) GetProfileIdentitySummaries(ctx context.Context, userID in
 		return UserIdentitySummarySet{}, err
 	}
 
-	summaries := UserIdentitySummarySet{
-		Email:    s.buildEmailIdentitySummary(user, records),
-		LinuxDo:  s.buildProviderIdentitySummary("linuxdo", user, records),
-		OIDC:     s.buildProviderIdentitySummary("oidc", user, records),
-		WeChat:   s.buildProviderIdentitySummary("wechat", user, records),
-		DingTalk: s.buildProviderIdentitySummary("dingtalk", user, records),
-	}
-
-	s.applyExplicitProviderAvailability(ctx, &summaries)
-	return summaries, nil
-}
-
-func (s *UserService) applyExplicitProviderAvailability(ctx context.Context, summaries *UserIdentitySummarySet) {
-	if s == nil || summaries == nil || s.settingRepo == nil {
-		return
-	}
-
-	settings, err := s.settingRepo.GetMultiple(ctx, []string{
-		SettingKeyLinuxDoConnectEnabled,
-		SettingKeyOIDCConnectEnabled,
-		SettingKeyWeChatConnectEnabled,
-		SettingKeyWeChatConnectOpenEnabled,
-		SettingKeyWeChatConnectMPEnabled,
-		SettingKeyWeChatConnectMobileEnabled,
-		SettingKeyWeChatConnectMode,
-		SettingKeyDingTalkConnectEnabled,
-	})
-	if err != nil {
-		return
-	}
-
-	if raw, ok := settings[SettingKeyLinuxDoConnectEnabled]; ok && strings.TrimSpace(raw) != "" && raw != "true" {
-		disableIdentityBindAction(&summaries.LinuxDo)
-	}
-	if raw, ok := settings[SettingKeyDingTalkConnectEnabled]; ok && strings.TrimSpace(raw) != "" && raw != "true" {
-		disableIdentityBindAction(&summaries.DingTalk)
-	}
-	if raw, ok := settings[SettingKeyOIDCConnectEnabled]; ok && strings.TrimSpace(raw) != "" && raw != "true" {
-		disableIdentityBindAction(&summaries.OIDC)
-	}
-	if raw, ok := settings[SettingKeyWeChatConnectEnabled]; ok && strings.TrimSpace(raw) != "" {
-		if raw != "true" {
-			disableIdentityBindAction(&summaries.WeChat)
-			return
-		}
-		openEnabled, mpEnabled, _ := parseWeChatConnectCapabilitySettings(settings, true, settings[SettingKeyWeChatConnectMode])
-		if !openEnabled && !mpEnabled {
-			disableIdentityBindAction(&summaries.WeChat)
-		}
-	}
-}
-
-func disableIdentityBindAction(summary *UserIdentitySummary) {
-	if summary == nil || summary.Bound {
-		return
-	}
-	summary.CanBind = false
-	summary.BindStartPath = ""
-}
-
-func (s *UserService) PrepareIdentityBindingStart(_ context.Context, req StartUserIdentityBindingRequest) (*StartUserIdentityBindingResult, error) {
-	provider := normalizeUserIdentityProvider(req.Provider)
-	if provider == "" {
-		return nil, ErrIdentityProviderInvalid
-	}
-
-	authorizeURL, err := buildUserIdentityBindAuthorizeURL(provider, req.RedirectTo)
-	if err != nil {
-		return nil, err
-	}
-
-	return &StartUserIdentityBindingResult{
-		Provider:           provider,
-		AuthorizeURL:       authorizeURL,
-		Method:             "GET",
-		UseBrowserRedirect: true,
+	return UserIdentitySummarySet{
+		Email: s.buildEmailIdentitySummary(user, records),
 	}, nil
 }
 
@@ -751,40 +656,6 @@ func (s *UserService) buildEmailIdentitySummary(user *User, records []UserAuthId
 	return summary
 }
 
-func (s *UserService) buildProviderIdentitySummary(provider string, user *User, records []UserAuthIdentityRecord) UserIdentitySummary {
-	summary := UserIdentitySummary{
-		Provider:  provider,
-		CanUnbind: false,
-	}
-	filtered := filterUserAuthIdentities(records, provider)
-	if len(filtered) == 0 {
-		summary.CanBind = true
-		bindStartPath, err := buildUserIdentityBindAuthorizeURL(provider, "")
-		if err == nil {
-			summary.BindStartPath = bindStartPath
-		}
-		return summary
-	}
-
-	primary := selectPrimaryUserAuthIdentity(filtered)
-	summary.Bound = true
-	summary.BoundCount = len(filtered)
-	summary.DisplayName = userAuthIdentityDisplayName(primary)
-	summary.AvatarURL = strings.TrimSpace(firstStringIdentityValue(primary.Metadata, "avatar_url", "suggested_avatar_url", "headimgurl"))
-	summary.SubjectHint = maskOpaqueIdentity(primary.ProviderSubject)
-	summary.ProviderKey = strings.TrimSpace(primary.ProviderKey)
-	summary.VerifiedAt = primary.VerifiedAt
-	summary.CanUnbind = s.canUnbindProvider(provider, user, records)
-	if summary.CanUnbind {
-		summary.NoteKey = userIdentityNoteCanUnbind
-		summary.Note = "You can unbind this sign-in method."
-	} else {
-		summary.NoteKey = userIdentityNoteBindAnotherBeforeUnbind
-		summary.Note = "Bind another sign-in method before unbinding."
-	}
-	return summary
-}
-
 func (s *UserService) canUnbindProvider(provider string, user *User, records []UserAuthIdentityRecord) bool {
 	if provider == "" || provider == "email" || len(filterUserAuthIdentities(records, provider)) == 0 {
 		return false
@@ -851,37 +722,6 @@ func (s *UserService) listUserAuthIdentities(ctx context.Context, userID int64) 
 	return s.userRepo.ListUserAuthIdentities(ctx, userID)
 }
 
-func buildUserIdentityBindAuthorizeURL(provider, redirectTo string) (string, error) {
-	provider = normalizeUserIdentityProvider(provider)
-	if provider == "" || provider == "email" {
-		return "", ErrIdentityProviderInvalid
-	}
-
-	redirectTo, err := normalizeUserIdentityRedirect(redirectTo)
-	if err != nil {
-		return "", err
-	}
-
-	path := ""
-	switch provider {
-	case "linuxdo":
-		path = "/api/v1/auth/oauth/linuxdo/bind/start"
-	case "oidc":
-		path = "/api/v1/auth/oauth/oidc/bind/start"
-	case "wechat":
-		path = "/api/v1/auth/oauth/wechat/bind/start"
-	case "dingtalk":
-		path = "/api/v1/auth/oauth/dingtalk/bind/start"
-	default:
-		return "", ErrIdentityProviderInvalid
-	}
-
-	query := url.Values{}
-	query.Set("redirect", redirectTo)
-	query.Set("intent", "bind_current_user")
-	return path + "?" + query.Encode(), nil
-}
-
 func normalizeUserIdentityProvider(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "linuxdo":
@@ -897,17 +737,6 @@ func normalizeUserIdentityProvider(provider string) string {
 	default:
 		return ""
 	}
-}
-
-func normalizeUserIdentityRedirect(raw string) (string, error) {
-	redirect := strings.TrimSpace(raw)
-	if redirect == "" {
-		return defaultUserIdentityRedirect, nil
-	}
-	if len(redirect) > 2048 || !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
-		return "", ErrIdentityRedirectInvalid
-	}
-	return redirect, nil
 }
 
 func filterUserAuthIdentities(records []UserAuthIdentityRecord, provider string) []UserAuthIdentityRecord {
@@ -949,23 +778,6 @@ func userAuthIdentitySortTime(record UserAuthIdentityRecord) time.Time {
 		return record.CreatedAt.UTC()
 	}
 	return time.Time{}
-}
-
-func userAuthIdentityDisplayName(record UserAuthIdentityRecord) string {
-	if displayName := firstStringIdentityValue(record.Metadata,
-		"display_name",
-		"suggested_display_name",
-		"username",
-		"name",
-		"nickname",
-		"email",
-	); displayName != "" {
-		return displayName
-	}
-	if subject := strings.TrimSpace(record.ProviderSubject); subject != "" {
-		return subject
-	}
-	return strings.TrimSpace(record.ProviderType)
 }
 
 func firstStringIdentityValue(values map[string]any, keys ...string) string {

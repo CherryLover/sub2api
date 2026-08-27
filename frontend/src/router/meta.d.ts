@@ -44,12 +44,6 @@ declare module 'vue-router' {
     hideInMenu?: boolean
 
     /**
-     * Whether this route requires internal payment system to be enabled
-     * @default false
-     */
-    requiresPayment?: boolean
-
-    /**
      * 是否要求风控中心功能开关已启用
      * @default false
      */

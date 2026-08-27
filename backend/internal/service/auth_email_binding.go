@@ -37,7 +37,7 @@ func (s *AuthService) BindEmailIdentity(
 	if strings.TrimSpace(password) == "" {
 		return nil, ErrPasswordRequired
 	}
-	if err := s.VerifyOAuthEmailCode(ctx, normalizedEmail, verifyCode); err != nil {
+	if err := s.VerifyEmailCode(ctx, normalizedEmail, verifyCode); err != nil {
 		return nil, err
 	}
 	if err := s.validateRegistrationEmailPolicy(ctx, normalizedEmail); err != nil {
@@ -322,4 +322,21 @@ func normalizeBoundEmailAuthIdentitySubject(email string) string {
 		return ""
 	}
 	return normalized
+}
+
+// VerifyEmailCode 校验邮箱验证码（邮箱绑定等流程复用邮件验证码通道）。
+func (s *AuthService) VerifyEmailCode(ctx context.Context, email, verifyCode string) error {
+	email = strings.TrimSpace(strings.ToLower(email))
+	verifyCode = strings.TrimSpace(verifyCode)
+
+	if email == "" {
+		return ErrEmailVerifyRequired
+	}
+	if verifyCode == "" {
+		return ErrEmailVerifyRequired
+	}
+	if s == nil || s.emailService == nil {
+		return ErrServiceUnavailable
+	}
+	return s.emailService.VerifyCode(ctx, email, verifyCode)
 }

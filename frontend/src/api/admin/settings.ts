@@ -95,14 +95,8 @@ export function sanitizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | nul
   return result
 }
 
-export type AuthSourceType =
-  | "email"
-  | "linuxdo"
-  | "oidc"
-  | "wechat"
-  | "github"
-  | "google"
-  | "dingtalk";
+// 单管理员内部部署：注册来源默认授予只保留 email 渠道（第三方 OAuth 登录已删除）。
+export type AuthSourceType = "email";
 
 export interface AuthSourceDefaultsValue {
   balance: number;
@@ -118,117 +112,10 @@ export type AuthSourceDefaultsState = Record<
   AuthSourceType,
   AuthSourceDefaultsValue
 >;
-export type PaymentVisibleMethod = "alipay" | "wxpay";
-export type PaymentVisibleMethodSource =
-  | ""
-  | "official_alipay"
-  | "easypay_alipay"
-  | "official_wxpay"
-  | "easypay_wxpay";
-export type WeChatConnectMode = "open" | "mp" | "mobile";
 
-export interface PaymentVisibleMethodSourceOption {
-  value: PaymentVisibleMethodSource;
-  labelZh: string;
-  labelEn: string;
-}
-
-export interface WeChatConnectModeOption {
-  value: WeChatConnectMode;
-  labelZh: string;
-  labelEn: string;
-}
-
-const AUTH_SOURCE_TYPES: AuthSourceType[] = [
-  "email",
-  "linuxdo",
-  "oidc",
-  "wechat",
-  "github",
-  "google",
-  "dingtalk",
-];
+const AUTH_SOURCE_TYPES: AuthSourceType[] = ["email"];
 const AUTH_SOURCE_DEFAULT_BALANCE = 0;
 const AUTH_SOURCE_DEFAULT_CONCURRENCY = 5;
-const PAYMENT_VISIBLE_METHOD_SOURCE_OPTIONS: Record<
-  PaymentVisibleMethod,
-  PaymentVisibleMethodSourceOption[]
-> = {
-  alipay: [
-    { value: "", labelZh: "未配置", labelEn: "Not configured" },
-    {
-      value: "official_alipay",
-      labelZh: "支付宝官方",
-      labelEn: "Official Alipay",
-    },
-    {
-      value: "easypay_alipay",
-      labelZh: "易支付支付宝",
-      labelEn: "EasyPay Alipay",
-    },
-  ],
-  wxpay: [
-    { value: "", labelZh: "未配置", labelEn: "Not configured" },
-    {
-      value: "official_wxpay",
-      labelZh: "微信官方",
-      labelEn: "Official WeChat Pay",
-    },
-    {
-      value: "easypay_wxpay",
-      labelZh: "易支付微信",
-      labelEn: "EasyPay WeChat Pay",
-    },
-  ],
-};
-const PAYMENT_VISIBLE_METHOD_SOURCE_ALIASES: Record<
-  PaymentVisibleMethod,
-  Record<string, PaymentVisibleMethodSource>
-> = {
-  alipay: {
-    official_alipay: "official_alipay",
-    alipay: "official_alipay",
-    alipay_direct: "official_alipay",
-    official: "official_alipay",
-    easypay_alipay: "easypay_alipay",
-    easypay: "easypay_alipay",
-  },
-  wxpay: {
-    official_wxpay: "official_wxpay",
-    wxpay: "official_wxpay",
-    wxpay_direct: "official_wxpay",
-    wechat: "official_wxpay",
-    official: "official_wxpay",
-    easypay_wxpay: "easypay_wxpay",
-    easypay: "easypay_wxpay",
-  },
-};
-const WECHAT_CONNECT_MODE_OPTIONS: WeChatConnectModeOption[] = [
-  { value: "open", labelZh: "PC 应用", labelEn: "PC App" },
-  {
-    value: "mp",
-    labelZh: "公众号",
-    labelEn: "Official Account",
-  },
-  {
-    value: "mobile",
-    labelZh: "移动应用",
-    labelEn: "Mobile App",
-  },
-];
-const WECHAT_CONNECT_MODE_ALIASES: Record<string, WeChatConnectMode> = {
-  open: "open",
-  open_platform: "open",
-  official: "open",
-  wx_open: "open",
-  mp: "mp",
-  official_account: "mp",
-  wechat_mp: "mp",
-  mini_program: "mp",
-  mobile: "mobile",
-  mobile_app: "mobile",
-  native_app: "mobile",
-};
 
 export function normalizeDefaultSubscriptionSettings(
   subscriptions: DefaultSubscriptionSetting[] | null | undefined,
@@ -308,88 +195,6 @@ export function appendAuthSourceDefaultsToUpdateRequest(
   return payload;
 }
 
-export function getPaymentVisibleMethodSourceOptions(
-  method: PaymentVisibleMethod,
-): PaymentVisibleMethodSourceOption[] {
-  return PAYMENT_VISIBLE_METHOD_SOURCE_OPTIONS[method];
-}
-
-export function normalizePaymentVisibleMethodSource(
-  method: PaymentVisibleMethod,
-  source: unknown,
-): PaymentVisibleMethodSource {
-  if (typeof source !== "string") return "";
-
-  const normalized = source.trim().toLowerCase();
-  if (!normalized) return "";
-
-  return PAYMENT_VISIBLE_METHOD_SOURCE_ALIASES[method][normalized] ?? "";
-}
-
-export function getWeChatConnectModeOptions(): WeChatConnectModeOption[] {
-  return WECHAT_CONNECT_MODE_OPTIONS;
-}
-
-export function normalizeWeChatConnectMode(source: unknown): WeChatConnectMode {
-  if (typeof source !== "string") return "open";
-
-  const normalized = source.trim().toLowerCase();
-  if (!normalized) return "open";
-
-  return WECHAT_CONNECT_MODE_ALIASES[normalized] ?? "open";
-}
-
-export function defaultWeChatConnectScopesForMode(mode: unknown): string {
-  switch (normalizeWeChatConnectMode(mode)) {
-    case "mp":
-      return "snsapi_userinfo";
-    case "mobile":
-      return "";
-    default:
-      return "snsapi_login";
-  }
-}
-
-export function resolveWeChatConnectModeCapabilities(
-  openEnabled: unknown,
-  mpEnabled: unknown,
-  mobileEnabled: unknown,
-  legacyMode: unknown,
-): { openEnabled: boolean; mpEnabled: boolean; mobileEnabled: boolean } {
-  if (
-    typeof openEnabled === "boolean" ||
-    typeof mpEnabled === "boolean" ||
-    typeof mobileEnabled === "boolean"
-  ) {
-    return {
-      openEnabled: openEnabled === true,
-      mpEnabled: mpEnabled === true,
-      mobileEnabled: mobileEnabled === true,
-    };
-  }
-
-  switch (normalizeWeChatConnectMode(legacyMode)) {
-    case "mp":
-      return { openEnabled: false, mpEnabled: true, mobileEnabled: false };
-    case "mobile":
-      return { openEnabled: false, mpEnabled: false, mobileEnabled: true };
-    default:
-      return { openEnabled: true, mpEnabled: false, mobileEnabled: false };
-  }
-}
-
-export function deriveWeChatConnectStoredMode(
-  openEnabled: boolean,
-  mpEnabled: boolean,
-  mobileEnabled: boolean,
-  legacyMode: unknown,
-): WeChatConnectMode {
-  if (mpEnabled) return "mp";
-  if (mobileEnabled) return "mobile";
-  if (openEnabled) return "open";
-  return normalizeWeChatConnectMode(legacyMode);
-}
-
 /**
  * System settings interface
  */
@@ -399,10 +204,8 @@ export interface SystemSettings {
   email_verify_enabled: boolean;
   registration_email_suffix_whitelist: string[];
   registration_email_domain_quota_enabled: boolean;
-  promo_code_enabled: boolean;
   password_reset_enabled: boolean;
   frontend_url: string;
-  invitation_code_enabled: boolean;
   totp_enabled: boolean; // TOTP 双因素认证
   totp_encryption_key_configured: boolean; // TOTP 加密密钥是否已配置
   passkey_enabled: boolean;
@@ -427,11 +230,6 @@ export interface SystemSettings {
   login_agreement_documents: LoginAgreementDocument[];
   // Default settings
   default_balance: number;
-  affiliate_rebate_rate: number;
-  affiliate_rebate_freeze_hours: number;
-  affiliate_rebate_duration_days: number;
-  affiliate_rebate_per_invitee_cap: number;
-  affiliate_admin_recharge_enabled: boolean;
   default_concurrency: number;
   default_user_rpm_limit: number;
   default_subscriptions: DefaultSubscriptionSetting[];
@@ -440,46 +238,9 @@ export interface SystemSettings {
   auth_source_default_email_subscriptions?: DefaultSubscriptionSetting[];
   auth_source_default_email_grant_on_signup?: boolean;
   auth_source_default_email_grant_on_first_bind?: boolean;
-  auth_source_default_linuxdo_balance?: number;
-  auth_source_default_linuxdo_concurrency?: number;
-  auth_source_default_linuxdo_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_linuxdo_grant_on_signup?: boolean;
-  auth_source_default_linuxdo_grant_on_first_bind?: boolean;
-  auth_source_default_oidc_balance?: number;
-  auth_source_default_oidc_concurrency?: number;
-  auth_source_default_oidc_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_oidc_grant_on_signup?: boolean;
-  auth_source_default_oidc_grant_on_first_bind?: boolean;
-  auth_source_default_wechat_balance?: number;
-  auth_source_default_wechat_concurrency?: number;
-  auth_source_default_wechat_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_wechat_grant_on_signup?: boolean;
-  auth_source_default_wechat_grant_on_first_bind?: boolean;
-  auth_source_default_dingtalk_balance?: number;
-  auth_source_default_dingtalk_concurrency?: number;
-  auth_source_default_dingtalk_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_dingtalk_grant_on_signup?: boolean;
-  auth_source_default_dingtalk_grant_on_first_bind?: boolean;
-  auth_source_default_github_balance?: number;
-  auth_source_default_github_concurrency?: number;
-  auth_source_default_github_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_github_grant_on_signup?: boolean;
-  auth_source_default_github_grant_on_first_bind?: boolean;
-  auth_source_default_google_balance?: number;
-  auth_source_default_google_concurrency?: number;
-  auth_source_default_google_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_google_grant_on_signup?: boolean;
-  auth_source_default_google_grant_on_first_bind?: boolean;
-  force_email_on_third_party_signup?: boolean;
-  // ── 平台限额（嵌套 JSON，系统层 + 7 auth-source 层）────────────────────────────────
+  // ── 平台限额（嵌套 JSON，系统层 + email auth-source 层）────────────────────────────────
   default_platform_quotas?: DefaultPlatformQuotasMap;
   auth_source_default_email_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_linuxdo_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_oidc_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_wechat_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_github_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_google_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_dingtalk_platform_quotas?: DefaultPlatformQuotasMap;
   // OEM settings
   site_name: string;
   site_logo: string;
@@ -521,82 +282,6 @@ export interface SystemSettings {
   aliyun_captcha_region: string;
   api_key_acl_trust_forwarded_ip: boolean;
   forwarded_client_ip_headers: string[];
-
-  // LinuxDo Connect OAuth settings
-  linuxdo_connect_enabled: boolean;
-  linuxdo_connect_client_id: string;
-  linuxdo_connect_client_secret_configured: boolean;
-  linuxdo_connect_redirect_url: string;
-
-  // DingTalk Connect OAuth settings
-  dingtalk_connect_enabled: boolean;
-  dingtalk_connect_client_id: string;
-  dingtalk_connect_client_secret_configured: boolean;
-  dingtalk_connect_redirect_url: string;
-  dingtalk_connect_corp_restriction_policy: string;
-  dingtalk_connect_internal_corp_id: string;
-  dingtalk_connect_bypass_registration: boolean;
-  dingtalk_connect_sync_corp_email: boolean;
-  dingtalk_connect_sync_display_name: boolean;
-  dingtalk_connect_sync_dept: boolean;
-  dingtalk_connect_sync_corp_email_attr_key: string;
-  dingtalk_connect_sync_display_name_attr_key: string;
-  dingtalk_connect_sync_dept_attr_key: string;
-  dingtalk_connect_sync_corp_email_attr_name: string;
-  dingtalk_connect_sync_display_name_attr_name: string;
-  dingtalk_connect_sync_dept_attr_name: string;
-
-  // WeChat Connect OAuth settings
-  wechat_connect_enabled: boolean;
-  wechat_connect_app_id: string;
-  wechat_connect_app_secret_configured: boolean;
-  wechat_connect_open_app_id?: string;
-  wechat_connect_open_app_secret_configured?: boolean;
-  wechat_connect_mp_app_id?: string;
-  wechat_connect_mp_app_secret_configured?: boolean;
-  wechat_connect_mobile_app_id?: string;
-  wechat_connect_mobile_app_secret_configured?: boolean;
-  wechat_connect_open_enabled?: boolean;
-  wechat_connect_mp_enabled?: boolean;
-  wechat_connect_mobile_enabled?: boolean;
-  wechat_connect_mode: string;
-  wechat_connect_scopes: string;
-  wechat_connect_redirect_url: string;
-  wechat_connect_frontend_redirect_url: string;
-
-  // Generic OIDC OAuth settings
-  oidc_connect_enabled: boolean;
-  oidc_connect_provider_name: string;
-  oidc_connect_client_id: string;
-  oidc_connect_client_secret_configured: boolean;
-  oidc_connect_issuer_url: string;
-  oidc_connect_discovery_url: string;
-  oidc_connect_authorize_url: string;
-  oidc_connect_token_url: string;
-  oidc_connect_userinfo_url: string;
-  oidc_connect_jwks_url: string;
-  oidc_connect_scopes: string;
-  oidc_connect_redirect_url: string;
-  oidc_connect_frontend_redirect_url: string;
-  oidc_connect_token_auth_method: string;
-  oidc_connect_use_pkce: boolean;
-  oidc_connect_validate_id_token: boolean;
-  oidc_connect_allowed_signing_algs: string;
-  oidc_connect_clock_skew_seconds: number;
-  oidc_connect_require_email_verified: boolean;
-  oidc_connect_userinfo_email_path: string;
-  oidc_connect_userinfo_id_path: string;
-  oidc_connect_userinfo_username_path: string;
-  github_oauth_enabled: boolean;
-  github_oauth_client_id: string;
-  github_oauth_client_secret_configured: boolean;
-  github_oauth_redirect_url: string;
-  github_oauth_frontend_redirect_url: string;
-  google_oauth_enabled: boolean;
-  google_oauth_client_id: string;
-  google_oauth_client_secret_configured: boolean;
-  google_oauth_redirect_url: string;
-  google_oauth_frontend_redirect_url: string;
 
   // Model fallback configuration
   enable_model_fallback: boolean;
@@ -652,40 +337,12 @@ export interface SystemSettings {
   codex_cli_only_engine_fingerprint_signals: string;
   web_search_emulation_enabled?: boolean;
 
-  // Payment configuration
-  payment_enabled: boolean;
   risk_control_enabled: boolean;
 
   // Cyber session block
   cyber_session_block_enabled: boolean;
   cyber_session_block_ttl_seconds: number;
 
-  payment_min_amount: number;
-  payment_max_amount: number;
-  payment_daily_limit: number;
-  payment_order_timeout_minutes: number;
-  payment_max_pending_orders: number;
-  payment_enabled_types: string[];
-  payment_balance_disabled: boolean;
-  payment_balance_recharge_multiplier: number;
-  payment_subscription_usd_to_cny_rate: number;
-  payment_recharge_fee_rate: number;
-  payment_load_balance_strategy: string;
-  payment_product_name_prefix: string;
-  payment_product_name_suffix: string;
-  payment_help_image_url: string;
-  payment_help_text: string;
-  payment_cancel_rate_limit_enabled: boolean;
-  payment_cancel_rate_limit_max: number;
-  payment_cancel_rate_limit_window: number;
-  payment_cancel_rate_limit_unit: string;
-  payment_cancel_rate_limit_window_mode: string;
-  payment_alipay_force_qrcode?: boolean;
-  payment_alipay_mobile_precreate_deep_link?: boolean;
-  payment_visible_method_alipay_source?: string;
-  payment_visible_method_wxpay_source?: string;
-  payment_visible_method_alipay_enabled?: boolean;
-  payment_visible_method_wxpay_enabled?: boolean;
   openai_low_upstream_rate_priority_enabled?: boolean;
   openai_oauth_scheduling_rate_multiplier?: number;
   openai_advanced_scheduler_enabled?: boolean;
@@ -737,9 +394,6 @@ export interface SystemSettings {
   model_plaza_require_auth: boolean;
   model_plaza_description: string;
 
-  // Affiliate (邀请返利) feature switch
-  affiliate_enabled: boolean;
-
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
@@ -752,10 +406,8 @@ export interface UpdateSettingsRequest {
   email_verify_enabled?: boolean;
   registration_email_suffix_whitelist?: string[];
   registration_email_domain_quota_enabled?: boolean;
-  promo_code_enabled?: boolean;
   password_reset_enabled?: boolean;
   frontend_url?: string;
-  invitation_code_enabled?: boolean;
   totp_enabled?: boolean; // TOTP 双因素认证
   passkey_enabled?: boolean;
   session_binding_enabled?: boolean; // 会话 IP/UA 绑定
@@ -770,11 +422,6 @@ export interface UpdateSettingsRequest {
   login_agreement_updated_at?: string;
   login_agreement_documents?: LoginAgreementDocument[];
   default_balance?: number;
-  affiliate_rebate_rate?: number;
-  affiliate_rebate_freeze_hours?: number;
-  affiliate_rebate_duration_days?: number;
-  affiliate_rebate_per_invitee_cap?: number;
-  affiliate_admin_recharge_enabled?: boolean;
   default_concurrency?: number;
   default_user_rpm_limit?: number;
   default_subscriptions?: DefaultSubscriptionSetting[];
@@ -783,46 +430,9 @@ export interface UpdateSettingsRequest {
   auth_source_default_email_subscriptions?: DefaultSubscriptionSetting[];
   auth_source_default_email_grant_on_signup?: boolean;
   auth_source_default_email_grant_on_first_bind?: boolean;
-  auth_source_default_linuxdo_balance?: number;
-  auth_source_default_linuxdo_concurrency?: number;
-  auth_source_default_linuxdo_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_linuxdo_grant_on_signup?: boolean;
-  auth_source_default_linuxdo_grant_on_first_bind?: boolean;
-  auth_source_default_oidc_balance?: number;
-  auth_source_default_oidc_concurrency?: number;
-  auth_source_default_oidc_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_oidc_grant_on_signup?: boolean;
-  auth_source_default_oidc_grant_on_first_bind?: boolean;
-  auth_source_default_wechat_balance?: number;
-  auth_source_default_wechat_concurrency?: number;
-  auth_source_default_wechat_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_wechat_grant_on_signup?: boolean;
-  auth_source_default_wechat_grant_on_first_bind?: boolean;
-  auth_source_default_dingtalk_balance?: number;
-  auth_source_default_dingtalk_concurrency?: number;
-  auth_source_default_dingtalk_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_dingtalk_grant_on_signup?: boolean;
-  auth_source_default_dingtalk_grant_on_first_bind?: boolean;
-  auth_source_default_github_balance?: number;
-  auth_source_default_github_concurrency?: number;
-  auth_source_default_github_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_github_grant_on_signup?: boolean;
-  auth_source_default_github_grant_on_first_bind?: boolean;
-  auth_source_default_google_balance?: number;
-  auth_source_default_google_concurrency?: number;
-  auth_source_default_google_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_google_grant_on_signup?: boolean;
-  auth_source_default_google_grant_on_first_bind?: boolean;
-  force_email_on_third_party_signup?: boolean;
-  // ── 平台限额（嵌套 JSON，系统层 + 7 auth-source 层）────────────────────────────────
+  // ── 平台限额（嵌套 JSON，系统层 + email auth-source 层）────────────────────────────────
   default_platform_quotas?: DefaultPlatformQuotasMap;
   auth_source_default_email_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_linuxdo_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_oidc_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_wechat_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_github_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_google_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_dingtalk_platform_quotas?: DefaultPlatformQuotasMap;
   site_name?: string;
   site_logo?: string;
   site_subtitle?: string;
@@ -861,74 +471,6 @@ export interface UpdateSettingsRequest {
   aliyun_captcha_region?: string;
   api_key_acl_trust_forwarded_ip?: boolean;
   forwarded_client_ip_headers?: string[];
-  linuxdo_connect_enabled?: boolean;
-  linuxdo_connect_client_id?: string;
-  linuxdo_connect_client_secret?: string;
-  linuxdo_connect_redirect_url?: string;
-  dingtalk_connect_enabled?: boolean;
-  dingtalk_connect_client_id?: string;
-  dingtalk_connect_client_secret?: string;
-  dingtalk_connect_redirect_url?: string;
-  dingtalk_connect_corp_restriction_policy?: string;
-  dingtalk_connect_internal_corp_id?: string;
-  dingtalk_connect_bypass_registration?: boolean;
-  dingtalk_connect_sync_corp_email?: boolean;
-  dingtalk_connect_sync_display_name?: boolean;
-  dingtalk_connect_sync_dept?: boolean;
-  dingtalk_connect_sync_corp_email_attr_key?: string;
-  dingtalk_connect_sync_display_name_attr_key?: string;
-  dingtalk_connect_sync_dept_attr_key?: string;
-  dingtalk_connect_sync_corp_email_attr_name?: string;
-  dingtalk_connect_sync_display_name_attr_name?: string;
-  dingtalk_connect_sync_dept_attr_name?: string;
-  wechat_connect_enabled?: boolean;
-  wechat_connect_app_id?: string;
-  wechat_connect_app_secret?: string;
-  wechat_connect_open_app_id?: string;
-  wechat_connect_open_app_secret?: string;
-  wechat_connect_mp_app_id?: string;
-  wechat_connect_mp_app_secret?: string;
-  wechat_connect_mobile_app_id?: string;
-  wechat_connect_mobile_app_secret?: string;
-  wechat_connect_open_enabled?: boolean;
-  wechat_connect_mp_enabled?: boolean;
-  wechat_connect_mobile_enabled?: boolean;
-  wechat_connect_mode?: string;
-  wechat_connect_scopes?: string;
-  wechat_connect_redirect_url?: string;
-  wechat_connect_frontend_redirect_url?: string;
-  oidc_connect_enabled?: boolean;
-  oidc_connect_provider_name?: string;
-  oidc_connect_client_id?: string;
-  oidc_connect_client_secret?: string;
-  oidc_connect_issuer_url?: string;
-  oidc_connect_discovery_url?: string;
-  oidc_connect_authorize_url?: string;
-  oidc_connect_token_url?: string;
-  oidc_connect_userinfo_url?: string;
-  oidc_connect_jwks_url?: string;
-  oidc_connect_scopes?: string;
-  oidc_connect_redirect_url?: string;
-  oidc_connect_frontend_redirect_url?: string;
-  oidc_connect_token_auth_method?: string;
-  oidc_connect_use_pkce?: boolean;
-  oidc_connect_validate_id_token?: boolean;
-  oidc_connect_allowed_signing_algs?: string;
-  oidc_connect_clock_skew_seconds?: number;
-  oidc_connect_require_email_verified?: boolean;
-  oidc_connect_userinfo_email_path?: string;
-  oidc_connect_userinfo_id_path?: string;
-  oidc_connect_userinfo_username_path?: string;
-  github_oauth_enabled?: boolean;
-  github_oauth_client_id?: string;
-  github_oauth_client_secret?: string;
-  github_oauth_redirect_url?: string;
-  github_oauth_frontend_redirect_url?: string;
-  google_oauth_enabled?: boolean;
-  google_oauth_client_id?: string;
-  google_oauth_client_secret?: string;
-  google_oauth_redirect_url?: string;
-  google_oauth_frontend_redirect_url?: string;
   enable_model_fallback?: boolean;
   fallback_model_anthropic?: string;
   fallback_model_openai?: string;
@@ -967,40 +509,12 @@ export interface UpdateSettingsRequest {
   codex_cli_only_whitelist?: string;
   codex_cli_only_allow_app_server_clients?: boolean;
   codex_cli_only_engine_fingerprint_signals?: string;
-  // Payment configuration
-  payment_enabled?: boolean;
   risk_control_enabled?: boolean;
 
   // Cyber session block
   cyber_session_block_enabled?: boolean;
   cyber_session_block_ttl_seconds?: number;
 
-  payment_min_amount?: number;
-  payment_max_amount?: number;
-  payment_daily_limit?: number;
-  payment_order_timeout_minutes?: number;
-  payment_max_pending_orders?: number;
-  payment_enabled_types?: string[];
-  payment_balance_disabled?: boolean;
-  payment_balance_recharge_multiplier?: number;
-  payment_subscription_usd_to_cny_rate?: number;
-  payment_recharge_fee_rate?: number;
-  payment_load_balance_strategy?: string;
-  payment_product_name_prefix?: string;
-  payment_product_name_suffix?: string;
-  payment_help_image_url?: string;
-  payment_help_text?: string;
-  payment_cancel_rate_limit_enabled?: boolean;
-  payment_cancel_rate_limit_max?: number;
-  payment_cancel_rate_limit_window?: number;
-  payment_cancel_rate_limit_unit?: string;
-  payment_cancel_rate_limit_window_mode?: string;
-  payment_alipay_force_qrcode?: boolean;
-  payment_alipay_mobile_precreate_deep_link?: boolean;
-  payment_visible_method_alipay_source?: string;
-  payment_visible_method_wxpay_source?: string;
-  payment_visible_method_alipay_enabled?: boolean;
-  payment_visible_method_wxpay_enabled?: boolean;
   openai_low_upstream_rate_priority_enabled?: boolean;
   openai_oauth_scheduling_rate_multiplier?: number;
   openai_advanced_scheduler_enabled?: boolean;
@@ -1039,9 +553,6 @@ export interface UpdateSettingsRequest {
   model_plaza_enabled?: boolean;
   model_plaza_require_auth?: boolean;
   model_plaza_description?: string;
-
-  // Affiliate (邀请返利) feature switch
-  affiliate_enabled?: boolean;
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;

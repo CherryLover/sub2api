@@ -120,9 +120,8 @@ func auditNormalizeBodyKey(key string) string {
 }
 
 // auditBodySensitiveExactKeys 请求体脱敏的精确匹配键（归一化后）。
-// 除内置清单外，程序化并入两份权威敏感表以防清单漂移：
+// 除内置清单外，程序化并入权威敏感表以防清单漂移：
 //   - SensitiveCredentialKeys：账号 credentials 的敏感子键（session_key / service_account_json 等）
-//   - providerSensitiveConfigFields：支付渠道密钥字段（pkey / privatekey / apiv3key 等）
 var auditBodySensitiveExactKeys = func() map[string]struct{} {
 	builtin := []string{
 		"code", "codes", "pin", "cvv",
@@ -138,6 +137,9 @@ var auditBodySensitiveExactKeys = func() map[string]struct{} {
 		// audit_logs 里留一份明文副本，被日志导出/备份一路带出去。
 		// 改动本身仍然可追溯——diffSettings 会记下 "login_entry_path" 这个键名。
 		"login_entry_path",
+		// 支付敏感字段表随支付模块删除；这些精确匹配键原先由它提供，
+		// 内置补回以防未来新端点回声同名密钥字段时漏脱敏。
+		"pkey", "apiv3key", "publickey", "alipay_public_key",
 	}
 	set := make(map[string]struct{}, len(builtin)+len(SensitiveCredentialKeys)+16)
 	for _, k := range builtin {
@@ -145,11 +147,6 @@ var auditBodySensitiveExactKeys = func() map[string]struct{} {
 	}
 	for _, k := range SensitiveCredentialKeys {
 		set[auditNormalizeBodyKey(k)] = struct{}{}
-	}
-	for _, fields := range providerSensitiveConfigFields {
-		for k := range fields {
-			set[auditNormalizeBodyKey(k)] = struct{}{}
-		}
 	}
 	return set
 }()

@@ -62,25 +62,16 @@ func TestAuthHandlerGetCurrentUserReturnsProfileCompatibilityFields(t *testing.T
 	}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
 	require.Equal(t, 0, resp.Code)
+	// 绑定摘要已收敛为只含 email：历史第三方身份行不再出现在 /auth/me 响应中。
+	// （常规邮箱走 legacy 兼容回退，email 视为已绑定。）
 	require.Equal(t, true, resp.Data["email_bound"])
-	require.Equal(t, true, resp.Data["linuxdo_bound"])
 	require.Equal(t, "https://cdn.example.com/linuxdo.png", resp.Data["avatar_url"])
 
 	authBindings, ok := resp.Data["auth_bindings"].(map[string]any)
 	require.True(t, ok)
-	linuxdoBinding, ok := authBindings["linuxdo"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, true, linuxdoBinding["bound"])
-
-	avatarSource, ok := resp.Data["avatar_source"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "linuxdo", avatarSource["provider"])
-	require.Equal(t, "linuxdo", avatarSource["source"])
-
-	profileSources, ok := resp.Data["profile_sources"].(map[string]any)
-	require.True(t, ok)
-	usernameSource, ok := profileSources["username"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "linuxdo", usernameSource["provider"])
-	require.Equal(t, "linuxdo", usernameSource["source"])
+	require.Contains(t, authBindings, "email")
+	require.NotContains(t, authBindings, "linuxdo")
+	require.NotContains(t, resp.Data, "linuxdo_bound")
+	require.NotContains(t, resp.Data, "avatar_source")
+	require.NotContains(t, resp.Data, "profile_sources")
 }

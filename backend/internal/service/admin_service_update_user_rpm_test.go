@@ -34,7 +34,6 @@ func TestAdminService_UpdateUser_InvalidatesAuthCacheOnRPMLimitChange(t *testing
 	invalidator := &authCacheInvalidatorStub{}
 	svc := &adminServiceImpl{
 		userRepo:             repo,
-		redeemCodeRepo:       &redeemRepoStub{},
 		authCacheInvalidator: invalidator,
 	}
 
@@ -54,7 +53,6 @@ func TestAdminService_UpdateUser_NoInvalidateWhenRPMLimitUnchanged(t *testing.T)
 	invalidator := &authCacheInvalidatorStub{}
 	svc := &adminServiceImpl{
 		userRepo:             repo,
-		redeemCodeRepo:       &redeemRepoStub{},
 		authCacheInvalidator: invalidator,
 	}
 

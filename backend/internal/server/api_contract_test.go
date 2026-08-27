@@ -66,10 +66,6 @@ func TestAPIContracts(t *testing.T) {
 					"balance_notify_threshold": null,
 					"balance_notify_extra_emails": null,
 					"total_recharged": 0,
-					"linuxdo_bound": false,
-					"oidc_bound": false,
-					"wechat_bound": false,
-					"dingtalk_bound": false,
 					"identities": {
 						"email": {
 							"provider": "email",
@@ -82,38 +78,6 @@ func TestAPIContracts(t *testing.T) {
 							"subject_hint": "a***e@example.com",
 							"note_key": "profile.authBindings.notes.emailManagedFromProfile",
 							"note": "Primary account email is managed from the profile form."
-						},
-						"linuxdo": {
-							"provider": "linuxdo",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/linuxdo/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
-						},
-						"oidc": {
-							"provider": "oidc",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/oidc/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
-						},
-						"wechat": {
-							"provider": "wechat",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
-						},
-						"dingtalk": {
-							"provider": "dingtalk",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/dingtalk/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
 					"identity_bindings": {
@@ -128,38 +92,6 @@ func TestAPIContracts(t *testing.T) {
 							"subject_hint": "a***e@example.com",
 							"note_key": "profile.authBindings.notes.emailManagedFromProfile",
 							"note": "Primary account email is managed from the profile form."
-						},
-						"linuxdo": {
-							"provider": "linuxdo",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/linuxdo/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
-						},
-						"oidc": {
-							"provider": "oidc",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/oidc/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
-						},
-						"wechat": {
-							"provider": "wechat",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
-						},
-						"dingtalk": {
-							"provider": "dingtalk",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/dingtalk/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
 					"auth_bindings": {
@@ -174,38 +106,6 @@ func TestAPIContracts(t *testing.T) {
 							"subject_hint": "a***e@example.com",
 							"note_key": "profile.authBindings.notes.emailManagedFromProfile",
 							"note": "Primary account email is managed from the profile form."
-						},
-						"linuxdo": {
-							"provider": "linuxdo",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/linuxdo/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
-						},
-						"oidc": {
-							"provider": "oidc",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/oidc/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
-						},
-						"wechat": {
-							"provider": "wechat",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
-						},
-						"dingtalk": {
-							"provider": "dingtalk",
-							"bound": false,
-							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/dingtalk/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
 					"run_mode": "standard"
@@ -451,47 +351,6 @@ func TestAPIContracts(t *testing.T) {
 			}`,
 		},
 		{
-			name: "GET /api/v1/redeem/history",
-			setup: func(t *testing.T, deps *contractDeps) {
-				t.Helper()
-				// 普通用户兑换历史不应包含 notes 等内部字段。
-				deps.redeemRepo.SetByUser(1, []service.RedeemCode{
-					{
-						ID:        900,
-						Code:      "CODE-123",
-						Type:      service.RedeemTypeBalance,
-						Value:     1.25,
-						Status:    service.StatusUsed,
-						UsedBy:    ptr(int64(1)),
-						UsedAt:    ptr(deps.now),
-						Notes:     "internal-note",
-						CreatedAt: deps.now,
-					},
-				})
-			},
-			method:     http.MethodGet,
-			path:       "/api/v1/redeem/history",
-			wantStatus: http.StatusOK,
-			wantJSON: `{
-				"code": 0,
-				"message": "success",
-				"data": [
-					{
-						"id": 900,
-						"code": "CODE-123",
-						"type": "balance",
-						"value": 1.25,
-						"status": "used",
-						"used_by": 1,
-						"used_at": "2025-01-02T03:04:05Z",
-						"created_at": "2025-01-02T03:04:05Z",
-						"group_id": null,
-						"validity_days": 0
-					}
-				]
-			}`,
-		},
-		{
 			name: "GET /api/v1/usage/stats",
 			setup: func(t *testing.T, deps *contractDeps) {
 				t.Helper()
@@ -642,7 +501,6 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingKeyRegistrationEnabled:              "true",
 					service.SettingKeyEmailVerifyEnabled:               "false",
 					service.SettingKeyRegistrationEmailSuffixWhitelist: "[]",
-					service.SettingKeyPromoCodeEnabled:                 "true",
 
 					service.SettingKeySMTPHost:     "smtp.example.com",
 					service.SettingKeySMTPPort:     "587",
@@ -655,28 +513,6 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingKeyTurnstileEnabled:   "true",
 					service.SettingKeyTurnstileSiteKey:   "site-key",
 					service.SettingKeyTurnstileSecretKey: "secret-key",
-
-					service.SettingKeyOIDCConnectEnabled:              "false",
-					service.SettingKeyOIDCConnectProviderName:         "OIDC",
-					service.SettingKeyOIDCConnectClientID:             "",
-					service.SettingKeyOIDCConnectIssuerURL:            "",
-					service.SettingKeyOIDCConnectDiscoveryURL:         "",
-					service.SettingKeyOIDCConnectAuthorizeURL:         "",
-					service.SettingKeyOIDCConnectTokenURL:             "",
-					service.SettingKeyOIDCConnectUserInfoURL:          "",
-					service.SettingKeyOIDCConnectJWKSURL:              "",
-					service.SettingKeyOIDCConnectScopes:               "openid email profile",
-					service.SettingKeyOIDCConnectRedirectURL:          "",
-					service.SettingKeyOIDCConnectFrontendRedirectURL:  "/auth/oidc/callback",
-					service.SettingKeyOIDCConnectTokenAuthMethod:      "client_secret_post",
-					service.SettingKeyOIDCConnectUsePKCE:              "true",
-					service.SettingKeyOIDCConnectValidateIDToken:      "true",
-					service.SettingKeyOIDCConnectAllowedSigningAlgs:   "RS256,ES256,PS256",
-					service.SettingKeyOIDCConnectClockSkewSeconds:     "120",
-					service.SettingKeyOIDCConnectRequireEmailVerified: "false",
-					service.SettingKeyOIDCConnectUserInfoEmailPath:    "",
-					service.SettingKeyOIDCConnectUserInfoIDPath:       "",
-					service.SettingKeyOIDCConnectUserInfoUsernamePath: "",
 
 					service.SettingKeySiteName:     "Sub2API",
 					service.SettingKeySiteLogo:     "",
@@ -694,10 +530,6 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingKeyOpsRealtimeMonitoringEnabled:                       "true",
 					service.SettingKeyOpsQueryModeDefault:                                "auto",
 					service.SettingKeyOpsMetricsIntervalSeconds:                          "60",
-					service.SettingPaymentVisibleMethodAlipaySource:                      service.VisibleMethodSourceEasyPayAlipay,
-					service.SettingPaymentVisibleMethodWxpaySource:                       service.VisibleMethodSourceOfficialWechat,
-					service.SettingPaymentVisibleMethodAlipayEnabled:                     "true",
-					service.SettingPaymentVisibleMethodWxpayEnabled:                      "false",
 					service.SettingKeyOpenAILowUpstreamRatePriorityEnabled:               "true",
 					service.SettingKeyOpenAIOAuthSchedulingRateMultiplier:                "0.05",
 					"openai_advanced_scheduler_enabled":                                  "true",
@@ -716,7 +548,6 @@ func TestAPIContracts(t *testing.T) {
 					"email_verify_enabled": false,
 					"registration_email_suffix_whitelist": [],
 					"registration_email_domain_quota_enabled": false,
-					"promo_code_enabled": true,
 					"password_reset_enabled": false,
 						"frontend_url": "",
 						"totp_enabled": false,
@@ -759,58 +590,6 @@ func TestAPIContracts(t *testing.T) {
 					"aliyun_captcha_scene_id": "",
 					"aliyun_captcha_prefix": "",
 					"aliyun_captcha_region": "cn",
-						"linuxdo_connect_enabled": false,
-						"linuxdo_connect_client_id": "",
-						"linuxdo_connect_client_secret_configured": false,
-						"linuxdo_connect_redirect_url": "",
-						"dingtalk_connect_enabled": false,
-						"dingtalk_connect_bypass_registration": false,
-						"dingtalk_connect_client_id": "",
-						"dingtalk_connect_client_secret_configured": false,
-						"dingtalk_connect_redirect_url": "",
-						"dingtalk_connect_internal_corp_id": "",
-						"dingtalk_connect_corp_restriction_policy": "",
-						"dingtalk_connect_sync_corp_email": false,
-						"dingtalk_connect_sync_corp_email_attr_key": "dingtalk_email",
-						"dingtalk_connect_sync_corp_email_attr_name": "钉钉企业邮箱",
-						"dingtalk_connect_sync_dept": false,
-						"dingtalk_connect_sync_dept_attr_key": "dingtalk_department",
-						"dingtalk_connect_sync_dept_attr_name": "钉钉部门",
-						"dingtalk_connect_sync_display_name": false,
-						"dingtalk_connect_sync_display_name_attr_key": "dingtalk_name",
-						"dingtalk_connect_sync_display_name_attr_name": "钉钉姓名",
-						"oidc_connect_enabled": false,
-						"oidc_connect_provider_name": "OIDC",
-						"oidc_connect_client_id": "",
-						"oidc_connect_client_secret_configured": false,
-						"oidc_connect_issuer_url": "",
-						"oidc_connect_discovery_url": "",
-						"oidc_connect_authorize_url": "",
-						"oidc_connect_token_url": "",
-						"oidc_connect_userinfo_url": "",
-						"oidc_connect_jwks_url": "",
-						"oidc_connect_scopes": "openid email profile",
-						"oidc_connect_redirect_url": "",
-						"oidc_connect_frontend_redirect_url": "/auth/oidc/callback",
-						"oidc_connect_token_auth_method": "client_secret_post",
-						"oidc_connect_use_pkce": true,
-						"oidc_connect_validate_id_token": true,
-						"oidc_connect_allowed_signing_algs": "RS256,ES256,PS256",
-						"oidc_connect_clock_skew_seconds": 120,
-						"oidc_connect_require_email_verified": false,
-						"oidc_connect_userinfo_email_path": "",
-						"oidc_connect_userinfo_id_path": "",
-						"oidc_connect_userinfo_username_path": "",
-						"github_oauth_enabled": false,
-						"github_oauth_client_id": "",
-						"github_oauth_client_secret_configured": false,
-						"github_oauth_redirect_url": "",
-						"github_oauth_frontend_redirect_url": "/auth/oauth/callback",
-						"google_oauth_enabled": false,
-						"google_oauth_client_id": "",
-						"google_oauth_client_secret_configured": false,
-						"google_oauth_redirect_url": "",
-						"google_oauth_frontend_redirect_url": "/auth/oauth/callback",
 						"ops_monitoring_enabled": false,
 						"ops_realtime_monitoring_enabled": true,
 						"ops_query_mode_default": "auto",
@@ -828,52 +607,10 @@ func TestAPIContracts(t *testing.T) {
 					"auth_source_default_email_subscriptions": [],
 					"auth_source_default_email_grant_on_signup": false,
 					"auth_source_default_email_grant_on_first_bind": false,
-					"auth_source_default_github_balance": 0,
-					"auth_source_default_github_concurrency": 5,
-					"auth_source_default_github_subscriptions": [],
-					"auth_source_default_github_grant_on_signup": false,
-					"auth_source_default_github_grant_on_first_bind": false,
-					"auth_source_default_google_balance": 0,
-					"auth_source_default_google_concurrency": 5,
-					"auth_source_default_google_subscriptions": [],
-					"auth_source_default_google_grant_on_signup": false,
-					"auth_source_default_google_grant_on_first_bind": false,
-					"auth_source_default_linuxdo_balance": 0,
-					"auth_source_default_linuxdo_concurrency": 5,
-					"auth_source_default_linuxdo_subscriptions": [],
-					"auth_source_default_linuxdo_grant_on_signup": false,
-					"auth_source_default_linuxdo_grant_on_first_bind": false,
-					"auth_source_default_oidc_balance": 0,
-					"auth_source_default_oidc_concurrency": 5,
-					"auth_source_default_oidc_subscriptions": [],
-					"auth_source_default_oidc_grant_on_signup": false,
-					"auth_source_default_oidc_grant_on_first_bind": false,
-					"auth_source_default_wechat_balance": 0,
-					"auth_source_default_wechat_concurrency": 5,
-					"auth_source_default_wechat_subscriptions": [],
-					"auth_source_default_wechat_grant_on_signup": false,
-					"auth_source_default_wechat_grant_on_first_bind": false,
-					"auth_source_default_dingtalk_balance": 0,
-					"auth_source_default_dingtalk_concurrency": 5,
-					"auth_source_default_dingtalk_subscriptions": [],
-					"auth_source_default_dingtalk_grant_on_signup": false,
-					"auth_source_default_dingtalk_grant_on_first_bind": false,
-					"force_email_on_third_party_signup": false,
 					"default_concurrency": 5,
 					"default_balance": 1.25,
 					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"deepseek":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"grok":{"daily":null,"weekly":null,"monthly":null},"kimi":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"zhipu":{"daily":null,"weekly":null,"monthly":null}},
 					"auth_source_default_email_platform_quotas": null,
-					"auth_source_default_github_platform_quotas": null,
-					"auth_source_default_google_platform_quotas": null,
-					"auth_source_default_linuxdo_platform_quotas": null,
-					"auth_source_default_oidc_platform_quotas": null,
-					"auth_source_default_wechat_platform_quotas": null,
-					"auth_source_default_dingtalk_platform_quotas": null,
-					"affiliate_rebate_rate": 20,
-					"affiliate_rebate_freeze_hours": 0,
-					"affiliate_rebate_duration_days": 0,
-					"affiliate_rebate_per_invitee_cap": 0,
-					"affiliate_admin_recharge_enabled": false,
 					"default_user_rpm_limit": 0,
 					"default_subscriptions": [],
 					"enable_model_fallback": false,
@@ -883,14 +620,11 @@ func TestAPIContracts(t *testing.T) {
 						"fallback_model_openai": "gpt-4o",
 						"enable_identity_patch": true,
 						"identity_patch_prompt": "",
-						"invitation_code_enabled": false,
 						"home_content": "",
 					"hide_ccs_import_button": false,
 					"grok_default_text_model": "grok-4.6",
 					"grok_default_base_url_mode": "cli",
 					"grok_cross_client_model_map_enabled": true,
-					"purchase_subscription_enabled": false,
-					"purchase_subscription_url": "",
 					"table_default_page_size": 20,
 						"table_page_size_options": [10, 20, 50, 100],
 					"min_claude_code_version": "",
@@ -920,10 +654,6 @@ func TestAPIContracts(t *testing.T) {
 					"enable_fingerprint_unification": true,
 					"enable_metadata_passthrough": false,
 					"web_search_emulation_enabled": false,
-					"payment_visible_method_alipay_source": "easypay_alipay",
-					"payment_visible_method_wxpay_source": "official_wxpay",
-					"payment_visible_method_alipay_enabled": true,
-					"payment_visible_method_wxpay_enabled": false,
 					"openai_low_upstream_rate_priority_enabled": true,
 					"openai_oauth_scheduling_rate_multiplier": 0.05,
 					"openai_advanced_scheduler_enabled": true,
@@ -960,29 +690,6 @@ func TestAPIContracts(t *testing.T) {
 					},
 					"custom_menu_items": [],
 					"custom_endpoints": [],
-					"payment_enabled": false,
-					"payment_min_amount": 0,
-					"payment_max_amount": 0,
-					"payment_daily_limit": 0,
-					"payment_order_timeout_minutes": 0,
-					"payment_max_pending_orders": 0,
-					"payment_balance_disabled": false,
-					"payment_balance_recharge_multiplier": 0,
-					"payment_subscription_usd_to_cny_rate": 0,
-					"payment_recharge_fee_rate": 0,
-					"payment_load_balance_strategy": "",
-					"payment_product_name_prefix": "",
-					"payment_product_name_suffix": "",
-					"payment_help_image_url": "",
-					"payment_help_text": "",
-					"payment_enabled_types": null,
-					"payment_cancel_rate_limit_enabled": false,
-					"payment_cancel_rate_limit_max": 0,
-					"payment_cancel_rate_limit_window": 0,
-					"payment_cancel_rate_limit_unit": "",
-					"payment_cancel_rate_limit_window_mode": "",
-					"payment_alipay_force_qrcode": false,
-					"payment_alipay_mobile_precreate_deep_link": false,
 					"balance_low_notify_enabled": false,
 					"account_quota_notify_enabled": false,
 					"account_scheduling_thresholds": {"anthropic":100,"grok":100,"openai":100},
@@ -1002,375 +709,6 @@ func TestAPIContracts(t *testing.T) {
 					"risk_control_enabled": false,
 					"cyber_session_block_enabled": false,
 					"cyber_session_block_ttl_seconds": 3600,
-					"affiliate_enabled": false,
-					"wechat_connect_enabled": false,
-					"wechat_connect_app_id": "",
-					"wechat_connect_app_secret_configured": false,
-					"wechat_connect_mode": "open",
-					"wechat_connect_open_enabled": false,
-					"wechat_connect_open_app_id": "",
-					"wechat_connect_open_app_secret_configured": false,
-					"wechat_connect_mp_enabled": false,
-					"wechat_connect_mp_app_id": "",
-					"wechat_connect_mp_app_secret_configured": false,
-					"wechat_connect_mobile_enabled": false,
-					"wechat_connect_mobile_app_id": "",
-					"wechat_connect_mobile_app_secret_configured": false,
-					"wechat_connect_redirect_url": "",
-					"wechat_connect_frontend_redirect_url": "/auth/wechat/callback",
-					"wechat_connect_scopes": "snsapi_login",
-					"allow_user_view_error_requests": false
-				}
-			}`,
-		},
-		{
-			name: "GET /api/v1/admin/settings falls back to config oauth defaults",
-			setup: func(t *testing.T, deps *contractDeps) {
-				t.Helper()
-				deps.cfg.OIDC = config.OIDCConnectConfig{
-					Enabled:             true,
-					ProviderName:        "ConfigOIDC",
-					ClientID:            "oidc-config-client",
-					ClientSecret:        "oidc-config-secret",
-					IssuerURL:           "https://issuer.example.com",
-					RedirectURL:         "https://api.example.com/api/v1/auth/oauth/oidc/callback",
-					FrontendRedirectURL: "/auth/oidc/callback",
-					Scopes:              "openid email profile",
-					TokenAuthMethod:     "client_secret_post",
-					UsePKCE:             true,
-					ValidateIDToken:     true,
-					AllowedSigningAlgs:  "RS256,ES256,PS256",
-					ClockSkewSeconds:    120,
-				}
-				deps.cfg.WeChat = config.WeChatConnectConfig{
-					Enabled:             true,
-					OpenEnabled:         true,
-					OpenAppID:           "wx-open-config",
-					OpenAppSecret:       "wx-open-secret",
-					Mode:                "open",
-					Scopes:              "snsapi_login",
-					FrontendRedirectURL: "/auth/wechat/callback",
-				}
-				deps.settingRepo.SetAll(map[string]string{
-					service.SettingKeyRegistrationEnabled:              "true",
-					service.SettingKeyEmailVerifyEnabled:               "false",
-					service.SettingKeyRegistrationEmailSuffixWhitelist: "[]",
-				})
-			},
-			method:     http.MethodGet,
-			path:       "/api/v1/admin/settings",
-			wantStatus: http.StatusOK,
-			wantJSON: `{
-				"code": 0,
-				"message": "success",
-				"data": {
-					"registration_enabled": true,
-					"email_verify_enabled": false,
-					"registration_email_suffix_whitelist": [],
-					"registration_email_domain_quota_enabled": false,
-					"promo_code_enabled": true,
-					"password_reset_enabled": false,
-					"frontend_url": "",
-						"invitation_code_enabled": false,
-						"totp_enabled": false,
-						"totp_encryption_key_configured": false,
-						"passkey_enabled": false,
-						"passkey_configured": false,
-						"passkey_rp_id": "",
-						"passkey_rp_origins": [],
-						"session_binding_enabled": false,
-						"step_up_enabled": false,
-						"audit_log_retention_days": 180,
-						"login_agreement_enabled": false,
-						"login_agreement_mode": "modal",
-						"login_agreement_updated_at": "2026-03-31",
-						"login_agreement_documents": [
-							{"id": "terms", "title": "服务条款", "content_md": ""},
-							{"id": "usage-policy", "title": "使用政策", "content_md": ""},
-							{"id": "supported-regions", "title": "支持的国家和地区", "content_md": ""},
-							{"id": "service-specific-terms", "title": "服务特定条款", "content_md": ""}
-						],
-						"smtp_host": "",
-						"smtp_port": 587,
-						"smtp_username": "",
-					"smtp_password_configured": false,
-					"smtp_from_email": "",
-					"smtp_from_name": "",
-					"smtp_use_tls": false,
-					"turnstile_enabled": false,
-					"turnstile_site_key": "",
-					"turnstile_secret_key_configured": false,
-					"tencent_captcha_enabled": false,
-					"tencent_captcha_app_id": "",
-					"tencent_captcha_app_secret_key_configured": false,
-					"tencent_captcha_cloud_secret_id_configured": false,
-					"tencent_captcha_cloud_secret_key_configured": false,
-					"tencent_captcha_region": "cn",
-					"aliyun_captcha_enabled": false,
-					"aliyun_captcha_access_key_id": "",
-					"aliyun_captcha_access_key_secret_configured": false,
-					"aliyun_captcha_scene_id": "",
-					"aliyun_captcha_prefix": "",
-					"aliyun_captcha_region": "cn",
-					"linuxdo_connect_enabled": false,
-					"linuxdo_connect_client_id": "",
-					"linuxdo_connect_client_secret_configured": false,
-					"linuxdo_connect_redirect_url": "",
-					"dingtalk_connect_enabled": false,
-					"dingtalk_connect_bypass_registration": false,
-					"dingtalk_connect_client_id": "",
-					"dingtalk_connect_client_secret_configured": false,
-					"dingtalk_connect_redirect_url": "",
-					"dingtalk_connect_internal_corp_id": "",
-					"dingtalk_connect_corp_restriction_policy": "",
-					"dingtalk_connect_sync_corp_email": false,
-					"dingtalk_connect_sync_corp_email_attr_key": "dingtalk_email",
-					"dingtalk_connect_sync_corp_email_attr_name": "钉钉企业邮箱",
-					"dingtalk_connect_sync_dept": false,
-					"dingtalk_connect_sync_dept_attr_key": "dingtalk_department",
-					"dingtalk_connect_sync_dept_attr_name": "钉钉部门",
-					"dingtalk_connect_sync_display_name": false,
-					"dingtalk_connect_sync_display_name_attr_key": "dingtalk_name",
-					"dingtalk_connect_sync_display_name_attr_name": "钉钉姓名",
-					"oidc_connect_enabled": true,
-					"oidc_connect_provider_name": "ConfigOIDC",
-					"oidc_connect_client_id": "oidc-config-client",
-					"oidc_connect_client_secret_configured": true,
-					"oidc_connect_issuer_url": "https://issuer.example.com",
-					"oidc_connect_discovery_url": "",
-					"oidc_connect_authorize_url": "",
-					"oidc_connect_token_url": "",
-					"oidc_connect_userinfo_url": "",
-					"oidc_connect_jwks_url": "",
-					"oidc_connect_scopes": "openid email profile",
-					"oidc_connect_redirect_url": "https://api.example.com/api/v1/auth/oauth/oidc/callback",
-					"oidc_connect_frontend_redirect_url": "/auth/oidc/callback",
-					"oidc_connect_token_auth_method": "client_secret_post",
-					"oidc_connect_use_pkce": true,
-					"oidc_connect_validate_id_token": true,
-					"oidc_connect_allowed_signing_algs": "RS256,ES256,PS256",
-					"oidc_connect_clock_skew_seconds": 120,
-					"oidc_connect_require_email_verified": false,
-					"oidc_connect_userinfo_email_path": "",
-					"oidc_connect_userinfo_id_path": "",
-					"oidc_connect_userinfo_username_path": "",
-					"github_oauth_enabled": false,
-					"github_oauth_client_id": "",
-					"github_oauth_client_secret_configured": false,
-					"github_oauth_redirect_url": "",
-					"github_oauth_frontend_redirect_url": "/auth/oauth/callback",
-					"google_oauth_enabled": false,
-					"google_oauth_client_id": "",
-					"google_oauth_client_secret_configured": false,
-					"google_oauth_redirect_url": "",
-					"google_oauth_frontend_redirect_url": "/auth/oauth/callback",
-					"site_name": "Sub2API",
-					"site_logo": "",
-					"site_subtitle": "Subscription to API Conversion Platform",
-					"api_base_url": "",
-					"api_key_acl_trust_forwarded_ip": false,
-					"forwarded_client_ip_headers": [],
-					"contact_info": "",
-					"doc_url": "",
-					"home_content": "",
-					"hide_ccs_import_button": false,
-					"grok_default_text_model": "grok-4.6",
-					"grok_default_base_url_mode": "cli",
-					"grok_cross_client_model_map_enabled": true,
-					"purchase_subscription_enabled": false,
-					"purchase_subscription_url": "",
-					"table_default_page_size": 20,
-					"table_page_size_options": [10, 20, 50],
-					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"deepseek":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"grok":{"daily":null,"weekly":null,"monthly":null},"kimi":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"zhipu":{"daily":null,"weekly":null,"monthly":null}},
-					"auth_source_default_email_platform_quotas": null,
-					"auth_source_default_github_platform_quotas": null,
-					"auth_source_default_google_platform_quotas": null,
-					"auth_source_default_linuxdo_platform_quotas": null,
-					"auth_source_default_oidc_platform_quotas": null,
-					"auth_source_default_wechat_platform_quotas": null,
-					"auth_source_default_dingtalk_platform_quotas": null,
-					"custom_menu_items": [],
-					"custom_endpoints": [],
-					"default_concurrency": 0,
-					"default_balance": 0,
-					"affiliate_rebate_rate": 20,
-					"affiliate_rebate_freeze_hours": 0,
-					"affiliate_rebate_duration_days": 0,
-					"affiliate_rebate_per_invitee_cap": 0,
-					"affiliate_admin_recharge_enabled": false,
-					"default_user_rpm_limit": 0,
-					"default_subscriptions": [],
-					"enable_model_fallback": false,
-					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
-					"fallback_model_openai": "gpt-4o",
-					"fallback_model_gemini": "gemini-2.5-pro",
-					"fallback_model_antigravity": "gemini-2.5-pro",
-					"enable_identity_patch": true,
-					"identity_patch_prompt": "",
-					"ops_monitoring_enabled": false,
-					"ops_realtime_monitoring_enabled": true,
-					"ops_query_mode_default": "auto",
-					"ops_metrics_interval_seconds": 60,
-					"min_claude_code_version": "",
-					"max_claude_code_version": "",
-					"allow_ungrouped_key_scheduling": false,
-					"backend_mode_enabled": false,
-					"enable_fingerprint_unification": true,
-					"enable_metadata_passthrough": false,
-					"enable_cch_signing": false,
-					"enable_claude_oauth_system_prompt_injection": true,
-					"claude_oauth_system_prompt": "",
-					"claude_oauth_system_prompt_blocks": "",
-					"enable_anthropic_cache_ttl_1h_injection": false,
-					"rewrite_message_cache_control": false,
-					"enable_client_dateline_normalization": true,
-					"antigravity_user_agent_version": "",
-					"min_codex_version": "",
-					"max_codex_version": "",
-					"codex_cli_only_blacklist": "",
-					"codex_cli_only_whitelist": "",
-					"compact_home_enabled": false,
-					"login_entry_public": true,
-					"login_entry_path": "",
-					"login_entry_locked_by_config": false,
-					"default_home_path": "/key-usage",
-					"default_home_path_locked_by_config": false,
-					"codex_cli_only_allow_app_server_clients": false,
-					"codex_cli_only_engine_fingerprint_signals": "[{\"type\":\"header_prefix\",\"match\":[\"x-codex-\"],\"required\":true},{\"type\":\"header_exact\",\"match\":[\"session-id\",\"session_id\"],\"required\":false},{\"type\":\"header_exact\",\"match\":[\"thread-id\",\"thread_id\"],\"required\":false},{\"type\":\"body_path\",\"match\":[\"client_metadata.x-codex-window-id\",\"client_metadata.x-codex-installation-id\"],\"required\":false}]",
-					"web_search_emulation_enabled": false,
-					"payment_visible_method_alipay_source": "",
-					"payment_visible_method_wxpay_source": "",
-					"payment_visible_method_alipay_enabled": false,
-					"payment_visible_method_wxpay_enabled": false,
-					"openai_low_upstream_rate_priority_enabled": false,
-					"openai_oauth_scheduling_rate_multiplier": 1,
-					"openai_advanced_scheduler_enabled": false,
-					"openai_advanced_scheduler_sticky_weighted_enabled": false,
-					"openai_advanced_scheduler_subscription_priority_enabled": false,
-					"openai_advanced_scheduler_lb_top_k": "",
-					"openai_advanced_scheduler_weight_priority": "",
-					"openai_advanced_scheduler_weight_load": "",
-					"openai_advanced_scheduler_weight_queue": "",
-					"openai_advanced_scheduler_weight_error_rate": "",
-					"openai_advanced_scheduler_weight_ttft": "",
-					"openai_advanced_scheduler_weight_reset": "",
-					"openai_advanced_scheduler_weight_quota_headroom": "",
-					"openai_advanced_scheduler_weight_upstream_cost": "",
-					"openai_advanced_scheduler_weight_previous_response": "",
-					"openai_advanced_scheduler_weight_session_sticky": "",
-					"openai_advanced_scheduler_effective_lb_top_k": "7",
-					"openai_advanced_scheduler_effective_weight_priority": "1",
-					"openai_advanced_scheduler_effective_weight_load": "1",
-					"openai_advanced_scheduler_effective_weight_queue": "0.7",
-					"openai_advanced_scheduler_effective_weight_error_rate": "0.8",
-					"openai_advanced_scheduler_effective_weight_ttft": "0.5",
-					"openai_advanced_scheduler_effective_weight_reset": "0",
-					"openai_advanced_scheduler_effective_weight_quota_headroom": "0",
-					"openai_advanced_scheduler_effective_weight_upstream_cost": "0",
-					"openai_advanced_scheduler_effective_weight_previous_response": "5",
-					"openai_advanced_scheduler_effective_weight_session_sticky": "3",
-					"openai_codex_user_agent":           "",
-					"openai_codex_client_version":       "",
-					"openai_codex_client_version_synced": "",
-					"openai_codex_version_auto_sync_enabled": true,
-					"openai_fast_policy_settings": {
-						"rules": []
-					},
-					"payment_enabled": false,
-					"payment_min_amount": 0,
-					"payment_max_amount": 0,
-					"payment_daily_limit": 0,
-					"payment_order_timeout_minutes": 0,
-					"payment_max_pending_orders": 0,
-					"payment_enabled_types": null,
-					"payment_balance_disabled": false,
-					"payment_balance_recharge_multiplier": 0,
-					"payment_subscription_usd_to_cny_rate": 0,
-					"payment_recharge_fee_rate": 0,
-					"payment_load_balance_strategy": "",
-					"payment_product_name_prefix": "",
-					"payment_product_name_suffix": "",
-					"payment_help_image_url": "",
-					"payment_help_text": "",
-					"payment_cancel_rate_limit_enabled": false,
-					"payment_cancel_rate_limit_max": 0,
-					"payment_cancel_rate_limit_window": 0,
-					"payment_cancel_rate_limit_unit": "",
-					"payment_cancel_rate_limit_window_mode": "",
-					"payment_alipay_force_qrcode": false,
-					"payment_alipay_mobile_precreate_deep_link": false,
-					"balance_low_notify_enabled": false,
-					"account_quota_notify_enabled": false,
-					"account_scheduling_thresholds": {"anthropic":100,"grok":100,"openai":100},
-					"subscription_expiry_notify_enabled": true,
-					"balance_low_notify_threshold": 0,
-					"balance_low_notify_recharge_url": "",
-					"account_quota_notify_emails": [],
-					"channel_monitor_enabled": true,
-					"channel_monitor_mode": "v1",
-					"channel_monitor_hide_throughput": true,
-					"channel_monitor_show_quota": false,
-					"channel_monitor_default_interval_seconds": 60,
-					"available_channels_enabled": false,
-					"model_plaza_enabled": false,
-					"model_plaza_require_auth": false,
-					"model_plaza_description": "",
-					"risk_control_enabled": false,
-					"cyber_session_block_enabled": false,
-					"cyber_session_block_ttl_seconds": 3600,
-					"affiliate_enabled": false,
-					"wechat_connect_enabled": true,
-					"wechat_connect_app_id": "wx-open-config",
-					"wechat_connect_app_secret_configured": true,
-					"wechat_connect_mode": "open",
-					"wechat_connect_open_enabled": true,
-					"wechat_connect_open_app_id": "wx-open-config",
-					"wechat_connect_open_app_secret_configured": true,
-					"wechat_connect_mp_enabled": false,
-					"wechat_connect_mp_app_id": "wx-open-config",
-					"wechat_connect_mp_app_secret_configured": true,
-					"wechat_connect_mobile_enabled": false,
-					"wechat_connect_mobile_app_id": "wx-open-config",
-					"wechat_connect_mobile_app_secret_configured": true,
-					"wechat_connect_redirect_url": "",
-					"wechat_connect_frontend_redirect_url": "/auth/wechat/callback",
-					"wechat_connect_scopes": "snsapi_login",
-					"auth_source_default_email_balance": 0,
-					"auth_source_default_email_concurrency": 5,
-					"auth_source_default_email_subscriptions": [],
-					"auth_source_default_email_grant_on_signup": false,
-					"auth_source_default_email_grant_on_first_bind": false,
-					"auth_source_default_github_balance": 0,
-					"auth_source_default_github_concurrency": 5,
-					"auth_source_default_github_subscriptions": [],
-					"auth_source_default_github_grant_on_signup": false,
-					"auth_source_default_github_grant_on_first_bind": false,
-					"auth_source_default_google_balance": 0,
-					"auth_source_default_google_concurrency": 5,
-					"auth_source_default_google_subscriptions": [],
-					"auth_source_default_google_grant_on_signup": false,
-					"auth_source_default_google_grant_on_first_bind": false,
-					"auth_source_default_linuxdo_balance": 0,
-					"auth_source_default_linuxdo_concurrency": 5,
-					"auth_source_default_linuxdo_subscriptions": [],
-					"auth_source_default_linuxdo_grant_on_signup": false,
-					"auth_source_default_linuxdo_grant_on_first_bind": false,
-					"auth_source_default_oidc_balance": 0,
-					"auth_source_default_oidc_concurrency": 5,
-					"auth_source_default_oidc_subscriptions": [],
-					"auth_source_default_oidc_grant_on_signup": false,
-					"auth_source_default_oidc_grant_on_first_bind": false,
-					"auth_source_default_wechat_balance": 0,
-					"auth_source_default_wechat_concurrency": 5,
-					"auth_source_default_wechat_subscriptions": [],
-					"auth_source_default_wechat_grant_on_signup": false,
-					"auth_source_default_wechat_grant_on_first_bind": false,
-					"auth_source_default_dingtalk_balance": 0,
-					"auth_source_default_dingtalk_concurrency": 5,
-					"auth_source_default_dingtalk_subscriptions": [],
-					"auth_source_default_dingtalk_grant_on_signup": false,
-					"auth_source_default_dingtalk_grant_on_first_bind": false,
-					"force_email_on_third_party_signup": false,
 					"allow_user_view_error_requests": false
 				}
 			}`,
@@ -1424,7 +762,6 @@ type contractDeps struct {
 	userSubRepo *stubUserSubscriptionRepo
 	usageRepo   *stubUsageLogRepo
 	settingRepo *stubSettingRepo
-	redeemRepo  *stubRedeemCodeRepo
 }
 
 func newContractDeps(t *testing.T) *contractDeps {
@@ -1456,7 +793,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 	userSubRepo := &stubUserSubscriptionRepo{}
 	accountRepo := stubAccountRepo{}
 	proxyRepo := stubProxyRepo{}
-	redeemRepo := &stubRedeemCodeRepo{}
 
 	cfg := &config.Config{
 		Default: config.DefaultConfig{
@@ -1474,17 +810,14 @@ func newContractDeps(t *testing.T) *contractDeps {
 	subscriptionService := service.NewSubscriptionService(groupRepo, userSubRepo, nil, nil, cfg)
 	subscriptionHandler := handler.NewSubscriptionHandler(subscriptionService)
 
-	redeemService := service.NewRedeemService(redeemRepo, userRepo, subscriptionService, nil, nil, nil, nil, nil)
-	redeemHandler := handler.NewRedeemHandler(redeemService)
-
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
+	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
-	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil, nil)
+	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil)
 	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {
@@ -1527,10 +860,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 	v1Subs.Use(jwtAuth)
 	v1Subs.GET("/subscriptions", subscriptionHandler.List)
 
-	v1Redeem := v1.Group("")
-	v1Redeem.Use(jwtAuth)
-	v1Redeem.GET("/redeem/history", redeemHandler.GetHistory)
-
 	v1Admin := v1.Group("/admin")
 	v1Admin.Use(adminAuth)
 	v1Admin.GET("/settings", adminSettingHandler.GetSettings)
@@ -1545,7 +874,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 		userSubRepo: userSubRepo,
 		usageRepo:   usageRepo,
 		settingRepo: settingRepo,
-		redeemRepo:  redeemRepo,
 	}
 }
 
@@ -2127,76 +1455,6 @@ func (stubProxyRepo) CountExpired(ctx context.Context) (int64, error) {
 
 func (stubProxyRepo) CountExpiringSoon(ctx context.Context, now time.Time) (int64, error) {
 	return 0, nil
-}
-
-type stubRedeemCodeRepo struct {
-	byUser map[int64][]service.RedeemCode
-}
-
-func (r *stubRedeemCodeRepo) SetByUser(userID int64, codes []service.RedeemCode) {
-	if r.byUser == nil {
-		r.byUser = make(map[int64][]service.RedeemCode)
-	}
-	r.byUser[userID] = append([]service.RedeemCode(nil), codes...)
-}
-
-func (stubRedeemCodeRepo) Create(ctx context.Context, code *service.RedeemCode) error {
-	return errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) CreateBatch(ctx context.Context, codes []service.RedeemCode) error {
-	return errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) GetByID(ctx context.Context, id int64) (*service.RedeemCode, error) {
-	return nil, service.ErrRedeemCodeNotFound
-}
-
-func (stubRedeemCodeRepo) GetByCode(ctx context.Context, code string) (*service.RedeemCode, error) {
-	return nil, service.ErrRedeemCodeNotFound
-}
-
-func (stubRedeemCodeRepo) Update(ctx context.Context, code *service.RedeemCode) error {
-	return errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) BatchUpdate(ctx context.Context, ids []int64, fields service.RedeemCodeBatchUpdateFields) (int64, error) {
-	return int64(len(ids)), nil
-}
-
-func (stubRedeemCodeRepo) Delete(ctx context.Context, id int64) error {
-	return errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) Use(ctx context.Context, id, userID int64) error {
-	return errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) List(ctx context.Context, params pagination.PaginationParams) ([]service.RedeemCode, *pagination.PaginationResult, error) {
-	return nil, nil, errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, codeType, status, search string) ([]service.RedeemCode, *pagination.PaginationResult, error) {
-	return nil, nil, errors.New("not implemented")
-}
-
-func (r *stubRedeemCodeRepo) ListByUser(ctx context.Context, userID int64, limit int) ([]service.RedeemCode, error) {
-	if r.byUser == nil {
-		return nil, nil
-	}
-	codes := r.byUser[userID]
-	if limit > 0 && len(codes) > limit {
-		codes = codes[:limit]
-	}
-	return append([]service.RedeemCode(nil), codes...), nil
-}
-
-func (stubRedeemCodeRepo) ListByUserPaginated(ctx context.Context, userID int64, params pagination.PaginationParams, codeType string) ([]service.RedeemCode, *pagination.PaginationResult, error) {
-	return nil, nil, errors.New("not implemented")
-}
-
-func (stubRedeemCodeRepo) SumPositiveBalanceByUser(ctx context.Context, userID int64) (float64, error) {
-	return 0, errors.New("not implemented")
 }
 
 type stubUserSubscriptionRepo struct {

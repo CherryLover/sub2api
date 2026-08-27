@@ -618,96 +618,6 @@ export default {
     }
   },
 
-  affiliate: {
-    title: '邀请返利',
-    description: '邀请新用户注册，并将返利额度转入账户余额',
-    yourCode: '我的邀请码',
-    inviteLink: '邀请链接',
-    copyCode: '复制邀请码',
-    copyLink: '复制链接',
-    codeCopied: '邀请码已复制',
-    linkCopied: '邀请链接已复制',
-    loadFailed: '加载邀请返利数据失败',
-    transferFailed: '转入余额失败',
-    stats: {
-      rebateRate: '我的返利比例',
-      rebateRateHint: '被邀请用户每次充值后你可获得的返利比例',
-      invitedUsers: '邀请人数',
-      availableQuota: '可转返利额度',
-      frozenQuota: '冻结中',
-      frozenQuotaHint: '新产生的返利正在冻结期中',
-      totalQuota: '历史返利额度'
-    },
-    transfer: {
-      title: '返利额度转余额',
-      description: '将当前可用返利额度一键转入账户余额',
-      button: '转入余额',
-      transferring: '转入中...',
-      empty: '当前没有可转入额度',
-      success: '已转入余额：{amount}'
-    },
-    invitees: {
-      title: '已邀请用户',
-      empty: '暂无邀请记录',
-      columns: {
-        email: '邮箱',
-        username: '用户名',
-        rebate: '返利明细',
-        joinedAt: '注册时间'
-      }
-    },
-    tips: {
-      title: '使用说明',
-      line1: '将邀请码或邀请链接分享给新用户。',
-      line2: '被邀请用户充值后，你可获得 {rate} 的返利额度。',
-      line3: '返利额度可随时转入账户余额。',
-      line4: '新产生的返利需要经过冻结期后才能提现。'
-    }
-  },
-
-  // Redeem
-  redeem: {
-    title: '兑换码',
-    description: '输入兑换码以充值余额或增加并发数',
-    currentBalance: '当前余额',
-    concurrency: '并发数',
-    requests: '请求',
-    redeemCodeLabel: '兑换码',
-    redeemCodePlaceholder: '请输入兑换码',
-    redeemCodeHint: '兑换码区分大小写',
-    redeeming: '兑换中...',
-    redeemButton: '兑换',
-    redeemSuccess: '兑换成功！',
-    redeemFailed: '兑换失败',
-    added: '已添加',
-    concurrentRequests: '并发请求',
-    newBalance: '新余额',
-    newConcurrency: '新并发数',
-    aboutCodes: '关于兑换码',
-    codeRule1: '每个兑换码只能使用一次',
-    codeRule2: '兑换码可以增加余额、并发数或试用权限',
-    codeRule3: '如有兑换问题，请联系客服',
-    codeRule4: '余额和并发数即时更新',
-    recentActivity: '最近活动',
-    historyWillAppear: '您的兑换历史将显示在这里',
-    balanceAddedRedeem: '余额充值（兑换）',
-    balanceAddedAffiliate: '余额充值（返利转入）',
-    balanceAddedAdmin: '余额充值（管理员）',
-    balanceDeductedAdmin: '余额扣除（管理员）',
-    concurrencyAddedRedeem: '并发增加（兑换）',
-    concurrencyAddedAdmin: '并发增加（管理员）',
-    concurrencyReducedAdmin: '并发减少（管理员）',
-    adminAdjustment: '管理员调整',
-    subscriptionAssigned: '订阅已分配',
-    subscriptionAssignedDesc: '您已获得 {groupName} 的访问权限',
-    subscriptionDays: '{days} 天',
-    days: '天',
-    codeRedeemSuccess: '兑换成功！',
-    failedToRedeem: '兑换失败，请检查兑换码后重试。',
-    subscriptionRefreshFailed: '兑换成功，但订阅状态刷新失败。',
-    pleaseEnterCode: '请输入兑换码'
-  },
-
   // Profile
   profile: {
     title: '个人设置',
@@ -862,7 +772,7 @@ export default {
     },
     authBindings: {
       title: '登录方式绑定',
-      description: '查看当前绑定状态，并将更多第三方登录方式关联到这个账号。',
+      description: '本账号仅支持邮箱登录，可在此查看邮箱绑定状态并管理主邮箱。',
       bindAction: '绑定 {providerName}',
       bindSuccess: '账号绑定成功',
       emailPlaceholder: '输入邮箱地址',
@@ -885,19 +795,9 @@ export default {
       },
       providers: {
         email: '邮箱',
-        linuxdo: 'LinuxDo',
-        dingtalk: '钉钉',
-        oidc: '{providerName}',
-        wechat: '微信',
       },
       notes: {
         emailManagedFromProfile: '主邮箱在资料表单中管理',
-        canUnbind: '你可以解绑这个登录方式。',
-        bindAnotherBeforeUnbind: '请先绑定其他登录方式，再解除当前绑定。',
-      },
-      source: {
-        avatar: '头像当前来自 {providerName}',
-        username: '昵称当前来自 {providerName}',
       },
     }
   },
