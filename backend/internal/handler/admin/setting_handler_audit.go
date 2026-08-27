@@ -70,18 +70,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.StepUpEnabled != after.StepUpEnabled {
 		changed = append(changed, "step_up_enabled")
 	}
-	if before.LoginAgreementEnabled != after.LoginAgreementEnabled {
-		changed = append(changed, "login_agreement_enabled")
-	}
-	if before.LoginAgreementMode != after.LoginAgreementMode {
-		changed = append(changed, "login_agreement_mode")
-	}
-	if before.LoginAgreementUpdatedAt != after.LoginAgreementUpdatedAt {
-		changed = append(changed, "login_agreement_updated_at")
-	}
-	if !equalLoginAgreementDocuments(before.LoginAgreementDocuments, after.LoginAgreementDocuments) {
-		changed = append(changed, "login_agreement_documents")
-	}
 	if before.SMTPHost != after.SMTPHost {
 		changed = append(changed, "smtp_host")
 	}
@@ -109,32 +97,8 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if !equalStringSlice(before.ForwardedClientIPHeaders, after.ForwardedClientIPHeaders) {
 		changed = append(changed, "forwarded_client_ip_headers")
 	}
-	if before.SiteName != after.SiteName {
-		changed = append(changed, "site_name")
-	}
-	if before.SiteLogo != after.SiteLogo {
-		changed = append(changed, "site_logo")
-	}
-	if before.SiteSubtitle != after.SiteSubtitle {
-		changed = append(changed, "site_subtitle")
-	}
-	if before.APIBaseURL != after.APIBaseURL {
-		changed = append(changed, "api_base_url")
-	}
-	if before.ContactInfo != after.ContactInfo {
-		changed = append(changed, "contact_info")
-	}
 	if before.DocURL != after.DocURL {
 		changed = append(changed, "doc_url")
-	}
-	if before.HomeContent != after.HomeContent {
-		changed = append(changed, "home_content")
-	}
-	if before.CompactHomeEnabled != after.CompactHomeEnabled {
-		changed = append(changed, "compact_home_enabled")
-	}
-	if before.HideCcsImportButton != after.HideCcsImportButton {
-		changed = append(changed, "hide_ccs_import_button")
 	}
 	if before.DefaultConcurrency != after.DefaultConcurrency {
 		changed = append(changed, "default_concurrency")
@@ -207,15 +171,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.BackendModeEnabled != after.BackendModeEnabled {
 		changed = append(changed, "backend_mode_enabled")
-	}
-	if before.TableDefaultPageSize != after.TableDefaultPageSize {
-		changed = append(changed, "table_default_page_size")
-	}
-	if !equalIntSlice(before.TablePageSizeOptions, after.TablePageSizeOptions) {
-		changed = append(changed, "table_page_size_options")
-	}
-	if before.CustomMenuItems != after.CustomMenuItems {
-		changed = append(changed, "custom_menu_items")
 	}
 	if before.CustomEndpoints != after.CustomEndpoints {
 		changed = append(changed, "custom_endpoints")
@@ -494,30 +449,6 @@ func equalDefaultSubscriptions(a, b []service.DefaultSubscriptionSetting) bool {
 	}
 	for i := range a {
 		if a[i].GroupID != b[i].GroupID || a[i].ValidityDays != b[i].ValidityDays {
-			return false
-		}
-	}
-	return true
-}
-
-func equalLoginAgreementDocuments(a, b []service.LoginAgreementDocument) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].ID != b[i].ID || a[i].Title != b[i].Title || a[i].ContentMD != b[i].ContentMD {
-			return false
-		}
-	}
-	return true
-}
-
-func equalIntSlice(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
 			return false
 		}
 	}

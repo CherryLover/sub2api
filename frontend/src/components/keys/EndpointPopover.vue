@@ -5,11 +5,12 @@ import { useClipboard } from '@/composables/useClipboard'
 import type { CustomEndpoint } from '@/types'
 
 const props = defineProps<{
-  apiBaseUrl: string
   customEndpoints: CustomEndpoint[]
 }>()
 
 const { t } = useI18n()
+// 自定义 API 端点地址已裁剪，默认端点恒为当前站点。
+const apiBaseUrl = window.location.origin
 const { copyToClipboard } = useClipboard()
 const copiedEndpoint = ref<string | null>(null)
 
@@ -17,14 +18,12 @@ let copiedResetTimer: number | undefined
 
 const allEndpoints = computed(() => {
   const items: Array<{ name: string; endpoint: string; description: string; isDefault: boolean }> = []
-  if (props.apiBaseUrl) {
-    items.push({
-      name: t('keys.endpoints.title'),
-      endpoint: props.apiBaseUrl,
-      description: '',
-      isDefault: true,
-    })
-  }
+  items.push({
+    name: t('keys.endpoints.title'),
+    endpoint: apiBaseUrl,
+    description: '',
+    isDefault: true,
+  })
   for (const ep of props.customEndpoints) {
     items.push({ ...ep, isDefault: false })
   }

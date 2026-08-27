@@ -9,16 +9,6 @@ const componentSource = readFileSync(componentPath, 'utf8')
 const stylePath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../style.css')
 const styleSource = readFileSync(stylePath, 'utf8')
 
-describe('AppSidebar custom SVG styles', () => {
-  it('does not override uploaded SVG fill or stroke colors', () => {
-    expect(componentSource).toContain('.sidebar-svg-icon {')
-    expect(componentSource).toContain('color: currentColor;')
-    expect(componentSource).toContain('display: block;')
-    expect(componentSource).not.toContain('stroke: currentColor;')
-    expect(componentSource).not.toContain('fill: none;')
-  })
-})
-
 describe('AppSidebar scroll position persistence', () => {
   it('binds a template ref to the sidebar nav element', () => {
     expect(componentSource).toContain('ref="sidebarNavRef"')

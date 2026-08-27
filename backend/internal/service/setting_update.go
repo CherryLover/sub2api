@@ -142,20 +142,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyWebDefaultHomePath] = config.NormalizeEntryPath(settings.DefaultHomePath)
 	updates[SettingKeyStepUpEnabled] = strconv.FormatBool(settings.StepUpEnabled)
 	updates[SettingKeyAuditLogRetentionDays] = strconv.Itoa(settings.AuditLogRetentionDays)
-	settings.LoginAgreementMode = normalizeLoginAgreementMode(settings.LoginAgreementMode)
-	settings.LoginAgreementUpdatedAt = strings.TrimSpace(settings.LoginAgreementUpdatedAt)
-	if settings.LoginAgreementUpdatedAt == "" {
-		settings.LoginAgreementUpdatedAt = defaultLoginAgreementDate
-	}
-	loginAgreementDocumentsJSON, err := marshalLoginAgreementDocuments(settings.LoginAgreementDocuments)
-	if err != nil {
-		return nil, err
-	}
-	updates[SettingKeyLoginAgreementEnabled] = strconv.FormatBool(settings.LoginAgreementEnabled)
-	updates[SettingKeyLoginAgreementMode] = settings.LoginAgreementMode
-	updates[SettingKeyLoginAgreementUpdatedAt] = settings.LoginAgreementUpdatedAt
-	updates[SettingKeyLoginAgreementDocuments] = loginAgreementDocumentsJSON
-
 	// 邮件服务设置（只有非空才更新密码）
 	updates[SettingKeySMTPHost] = settings.SMTPHost
 	updates[SettingKeySMTPPort] = strconv.Itoa(settings.SMTPPort)
@@ -175,26 +161,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyForwardedClientIPHeaders] = string(forwardedClientIPHeadersJSON)
 
 	// OEM设置
-	updates[SettingKeySiteName] = settings.SiteName
-	updates[SettingKeySiteLogo] = settings.SiteLogo
-	updates[SettingKeySiteSubtitle] = settings.SiteSubtitle
-	updates[SettingKeyAPIBaseURL] = settings.APIBaseURL
-	updates[SettingKeyContactInfo] = settings.ContactInfo
 	updates[SettingKeyDocURL] = settings.DocURL
-	updates[SettingKeyHomeContent] = settings.HomeContent
-	updates[SettingKeyCompactHomeEnabled] = strconv.FormatBool(settings.CompactHomeEnabled)
-	updates[SettingKeyHideCcsImportButton] = strconv.FormatBool(settings.HideCcsImportButton)
-	tableDefaultPageSize, tablePageSizeOptions := normalizeTablePreferences(
-		settings.TableDefaultPageSize,
-		settings.TablePageSizeOptions,
-	)
-	updates[SettingKeyTableDefaultPageSize] = strconv.Itoa(tableDefaultPageSize)
-	tablePageSizeOptionsJSON, err := json.Marshal(tablePageSizeOptions)
-	if err != nil {
-		return nil, fmt.Errorf("marshal table page size options: %w", err)
-	}
-	updates[SettingKeyTablePageSizeOptions] = string(tablePageSizeOptionsJSON)
-	updates[SettingKeyCustomMenuItems] = settings.CustomMenuItems
 	updates[SettingKeyCustomEndpoints] = settings.CustomEndpoints
 
 	// 默认配置

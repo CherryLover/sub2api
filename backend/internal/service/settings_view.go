@@ -22,10 +22,6 @@ type SystemSettings struct {
 	SessionBindingEnabled               bool // 会话 IP/UA 绑定（变更即失效）
 	StepUpEnabled                       bool // 敏感操作 step-up 2FA 门控
 	AuditLogRetentionDays               int  // 审计日志保留天数（<=0 永久保留）
-	LoginAgreementEnabled               bool
-	LoginAgreementMode                  string
-	LoginAgreementUpdatedAt             string
-	LoginAgreementDocuments             []LoginAgreementDocument
 
 	// 登录入口 / 默认首页（数据库层的值，未与本地配置文件合并）。
 	// LoginEntryPath 是自定义登录路径，只允许流向管理端（管理员鉴权）响应。
@@ -45,19 +41,8 @@ type SystemSettings struct {
 	APIKeyACLTrustForwardedIP bool
 	ForwardedClientIPHeaders  []string
 
-	SiteName             string
-	SiteLogo             string
-	SiteSubtitle         string
-	APIBaseURL           string
-	ContactInfo          string
-	DocURL               string
-	HomeContent          string
-	CompactHomeEnabled   bool
-	HideCcsImportButton  bool
-	TableDefaultPageSize int
-	TablePageSizeOptions []int
-	CustomMenuItems      string // JSON array of custom menu items
-	CustomEndpoints      string // JSON array of custom endpoints
+	DocURL          string
+	CustomEndpoints string // JSON array of custom endpoints
 
 	DefaultConcurrency          int
 	DefaultBalance              float64
@@ -202,25 +187,9 @@ type PublicSettings struct {
 	PasswordResetEnabled                bool
 	TotpEnabled                         bool // TOTP 双因素认证
 	PasskeyEnabled                      bool
-	LoginAgreementEnabled               bool
-	LoginAgreementMode                  string
-	LoginAgreementUpdatedAt             string
-	LoginAgreementRevision              string
-	LoginAgreementDocuments             []LoginAgreementDocument
-	SiteName                            string
-	SiteLogo                            string
-	SiteSubtitle                        string
-	APIBaseURL                          string
-	ContactInfo                         string
 	DocURL                              string
-	HomeContent                         string
-	CompactHomeEnabled                  bool
-	HideCcsImportButton                 bool
 
-	TableDefaultPageSize int
-	TablePageSizeOptions []int
-	CustomMenuItems      string // JSON array of custom menu items
-	CustomEndpoints      string // JSON array of custom endpoints
+	CustomEndpoints string // JSON array of custom endpoints
 
 	BackendModeEnabled bool
 	Version            string
@@ -262,12 +231,6 @@ type PublicSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
-}
-
-type LoginAgreementDocument struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	ContentMD string `json:"content_md"`
 }
 
 // StreamTimeoutSettings 流超时处理配置（仅控制超时后的处理方式，超时判定由网关配置控制）

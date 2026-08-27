@@ -113,26 +113,10 @@ export interface LoginRequest {
   password: string
 }
 
-export interface CustomMenuItem {
-  id: string
-  label: string
-  icon_svg: string
-  url: string
-  page_slug?: string
-  visibility: 'user' | 'admin'
-  sort_order: number
-}
-
 export interface CustomEndpoint {
   name: string
   endpoint: string
   description: string
-}
-
-export interface LoginAgreementDocument {
-  id: string
-  title: string
-  content_md: string
 }
 
 export interface PublicSettings {
@@ -140,25 +124,9 @@ export interface PublicSettings {
   registration_email_suffix_whitelist: string[]
   registration_email_domain_quota_enabled?: boolean
   password_reset_enabled: boolean
-  login_agreement_enabled?: boolean
-  login_agreement_mode?: 'modal' | 'checkbox' | string
-  login_agreement_updated_at?: string
-  login_agreement_revision?: string
-  login_agreement_documents?: LoginAgreementDocument[]
   passkey_enabled?: boolean
-  site_name: string
-  site_logo: string
-  site_subtitle: string
-  api_base_url: string
-  contact_info: string
   doc_url: string
-  home_content: string
-  compact_home_enabled: boolean
-  hide_ccs_import_button: boolean
   risk_control_enabled: boolean
-  table_default_page_size: number
-  table_page_size_options: number[]
-  custom_menu_items: CustomMenuItem[]
   custom_endpoints: CustomEndpoint[]
   backend_mode_enabled: boolean
   /**

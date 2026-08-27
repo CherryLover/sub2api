@@ -130,11 +130,7 @@ func (s *AuthService) SendEmailIdentityBindCode(ctx context.Context, userID int6
 		return ErrServiceUnavailable
 	}
 
-	siteName := "Sub2API"
-	if s.settingService != nil {
-		siteName = s.settingService.GetSiteName(ctx)
-	}
-	return s.emailService.SendVerifyCode(ctx, normalizedEmail, siteName, firstEmailLocale(locale))
+	return s.emailService.SendVerifyCode(ctx, normalizedEmail, SiteName, firstEmailLocale(locale))
 }
 
 func normalizeEmailForIdentityBinding(email string) (string, error) {

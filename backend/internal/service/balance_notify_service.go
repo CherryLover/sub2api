@@ -21,8 +21,6 @@ const (
 	quotaDimDaily  = "daily"
 	quotaDimWeekly = "weekly"
 	quotaDimTotal  = "total"
-
-	defaultSiteName = "Sub2API"
 )
 
 // quotaDimLabels maps dimension names to display labels.
@@ -120,7 +118,7 @@ func crossedDownward(oldV, newV, threshold float64) bool {
 
 // dispatchBalanceLowEmail collects recipients and sends the alert in a goroutine.
 func (s *BalanceNotifyService) dispatchBalanceLowEmail(ctx context.Context, user *User, newBalance, threshold float64, rechargeURL string) {
-	siteName := s.getSiteName(ctx)
+	siteName := SiteName
 	recipients := s.collectBalanceNotifyRecipients(user)
 	slog.Info("CheckBalanceAfterDeduction: sending notification",
 		"user_id", user.ID, "recipients", recipients, "new_balance", newBalance, "threshold", threshold)
@@ -192,7 +190,7 @@ func (s *BalanceNotifyService) CheckAccountQuotaAfterIncrement(ctx context.Conte
 		return
 	}
 
-	siteName := s.getSiteName(ctx)
+	siteName := SiteName
 	var dims []quotaDim
 	if quotaState != nil {
 		dims = buildQuotaDimsFromState(account, quotaState)
@@ -289,15 +287,6 @@ func (s *BalanceNotifyService) getAccountQuotaNotifyEmails(ctx context.Context) 
 	}
 
 	return filterVerifiedEmails(entries)
-}
-
-// getSiteName reads site name from settings with fallback.
-func (s *BalanceNotifyService) getSiteName(ctx context.Context) string {
-	name, err := s.settingRepo.GetValue(ctx, SettingKeySiteName)
-	if err != nil || name == "" {
-		return defaultSiteName
-	}
-	return name
 }
 
 // filterVerifiedEmails returns deduplicated, non-disabled, verified emails.

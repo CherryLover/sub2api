@@ -48,15 +48,7 @@ vi.mock('@/stores/app', () => ({
 }))
 
 vi.mock('@/stores/adminSettings', () => ({
-  useAdminSettingsStore: () => ({ customMenuItems: [] }),
-}))
-
-vi.mock('@/stores/adminCompliance', () => ({
-  useAdminComplianceStore: () => ({
-    initialized: true,
-    fetchStatus: vi.fn(),
-    requireAcknowledgement: vi.fn(),
-  }),
+  useAdminSettingsStore: () => ({}),
 }))
 
 vi.mock('@/composables/useNavigationLoading', () => ({

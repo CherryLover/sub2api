@@ -17,20 +17,6 @@ export default {
     unlimited: 'Unlimited'
   },
 
-  // Custom Page (iframe embed)
-  customPage: {
-    title: 'Custom Page',
-    openInNewTab: 'Open in new tab',
-    notFoundTitle: 'Page not found',
-    notFoundDesc: 'This custom page does not exist or has been removed.',
-    notConfiguredTitle: 'Page URL not configured',
-    notConfiguredDesc: 'The URL for this custom page has not been properly configured.',
-    tableOfContents: 'Contents',
-    copyCode: 'Copy',
-    copiedCode: 'Copied',
-    copyCodeFailed: 'Failed'
-  },
-
   // Announcements Page
   announcements: {
     title: 'Announcements',

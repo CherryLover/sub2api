@@ -5,9 +5,9 @@
       <nav class="mx-auto flex max-w-6xl items-center justify-between">
         <router-link to="/home" class="flex items-center gap-3">
           <div class="h-10 w-10 overflow-hidden rounded-xl shadow-md">
-            <img :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
+            <img src="/logo.svg" alt="Logo" class="h-full w-full object-contain" />
           </div>
-          <span class="text-lg font-semibold tracking-tight text-gray-900 dark:text-white">{{ siteName }}</span>
+          <span class="text-lg font-semibold tracking-tight text-gray-900 dark:text-white">{{ SITE_NAME }}</span>
         </router-link>
         <div class="flex items-center gap-3">
           <LocaleSwitcher />
@@ -637,7 +637,7 @@
     <footer class="relative z-10 border-t border-gray-200/50 px-6 py-8 dark:border-dark-800/50">
       <div class="mx-auto flex max-w-6xl flex-col items-center justify-center gap-4 text-center sm:flex-row sm:text-left">
         <p class="text-sm text-gray-500 dark:text-dark-400">
-          &copy; {{ currentYear }} {{ siteName }}. {{ t('home.footer.allRightsReserved') }}
+          &copy; {{ currentYear }} {{ SITE_NAME }}. {{ t('home.footer.allRightsReserved') }}
         </p>
         <div class="flex items-center gap-4">
           <a
@@ -683,6 +683,7 @@ import {
 import { formatDateLocalInput } from '@/utils/format'
 import { formatCount, formatCountExact, formatUsd } from '@/utils/keyUsageFormat'
 import { sanitizeUrl } from '@/utils/url'
+import { SITE_NAME } from '@/constants/site'
 
 const { t, locale } = useI18n()
 const route = useRoute()
@@ -691,8 +692,6 @@ const appStore = useAppStore()
 
 // ==================== Site Settings (same as HomeView) ====================
 
-const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'Sub2API')
-const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
 
 // ==================== Theme (same as HomeView) ====================

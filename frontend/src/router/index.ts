@@ -11,8 +11,6 @@ import {
 } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
-import { useAdminSettingsStore } from '@/stores/adminSettings'
-import { useAdminComplianceStore } from '@/stores/adminCompliance'
 import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
@@ -91,15 +89,6 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: false,
       title: 'Key Usage',
-    }
-  },
-  {
-    path: '/legal/:documentId',
-    name: 'LegalDocument',
-    component: () => import('@/views/public/LegalDocumentView.vue'),
-    meta: {
-      requiresAuth: false,
-      title: 'Legal Document'
     }
   },
   {
@@ -210,17 +199,6 @@ const routes: RouteRecordRaw[] = [
       title: 'My Subscriptions',
       titleKey: 'userSubscriptions.title',
       descriptionKey: 'userSubscriptions.description'
-    }
-  },
-  {
-    path: '/custom/:id',
-    name: 'CustomPage',
-    component: () => import('@/views/user/CustomPageView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: false,
-      title: 'Custom Page',
-      titleKey: 'customPage.title',
     }
   },
 
@@ -488,7 +466,7 @@ const navigationLoading = useNavigationLoadingState()
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
 // '/login' 只在登录入口公开时才是一条真实路由；隐藏模式下的登录入口靠
 // isLoginRoute() 按路由名放行，路径本身不进这份常量（它会被编译进产物）。
-const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/legal']
+const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup']
 
 function isBackendModePublicRouteAllowed(
   path: string,
@@ -523,12 +501,7 @@ router.beforeEach(async (to, _from, next) => {
 
   // Set page title
   const appStore = useAppStore()
-  const adminSettingsStore = useAdminSettingsStore()
-  const customMenuItems = [
-    ...(appStore.cachedPublicSettings?.custom_menu_items ?? []),
-    ...(authStore.isAdmin ? adminSettingsStore.customMenuItems : []),
-  ]
-  document.title = resolveRouteDocumentTitle(to, appStore.siteName, customMenuItems)
+  document.title = resolveRouteDocumentTitle(to)
 
   /**
    * 未登录（或 backend mode 下无权限）被拦下时的落点。
@@ -651,20 +624,6 @@ router.beforeEach(async (to, _from, next) => {
     // User is authenticated but not admin, redirect to user dashboard
     next('/dashboard')
     return
-  }
-
-  if (requiresAdmin && authStore.isAdmin) {
-    const adminComplianceStore = useAdminComplianceStore()
-    if (!adminComplianceStore.initialized) {
-      try {
-        await adminComplianceStore.fetchStatus()
-      } catch (error) {
-        const err = error as { status?: number; code?: string; metadata?: Record<string, string> }
-        if (err.status === 423 && err.code === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
-          adminComplianceStore.requireAcknowledgement(err.metadata)
-        }
-      }
-    }
   }
 
 

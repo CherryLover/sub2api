@@ -110,51 +110,6 @@ export default {
     }
   },
 
-  adminCompliance: {
-    title: '部署与运营合规确认',
-    blockingNotice: '继续使用控制台前，须完成部署与运营合规确认。',
-    riskNotice: '本确认用于以清晰、显著、可留痕的方式提示自部署实例的合规义务与运营风险。',
-    version: '协议版本',
-    openDocument: '在 GitHub 查看协议文件',
-    documentSource: '协议正文来自本项目仓库中的 Markdown 文件。修改协议内容时必须同步递增协议版本；已确认的旧版本将失效，控制台使用者须重新确认。',
-    inputLabel: '请逐字输入以下确认短语',
-    inputPlaceholder: '输入确认短语以继续',
-    inputMismatch: '确认短语不匹配，请逐字输入提示内容。',
-    legalNote: '本确认用于明确自部署实例与开源项目、著作权人、贡献者及维护者之间的非关联关系和责任边界；部署、运营或控制相关实例的主体应独立承担其适用义务。',
-    logout: '退出登录',
-    accept: '确认并继续',
-    accepted: '合规确认已记录',
-    acceptFailed: '提交确认失败'
-  },
-
-  legal: {
-    loadFailed: '文档加载失败',
-    retryLater: '请稍后刷新页面重试。',
-    notFound: '文档不存在',
-    notFoundDescription: '当前条款文档不存在或已被管理员移除。',
-    updatedAt: '更新日期：{date}',
-    empty: '暂无正文内容',
-    loginAgreement: '登录条款',
-    adminCompliance: '部署与运营合规承诺',
-    loginAgreementPrompt: {
-      checkboxPrefix: '我已阅读并同意',
-      documentSeparator: '、',
-      noticeTitle: '继续登录前需要先同意最新条款。',
-      noticeDescription: '未同意前，账号密码输入和快捷登录会保持禁用。',
-      viewTerms: '查看条款',
-      dialogTitle: '条款更新通知',
-      dialogDescription: '我们的服务条款已于 {date} 更新。在继续使用服务之前，请仔细阅读并同意以下条款。',
-      recently: '近期',
-      relatedDocuments: '相关文档',
-      reject: '拒绝',
-      accept: '同意并继续',
-      loginRejectedWarning: '未同意最新条款前，无法输入账号密码或使用快捷登录。',
-      loginRequiredWarning: '请先阅读并同意最新条款后再登录。',
-      registerRejectedWarning: '未同意最新条款前，无法注册或使用快捷登录。',
-      registerRequiredWarning: '请先阅读并同意最新条款后再注册。'
-    }
-  },
-
   // Navigation
   nav: {
     dashboard: '仪表盘',

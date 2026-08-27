@@ -1974,7 +1974,7 @@ func (s *ContentModerationService) sendFlaggedNotificationSideEffects(ctx contex
 }
 
 func (s *ContentModerationService) sendViolationEmail(ctx context.Context, cfg *ContentModerationConfig, log *ContentModerationLog) error {
-	siteName := s.siteName(ctx)
+	siteName := SiteName
 	if s.emailService.notificationEmailService != nil {
 		if err := s.emailService.notificationEmailService.Send(ctx, NotificationEmailSendInput{
 			Event:          NotificationEmailEventContentModerationViolation,
@@ -1999,7 +1999,7 @@ func (s *ContentModerationService) sendViolationEmail(ctx context.Context, cfg *
 }
 
 func (s *ContentModerationService) sendAccountDisabledEmail(ctx context.Context, cfg *ContentModerationConfig, log *ContentModerationLog) error {
-	siteName := s.siteName(ctx)
+	siteName := SiteName
 	if s.emailService.notificationEmailService != nil {
 		if err := s.emailService.notificationEmailService.Send(ctx, NotificationEmailSendInput{
 			Event:          NotificationEmailEventContentModerationDisabled,
@@ -2063,17 +2063,6 @@ func contentModerationEmailVariables(log *ContentModerationLog, cfg *ContentMode
 		variables["ban_threshold"] = fmt.Sprintf("%d", cfg.BanThreshold)
 	}
 	return variables
-}
-
-func (s *ContentModerationService) siteName(ctx context.Context) string {
-	if s == nil || s.settingRepo == nil {
-		return "Sub2API"
-	}
-	name, err := s.settingRepo.GetValue(ctx, SettingKeySiteName)
-	if err != nil || strings.TrimSpace(name) == "" {
-		return "Sub2API"
-	}
-	return strings.TrimSpace(name)
 }
 
 func defaultContentModerationConfig() *ContentModerationConfig {
@@ -3075,7 +3064,7 @@ func (s *ContentModerationService) RecordCyberPolicyEvent(ctx context.Context, i
 }
 
 func (s *ContentModerationService) sendCyberPolicyEmail(ctx context.Context, log *ContentModerationLog) error {
-	siteName := s.siteName(ctx)
+	siteName := SiteName
 	if s.emailService.notificationEmailService != nil {
 		variables := map[string]string{
 			"triggered_at":     log.CreatedAt.UTC().Format(time.RFC3339),

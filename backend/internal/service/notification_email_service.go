@@ -517,7 +517,7 @@ func (s *NotificationEmailService) sampleVariables(ctx context.Context, event, l
 	for key, value := range notificationEmailSampleVariables(locale) {
 		variables[key] = value
 	}
-	variables["site_name"] = s.siteName(ctx)
+	variables["site_name"] = SiteName
 	if variables["unsubscribe_url"] == "" && info.Optional {
 		variables["unsubscribe_url"] = "https://example.com/unsubscribe"
 	}
@@ -557,7 +557,7 @@ func (s *NotificationEmailService) runtimeVariables(ctx context.Context, event, 
 			}
 		}
 	}
-	variables["site_name"] = s.siteName(ctx)
+	variables["site_name"] = SiteName
 	variables["recipient_email"] = input.RecipientEmail
 	if strings.TrimSpace(input.RecipientName) != "" {
 		variables["recipient_name"] = input.RecipientName
@@ -570,26 +570,13 @@ func (s *NotificationEmailService) runtimeVariables(ctx context.Context, event, 
 	return variables
 }
 
-func (s *NotificationEmailService) siteName(ctx context.Context) string {
-	if s == nil || s.settingRepo == nil {
-		return defaultSiteName
-	}
-	name, err := s.settingRepo.GetValue(ctx, SettingKeySiteName)
-	if err != nil || strings.TrimSpace(name) == "" {
-		return defaultSiteName
-	}
-	return strings.TrimSpace(name)
-}
-
 func (s *NotificationEmailService) baseURL(ctx context.Context) string {
 	if s == nil || s.settingRepo == nil {
 		return ""
 	}
-	for _, key := range []string{SettingKeyAPIBaseURL, SettingKeyFrontendURL} {
-		value, err := s.settingRepo.GetValue(ctx, key)
-		if err == nil && strings.TrimSpace(value) != "" {
-			return strings.TrimRight(strings.TrimSpace(value), "/")
-		}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyFrontendURL)
+	if err == nil && strings.TrimSpace(value) != "" {
+		return strings.TrimRight(strings.TrimSpace(value), "/")
 	}
 	return ""
 }
@@ -898,7 +885,7 @@ func isSafeNotificationEmailURL(raw string) bool {
 func notificationEmailSampleVariables(locale string) map[string]string {
 	if normalizeNotificationLocale(locale) == notificationEmailLocaleChinese {
 		variables := map[string]string{
-			"site_name":           defaultSiteName,
+			"site_name":           SiteName,
 			"recipient_name":      "张三",
 			"recipient_email":     "user@example.com",
 			"verification_code":   "123456",
@@ -946,7 +933,7 @@ func notificationEmailSampleVariables(locale string) map[string]string {
 		return variables
 	}
 	variables := map[string]string{
-		"site_name":           defaultSiteName,
+		"site_name":           SiteName,
 		"recipient_name":      "Alex",
 		"recipient_email":     "user@example.com",
 		"verification_code":   "123456",

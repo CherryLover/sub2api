@@ -104,18 +104,6 @@
           {{ isLoading ? t('auth.signingIn') : t('auth.signIn') }}
         </button>
 
-        <LoginAgreementPrompt
-          v-if="loginAgreementEnabled"
-          :accepted="agreementAccepted"
-          :documents="loginAgreementDocuments"
-          :mode="loginAgreementMode"
-          :updated-at="loginAgreementUpdatedAt"
-          :visible="showAgreementModal"
-          @accept="acceptLoginAgreement"
-          @reject="rejectLoginAgreement"
-          @open="showAgreementModal = true"
-        />
-
         <div v-if="showPasskeyLogin" class="space-y-3 pt-1">
           <div class="flex items-center gap-3">
             <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
@@ -156,16 +144,14 @@ import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
-import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import TotpLoginModal from '@/components/auth/TotpLoginModal.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAuthStore, useAppStore } from '@/stores'
 import { getPublicSettings, isTotp2FARequired } from '@/api/auth'
-import type { LoginAgreementDocument, TotpLoginResponse } from '@/types'
+import type { TotpLoginResponse } from '@/types'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 
 const { t } = useI18n()
-const LOGIN_AGREEMENT_STORAGE_KEY = 'sub2api_login_agreement_consent'
 
 // ==================== Router & Stores ====================
 
@@ -185,13 +171,6 @@ const publicSettingsLoaded = ref<boolean>(false)
 const backendModeEnabled = ref<boolean>(false)
 const passwordResetEnabled = ref<boolean>(false)
 const passkeyEnabled = ref<boolean>(false)
-const loginAgreementEnabled = ref<boolean>(false)
-const loginAgreementMode = ref<'modal' | 'checkbox' | string>('modal')
-const loginAgreementUpdatedAt = ref<string>('')
-const loginAgreementRevision = ref<string>('')
-const loginAgreementDocuments = ref<LoginAgreementDocument[]>([])
-const agreementAccepted = ref<boolean>(false)
-const showAgreementModal = ref<boolean>(false)
 
 // 2FA state
 const show2FAModal = ref<boolean>(false)
@@ -211,12 +190,8 @@ const errors = reactive({
 
 const validationToastMessage = computed(() => errors.email || errors.password || '')
 
-const agreementGateActive = computed(
-  () => loginAgreementEnabled.value && !agreementAccepted.value
-)
-
 const authActionDisabled = computed(
-  () => isLoading.value || passkeyLoading.value || !publicSettingsLoaded.value || agreementGateActive.value
+  () => isLoading.value || passkeyLoading.value || !publicSettingsLoaded.value
 )
 
 const showPasskeyLogin = computed(
@@ -245,77 +220,12 @@ onMounted(async () => {
     backendModeEnabled.value = settings.backend_mode_enabled
     passwordResetEnabled.value = settings.password_reset_enabled
     passkeyEnabled.value = settings.passkey_enabled === true
-    applyLoginAgreementSettings(settings)
   } catch (error) {
     console.error('Failed to load public settings:', error)
-    loginAgreementEnabled.value = false
-    agreementAccepted.value = true
   } finally {
     publicSettingsLoaded.value = true
   }
 })
-
-// ==================== Login Agreement ====================
-
-function applyLoginAgreementSettings(settings: {
-  login_agreement_enabled?: boolean
-  login_agreement_mode?: string
-  login_agreement_updated_at?: string
-  login_agreement_revision?: string
-  login_agreement_documents?: LoginAgreementDocument[]
-}): void {
-  const documents = Array.isArray(settings.login_agreement_documents)
-    ? settings.login_agreement_documents.filter((doc) => doc.title?.trim())
-    : []
-  loginAgreementDocuments.value = documents
-  loginAgreementEnabled.value = settings.login_agreement_enabled === true && documents.length > 0
-  loginAgreementMode.value = settings.login_agreement_mode === 'checkbox' ? 'checkbox' : 'modal'
-  loginAgreementUpdatedAt.value = settings.login_agreement_updated_at || ''
-  loginAgreementRevision.value =
-    settings.login_agreement_revision ||
-    `${loginAgreementUpdatedAt.value}:${documents.map((doc) => `${doc.id}:${doc.title}`).join('|')}`
-
-  agreementAccepted.value = !loginAgreementEnabled.value || hasAcceptedLoginAgreement(loginAgreementRevision.value)
-  showAgreementModal.value =
-    loginAgreementEnabled.value && !agreementAccepted.value && loginAgreementMode.value !== 'checkbox'
-}
-
-function hasAcceptedLoginAgreement(revision: string): boolean {
-  if (!revision) {
-    return false
-  }
-  try {
-    const raw = localStorage.getItem(LOGIN_AGREEMENT_STORAGE_KEY)
-    if (!raw) {
-      return false
-    }
-    const parsed = JSON.parse(raw) as { revision?: string }
-    return parsed.revision === revision
-  } catch {
-    return false
-  }
-}
-
-function acceptLoginAgreement(): void {
-  if (loginAgreementRevision.value) {
-    localStorage.setItem(
-      LOGIN_AGREEMENT_STORAGE_KEY,
-      JSON.stringify({
-        revision: loginAgreementRevision.value,
-        accepted_at: new Date().toISOString()
-      })
-    )
-  }
-  agreementAccepted.value = true
-  showAgreementModal.value = false
-}
-
-function rejectLoginAgreement(): void {
-  localStorage.removeItem(LOGIN_AGREEMENT_STORAGE_KEY)
-  agreementAccepted.value = false
-  showAgreementModal.value = false
-  appStore.showWarning(t('legal.loginAgreementPrompt.loginRejectedWarning'))
-}
 
 // ==================== Validation ====================
 
@@ -325,14 +235,6 @@ function validateForm(): boolean {
   errors.password = ''
 
   let isValid = true
-
-  if (agreementGateActive.value) {
-    appStore.showWarning(t('legal.loginAgreementPrompt.loginRequiredWarning'))
-    if (loginAgreementMode.value !== 'checkbox') {
-      showAgreementModal.value = true
-    }
-    return false
-  }
 
   // Email validation
   if (!formData.email.trim()) {
@@ -401,14 +303,6 @@ async function handleLogin(): Promise<void> {
 }
 
 async function handlePasskeyLogin(): Promise<void> {
-  if (agreementGateActive.value) {
-    appStore.showWarning(t('legal.loginAgreementPrompt.loginRequiredWarning'))
-    if (loginAgreementMode.value !== 'checkbox') {
-      showAgreementModal.value = true
-    }
-    return
-  }
-
   passkeyLoading.value = true
   try {
     await authStore.loginWithPasskey()

@@ -23,11 +23,7 @@
               @update:model-value="onStatusFilterChange"
             />
           </div>
-          <EndpointPopover
-            v-if="publicSettings?.api_base_url || (publicSettings?.custom_endpoints?.length ?? 0) > 0"
-            :api-base-url="publicSettings?.api_base_url || ''"
-            :custom-endpoints="publicSettings?.custom_endpoints || []"
-          />
+          <EndpointPopover :custom-endpoints="publicSettings?.custom_endpoints || []" />
         </div>
       </template>
 
@@ -381,7 +377,6 @@
               </button>
               <!-- Import to CC Switch Button -->
               <button
-                v-if="!publicSettings?.hide_ccs_import_button"
                 @click="importToCcswitch(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
               >
@@ -989,7 +984,7 @@
     <UseKeyModal
       :show="showUseKeyModal"
       :api-key="selectedKey?.key || ''"
-      :base-url="publicSettings?.api_base_url || ''"
+      :base-url="apiBaseUrl"
       :platform="selectedKey?.group?.platform || null"
       :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
       @close="closeUseKeyModal"
@@ -1145,6 +1140,10 @@ import {
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
 } from '@/utils/ccswitchImport'
+import { SITE_NAME } from '@/constants/site'
+
+// 自定义 API 端点地址已裁剪，网关地址恒为当前站点。
+const apiBaseUrl = window.location.origin
 
 // Helper to format date for datetime-local input
 const formatDateTimeLocal = (isoDate: string): string => {
@@ -1874,7 +1873,7 @@ const importToCcswitch = (row: ApiKey) => {
 }
 
 const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
-  const baseUrl = publicSettings.value?.api_base_url || window.location.origin
+  const baseUrl = apiBaseUrl
   const platform = row.group?.platform || 'anthropic'
 
   const usageScript = `({
@@ -1893,7 +1892,7 @@ const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
       };
     }
   })`
-  const providerName = (publicSettings.value?.site_name || 'sub2api').trim() || 'sub2api'
+  const providerName = SITE_NAME
   const deeplink = buildCcSwitchImportDeeplink({
     baseUrl,
     platform,

@@ -167,18 +167,6 @@ func TestIsAccountQuotaNotifyEnabled(t *testing.T) {
 	require.True(t, s.isAccountQuotaNotifyEnabled(context.Background()))
 }
 
-func TestGetSiteName_FallsBackToDefault(t *testing.T) {
-	s, _ := newBalanceNotifyServiceForTest()
-	name := s.getSiteName(context.Background())
-	require.Equal(t, defaultSiteName, name)
-}
-
-func TestGetSiteName_Configured(t *testing.T) {
-	s, repo := newBalanceNotifyServiceForTest()
-	repo.data[SettingKeySiteName] = "My Site"
-	require.Equal(t, "My Site", s.getSiteName(context.Background()))
-}
-
 // ---------- crossedDownward ----------
 
 func TestCrossedDownward_CrossesBelow(t *testing.T) {

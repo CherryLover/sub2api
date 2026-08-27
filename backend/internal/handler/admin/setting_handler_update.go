@@ -30,10 +30,6 @@ type UpdateSettingsRequest struct {
 	SessionBindingEnabled               *bool                        `json:"session_binding_enabled"`  // 会话 IP/UA 绑定（省略=保持现值）
 	StepUpEnabled                       *bool                        `json:"step_up_enabled"`          // 敏感操作 step-up 2FA（省略=保持现值）
 	AuditLogRetentionDays               int                          `json:"audit_log_retention_days"` // 审计日志保留天数
-	LoginAgreementEnabled               bool                         `json:"login_agreement_enabled"`
-	LoginAgreementMode                  string                       `json:"login_agreement_mode"`
-	LoginAgreementUpdatedAt             string                       `json:"login_agreement_updated_at"`
-	LoginAgreementDocuments             []dto.LoginAgreementDocument `json:"login_agreement_documents"`
 
 	// 登录入口 / 默认首页（省略=保持现值）。
 	// 指针类型是刻意的：不带这几个字段的旧客户端/脚本做一次全量保存时，绝不能把
@@ -56,19 +52,8 @@ type UpdateSettingsRequest struct {
 	ForwardedClientIPHeaders  *[]string `json:"forwarded_client_ip_headers"`
 
 	// OEM设置
-	SiteName             string                `json:"site_name"`
-	SiteLogo             string                `json:"site_logo"`
-	SiteSubtitle         string                `json:"site_subtitle"`
-	APIBaseURL           string                `json:"api_base_url"`
-	ContactInfo          string                `json:"contact_info"`
-	DocURL               string                `json:"doc_url"`
-	HomeContent          string                `json:"home_content"`
-	CompactHomeEnabled   bool                  `json:"compact_home_enabled"`
-	HideCcsImportButton  bool                  `json:"hide_ccs_import_button"`
-	TableDefaultPageSize int                   `json:"table_default_page_size"`
-	TablePageSizeOptions []int                 `json:"table_page_size_options"`
-	CustomMenuItems      *[]dto.CustomMenuItem `json:"custom_menu_items"`
-	CustomEndpoints      *[]dto.CustomEndpoint `json:"custom_endpoints"`
+	DocURL          string                `json:"doc_url"`
+	CustomEndpoints *[]dto.CustomEndpoint `json:"custom_endpoints"`
 
 	// 默认配置
 	DefaultConcurrency                     int                               `json:"default_concurrency"`
@@ -155,10 +140,6 @@ type UpdateSettingsRequest struct {
 	SubscriptionExpiryNotifyEnabled *bool                   `json:"subscription_expiry_notify_enabled"`
 	AccountQuotaNotifyEnabled       *bool                   `json:"account_quota_notify_enabled"`
 	AccountQuotaNotifyEmails        *[]dto.NotifyEmailEntry `json:"account_quota_notify_emails"`
-
-	// Cancel rate limit
-
-	// Use Alipay face-to-face precreate and an app deep link on mobile clients.
 
 	// Channel Monitor feature switch
 	ChannelMonitorEnabled                *bool   `json:"channel_monitor_enabled"`
@@ -381,13 +362,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if req.DefaultBalance < 0 {
 		req.DefaultBalance = 0
 	}
-	// 通用表格配置：兼容旧客户端未传字段时保留当前值。
-	if req.TableDefaultPageSize <= 0 {
-		req.TableDefaultPageSize = previousSettings.TableDefaultPageSize
-	}
-	if req.TablePageSizeOptions == nil {
-		req.TablePageSizeOptions = previousSettings.TablePageSizeOptions
-	}
 	req.SMTPHost = strings.TrimSpace(req.SMTPHost)
 	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
 	req.SMTPPassword = strings.TrimSpace(req.SMTPPassword)
@@ -419,45 +393,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
-	loginAgreementMode := strings.ToLower(strings.TrimSpace(req.LoginAgreementMode))
-	if loginAgreementMode == "" {
-		loginAgreementMode = strings.ToLower(strings.TrimSpace(previousSettings.LoginAgreementMode))
-	}
-	switch loginAgreementMode {
-	case "", "modal":
-		loginAgreementMode = "modal"
-	case "checkbox":
-	default:
-		response.BadRequest(c, "Login agreement mode must be modal or checkbox")
-		return
-	}
-	loginAgreementUpdatedAt := strings.TrimSpace(req.LoginAgreementUpdatedAt)
-	if loginAgreementUpdatedAt == "" {
-		loginAgreementUpdatedAt = strings.TrimSpace(previousSettings.LoginAgreementUpdatedAt)
-	}
-	loginAgreementDocuments := loginAgreementDocumentsToService(req.LoginAgreementDocuments)
-	if len(loginAgreementDocuments) == 0 {
-		loginAgreementDocuments = previousSettings.LoginAgreementDocuments
-	}
-	for _, doc := range loginAgreementDocuments {
-		if strings.TrimSpace(doc.Title) == "" {
-			response.BadRequest(c, "Login agreement document title is required")
-			return
-		}
-		if len(doc.Title) > 80 {
-			response.BadRequest(c, "Login agreement document title is too long (max 80 characters)")
-			return
-		}
-		if len(doc.ContentMD) > 200*1024 {
-			response.BadRequest(c, "Login agreement document content is too large (max 200KB)")
-			return
-		}
-	}
-	if req.LoginAgreementEnabled && len(loginAgreementDocuments) == 0 {
-		response.BadRequest(c, "Login agreement documents are required when enabled")
-		return
-	}
-
 	// Frontend URL 验证
 	req.FrontendURL = strings.TrimSpace(req.FrontendURL)
 	if req.FrontendURL != "" {
@@ -465,94 +400,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			response.BadRequest(c, "Frontend URL must be an absolute http(s) URL")
 			return
 		}
-	}
-
-	// 自定义菜单项验证
-	const (
-		maxCustomMenuItems    = 20
-		maxMenuItemLabelLen   = 50
-		maxMenuItemURLLen     = 2048
-		maxMenuItemIconSVGLen = 10 * 1024 // 10KB
-		maxMenuItemIDLen      = 32
-	)
-
-	customMenuJSON := previousSettings.CustomMenuItems
-	if req.CustomMenuItems != nil {
-		items := *req.CustomMenuItems
-		if len(items) > maxCustomMenuItems {
-			response.BadRequest(c, "Too many custom menu items (max 20)")
-			return
-		}
-		for i, item := range items {
-			if strings.TrimSpace(item.Label) == "" {
-				response.BadRequest(c, "Custom menu item label is required")
-				return
-			}
-			if len(item.Label) > maxMenuItemLabelLen {
-				response.BadRequest(c, "Custom menu item label is too long (max 50 characters)")
-				return
-			}
-			urlTrimmed := strings.TrimSpace(item.URL)
-			if strings.HasPrefix(urlTrimmed, "md:") {
-				// Markdown page mode: URL = "md:<slug>"
-				slug := strings.TrimPrefix(urlTrimmed, "md:")
-				if slug == "" {
-					response.BadRequest(c, "Custom menu item markdown slug cannot be empty (use md:slug format)")
-					return
-				}
-			} else {
-				if urlTrimmed == "" {
-					response.BadRequest(c, "Custom menu item URL is required (use md:slug for markdown pages)")
-					return
-				}
-				if len(item.URL) > maxMenuItemURLLen {
-					response.BadRequest(c, "Custom menu item URL is too long (max 2048 characters)")
-					return
-				}
-				if err := config.ValidateAbsoluteHTTPURL(urlTrimmed); err != nil {
-					response.BadRequest(c, "Custom menu item URL must be an absolute http(s) URL or md:<slug>")
-					return
-				}
-			}
-			if item.Visibility != "user" && item.Visibility != "admin" {
-				response.BadRequest(c, "Custom menu item visibility must be 'user' or 'admin'")
-				return
-			}
-			if len(item.IconSVG) > maxMenuItemIconSVGLen {
-				response.BadRequest(c, "Custom menu item icon SVG is too large (max 10KB)")
-				return
-			}
-			// Auto-generate ID if missing
-			if strings.TrimSpace(item.ID) == "" {
-				id, err := generateMenuItemID()
-				if err != nil {
-					response.Error(c, http.StatusInternalServerError, "Failed to generate menu item ID")
-					return
-				}
-				items[i].ID = id
-			} else if len(item.ID) > maxMenuItemIDLen {
-				response.BadRequest(c, "Custom menu item ID is too long (max 32 characters)")
-				return
-			} else if !menuItemIDPattern.MatchString(item.ID) {
-				response.BadRequest(c, "Custom menu item ID contains invalid characters (only a-z, A-Z, 0-9, - and _ are allowed)")
-				return
-			}
-		}
-		// ID uniqueness check
-		seen := make(map[string]struct{}, len(items))
-		for _, item := range items {
-			if _, exists := seen[item.ID]; exists {
-				response.BadRequest(c, "Duplicate custom menu item ID: "+item.ID)
-				return
-			}
-			seen[item.ID] = struct{}{}
-		}
-		menuBytes, err := json.Marshal(items)
-		if err != nil {
-			response.BadRequest(c, "Failed to serialize custom menu items")
-			return
-		}
-		customMenuJSON = string(menuBytes)
 	}
 
 	// 自定义端点验证
@@ -725,10 +572,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		LoginEntryPath:                      webEntryPlan.LoginEntryPath,
 		DefaultHomePath:                     webEntryPlan.DefaultHomePath,
 		AuditLogRetentionDays:               req.AuditLogRetentionDays,
-		LoginAgreementEnabled:               req.LoginAgreementEnabled,
-		LoginAgreementMode:                  loginAgreementMode,
-		LoginAgreementUpdatedAt:             loginAgreementUpdatedAt,
-		LoginAgreementDocuments:             loginAgreementDocuments,
 		SMTPHost:                            req.SMTPHost,
 		SMTPPort:                            req.SMTPPort,
 		SMTPUsername:                        req.SMTPUsername,
@@ -743,18 +586,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return previousSettings.APIKeyACLTrustForwardedIP
 		}(),
 		ForwardedClientIPHeaders:    forwardedClientIPHeaders,
-		SiteName:                    req.SiteName,
-		SiteLogo:                    req.SiteLogo,
-		SiteSubtitle:                req.SiteSubtitle,
-		APIBaseURL:                  req.APIBaseURL,
-		ContactInfo:                 req.ContactInfo,
 		DocURL:                      req.DocURL,
-		HomeContent:                 req.HomeContent,
-		CompactHomeEnabled:          req.CompactHomeEnabled,
-		HideCcsImportButton:         req.HideCcsImportButton,
-		TableDefaultPageSize:        req.TableDefaultPageSize,
-		TablePageSizeOptions:        req.TablePageSizeOptions,
-		CustomMenuItems:             customMenuJSON,
 		CustomEndpoints:             customEndpointsJSON,
 		DefaultConcurrency:          req.DefaultConcurrency,
 		DefaultBalance:              req.DefaultBalance,
@@ -1127,10 +959,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SessionBindingEnabled:                        updatedSettings.SessionBindingEnabled,
 		StepUpEnabled:                                updatedSettings.StepUpEnabled,
 		AuditLogRetentionDays:                        updatedSettings.AuditLogRetentionDays,
-		LoginAgreementEnabled:                        updatedSettings.LoginAgreementEnabled,
-		LoginAgreementMode:                           updatedSettings.LoginAgreementMode,
-		LoginAgreementUpdatedAt:                      updatedSettings.LoginAgreementUpdatedAt,
-		LoginAgreementDocuments:                      loginAgreementDocumentsToDTO(updatedSettings.LoginAgreementDocuments),
 		SMTPHost:                                     updatedSettings.SMTPHost,
 		SMTPPort:                                     updatedSettings.SMTPPort,
 		SMTPUsername:                                 updatedSettings.SMTPUsername,
@@ -1140,18 +968,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPUseTLS:                                   updatedSettings.SMTPUseTLS,
 		APIKeyACLTrustForwardedIP:                    updatedSettings.APIKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:                     updatedSettings.ForwardedClientIPHeaders,
-		SiteName:                                     updatedSettings.SiteName,
-		SiteLogo:                                     updatedSettings.SiteLogo,
-		SiteSubtitle:                                 updatedSettings.SiteSubtitle,
-		APIBaseURL:                                   updatedSettings.APIBaseURL,
-		ContactInfo:                                  updatedSettings.ContactInfo,
 		DocURL:                                       updatedSettings.DocURL,
-		HomeContent:                                  updatedSettings.HomeContent,
-		CompactHomeEnabled:                           updatedSettings.CompactHomeEnabled,
-		HideCcsImportButton:                          updatedSettings.HideCcsImportButton,
-		TableDefaultPageSize:                         updatedSettings.TableDefaultPageSize,
-		TablePageSizeOptions:                         updatedSettings.TablePageSizeOptions,
-		CustomMenuItems:                              dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
 		CustomEndpoints:                              dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		DefaultConcurrency:                           updatedSettings.DefaultConcurrency,
 		DefaultBalance:                               updatedSettings.DefaultBalance,

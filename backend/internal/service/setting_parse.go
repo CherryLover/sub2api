@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -30,10 +29,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		return fmt.Errorf("check existing settings: %w", err)
 	}
 
-	loginAgreementDocumentsJSON, err := marshalLoginAgreementDocuments(defaultLoginAgreementDocuments())
-	if err != nil {
-		return err
-	}
 	forwardedClientIPHeaders := []string{}
 	if s != nil && s.cfg != nil {
 		forwardedClientIPHeaders = s.cfg.ForwardedClientIPSettings().Headers
@@ -48,18 +43,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyEmailVerifyEnabled:                     "false",
 		SettingKeyRegistrationEmailSuffixWhitelist:       "[]",
 		SettingKeyRegistrationEmailDomainQuotaEnabled:    "false",
-		SettingKeyLoginAgreementEnabled:                  "false",
-		SettingKeyLoginAgreementMode:                     defaultLoginAgreementMode,
-		SettingKeyLoginAgreementUpdatedAt:                defaultLoginAgreementDate,
-		SettingKeyLoginAgreementDocuments:                loginAgreementDocumentsJSON,
 		SettingKeyAPIKeyACLTrustForwardedIP:              "true",
 		SettingKeyForwardedClientIPHeaders:               string(forwardedClientIPHeadersJSON),
 		settingKeyForwardedClientIPModeV2:                "true",
-		SettingKeySiteName:                               "Sub2API",
-		SettingKeySiteLogo:                               "",
-		SettingKeyTableDefaultPageSize:                   "20",
-		SettingKeyTablePageSizeOptions:                   "[10,20,50,100]",
-		SettingKeyCustomMenuItems:                        "[]",
 		SettingKeyCustomEndpoints:                        "[]",
 		SettingKeyDefaultConcurrency:                     strconv.Itoa(s.cfg.Default.UserConcurrency),
 		SettingKeyDefaultBalance:                         strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
@@ -178,11 +164,6 @@ func parseForwardedClientIPHeadersSetting(value string) ([]string, error) {
 // parseSettings 解析设置到结构体
 func (s *SettingService) parseSettings(settings map[string]string) *SystemSettings {
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
-	loginAgreementDocuments := parseLoginAgreementDocuments(settings[SettingKeyLoginAgreementDocuments])
-	loginAgreementUpdatedAt := strings.TrimSpace(settings[SettingKeyLoginAgreementUpdatedAt])
-	if loginAgreementUpdatedAt == "" {
-		loginAgreementUpdatedAt = defaultLoginAgreementDate
-	}
 	apiKeyACLTrustForwardedIP := false
 	forwardedClientIPHeaders := []string{}
 	if s != nil && s.cfg != nil {
@@ -214,10 +195,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		SessionBindingEnabled:                  settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
 		StepUpEnabled:                          settings[SettingKeyStepUpEnabled] == "true",         // 默认关闭
 		AuditLogRetentionDays:                  parseAuditLogRetentionDays(settings[SettingKeyAuditLogRetentionDays]),
-		LoginAgreementEnabled:                  settings[SettingKeyLoginAgreementEnabled] == "true",
-		LoginAgreementMode:                     normalizeLoginAgreementMode(settings[SettingKeyLoginAgreementMode]),
-		LoginAgreementUpdatedAt:                loginAgreementUpdatedAt,
-		LoginAgreementDocuments:                loginAgreementDocuments,
 		LoginEntryPublic:                       strings.TrimSpace(settings[SettingKeyWebLoginEntryPublic]) != "false", // 缺失=公开
 		LoginEntryPath:                         config.NormalizeEntryPath(settings[SettingKeyWebLoginEntryPath]),
 		DefaultHomePath:                        config.NormalizeEntryPath(settings[SettingKeyWebDefaultHomePath]),
@@ -229,23 +206,10 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		SMTPPasswordConfigured:                 settings[SettingKeySMTPPassword] != "",
 		APIKeyACLTrustForwardedIP:              apiKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:               forwardedClientIPHeaders,
-		SiteName:                               s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
-		SiteLogo:                               settings[SettingKeySiteLogo],
-		SiteSubtitle:                           s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
-		APIBaseURL:                             settings[SettingKeyAPIBaseURL],
-		ContactInfo:                            settings[SettingKeyContactInfo],
 		DocURL:                                 settings[SettingKeyDocURL],
-		HomeContent:                            settings[SettingKeyHomeContent],
-		CompactHomeEnabled:                     settings[SettingKeyCompactHomeEnabled] == "true",
-		HideCcsImportButton:                    settings[SettingKeyHideCcsImportButton] == "true",
-		CustomMenuItems:                        settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                        settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled:                     settings[SettingKeyBackendModeEnabled] == "true",
 	}
-	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
-		settings[SettingKeyTableDefaultPageSize],
-		settings[SettingKeyTablePageSizeOptions],
-	)
 
 	// 解析整数类型
 	if port, err := strconv.Atoi(settings[SettingKeySMTPPort]); err == nil {
@@ -741,48 +705,4 @@ func mergeProviderDefaultGrantSettings(globalDefaults ProviderDefaultGrantSettin
 	}
 
 	return result
-}
-
-func parseTablePreferences(defaultPageSizeRaw, optionsRaw string) (int, []int) {
-	defaultPageSize := 20
-	if v, err := strconv.Atoi(strings.TrimSpace(defaultPageSizeRaw)); err == nil {
-		defaultPageSize = v
-	}
-
-	var options []int
-	if strings.TrimSpace(optionsRaw) != "" {
-		_ = json.Unmarshal([]byte(optionsRaw), &options)
-	}
-
-	return normalizeTablePreferences(defaultPageSize, options)
-}
-
-func normalizeTablePreferences(defaultPageSize int, options []int) (int, []int) {
-	const minPageSize = 5
-	const maxPageSize = 1000
-	const fallbackPageSize = 20
-
-	seen := make(map[int]struct{}, len(options))
-	normalizedOptions := make([]int, 0, len(options))
-	for _, option := range options {
-		if option < minPageSize || option > maxPageSize {
-			continue
-		}
-		if _, ok := seen[option]; ok {
-			continue
-		}
-		seen[option] = struct{}{}
-		normalizedOptions = append(normalizedOptions, option)
-	}
-	sort.Ints(normalizedOptions)
-
-	if defaultPageSize < minPageSize || defaultPageSize > maxPageSize {
-		defaultPageSize = fallbackPageSize
-	}
-
-	if len(normalizedOptions) == 0 {
-		normalizedOptions = []int{10, 20, 50}
-	}
-
-	return defaultPageSize, normalizedOptions
 }

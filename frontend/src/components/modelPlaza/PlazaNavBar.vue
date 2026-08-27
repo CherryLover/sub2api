@@ -5,20 +5,14 @@
     <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
       <!-- 左:站点 logo + 名称 -->
       <div class="flex min-w-0 items-center gap-3">
-        <template v-if="settings">
-          <span
-            class="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-200 dark:bg-dark-800 dark:ring-dark-700"
-          >
-            <img :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
-          </span>
-          <span class="truncate text-base font-semibold text-gray-950 dark:text-white">
-            {{ siteName }}
-          </span>
-        </template>
-        <template v-else>
-          <span class="h-9 w-9 flex-shrink-0 animate-pulse rounded-xl bg-gray-200 dark:bg-dark-700" aria-hidden="true"></span>
-          <span class="h-5 w-28 animate-pulse rounded bg-gray-200 dark:bg-dark-700" aria-hidden="true"></span>
-        </template>
+        <span
+          class="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-200 dark:bg-dark-800 dark:ring-dark-700"
+        >
+          <img src="/logo.svg" alt="Logo" class="h-full w-full object-contain" />
+        </span>
+        <span class="truncate text-base font-semibold text-gray-950 dark:text-white">
+          {{ SITE_NAME }}
+        </span>
       </div>
 
       <!-- 右:登录 / 回到后台 -->
@@ -43,10 +37,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { sanitizeUrl } from '@/utils/url'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { resolveLoginPath } from '@/router/loginEntry'
+import { SITE_NAME } from '@/constants/site'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -54,11 +48,6 @@ const authStore = useAuthStore()
 // 登录入口隐藏且本标签页不知道入口时，公开的模型广场不渲染登录按钮。
 const loginPath = computed(() => resolveLoginPath(appStore.cachedPublicSettings))
 
-const settings = computed(() => appStore.cachedPublicSettings)
-const siteName = computed(() => settings.value?.site_name || 'Sub2API')
-const siteLogo = computed(() =>
-  sanitizeUrl(settings.value?.site_logo || '', { allowRelative: true, allowDataUrl: true })
-)
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const backTarget = computed(() => (authStore.isAdmin ? '/admin/dashboard' : '/dashboard'))
 </script>

@@ -6,6 +6,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
+// SiteName 是站点显示名的固定值。
+//
+// 内部部署裁剪掉了可配置的 site_name/site_subtitle 设置项，但邮件标题、TOTP
+// issuer、页面 <title> 等处仍需要一个非空的站点名——这里给死值，绝不允许回退
+// 成空串（空串会让邮件标题变成「[] Test Email」、页面标题只剩后缀）。
+const SiteName = "Sub2API"
+
 // Status constants
 const (
 	StatusActive   = domain.StatusActive
@@ -174,10 +181,6 @@ const (
 	SettingKeyContentModerationConfig             = "content_moderation_config"       // 内容审计配置（JSON）
 	SettingKeyCyberSessionBlockEnabled            = "cyber_session_block_enabled"     // cyber 命中后会话级自动屏蔽总开关(默认关)
 	SettingKeyCyberSessionBlockTTLSeconds         = "cyber_session_block_ttl_seconds" // 会话屏蔽 TTL 秒数(默认 3600)
-	SettingKeyLoginAgreementEnabled               = "login_agreement_enabled"         // 登录前是否要求同意条款
-	SettingKeyLoginAgreementMode                  = "login_agreement_mode"            // 条款确认展示模式：modal / checkbox
-	SettingKeyLoginAgreementUpdatedAt             = "login_agreement_updated_at"      // 条款更新日期（展示用）
-	SettingKeyLoginAgreementDocuments             = "login_agreement_documents"       // 条款文档列表（JSON，Markdown 内容）
 
 	// 邮件服务设置
 	SettingKeySMTPHost     = "smtp_host"      // SMTP服务器地址
@@ -219,19 +222,8 @@ const (
 	SettingKeyAuditLogRetentionDays = "audit_log_retention_days" // 审计日志保留天数（<=0 永久保留），默认 180
 
 	// OEM设置
-	SettingKeySiteName             = "site_name"               // 网站名称
-	SettingKeySiteLogo             = "site_logo"               // 网站Logo (base64)
-	SettingKeySiteSubtitle         = "site_subtitle"           // 网站副标题
-	SettingKeyAPIBaseURL           = "api_base_url"            // API端点地址（用于客户端配置和导入）
-	SettingKeyContactInfo          = "contact_info"            // 客服联系方式
-	SettingKeyDocURL               = "doc_url"                 // 文档链接
-	SettingKeyHomeContent          = "home_content"            // 首页内容（支持 Markdown/HTML，或 URL 作为 iframe src）
-	SettingKeyCompactHomeEnabled   = "compact_home_enabled"    // 是否启用内置简洁首页
-	SettingKeyHideCcsImportButton  = "hide_ccs_import_button"  // 是否隐藏 API Keys 页面的导入 CCS 按钮
-	SettingKeyTableDefaultPageSize = "table_default_page_size" // 表格默认每页条数
-	SettingKeyTablePageSizeOptions = "table_page_size_options" // 表格可选每页条数（JSON 数组）
-	SettingKeyCustomMenuItems      = "custom_menu_items"       // 自定义菜单项（JSON 数组）
-	SettingKeyCustomEndpoints      = "custom_endpoints"        // 自定义端点列表（JSON 数组）
+	SettingKeyDocURL          = "doc_url"          // 文档链接
+	SettingKeyCustomEndpoints = "custom_endpoints" // 自定义端点列表（JSON 数组）
 
 	// 默认配置
 	SettingKeyDefaultConcurrency   = "default_concurrency"    // 新用户默认并发量

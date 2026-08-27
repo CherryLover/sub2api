@@ -547,16 +547,10 @@ func (s *AuthService) preparePasswordReset(ctx context.Context, email, frontendB
 		return "", "", false
 	}
 
-	// Get site name
-	siteName := "Sub2API"
-	if s.settingService != nil {
-		siteName = s.settingService.GetSiteName(ctx)
-	}
-
 	// Build reset URL base
 	resetURL := fmt.Sprintf("%s/reset-password", strings.TrimSuffix(frontendBaseURL, "/"))
 
-	return siteName, resetURL, true
+	return SiteName, resetURL, true
 }
 
 // RequestPasswordReset 请求密码重置（同步发送）

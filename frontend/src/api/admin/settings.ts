@@ -4,12 +4,7 @@
  */
 
 import { apiClient } from "../client";
-import type {
-  CustomEndpoint,
-  CustomMenuItem,
-  LoginAgreementDocument,
-  NotifyEmailEntry,
-} from "@/types";
+import type { CustomEndpoint, NotifyEmailEntry } from "@/types";
 
 export interface DefaultSubscriptionSetting {
   group_id: number;
@@ -223,10 +218,6 @@ export interface SystemSettings {
   login_entry_locked_by_config: boolean;
   default_home_path_locked_by_config: boolean;
   audit_log_retention_days: number; // 审计日志保留天数
-  login_agreement_enabled: boolean;
-  login_agreement_mode: "modal" | "checkbox" | string;
-  login_agreement_updated_at: string;
-  login_agreement_documents: LoginAgreementDocument[];
   // Default settings
   default_balance: number;
   default_concurrency: number;
@@ -241,19 +232,8 @@ export interface SystemSettings {
   default_platform_quotas?: DefaultPlatformQuotasMap;
   auth_source_default_email_platform_quotas?: DefaultPlatformQuotasMap;
   // OEM settings
-  site_name: string;
-  site_logo: string;
-  site_subtitle: string;
-  api_base_url: string;
-  contact_info: string;
   doc_url: string;
-  home_content: string;
-  compact_home_enabled: boolean;
-  hide_ccs_import_button: boolean;
-  table_default_page_size: number;
-  table_page_size_options: number[];
   backend_mode_enabled: boolean;
-  custom_menu_items: CustomMenuItem[];
   custom_endpoints: CustomEndpoint[];
   // SMTP settings
   smtp_host: string;
@@ -399,10 +379,6 @@ export interface UpdateSettingsRequest {
   login_entry_path?: string;
   default_home_path?: string;
   audit_log_retention_days?: number; // 审计日志保留天数
-  login_agreement_enabled?: boolean;
-  login_agreement_mode?: "modal" | "checkbox" | string;
-  login_agreement_updated_at?: string;
-  login_agreement_documents?: LoginAgreementDocument[];
   default_balance?: number;
   default_concurrency?: number;
   default_user_rpm_limit?: number;
@@ -415,19 +391,8 @@ export interface UpdateSettingsRequest {
   // ── 平台限额（嵌套 JSON，系统层 + email auth-source 层）────────────────────────────────
   default_platform_quotas?: DefaultPlatformQuotasMap;
   auth_source_default_email_platform_quotas?: DefaultPlatformQuotasMap;
-  site_name?: string;
-  site_logo?: string;
-  site_subtitle?: string;
-  api_base_url?: string;
-  contact_info?: string;
   doc_url?: string;
-  home_content?: string;
-  compact_home_enabled?: boolean;
-  hide_ccs_import_button?: boolean;
-  table_default_page_size?: number;
-  table_page_size_options?: number[];
   backend_mode_enabled?: boolean;
-  custom_menu_items?: CustomMenuItem[];
   custom_endpoints?: CustomEndpoint[];
   smtp_host?: string;
   smtp_port?: number;

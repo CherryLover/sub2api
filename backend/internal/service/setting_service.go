@@ -206,8 +206,6 @@ var emailAuthSourceDefaultKeys = authSourceDefaultKeySet{
 const (
 	defaultAuthSourceBalance     = 0
 	defaultAuthSourceConcurrency = 5
-	defaultLoginAgreementMode    = "modal"
-	defaultLoginAgreementDate    = "2026-03-31"
 )
 
 // NewSettingService 创建系统设置服务实例

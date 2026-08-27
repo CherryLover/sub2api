@@ -51,14 +51,7 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => authStore }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => appStore }))
-vi.mock('@/stores/adminSettings', () => ({ useAdminSettingsStore: () => ({ customMenuItems: [] }) }))
-vi.mock('@/stores/adminCompliance', () => ({
-  useAdminComplianceStore: () => ({
-    initialized: true,
-    fetchStatus: vi.fn(),
-    requireAcknowledgement: vi.fn(),
-  }),
-}))
+vi.mock('@/stores/adminSettings', () => ({ useAdminSettingsStore: () => ({}) }))
 vi.mock('@/composables/useNavigationLoading', () => ({
   useNavigationLoadingState: () => ({
     startNavigation: vi.fn(),

@@ -7,17 +7,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// CustomMenuItem represents a user-configured custom menu entry.
-type CustomMenuItem struct {
-	ID         string `json:"id"`
-	Label      string `json:"label"`
-	IconSVG    string `json:"icon_svg"`
-	URL        string `json:"url"`
-	PageSlug   string `json:"page_slug,omitempty"`
-	Visibility string `json:"visibility"` // "user" or "admin"
-	SortOrder  int    `json:"sort_order"`
-}
-
 // CustomEndpoint represents an admin-configured API endpoint for quick copy.
 type CustomEndpoint struct {
 	Name        string `json:"name"`
@@ -41,10 +30,6 @@ type SystemSettings struct {
 	SessionBindingEnabled               bool                     `json:"session_binding_enabled"`  // 会话 IP/UA 绑定
 	StepUpEnabled                       bool                     `json:"step_up_enabled"`          // 敏感操作 step-up 2FA
 	AuditLogRetentionDays               int                      `json:"audit_log_retention_days"` // 审计日志保留天数
-	LoginAgreementEnabled               bool                     `json:"login_agreement_enabled"`
-	LoginAgreementMode                  string                   `json:"login_agreement_mode"`
-	LoginAgreementUpdatedAt             string                   `json:"login_agreement_updated_at"`
-	LoginAgreementDocuments             []LoginAgreementDocument `json:"login_agreement_documents"`
 
 	// 登录入口 / 默认首页（三层合并后的**生效值**）。
 	//
@@ -68,19 +53,8 @@ type SystemSettings struct {
 	APIKeyACLTrustForwardedIP              bool     `json:"api_key_acl_trust_forwarded_ip"`
 	ForwardedClientIPHeaders               []string `json:"forwarded_client_ip_headers"`
 
-	SiteName             string           `json:"site_name"`
-	SiteLogo             string           `json:"site_logo"`
-	SiteSubtitle         string           `json:"site_subtitle"`
-	APIBaseURL           string           `json:"api_base_url"`
-	ContactInfo          string           `json:"contact_info"`
-	DocURL               string           `json:"doc_url"`
-	HomeContent          string           `json:"home_content"`
-	CompactHomeEnabled   bool             `json:"compact_home_enabled"`
-	HideCcsImportButton  bool             `json:"hide_ccs_import_button"`
-	TableDefaultPageSize int              `json:"table_default_page_size"`
-	TablePageSizeOptions []int            `json:"table_page_size_options"`
-	CustomMenuItems      []CustomMenuItem `json:"custom_menu_items"`
-	CustomEndpoints      []CustomEndpoint `json:"custom_endpoints"`
+	DocURL          string           `json:"doc_url"`
+	CustomEndpoints []CustomEndpoint `json:"custom_endpoints"`
 
 	DefaultConcurrency   int                          `json:"default_concurrency"`
 	DefaultBalance       float64                      `json:"default_balance"`
@@ -169,11 +143,6 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse string  `json:"openai_advanced_scheduler_effective_weight_previous_response"`
 	OpenAIAdvancedSchedulerEffectiveWeightSessionSticky    string  `json:"openai_advanced_scheduler_effective_weight_session_sticky"`
 
-	// Cancel rate limit
-
-	// Force Alipay mobile clients to use QR code payment instead of mobile redirect
-	// Use Alipay face-to-face precreate and an app deep link on mobile clients.
-
 	// 余额、订阅到期与账号限额通知
 	BalanceLowNotifyEnabled         bool               `json:"balance_low_notify_enabled"`
 	BalanceLowNotifyThreshold       float64            `json:"balance_low_notify_threshold"`
@@ -234,23 +203,7 @@ type PublicSettings struct {
 	PasswordResetEnabled                bool                     `json:"password_reset_enabled"`
 	TotpEnabled                         bool                     `json:"totp_enabled"` // TOTP 双因素认证
 	PasskeyEnabled                      bool                     `json:"passkey_enabled"`
-	LoginAgreementEnabled               bool                     `json:"login_agreement_enabled"`
-	LoginAgreementMode                  string                   `json:"login_agreement_mode"`
-	LoginAgreementUpdatedAt             string                   `json:"login_agreement_updated_at"`
-	LoginAgreementRevision              string                   `json:"login_agreement_revision"`
-	LoginAgreementDocuments             []LoginAgreementDocument `json:"login_agreement_documents"`
-	SiteName                            string                   `json:"site_name"`
-	SiteLogo                            string                   `json:"site_logo"`
-	SiteSubtitle                        string                   `json:"site_subtitle"`
-	APIBaseURL                          string                   `json:"api_base_url"`
-	ContactInfo                         string                   `json:"contact_info"`
 	DocURL                              string                   `json:"doc_url"`
-	HomeContent                         string                   `json:"home_content"`
-	CompactHomeEnabled                  bool                     `json:"compact_home_enabled"`
-	HideCcsImportButton                 bool                     `json:"hide_ccs_import_button"`
-	TableDefaultPageSize                int                      `json:"table_default_page_size"`
-	TablePageSizeOptions                []int                    `json:"table_page_size_options"`
-	CustomMenuItems                     []CustomMenuItem         `json:"custom_menu_items"`
 	CustomEndpoints                     []CustomEndpoint         `json:"custom_endpoints"`
 	BackendModeEnabled                  bool                     `json:"backend_mode_enabled"`
 	Version                             string                   `json:"version"`
@@ -285,12 +238,6 @@ type PublicSettings struct {
 	// 等同于公开。
 	LoginEntryPublic bool   `json:"login_entry_public"`
 	DefaultHomePath  string `json:"default_home_path"`
-}
-
-type LoginAgreementDocument struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	ContentMD string `json:"content_md"`
 }
 
 // OverloadCooldownSettings 529过载冷却配置 DTO
@@ -421,32 +368,6 @@ type PreviewEmailTemplateRequest struct {
 type EmailTemplatePreviewResponse struct {
 	Subject string `json:"subject"`
 	HTML    string `json:"html"`
-}
-
-// ParseCustomMenuItems parses a JSON string into a slice of CustomMenuItem.
-// Returns empty slice on empty/invalid input.
-func ParseCustomMenuItems(raw string) []CustomMenuItem {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || raw == "[]" {
-		return []CustomMenuItem{}
-	}
-	var items []CustomMenuItem
-	if err := json.Unmarshal([]byte(raw), &items); err != nil {
-		return []CustomMenuItem{}
-	}
-	return items
-}
-
-// ParseUserVisibleMenuItems parses custom menu items and filters out admin-only entries.
-func ParseUserVisibleMenuItems(raw string) []CustomMenuItem {
-	items := ParseCustomMenuItems(raw)
-	filtered := make([]CustomMenuItem, 0, len(items))
-	for _, item := range items {
-		if item.Visibility != "admin" {
-			filtered = append(filtered, item)
-		}
-	}
-	return filtered
 }
 
 // ParseCustomEndpoints parses a JSON string into a slice of CustomEndpoint.

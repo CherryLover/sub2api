@@ -41,15 +41,6 @@ func (s *SettingService) GetRegistrationEmailSuffixWhitelist(ctx context.Context
 	return ParseRegistrationEmailSuffixWhitelist(value)
 }
 
-// GetCustomMenuItemsRaw returns the raw JSON string of custom_menu_items setting.
-func (s *SettingService) GetCustomMenuItemsRaw(ctx context.Context) string {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyCustomMenuItems)
-	if err != nil {
-		return "[]"
-	}
-	return value
-}
-
 // IsPasswordResetEnabled 检查是否启用密码重置功能
 // 要求：必须同时开启邮件验证
 func (s *SettingService) IsPasswordResetEnabled(ctx context.Context) bool {
@@ -174,15 +165,6 @@ func parseAuditLogRetentionDays(value string) int {
 		return 0
 	}
 	return n
-}
-
-// GetSiteName 获取网站名称
-func (s *SettingService) GetSiteName(ctx context.Context) string {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeySiteName)
-	if err != nil || value == "" {
-		return "Sub2API"
-	}
-	return value
 }
 
 // GetDefaultConcurrency 获取默认并发量

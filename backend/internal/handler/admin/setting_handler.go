@@ -1,10 +1,7 @@
 package admin
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -18,18 +15,6 @@ import (
 
 // semverPattern 预编译 semver 格式校验正则
 var semverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-
-// menuItemIDPattern validates custom menu item IDs: alphanumeric, hyphens, underscores only.
-var menuItemIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-
-// generateMenuItemID generates a short random hex ID for a custom menu item.
-func generateMenuItemID() (string, error) {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate menu item ID: %w", err)
-	}
-	return hex.EncodeToString(b), nil
-}
 
 // SettingHandler 系统设置处理器
 type SettingHandler struct {
@@ -108,10 +93,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		SessionBindingEnabled:                        settings.SessionBindingEnabled,
 		StepUpEnabled:                                settings.StepUpEnabled,
 		AuditLogRetentionDays:                        settings.AuditLogRetentionDays,
-		LoginAgreementEnabled:                        settings.LoginAgreementEnabled,
-		LoginAgreementMode:                           settings.LoginAgreementMode,
-		LoginAgreementUpdatedAt:                      settings.LoginAgreementUpdatedAt,
-		LoginAgreementDocuments:                      loginAgreementDocumentsToDTO(settings.LoginAgreementDocuments),
 		SMTPHost:                                     settings.SMTPHost,
 		SMTPPort:                                     settings.SMTPPort,
 		SMTPUsername:                                 settings.SMTPUsername,
@@ -121,18 +102,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		SMTPUseTLS:                                   settings.SMTPUseTLS,
 		APIKeyACLTrustForwardedIP:                    settings.APIKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:                     settings.ForwardedClientIPHeaders,
-		SiteName:                                     settings.SiteName,
-		SiteLogo:                                     settings.SiteLogo,
-		SiteSubtitle:                                 settings.SiteSubtitle,
-		APIBaseURL:                                   settings.APIBaseURL,
-		ContactInfo:                                  settings.ContactInfo,
 		DocURL:                                       settings.DocURL,
-		HomeContent:                                  settings.HomeContent,
-		CompactHomeEnabled:                           settings.CompactHomeEnabled,
-		HideCcsImportButton:                          settings.HideCcsImportButton,
-		TableDefaultPageSize:                         settings.TableDefaultPageSize,
-		TablePageSizeOptions:                         settings.TablePageSizeOptions,
-		CustomMenuItems:                              dto.ParseCustomMenuItems(settings.CustomMenuItems),
 		CustomEndpoints:                              dto.ParseCustomEndpoints(settings.CustomEndpoints),
 		DefaultConcurrency:                           settings.DefaultConcurrency,
 		DefaultBalance:                               settings.DefaultBalance,
@@ -284,35 +254,6 @@ func openaiFastPolicySettingsFromDTO(s *dto.OpenAIFastPolicySettings) *service.O
 		rules[i].ServiceTier = tier
 	}
 	return &service.OpenAIFastPolicySettings{Rules: rules}
-}
-
-func loginAgreementDocumentsToDTO(items []service.LoginAgreementDocument) []dto.LoginAgreementDocument {
-	result := make([]dto.LoginAgreementDocument, 0, len(items))
-	for _, item := range items {
-		result = append(result, dto.LoginAgreementDocument{
-			ID:        item.ID,
-			Title:     item.Title,
-			ContentMD: item.ContentMD,
-		})
-	}
-	return result
-}
-
-func loginAgreementDocumentsToService(items []dto.LoginAgreementDocument) []service.LoginAgreementDocument {
-	result := make([]service.LoginAgreementDocument, 0, len(items))
-	for _, item := range items {
-		title := strings.TrimSpace(item.Title)
-		content := strings.TrimSpace(item.ContentMD)
-		if title == "" && content == "" {
-			continue
-		}
-		result = append(result, service.LoginAgreementDocument{
-			ID:        strings.TrimSpace(item.ID),
-			Title:     title,
-			ContentMD: content,
-		})
-	}
-	return result
 }
 
 func systemSettingsResponseData(settings dto.SystemSettings, authSourceDefaults *service.AuthSourceDefaultSettings) map[string]any {

@@ -14,7 +14,7 @@
         class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl shadow-glow transition-opacity hover:opacity-80"
         @click="handleMenuItemClick()"
       >
-        <img v-if="settingsLoaded" :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
+        <img src="/logo.svg" alt="Logo" class="h-full w-full object-contain" />
       </router-link>
       <div class="sidebar-brand" :class="{ 'sidebar-brand-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
         <router-link
@@ -22,7 +22,7 @@
           class="sidebar-brand-title text-lg font-bold text-gray-900 transition-colors hover:text-primary-600 dark:text-white dark:hover:text-primary-400"
           @click="handleMenuItemClick()"
         >
-          {{ siteName }}
+          {{ SITE_NAME }}
         </router-link>
         <!-- Version Badge -->
         <VersionBadge :version="siteVersion" />
@@ -85,8 +85,7 @@
               :title="sidebarCollapsed ? item.label : undefined"
               @click="handleMenuItemClick()"
             >
-              <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-              <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+              <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
               <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
             </router-link>
           </template>
@@ -109,8 +108,7 @@
             :title="sidebarCollapsed ? item.label : undefined"
             @click="handleMenuItemClick()"
           >
-            <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-            <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+            <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
             <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
           </router-link>
         </div>
@@ -128,8 +126,7 @@
             :title="sidebarCollapsed ? item.label : undefined"
             @click="handleMenuItemClick()"
           >
-            <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-            <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+            <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
             <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
           </router-link>
         </div>
@@ -182,8 +179,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore } from '@/stores'
 import VersionBadge from '@/components/common/VersionBadge.vue'
-import { sanitizeSvg } from '@/utils/sanitize'
-import { sanitizeUrl } from '@/utils/url'
+import { SITE_NAME } from '@/constants/site'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 
@@ -191,7 +187,6 @@ interface NavItem {
   path: string
   label: string
   icon: unknown
-  iconSvg?: string
   hideInSimpleMode?: boolean
   children?: NavItem[]
   /**
@@ -243,11 +238,7 @@ const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboar
 // Track which parent nav groups are expanded
 const expandedGroups = ref<Set<string>>(new Set())
 
-// Site settings from appStore (cached, no flicker)
-const siteName = computed(() => appStore.siteName)
-const siteLogo = computed(() => sanitizeUrl(appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const siteVersion = computed(() => appStore.siteVersion)
-const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
 
 // SVG Icon Components
 const DashboardIcon = {
@@ -607,12 +598,6 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagChannelMonitor },
     { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
     { path: '/profile', label: t('nav.profile'), icon: UserIcon },
-    ...customMenuItemsForUser.value.map((item): NavItem => ({
-      path: `/custom/${item.id}`,
-      label: item.label,
-      icon: null,
-      iconSvg: item.icon_svg,
-    })),
   )
   return items
 }
@@ -630,20 +615,6 @@ const userNavItems = computed((): NavItem[] => finalizeNav(buildSelfNavItems(tru
 // Admins access 可用渠道 from this section just like regular users — there is no
 // separate admin entry, since the page is purely a user-facing view.
 const personalNavItems = computed((): NavItem[] => finalizeNav(buildSelfNavItems(false)))
-
-// Custom menu items filtered by visibility
-const customMenuItemsForUser = computed(() => {
-  const items = appStore.cachedPublicSettings?.custom_menu_items ?? []
-  return items
-    .filter((item) => item.visibility === 'user')
-    .sort((a, b) => a.sort_order - b.sort_order)
-})
-
-const customMenuItemsForAdmin = computed(() => {
-  return adminSettingsStore.customMenuItems
-    .filter((item) => item.visibility === 'admin')
-    .sort((a, b) => a.sort_order - b.sort_order)
-})
 
 // Admin navigation items
 const adminNavItems = computed((): NavItem[] => {
@@ -689,16 +660,10 @@ const adminNavItems = computed((): NavItem[] => {
     const filtered = visible.filter(item => !item.hideInSimpleMode)
     filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
     filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
-    for (const cm of customMenuItemsForAdmin.value) {
-      filtered.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })
-    }
     return filtered
   }
 
   visible.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
-  for (const cm of customMenuItemsForAdmin.value) {
-    visible.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })
-  }
   return visible
 })
 
@@ -925,16 +890,5 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: translateX(-4px);
   pointer-events: none;
-}
-
-/* Custom SVG icon in sidebar: constrain size without overriding uploaded SVG colors */
-.sidebar-svg-icon {
-  color: currentColor;
-}
-
-.sidebar-svg-icon :deep(svg) {
-  display: block;
-  width: 1.25rem;
-  height: 1.25rem;
 }
 </style>

@@ -17,20 +17,6 @@ export default {
     unlimited: '无限制'
   },
 
-  // Custom Page (iframe embed)
-  customPage: {
-    title: '自定义页面',
-    openInNewTab: '新窗口打开',
-    notFoundTitle: '页面不存在',
-    notFoundDesc: '该自定义页面不存在或已被删除。',
-    notConfiguredTitle: '页面链接未配置',
-    notConfiguredDesc: '该自定义页面的 URL 未正确配置。',
-    tableOfContents: '目录',
-    copyCode: '复制',
-    copiedCode: '已复制',
-    copyCodeFailed: '失败'
-  },
-
   // Announcements Page
   announcements: {
     title: '公告',

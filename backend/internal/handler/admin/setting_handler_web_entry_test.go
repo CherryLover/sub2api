@@ -124,7 +124,7 @@ func TestUpdateSettings_OmittedWebEntryKeepsStoredLayout(t *testing.T) {
 		service.SettingKeyWebDefaultHomePath:  "/home",
 	})
 
-	rec := doUpdateSettings(t, h, map[string]any{"site_name": "Example"}, nil)
+	rec := doUpdateSettings(t, h, map[string]any{"smtp_host": "smtp.example.com"}, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "false", repo.values[service.SettingKeyWebLoginEntryPublic])
 	require.Equal(t, adminWebEntryHiddenPath, repo.values[service.SettingKeyWebLoginEntryPath])
@@ -247,11 +247,11 @@ func TestUpdateSettings_PinnedWebEntryAcceptsUnchangedValues(t *testing.T) {
 		"login_entry_public": false,
 		"login_entry_path":   adminWebEntryHiddenPath,
 		"default_home_path":  "/home",
-		"site_name":          "Example",
+		"smtp_host":          "smtp.example.com",
 	}, nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "Example", repo.values[service.SettingKeySiteName])
+	require.Equal(t, "smtp.example.com", repo.values[service.SettingKeySMTPHost])
 	// 锁定项一律不落库：数据库里保持空，配置文件才是唯一事实来源。
 	require.Empty(t, repo.values[service.SettingKeyWebLoginEntryPath])
 	require.Empty(t, repo.values[service.SettingKeyWebDefaultHomePath])
@@ -284,9 +284,9 @@ func TestUpdateSettings_BrokenStoredWebEntryDoesNotBlockUnrelatedSaves(t *testin
 		service.SettingKeyWebLoginEntryPath:   "",
 	})
 
-	rec := doUpdateSettings(t, h, map[string]any{"site_name": "Example"}, nil)
+	rec := doUpdateSettings(t, h, map[string]any{"smtp_host": "smtp.example.com"}, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "Example", repo.values[service.SettingKeySiteName])
+	require.Equal(t, "smtp.example.com", repo.values[service.SettingKeySMTPHost])
 
 	// 坏数据没被顺手改写，但对外的生效布置是"登录入口公开"（fail-open）。
 	require.Equal(t, "false", repo.values[service.SettingKeyWebLoginEntryPublic])

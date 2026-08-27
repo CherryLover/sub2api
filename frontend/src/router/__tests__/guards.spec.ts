@@ -79,7 +79,7 @@ function simulateGuard(
       return authState.isAdmin ? '/admin/dashboard' : '/dashboard'
     }
     if (authState.backendModeEnabled && !authState.isAuthenticated) {
-      const allowed = ['/login', '/key-usage', '/setup', '/legal']
+      const allowed = ['/login', '/key-usage', '/setup']
       const isAllowed = allowed.some((path) => toPath === path || toPath.startsWith(path))
       if (!isAllowed) {
         return '/login'
@@ -115,7 +115,7 @@ function simulateGuard(
     if (authState.isAuthenticated && authState.isAdmin) {
       return null
     }
-    const allowed = ['/login', '/key-usage', '/setup', '/legal']
+    const allowed = ['/login', '/key-usage', '/setup']
     const isAllowed = allowed.some((path) => toPath === path || toPath.startsWith(path))
     if (!isAllowed) {
       return '/login'

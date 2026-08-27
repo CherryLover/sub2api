@@ -13,14 +13,11 @@ import (
 
 // Saving settings is a whole-document PUT. A client that sends only the field it
 // cares about must not reset everything else: a payload as small as
-// `{"risk_control_enabled":true}` used to clear site_name, after which
-// getStringOrDefault rendered the empty value as the built-in default and the
-// login page silently changed name.
+// `{"risk_control_enabled":true}` used to clear every unsent string key, which
+// silently wiped the mail server configuration on the next unrelated save.
 
 func TestUpdateSettingsPartialPayloadKeepsUnsentKeys(t *testing.T) {
 	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
-		service.SettingKeySiteName:           "Example Gateway",
-		service.SettingKeySiteSubtitle:       "Example Gateway Platform",
 		service.SettingKeySMTPHost:           "smtp.example.com",
 		service.SettingKeySMTPFrom:           "noreply@example.com",
 		service.SettingKeyRiskControlEnabled: "false",
@@ -32,8 +29,6 @@ func TestUpdateSettingsPartialPayloadKeepsUnsentKeys(t *testing.T) {
 	require.Equal(t, "true", repo.values[service.SettingKeyRiskControlEnabled],
 		"the field the caller actually sent must be written")
 
-	require.Equal(t, "Example Gateway", repo.values[service.SettingKeySiteName])
-	require.Equal(t, "Example Gateway Platform", repo.values[service.SettingKeySiteSubtitle])
 	require.Equal(t, "smtp.example.com", repo.values[service.SettingKeySMTPHost])
 	require.Equal(t, "noreply@example.com", repo.values[service.SettingKeySMTPFrom])
 }
@@ -42,13 +37,13 @@ func TestUpdateSettingsPartialPayloadKeepsUnsentKeys(t *testing.T) {
 // zero value are still cleared.
 func TestUpdateSettingsFullPayloadStillClearsSentEmptyFields(t *testing.T) {
 	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
-		service.SettingKeySiteName: "Example Gateway",
+		service.SettingKeyFrontendURL: "https://old.example.com",
 	})
 
-	rec := doUpdateSettings(t, h, map[string]any{"site_name": ""}, nil)
+	rec := doUpdateSettings(t, h, map[string]any{"frontend_url": ""}, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.Equal(t, "", repo.values[service.SettingKeySiteName],
+	require.Equal(t, "", repo.values[service.SettingKeyFrontendURL],
 		"an explicitly sent empty value is a deliberate clear, not an omission")
 }
 

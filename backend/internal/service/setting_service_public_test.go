@@ -66,40 +66,6 @@ func TestSettingService_GetPublicSettings_ExposesRegistrationEmailSuffixWhitelis
 	require.Equal(t, []string{"@example.com", "@foo.bar", "*.edu.cn"}, settings.RegistrationEmailSuffixWhitelist)
 }
 
-func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) {
-	repo := &settingPublicRepoStub{
-		values: map[string]string{
-			SettingKeyTableDefaultPageSize: "50",
-			SettingKeyTablePageSizeOptions: "[20,50,100]",
-		},
-	}
-	svc := NewSettingService(repo, &config.Config{})
-
-	settings, err := svc.GetPublicSettings(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, 50, settings.TableDefaultPageSize)
-	require.Equal(t, []int{20, 50, 100}, settings.TablePageSizeOptions)
-}
-
-func TestSettingService_GetPublicSettings_ExposesCompactHomeEnabled(t *testing.T) {
-	repo := &settingPublicRepoStub{
-		values: map[string]string{
-			SettingKeyCompactHomeEnabled: "true",
-		},
-	}
-	svc := NewSettingService(repo, &config.Config{})
-
-	settings, err := svc.GetPublicSettings(context.Background())
-
-	require.NoError(t, err)
-	require.True(t, settings.CompactHomeEnabled)
-
-	missingSettings, err := NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{}).
-		GetPublicSettings(context.Background())
-	require.NoError(t, err)
-	require.False(t, missingSettings.CompactHomeEnabled)
-}
-
 func TestSettingService_ChannelMonitorHideThroughputDefaultsToPrivate(t *testing.T) {
 	missing := NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{}).GetChannelMonitorRuntime(context.Background())
 	require.True(t, missing.HideThroughput)

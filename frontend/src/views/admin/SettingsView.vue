@@ -4554,109 +4554,6 @@
 	                <Toggle v-model="form.backend_mode_enabled" />
 	              </div>
 
-	              <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div>
-                  <label
-                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                  >
-                    {{ t("admin.settings.site.siteName") }}
-                  </label>
-                  <input
-                    v-model="form.site_name"
-                    type="text"
-                    class="input"
-                    :placeholder="t('admin.settings.site.siteNamePlaceholder')"
-                  />
-                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.site.siteNameHint") }}
-                  </p>
-                </div>
-                <div>
-                  <label
-                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                  >
-                    {{ t("admin.settings.site.siteSubtitle") }}
-                  </label>
-                  <input
-                    v-model="form.site_subtitle"
-                    type="text"
-                    class="input"
-                    :placeholder="
-                      t('admin.settings.site.siteSubtitlePlaceholder')
-                    "
-                  />
-                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.site.siteSubtitleHint") }}
-                  </p>
-                </div>
-              </div>
-
-              <!-- API Base URL -->
-              <div>
-                <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {{ t("admin.settings.site.apiBaseUrl") }}
-                </label>
-                <input
-                  v-model="form.api_base_url"
-                  type="text"
-                  class="input font-mono text-sm"
-                  :placeholder="t('admin.settings.site.apiBaseUrlPlaceholder')"
-                />
-                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t("admin.settings.site.apiBaseUrlHint") }}
-                </p>
-              </div>
-
-              <!-- Global Table Preferences -->
-              <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
-                <h3 class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t("admin.settings.site.tablePreferencesTitle") }}
-                </h3>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t("admin.settings.site.tablePreferencesDescription") }}
-                </p>
-                <div class="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
-                  <div>
-                    <label
-                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                    >
-                      {{ t("admin.settings.site.tableDefaultPageSize") }}
-                    </label>
-                    <input
-                      v-model.number="form.table_default_page_size"
-                      type="number"
-                      min="5"
-                      max="1000"
-                      step="1"
-                      class="input w-40"
-                    />
-                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                      {{ t("admin.settings.site.tableDefaultPageSizeHint") }}
-                    </p>
-                  </div>
-                  <div>
-                    <label
-                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                    >
-                      {{ t("admin.settings.site.tablePageSizeOptions") }}
-                    </label>
-                    <input
-                      v-model="tablePageSizeOptionsInput"
-                      type="text"
-                      class="input font-mono text-sm"
-                      :placeholder="
-                        t('admin.settings.site.tablePageSizeOptionsPlaceholder')
-                      "
-                    />
-                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                      {{ t("admin.settings.site.tablePageSizeOptionsHint") }}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
               <!-- Custom Endpoints -->
               <div>
                 <label
@@ -4788,24 +4685,6 @@
                 </button>
               </div>
 
-              <!-- Contact Info -->
-              <div>
-                <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {{ t("admin.settings.site.contactInfo") }}
-                </label>
-                <input
-                  v-model="form.contact_info"
-                  type="text"
-                  class="input"
-                  :placeholder="t('admin.settings.site.contactInfoPlaceholder')"
-                />
-                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t("admin.settings.site.contactInfoHint") }}
-                </p>
-              </div>
-
               <!-- Doc URL -->
               <div>
                 <label
@@ -4824,469 +4703,11 @@
                 </p>
               </div>
 
-              <!-- Site Logo Upload -->
-              <div>
-                <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {{ t("admin.settings.site.siteLogo") }}
-                </label>
-                <ImageUpload
-                  v-model="form.site_logo"
-                  mode="image"
-                  :upload-label="t('admin.settings.site.uploadImage')"
-                  :remove-label="t('admin.settings.site.remove')"
-                  :hint="t('admin.settings.site.logoHint')"
-                  :max-size="300 * 1024"
-                />
-              </div>
-
-              <!-- Home Content -->
-              <div>
-                <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {{ t("admin.settings.site.homeContent") }}
-                </label>
-                <textarea
-                  v-model="form.home_content"
-                  rows="6"
-                  class="input font-mono text-sm"
-                  :placeholder="t('admin.settings.site.homeContentPlaceholder')"
-                ></textarea>
-                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t("admin.settings.site.homeContentHint") }}
-                </p>
-                <!-- iframe CSP Warning -->
-                <p class="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                  {{ t("admin.settings.site.homeContentIframeWarning") }}
-                </p>
-              </div>
-
-              <!-- Compact Home Page -->
-              <div class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700">
-                <div>
-                  <label class="font-medium text-gray-900 dark:text-white">{{
-                    t("admin.settings.site.compactHome")
-                  }}</label>
-                  <p class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.site.compactHomeHint") }}
-                  </p>
-                </div>
-                <Toggle v-model="form.compact_home_enabled" data-testid="compact-home-toggle" />
-              </div>
-
-              <!-- Hide CCS Import Button -->
-              <div
-                class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
-              >
-                <div>
-                  <label class="font-medium text-gray-900 dark:text-white">{{
-                    t("admin.settings.site.hideCcsImportButton")
-                  }}</label>
-                  <p class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.site.hideCcsImportButtonHint") }}
-                  </p>
-                </div>
-                <Toggle v-model="form.hide_ccs_import_button" />
-              </div>
             </div>
           </div>
 
-          <!-- Custom Menu Items -->
-          <div class="card">
-            <div
-              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
-            >
-              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-                {{ t("admin.settings.customMenu.title") }}
-              </h2>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                {{ t("admin.settings.customMenu.description") }}
-              </p>
-            </div>
-            <div class="space-y-4 p-6">
-              <!-- Existing menu items -->
-              <div
-                v-for="(item, index) in form.custom_menu_items"
-                :key="item.id || index"
-                class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
-              >
-                <div class="mb-3 flex items-center justify-between">
-                  <span
-                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
-                  >
-                    {{
-                      t("admin.settings.customMenu.itemLabel", { n: index + 1 })
-                    }}
-                  </span>
-                  <div class="flex items-center gap-2">
-                    <!-- Move up -->
-                    <button
-                      v-if="index > 0"
-                      type="button"
-                      class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700"
-                      :title="t('admin.settings.customMenu.moveUp')"
-                      @click="moveMenuItem(index, -1)"
-                    >
-                      <svg
-                        class="h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        stroke-width="2"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          d="M5 15l7-7 7 7"
-                        />
-                      </svg>
-                    </button>
-                    <!-- Move down -->
-                    <button
-                      v-if="index < form.custom_menu_items.length - 1"
-                      type="button"
-                      class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700"
-                      :title="t('admin.settings.customMenu.moveDown')"
-                      @click="moveMenuItem(index, 1)"
-                    >
-                      <svg
-                        class="h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        stroke-width="2"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </button>
-                    <!-- Delete -->
-                    <button
-                      type="button"
-                      class="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                      :title="t('admin.settings.customMenu.remove')"
-                      @click="removeMenuItem(index)"
-                    >
-                      <svg
-                        class="h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        stroke-width="2"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <!-- Label -->
-                  <div>
-                    <label
-                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
-                    >
-                      {{ t("admin.settings.customMenu.name") }}
-                    </label>
-                    <input
-                      v-model="item.label"
-                      type="text"
-                      class="input text-sm"
-                      :placeholder="
-                        t('admin.settings.customMenu.namePlaceholder')
-                      "
-                    />
-                  </div>
-
-                  <!-- Visibility -->
-                  <div>
-                    <label
-                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
-                    >
-                      {{ t("admin.settings.customMenu.visibility") }}
-                    </label>
-                    <select v-model="item.visibility" class="input text-sm">
-                      <option value="user">
-                        {{ t("admin.settings.customMenu.visibilityUser") }}
-                      </option>
-                      <option value="admin">
-                        {{ t("admin.settings.customMenu.visibilityAdmin") }}
-                      </option>
-                    </select>
-                  </div>
-
-                  <!-- URL (full width) -->
-                  <div class="sm:col-span-2">
-                    <label
-                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
-                    >
-                      {{ t("admin.settings.customMenu.url") }}
-                    </label>
-                    <input
-                      v-model="item.url"
-                      type="url"
-                      class="input font-mono text-sm"
-                      :placeholder="
-                        t('admin.settings.customMenu.urlPlaceholder')
-                      "
-                    />
-                  </div>
-
-                  <!-- SVG Icon (full width) -->
-                  <div class="sm:col-span-2">
-                    <label
-                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
-                    >
-                      {{ t("admin.settings.customMenu.iconSvg") }}
-                    </label>
-                    <ImageUpload
-                      :model-value="item.icon_svg"
-                      mode="svg"
-                      size="sm"
-                      :upload-label="t('admin.settings.customMenu.uploadSvg')"
-                      :remove-label="t('admin.settings.customMenu.removeSvg')"
-                      @update:model-value="(v: string) => (item.icon_svg = v)"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <!-- Add button -->
-              <button
-                type="button"
-                class="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 py-3 text-sm text-gray-500 transition-colors hover:border-primary-400 hover:text-primary-600 dark:border-dark-600 dark:text-gray-400 dark:hover:border-primary-500 dark:hover:text-primary-400"
-                @click="addMenuItem"
-              >
-                <svg
-                  class="h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-                {{ t("admin.settings.customMenu.add") }}
-              </button>
-            </div>
-          </div>
 	        </div>
 	        <!-- /Tab: General -->
-
-	        <!-- Tab: Login Agreement -->
-	        <div v-show="activeTab === 'agreement'" class="space-y-6">
-	          <div class="card">
-	            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-	              <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-	                <div>
-	                  <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-	                    {{ localText("登录条款确认", "Login agreement") }}
-	                  </h2>
-	                  <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-	                    {{
-	                      localText(
-	                        "控制登录页是否要求用户先阅读并同意服务条款、隐私政策或其他 Markdown 文档。",
-	                        "Control whether the login page requires users to accept Markdown policy documents first.",
-	                      )
-	                    }}
-	                  </p>
-	                </div>
-	                <div class="flex items-center gap-3">
-	                  <span class="text-sm text-gray-600 dark:text-gray-300">
-	                    {{ form.login_agreement_enabled ? localText("已启用", "Enabled") : localText("未启用", "Disabled") }}
-	                  </span>
-	                  <Toggle v-model="form.login_agreement_enabled" />
-	                </div>
-	              </div>
-	            </div>
-
-	            <div class="space-y-6 p-6">
-	              <div class="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
-	                <div>
-	                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-	                    {{ localText("展示形式", "Display mode") }}
-	                  </label>
-	                  <div class="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
-                    <button
-                      type="button"
-                      class="inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
-                      :class="
-                        form.login_agreement_mode === 'modal'
-                          ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                          : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
-                      "
-                      @click="form.login_agreement_mode = 'modal'"
-                    >
-                      <Icon name="shield" size="sm" />
-                      {{ localText("弹窗", "Modal") }}
-                    </button>
-                    <button
-                      type="button"
-                      class="inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
-                      :class="
-                        form.login_agreement_mode === 'checkbox'
-                          ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                          : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
-                      "
-                      @click="form.login_agreement_mode = 'checkbox'"
-                    >
-                      <Icon name="checkCircle" size="sm" />
-                      {{ localText("复选框", "Checkbox") }}
-                    </button>
-                  </div>
-                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    {{
-                      form.login_agreement_mode === "checkbox"
-                        ? localText("复选框会显示在登录按钮下方，未勾选前所有登录入口禁用。", "The checkbox appears below the login button and gates all login actions.")
-                        : localText("弹窗会在登录页打开，用户拒绝后所有登录入口保持禁用。", "The modal opens on the login page and gates all login actions until accepted.")
-                    }}
-                  </p>
-                </div>
-
-                <div>
-                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {{ localText("条款更新日期", "Updated date") }}
-                  </label>
-                  <input
-                    v-model="form.login_agreement_updated_at"
-                    type="date"
-                    class="input"
-                  />
-                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    {{ localText("日期或文档内容变化后，用户需要重新同意。", "Changing the date or content requires fresh consent.") }}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">
-                      {{ localText("协议文档", "Agreement documents") }}
-                    </h3>
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      {{
-                        localText(
-                          "文档名称可自定义，内容按 Markdown 保存。可参考：服务条款、使用政策、支持的国家和地区、服务特定条款。",
-                          "Document titles are customizable and content is saved as Markdown.",
-                        )
-                      }}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    class="btn btn-primary btn-sm inline-flex items-center gap-1.5"
-                    @click="addLoginAgreementDocument"
-                  >
-                    <Icon name="plus" size="sm" />
-                    {{ localText("添加文档", "Add document") }}
-                  </button>
-                </div>
-
-                <div class="mt-4 space-y-3">
-                  <div
-                    v-for="(doc, index) in form.login_agreement_documents"
-                    :key="doc.id || index"
-                    class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800/60"
-                  >
-                    <div class="mb-3 flex items-center justify-between gap-3">
-                      <div class="flex min-w-0 items-center gap-3">
-                        <span class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-700 dark:bg-dark-700 dark:text-dark-200">
-                          <Icon
-                            :name="
-                              index === 1
-                                ? 'shield'
-                                : index === 2
-                                  ? 'globe'
-                                  : index === 3
-                                    ? 'cog'
-                                    : 'document'
-                            "
-                            size="sm"
-                          />
-                        </span>
-                        <div class="min-w-0">
-                          <p class="truncate text-sm font-semibold text-gray-900 dark:text-white">
-                            {{ doc.title || localText("未命名文档", "Untitled document") }}
-                          </p>
-                          <p class="truncate text-xs text-gray-500 dark:text-gray-400">
-                            {{ loginAgreementRoutePath(doc, index) }}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        class="rounded-md p-2 text-red-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-900/20"
-                        :disabled="
-                          form.login_agreement_enabled &&
-                          form.login_agreement_documents.length <= 1
-                        "
-                        @click="removeLoginAgreementDocument(index)"
-                      >
-                        <Icon name="trash" size="sm" />
-                      </button>
-                    </div>
-
-                    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                      <div>
-                        <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                          {{ localText("文档名称", "Document title") }}
-                        </label>
-                        <input
-                          v-model="doc.title"
-                          type="text"
-                          class="input text-sm"
-                          :placeholder="localText('例如：服务条款', 'Example: Terms of Service')"
-                        />
-                      </div>
-                      <div>
-                        <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                          {{ localText("路由标识", "Route slug") }}
-                        </label>
-                        <div class="flex overflow-hidden rounded-lg border border-gray-300 bg-white focus-within:border-primary-500 focus-within:ring-1 focus-within:ring-primary-500 dark:border-dark-600 dark:bg-dark-900">
-                          <span class="inline-flex flex-shrink-0 items-center border-r border-gray-200 bg-gray-50 px-3 text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-400">
-                            /legal/
-                          </span>
-                          <input
-                            v-model="doc.id"
-                            type="text"
-                            class="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:ring-0 dark:text-white dark:placeholder:text-dark-500"
-                            placeholder="usage-policy"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div class="mt-3">
-                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                        {{ localText("Markdown 内容", "Markdown content") }}
-                      </label>
-                        <textarea
-                          v-model="doc.content_md"
-                          rows="8"
-                          class="input font-mono text-sm"
-                          :placeholder="localText('在这里填写正式 Markdown 内容。', 'Write the final Markdown content here.')"
-                        ></textarea>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- /Tab: Login Agreement -->
 
 	        <!-- Tab: Features (功能开关) -->
         <div v-show="activeTab === 'features'" class="space-y-6">
@@ -6076,12 +5497,7 @@ import type {
   WebSearchProviderConfig,
   WebSearchTestResult,
 } from "@/api/admin/settings";
-import type {
-  AdminGroup,
-  LoginAgreementDocument,
-  NotifyEmailEntry,
-  Proxy,
-} from "@/types";
+import type { AdminGroup, NotifyEmailEntry, Proxy } from "@/types";
 import AppLayout from "@/components/layout/AppLayout.vue";
 import Icon from "@/components/icons/Icon.vue";
 import Select from "@/components/common/Select.vue";
@@ -6090,7 +5506,6 @@ import GroupBadge from "@/components/common/GroupBadge.vue";
 import GroupOptionItem from "@/components/common/GroupOptionItem.vue";
 import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
-import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
@@ -6117,20 +5532,13 @@ import {
   type FingerprintSignalRow,
 } from "./codexFingerprintSignals";
 
-const { t, locale } = useI18n();
+const { t } = useI18n();
 const appStore = useAppStore();
 // 关闭 step-up 开关是敏感操作：后端返回 STEP_UP_REQUIRED 时弹 TOTP 码重试
 const settingsStepUp = useStepUp();
 const adminSettingsStore = useAdminSettingsStore();
-const isZhLocale = computed(() => locale.value.startsWith("zh"));
-
-function localText(zh: string, en: string): string {
-  return isZhLocale.value ? zh : en;
-}
-
 type SettingsTab =
   | "general"
-  | "agreement"
   | "features"
   | "security"
   | "users"
@@ -6140,7 +5548,6 @@ type SettingsTab =
 const activeTab = ref<SettingsTab>("general");
 const settingsTabs = [
   { key: "general" as SettingsTab, icon: "home" as const },
-  { key: "agreement" as SettingsTab, icon: "document" as const },
   { key: "features" as SettingsTab, icon: "bolt" as const },
   { key: "security" as SettingsTab, icon: "shield" as const },
   { key: "users" as SettingsTab, icon: "user" as const },
@@ -6209,7 +5616,6 @@ const testEmailAddress = ref("");
 const registrationEmailSuffixWhitelistTags = ref<string[]>([]);
 const registrationEmailSuffixWhitelistDraft = ref("");
 const forwardedClientIpHeaderDraft = ref("");
-const tablePageSizeOptionsInput = ref("10, 20, 50, 100");
 
 // Admin API Key 状态
 const adminApiKeyLoading = ref(true);
@@ -6306,53 +5712,6 @@ const openaiFastPolicyForm = reactive({
 // 标记 openai_fast_policy_settings 是否已成功从后端加载，
 // 避免后端 GET 出错或字段缺失时，保存把默认规则覆盖成空数组。
 const openaiFastPolicyLoaded = ref(false);
-
-const tablePageSizeMin = 5;
-const tablePageSizeMax = 1000;
-const tablePageSizeDefault = 20;
-
-function defaultLoginAgreementDocuments(): LoginAgreementDocument[] {
-  return [
-    {
-      id: "terms",
-      title: localText("服务条款", "Terms of Service"),
-      content_md: "",
-    },
-    {
-      id: "usage-policy",
-      title: localText("使用政策", "Usage Policy"),
-      content_md: "",
-    },
-    {
-      id: "supported-regions",
-      title: localText("支持的国家和地区", "Supported Countries and Regions"),
-      content_md: "",
-    },
-    {
-      id: "service-specific-terms",
-      title: localText("服务特定条款", "Service-Specific Terms"),
-      content_md: "",
-    },
-  ];
-}
-
-function normalizeLoginAgreementDocumentId(raw: string): string {
-  return raw
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/[-_]{2,}/g, "-")
-    .replace(/^[-_]+|[-_]+$/g, "");
-}
-
-function loginAgreementRoutePath(
-  doc: LoginAgreementDocument,
-  index: number,
-): string {
-  const id =
-    normalizeLoginAgreementDocumentId(doc.id || doc.title) || `doc-${index + 1}`;
-  return `/legal/${id}`;
-}
 
 type ClaudeOAuthSystemPromptPreset =
   | "billing"
@@ -6785,39 +6144,17 @@ const form = reactive<SettingsForm>({
   login_entry_locked_by_config: false,
   default_home_path_locked_by_config: false,
   audit_log_retention_days: 180,
-  login_agreement_enabled: false,
-  login_agreement_mode: "modal",
-  login_agreement_updated_at: "2026-03-31",
-  login_agreement_documents: defaultLoginAgreementDocuments(),
   default_balance: 0,
   default_platform_quotas: normalizePlatformQuotasMap() as DefaultPlatformQuotasMap,
   account_scheduling_thresholds: normalizeAccountSchedulingThresholdsMap(),
   default_concurrency: 1,
   default_subscriptions: [],
   default_user_rpm_limit: 0,
-  site_name: "Sub2API",
-  site_logo: "",
-  site_subtitle: "Subscription to API Conversion Platform",
-  api_base_url: "",
-  contact_info: "",
   doc_url: "",
-  home_content: "",
-  compact_home_enabled: false,
   backend_mode_enabled: false,
-  hide_ccs_import_button: false,
   risk_control_enabled: false,
   cyber_session_block_enabled: false,
   cyber_session_block_ttl_seconds: 3600,
-  table_default_page_size: tablePageSizeDefault,
-  table_page_size_options: [10, 20, 50, 100],
-  custom_menu_items: [] as Array<{
-    id: string;
-    label: string;
-    icon_svg: string;
-    url: string;
-    visibility: "user" | "admin";
-    sort_order: number;
-  }>,
   custom_endpoints: [] as Array<{
     name: string;
     endpoint: string;
@@ -7456,39 +6793,6 @@ const addQuotaNotifyEmail = () => {
 const currentOrigin =
   typeof window !== "undefined" ? window.location.origin : "";
 
-// Custom menu item management
-function addMenuItem() {
-  form.custom_menu_items.push({
-    id: "",
-    label: "",
-    icon_svg: "",
-    url: "",
-    visibility: "user",
-    sort_order: form.custom_menu_items.length,
-  });
-}
-
-function removeMenuItem(index: number) {
-  form.custom_menu_items.splice(index, 1);
-  // Re-index sort_order
-  form.custom_menu_items.forEach((item, i) => {
-    item.sort_order = i;
-  });
-}
-
-function moveMenuItem(index: number, direction: -1 | 1) {
-  const targetIndex = index + direction;
-  if (targetIndex < 0 || targetIndex >= form.custom_menu_items.length) return;
-  const items = form.custom_menu_items;
-  const temp = items[index];
-  items[index] = items[targetIndex];
-  items[targetIndex] = temp;
-  // Re-index sort_order
-  items.forEach((item, i) => {
-    item.sort_order = i;
-  });
-}
-
 // Custom endpoint management
 function addEndpoint() {
   form.custom_endpoints.push({ name: "", endpoint: "", description: "" });
@@ -7498,73 +6802,6 @@ function removeEndpoint(index: number) {
   form.custom_endpoints.splice(index, 1);
 }
 
-function addLoginAgreementDocument() {
-  form.login_agreement_documents.push({
-    id: `custom-${Date.now().toString(36)}`,
-    title: "",
-    content_md: "",
-  });
-}
-
-function removeLoginAgreementDocument(index: number) {
-  form.login_agreement_documents.splice(index, 1);
-}
-
-function normalizeLoginAgreementDocumentsForSave(): LoginAgreementDocument[] {
-  return form.login_agreement_documents
-    .map((doc, index) => ({
-      id:
-        normalizeLoginAgreementDocumentId(doc.id || doc.title) ||
-        `doc-${index + 1}`,
-      title: doc.title.trim(),
-      content_md: doc.content_md.trim(),
-    }))
-    .filter((doc) => doc.title || doc.content_md);
-}
-
-function findDuplicateLoginAgreementDocumentId(
-  documents: LoginAgreementDocument[],
-): string | null {
-  const seen = new Set<string>();
-  for (const doc of documents) {
-    if (seen.has(doc.id)) {
-      return doc.id;
-    }
-    seen.add(doc.id);
-  }
-  return null;
-}
-
-function formatTablePageSizeOptions(options: number[]): string {
-  return options.join(", ");
-}
-
-function parseTablePageSizeOptionsInput(raw: string): number[] | null {
-  const tokens = raw
-    .split(",")
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
-
-  if (tokens.length === 0) {
-    return null;
-  }
-
-  const parsed = tokens.map((token) => Number(token));
-  if (parsed.some((value) => !Number.isInteger(value))) {
-    return null;
-  }
-
-  const deduped = Array.from(new Set(parsed)).sort((a, b) => a - b);
-  if (
-    deduped.some(
-      (value) => value < tablePageSizeMin || value > tablePageSizeMax,
-    )
-  ) {
-    return null;
-  }
-
-  return deduped;
-}
 
 // ── codex_cli_only 黑/白名单结构化编辑（行 ↔ JSON）──
 interface CodexClientRow {
@@ -7679,8 +6916,6 @@ async function loadSettings() {
     codexFingerprintRows.value = form.codex_cli_only_engine_fingerprint_signals
       ? parseFingerprintSignalsToRows(form.codex_cli_only_engine_fingerprint_signals)
       : defaultFingerprintSignalRows();
-    form.login_agreement_mode =
-      settings.login_agreement_mode === "checkbox" ? "checkbox" : "modal";
     form.channel_monitor_mode =
       settings.channel_monitor_mode === "v2" ? "v2" : "v1";
     form.channel_monitor_hide_throughput = Boolean(
@@ -7689,17 +6924,6 @@ async function loadSettings() {
     form.channel_monitor_show_quota = Boolean(
       settings.channel_monitor_show_quota
     );
-    form.login_agreement_updated_at =
-      settings.login_agreement_updated_at || "2026-03-31";
-    form.login_agreement_documents =
-      Array.isArray(settings.login_agreement_documents) &&
-      settings.login_agreement_documents.length > 0
-        ? settings.login_agreement_documents.map((doc) => ({
-            id: doc.id || "",
-            title: doc.title || "",
-            content_md: doc.content_md || "",
-          }))
-        : defaultLoginAgreementDocuments();
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(settings));
     form.default_platform_quotas = normalizePlatformQuotasMap(settings.default_platform_quotas);
     form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
@@ -7718,11 +6942,6 @@ async function loadSettings() {
     );
     forwardedClientIpHeaderDraft.value = "";
     snapshotWebEntry();
-    tablePageSizeOptionsInput.value = formatTablePageSizeOptions(
-      Array.isArray(settings.table_page_size_options)
-        ? settings.table_page_size_options
-        : [10, 20, 50, 100],
-    );
     registrationEmailSuffixWhitelistDraft.value = "";
     form.smtp_password = "";
     smtpPasswordManuallyEdited.value = false;
@@ -8054,76 +7273,6 @@ async function saveSettings() {
 
   saving.value = true;
   try {
-    const normalizedTableDefaultPageSize = Math.floor(
-      Number(form.table_default_page_size),
-    );
-    if (
-      !Number.isInteger(normalizedTableDefaultPageSize) ||
-      normalizedTableDefaultPageSize < tablePageSizeMin ||
-      normalizedTableDefaultPageSize > tablePageSizeMax
-    ) {
-      appStore.showError(
-        t("admin.settings.site.tableDefaultPageSizeRangeError", {
-          min: tablePageSizeMin,
-          max: tablePageSizeMax,
-        }),
-      );
-      return;
-    }
-
-    const normalizedTablePageSizeOptions = parseTablePageSizeOptionsInput(
-      tablePageSizeOptionsInput.value,
-    );
-    if (!normalizedTablePageSizeOptions) {
-      appStore.showError(
-        t("admin.settings.site.tablePageSizeOptionsFormatError", {
-          min: tablePageSizeMin,
-          max: tablePageSizeMax,
-        }),
-      );
-      return;
-    }
-
-    form.table_default_page_size = normalizedTableDefaultPageSize;
-    form.table_page_size_options = normalizedTablePageSizeOptions;
-
-    const normalizedLoginAgreementDocuments =
-      normalizeLoginAgreementDocumentsForSave();
-    if (form.login_agreement_enabled && normalizedLoginAgreementDocuments.length === 0) {
-      appStore.showError(
-        localText(
-          "启用登录条款确认时，至少需要保留一份文档。",
-          "At least one document is required when login agreement is enabled.",
-        ),
-      );
-      return;
-    }
-    const emptyTitleDocument = normalizedLoginAgreementDocuments.find(
-      (doc) => !doc.title,
-    );
-    if (emptyTitleDocument) {
-      appStore.showError(
-        localText(
-          "登录条款文档名称不能为空。",
-          "Login agreement document title cannot be empty.",
-        ),
-      );
-      return;
-    }
-    const duplicateLoginAgreementDocumentId =
-      findDuplicateLoginAgreementDocumentId(normalizedLoginAgreementDocuments);
-    if (duplicateLoginAgreementDocumentId) {
-      appStore.showError(
-        localText(
-          `登录条款文档路由不能重复：/legal/${duplicateLoginAgreementDocumentId}`,
-          `Login agreement document routes cannot be duplicated: /legal/${duplicateLoginAgreementDocumentId}`,
-        ),
-      );
-      return;
-    }
-    form.login_agreement_mode =
-      form.login_agreement_mode === "checkbox" ? "checkbox" : "modal";
-    form.login_agreement_documents = normalizedLoginAgreementDocuments;
     form.forwarded_client_ip_headers = normalizeForwardedClientIpHeaders(
       form.forwarded_client_ip_headers,
     );
@@ -8202,27 +7351,12 @@ async function saveSettings() {
       audit_log_retention_days: Number.isFinite(form.audit_log_retention_days)
         ? form.audit_log_retention_days
         : 180,
-      login_agreement_enabled: form.login_agreement_enabled,
-      login_agreement_mode: form.login_agreement_mode,
-      login_agreement_updated_at: form.login_agreement_updated_at,
-      login_agreement_documents: form.login_agreement_documents,
       default_balance: form.default_balance,
       default_concurrency: form.default_concurrency,
       default_subscriptions: normalizedDefaultSubscriptions,
       default_user_rpm_limit: form.default_user_rpm_limit,
-      site_name: form.site_name,
-      site_logo: form.site_logo,
-      site_subtitle: form.site_subtitle,
-      api_base_url: form.api_base_url,
-      contact_info: form.contact_info,
       doc_url: form.doc_url,
-      home_content: form.home_content,
-      compact_home_enabled: form.compact_home_enabled,
       backend_mode_enabled: form.backend_mode_enabled,
-      hide_ccs_import_button: form.hide_ccs_import_button,
-      table_default_page_size: form.table_default_page_size,
-      table_page_size_options: form.table_page_size_options,
-      custom_menu_items: form.custom_menu_items,
       custom_endpoints: form.custom_endpoints,
       frontend_url: form.frontend_url,
       smtp_host: form.smtp_host,
@@ -8410,11 +7544,6 @@ async function saveSettings() {
     );
     forwardedClientIpHeaderDraft.value = "";
     snapshotWebEntry();
-    tablePageSizeOptionsInput.value = formatTablePageSizeOptions(
-      Array.isArray(updated.table_page_size_options)
-        ? updated.table_page_size_options
-        : [10, 20, 50, 100],
-    );
     registrationEmailSuffixWhitelistDraft.value = "";
     form.smtp_password = "";
     smtpPasswordManuallyEdited.value = false;

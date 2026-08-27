@@ -23,19 +23,8 @@ function createPublicSettings(overrides: Partial<PublicSettings> = {}): PublicSe
     password_reset_enabled: false,
     turnstile_enabled: false,
     turnstile_site_key: '',
-    site_name: 'Test Site',
-    site_logo: '',
-    site_subtitle: '',
-    api_base_url: '',
-    contact_info: '',
     doc_url: '',
-    home_content: '',
-    compact_home_enabled: false,
-    hide_ccs_import_button: false,
     risk_control_enabled: false,
-    table_default_page_size: 20,
-    table_page_size_options: [10, 20, 50, 100],
-    custom_menu_items: [],
     custom_endpoints: [],
     backend_mode_enabled: false,
     version: '1.0.0',
@@ -312,7 +301,7 @@ describe('useAppStore', () => {
     it('并发调用复用并等待同一个请求，包括 force 调用', async () => {
       const deferred = createDeferred<PublicSettings>()
       vi.mocked(getPublicSettings).mockReturnValue(deferred.promise)
-      const settings = createPublicSettings({ payment_enabled: true })
+      const settings = createPublicSettings({ version: '2.0.0' })
       const store = useAppStore()
 
       const first = store.fetchPublicSettings()
@@ -335,17 +324,17 @@ describe('useAppStore', () => {
         settings,
       ])
       expect(store.publicSettingsLoaded).toBe(true)
-      expect(store.cachedPublicSettings?.payment_enabled).toBe(true)
+      expect(store.cachedPublicSettings?.version).toBe('2.0.0')
     })
 
     it('force 在无活动请求时绕过缓存，刷新期间的普通调用等待刷新结果', async () => {
-      const initial = createPublicSettings({ site_name: 'Initial Site' })
+      const initial = createPublicSettings({ doc_url: 'https://docs.initial.test' })
       vi.mocked(getPublicSettings).mockResolvedValueOnce(initial)
       const store = useAppStore()
       await store.fetchPublicSettings()
 
       const deferred = createDeferred<PublicSettings>()
-      const updated = createPublicSettings({ site_name: 'Updated Site' })
+      const updated = createPublicSettings({ doc_url: 'https://docs.updated.test' })
       vi.mocked(getPublicSettings).mockReturnValueOnce(deferred.promise)
 
       const refresh = store.fetchPublicSettings(true)
@@ -355,7 +344,7 @@ describe('useAppStore', () => {
 
       deferred.resolve(updated)
       await expect(Promise.all([refresh, duringRefresh])).resolves.toEqual([updated, updated])
-      expect(store.siteName).toBe('Updated Site')
+      expect(store.docUrl).toBe('https://docs.updated.test')
 
       await expect(store.fetchPublicSettings()).resolves.toEqual(updated)
       expect(getPublicSettings).toHaveBeenCalledTimes(2)
@@ -381,11 +370,7 @@ describe('useAppStore', () => {
     it('从 window.__APP_CONFIG__ 初始化', () => {
       const windowAny = window as any
       windowAny.__APP_CONFIG__ = {
-        site_name: 'TestSite',
-        site_logo: '/logo.png',
         version: '1.0.0',
-        contact_info: 'test@test.com',
-        api_base_url: 'https://api.test.com',
         doc_url: 'https://docs.test.com',
       }
 
@@ -393,9 +378,8 @@ describe('useAppStore', () => {
       const result = store.initFromInjectedConfig()
 
       expect(result).toBe(true)
-      expect(store.siteName).toBe('TestSite')
-      expect(store.siteLogo).toBe('/logo.png')
       expect(store.siteVersion).toBe('1.0.0')
+      expect(store.docUrl).toBe('https://docs.test.com')
       expect(store.publicSettingsLoaded).toBe(true)
     })
 
@@ -409,7 +393,7 @@ describe('useAppStore', () => {
 
     it('clearPublicSettingsCache 清除缓存', () => {
       const windowAny = window as any
-      windowAny.__APP_CONFIG__ = { site_name: 'Test' }
+      windowAny.__APP_CONFIG__ = { version: 'test' }
       const store = useAppStore()
       store.initFromInjectedConfig()
 
@@ -481,39 +465,15 @@ describe('useAppStore', () => {
     })
 
     it('fetchPublicSettings(force) 会同步更新运行时注入配置', async () => {
-      vi.mocked(getPublicSettings).mockResolvedValue({
-        registration_enabled: false,
-        email_verify_enabled: false,
-        registration_email_suffix_whitelist: [],
-            password_reset_enabled: false,
-            turnstile_enabled: false,
-        turnstile_site_key: '',
-        site_name: 'Updated Site',
-        site_logo: '',
-        site_subtitle: '',
-        api_base_url: '',
-        contact_info: '',
-        doc_url: '',
-        home_content: '',
-        compact_home_enabled: false,
-        hide_ccs_import_button: false,
-        purchase_subscription_enabled: false,
-        purchase_subscription_url: '',
-        table_default_page_size: 1000,
-        table_page_size_options: [20, 100, 1000],
-        custom_menu_items: [],
-        custom_endpoints: [],
-            backend_mode_enabled: false,
-        version: '1.0.0'
-      })
+      vi.mocked(getPublicSettings).mockResolvedValue(
+        createPublicSettings({ doc_url: 'https://docs.updated.test', version: '2.0.0' })
+      )
 
       const store = useAppStore()
       await store.fetchPublicSettings(true)
 
-      expect((window as any).__APP_CONFIG__.table_default_page_size).toBe(1000)
-      expect((window as any).__APP_CONFIG__.table_page_size_options).toEqual([20, 100, 1000])
-      expect(localStorage.getItem('table-page-size')).toBeNull()
-      expect(localStorage.getItem('table-page-size-source')).toBeNull()
+      expect((window as any).__APP_CONFIG__.doc_url).toBe('https://docs.updated.test')
+      expect((window as any).__APP_CONFIG__.version).toBe('2.0.0')
     })
   })
 })
