@@ -137,43 +137,12 @@ CREATE TABLE IF NOT EXISTS user_provider_default_grants (
 		values: settings,
 	}, cfg)
 
-	svc := service.NewAuthService(client, repo, nil, cfg, settingSvc, nil, nil, nil, defaultSubAssigner, nil)
+	svc := service.NewAuthService(client, repo, nil, cfg, settingSvc, nil, nil, defaultSubAssigner)
 	return svc, repo, client
 }
 
-func TestAuthServiceRegisterDualWritesEmailIdentity(t *testing.T) {
-	svc, _, client := newAuthServiceWithEnt(t, map[string]string{
-		service.SettingKeyRegistrationEnabled: "true",
-	}, nil)
-	ctx := context.Background()
-
-	token, user, err := svc.Register(ctx, "user@example.com", "password")
-	require.NoError(t, err)
-	require.NotEmpty(t, token)
-	require.NotNil(t, user)
-
-	storedUser, err := client.User.Get(ctx, user.ID)
-	require.NoError(t, err)
-	require.Equal(t, "email", storedUser.SignupSource)
-	require.NotNil(t, storedUser.LastLoginAt)
-	require.NotNil(t, storedUser.LastActiveAt)
-
-	identity, err := client.AuthIdentity.Query().
-		Where(
-			authidentity.ProviderTypeEQ("email"),
-			authidentity.ProviderKeyEQ("email"),
-			authidentity.ProviderSubjectEQ("user@example.com"),
-		).
-		Only(ctx)
-	require.NoError(t, err)
-	require.Equal(t, user.ID, identity.UserID)
-	require.NotNil(t, identity.VerifiedAt)
-}
-
 func TestAuthServiceLoginDefersLastLoginTouchUntilRecordSuccessfulLogin(t *testing.T) {
-	svc, _, client := newAuthServiceWithEnt(t, map[string]string{
-		service.SettingKeyRegistrationEnabled: "true",
-	}, nil)
+	svc, _, client := newAuthServiceWithEnt(t, map[string]string{}, nil)
 	ctx := context.Background()
 
 	passwordHash, err := svc.HashPassword("password")
@@ -231,9 +200,7 @@ func TestAuthServiceLoginDefersLastLoginTouchUntilRecordSuccessfulLogin(t *testi
 }
 
 func TestAuthServiceRecordSuccessfulLoginBackfillsEmailIdentity(t *testing.T) {
-	svc, repo, client := newAuthServiceWithEnt(t, map[string]string{
-		service.SettingKeyRegistrationEnabled: "true",
-	}, nil)
+	svc, repo, client := newAuthServiceWithEnt(t, map[string]string{}, nil)
 	ctx := context.Background()
 
 	user := &service.User{
@@ -262,7 +229,6 @@ func TestAuthServiceRecordSuccessfulLoginBackfillsEmailIdentity(t *testing.T) {
 func TestAuthServiceLogin_DoesNotApplyEmailFirstBindDefaultsWhenBackfillingLegacyEmailIdentity(t *testing.T) {
 	assigner := &authIdentityDefaultSubAssignerStub{}
 	svc, _, client := newAuthServiceWithEnt(t, map[string]string{
-		service.SettingKeyRegistrationEnabled:                    "true",
 		service.SettingKeyAuthSourceDefaultEmailBalance:          "8.5",
 		service.SettingKeyAuthSourceDefaultEmailConcurrency:      "4",
 		service.SettingKeyAuthSourceDefaultEmailSubscriptions:    `[{"group_id":11,"validity_days":30}]`,
@@ -322,7 +288,6 @@ func TestAuthServiceLogin_DoesNotApplyEmailFirstBindDefaultsWhenBackfillingLegac
 func TestAuthServiceLogin_DoesNotApplyMergedEmailFirstBindDefaultsWhenBackfillingLegacyEmailIdentity(t *testing.T) {
 	assigner := &authIdentityDefaultSubAssignerStub{}
 	svc, _, client := newAuthServiceWithEnt(t, map[string]string{
-		service.SettingKeyRegistrationEnabled:                    "true",
 		service.SettingKeyDefaultSubscriptions:                   `[{"group_id":21,"validity_days":14}]`,
 		service.SettingKeyAuthSourceDefaultEmailBalance:          "8.5",
 		service.SettingKeyAuthSourceDefaultEmailConcurrency:      "5",
@@ -361,7 +326,6 @@ func TestAuthServiceLogin_DoesNotApplyMergedEmailFirstBindDefaultsWhenBackfillin
 func TestAuthServiceLogin_DoesNotApplyEmailFirstBindDefaultsWhenIdentityAlreadyExists(t *testing.T) {
 	assigner := &authIdentityDefaultSubAssignerStub{}
 	svc, _, client := newAuthServiceWithEnt(t, map[string]string{
-		service.SettingKeyRegistrationEnabled:                    "true",
 		service.SettingKeyAuthSourceDefaultEmailBalance:          "8.5",
 		service.SettingKeyAuthSourceDefaultEmailConcurrency:      "4",
 		service.SettingKeyAuthSourceDefaultEmailSubscriptions:    `[{"group_id":11,"validity_days":30}]`,
@@ -408,7 +372,6 @@ func TestAuthServiceLogin_DoesNotApplyEmailFirstBindDefaultsWhenIdentityAlreadyE
 func TestAuthServiceLogin_DoesNotRetryEmailFirstBindDefaultsForBackfilledEmailIdentity(t *testing.T) {
 	assigner := &flakyAuthIdentityDefaultSubAssignerStub{failuresRemaining: 1}
 	svc, _, client := newAuthServiceWithEnt(t, map[string]string{
-		service.SettingKeyRegistrationEnabled:                    "true",
 		service.SettingKeyAuthSourceDefaultEmailBalance:          "8.5",
 		service.SettingKeyAuthSourceDefaultEmailConcurrency:      "4",
 		service.SettingKeyAuthSourceDefaultEmailSubscriptions:    `[{"group_id":11,"validity_days":30}]`,

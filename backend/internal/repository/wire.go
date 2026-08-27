@@ -145,9 +145,6 @@ var ProviderSet = wire.NewSet(
 	ProvideImageStorageFactory,
 
 	// HTTP service ports (DI Strategy A: return interface directly)
-	NewTurnstileVerifier,
-	NewTencentCaptchaVerifier,
-	NewAliyunCaptchaVerifier,
 	ProvidePricingRemoteClient,
 	ProvideGitHubReleaseClient,
 	NewProxyExitInfoProber,

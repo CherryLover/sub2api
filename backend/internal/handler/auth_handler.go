@@ -8,7 +8,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -38,45 +37,10 @@ func NewAuthHandler(cfg *config.Config, authService *service.AuthService, userSe
 	}
 }
 
-// RegisterRequest represents the registration request payload
-type RegisterRequest struct {
-	Email                 string `json:"email" binding:"required,email"`
-	Password              string `json:"password" binding:"required,min=6"`
-	VerifyCode            string `json:"verify_code"`
-	TurnstileToken        string `json:"turnstile_token"`
-	TencentCaptchaTicket  string `json:"tencent_captcha_ticket"`
-	TencentCaptchaRandstr string `json:"tencent_captcha_randstr"`
-}
-
-// SendVerifyCodeRequest 发送验证码请求
-type SendVerifyCodeRequest struct {
-	Email                 string `json:"email" binding:"required,email"`
-	TurnstileToken        string `json:"turnstile_token"`
-	TencentCaptchaTicket  string `json:"tencent_captcha_ticket"`
-	TencentCaptchaRandstr string `json:"tencent_captcha_randstr"`
-}
-
-// SendVerifyCodeResponse 发送验证码响应
-type SendVerifyCodeResponse struct {
-	Message   string `json:"message"`
-	Countdown int    `json:"countdown"` // 倒计时秒数
-}
-
 // LoginRequest represents the login request payload
 type LoginRequest struct {
-	Email                 string `json:"email" binding:"required,email"`
-	Password              string `json:"password" binding:"required"`
-	TurnstileToken        string `json:"turnstile_token"`
-	TencentCaptchaTicket  string `json:"tencent_captcha_ticket"`
-	TencentCaptchaRandstr string `json:"tencent_captcha_randstr"`
-}
-
-func captchaProof(turnstileToken, tencentTicket, tencentRandstr string) service.CaptchaProof {
-	return service.CaptchaProof{
-		TurnstileToken: turnstileToken,
-		TencentTicket:  tencentTicket,
-		TencentRandstr: tencentRandstr,
-	}
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
 }
 
 // AuthResponse 认证响应格式（匹配前端期望）
@@ -156,75 +120,12 @@ func (h *AuthHandler) isBackendModeEnabled(ctx context.Context) bool {
 	return h.settingSvc.IsBackendModeEnabled(ctx)
 }
 
-// Register handles user registration
-// POST /api/v1/auth/register
-func (h *AuthHandler) Register(c *gin.Context) {
-	var req RegisterRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	// 验证当前启用的验证码（邮箱验证码注册场景避免重复校验一次性票据）
-	proof := captchaProof(req.TurnstileToken, req.TencentCaptchaTicket, req.TencentCaptchaRandstr)
-	if err := h.authService.VerifyCaptchaForRegister(c.Request.Context(), proof, ip.GetClientIP(c), req.VerifyCode); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	_, user, err := h.authService.RegisterWithVerification(
-		c.Request.Context(),
-		req.Email,
-		req.Password,
-		req.VerifyCode,
-	)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	h.respondWithTokenPair(c, user)
-}
-
-// SendVerifyCode 发送邮箱验证码
-// POST /api/v1/auth/send-verify-code
-func (h *AuthHandler) SendVerifyCode(c *gin.Context) {
-	var req SendVerifyCodeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	proof := captchaProof(req.TurnstileToken, req.TencentCaptchaTicket, req.TencentCaptchaRandstr)
-	if err := h.authService.VerifyCaptcha(c.Request.Context(), proof, ip.GetClientIP(c)); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	result, err := h.authService.SendVerifyCodeAsync(c.Request.Context(), req.Email, c.GetHeader("Accept-Language"))
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	response.Success(c, SendVerifyCodeResponse{
-		Message:   "Verification code sent successfully",
-		Countdown: result.Countdown,
-	})
-}
-
 // Login handles user login
 // POST /api/v1/auth/login
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	proof := captchaProof(req.TurnstileToken, req.TencentCaptchaTicket, req.TencentCaptchaRandstr)
-	if err := h.authService.VerifyCaptcha(c.Request.Context(), proof, ip.GetClientIP(c)); err != nil {
-		response.ErrorFrom(c, err)
 		return
 	}
 
@@ -384,10 +285,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 
 // ForgotPasswordRequest 忘记密码请求
 type ForgotPasswordRequest struct {
-	Email                 string `json:"email" binding:"required,email"`
-	TurnstileToken        string `json:"turnstile_token"`
-	TencentCaptchaTicket  string `json:"tencent_captcha_ticket"`
-	TencentCaptchaRandstr string `json:"tencent_captcha_randstr"`
+	Email string `json:"email" binding:"required,email"`
 }
 
 // ForgotPasswordResponse 忘记密码响应
@@ -401,12 +299,6 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req ForgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	proof := captchaProof(req.TurnstileToken, req.TencentCaptchaTicket, req.TencentCaptchaRandstr)
-	if err := h.authService.VerifyCaptcha(c.Request.Context(), proof, ip.GetClientIP(c)); err != nil {
-		response.ErrorFrom(c, err)
 		return
 	}
 

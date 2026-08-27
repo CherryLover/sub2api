@@ -23,27 +23,26 @@ import (
 )
 
 var (
-	ErrInvalidCredentials           = infraerrors.Unauthorized("INVALID_CREDENTIALS", "invalid email or password")
-	ErrUserNotActive                = infraerrors.Forbidden("USER_NOT_ACTIVE", "user is not active")
-	ErrEmailExists                  = infraerrors.Conflict("EMAIL_EXISTS", "email already exists")
-	ErrEmailReserved                = infraerrors.BadRequest("EMAIL_RESERVED", "email is reserved")
-	ErrInvalidToken                 = infraerrors.Unauthorized("INVALID_TOKEN", "invalid token")
-	ErrTokenExpired                 = infraerrors.Unauthorized("TOKEN_EXPIRED", "token has expired")
-	ErrAccessTokenExpired           = infraerrors.Unauthorized("ACCESS_TOKEN_EXPIRED", "access token has expired")
-	ErrTokenTooLarge                = infraerrors.BadRequest("TOKEN_TOO_LARGE", "token too large")
-	ErrTokenRevoked                 = infraerrors.Unauthorized("TOKEN_REVOKED", "token has been revoked")
-	ErrRefreshTokenInvalid          = infraerrors.Unauthorized("REFRESH_TOKEN_INVALID", "invalid refresh token")
-	ErrRefreshTokenExpired          = infraerrors.Unauthorized("REFRESH_TOKEN_EXPIRED", "refresh token has expired")
-	ErrRefreshTokenReused           = infraerrors.Unauthorized("REFRESH_TOKEN_REUSED", "refresh token has been reused")
-	ErrEmailVerifyRequired          = infraerrors.BadRequest("EMAIL_VERIFY_REQUIRED", "email verification is required")
-	ErrEmailSuffixNotAllowed        = infraerrors.BadRequest("EMAIL_SUFFIX_NOT_ALLOWED", "email suffix is not allowed")
+	ErrInvalidCredentials    = infraerrors.Unauthorized("INVALID_CREDENTIALS", "invalid email or password")
+	ErrUserNotActive         = infraerrors.Forbidden("USER_NOT_ACTIVE", "user is not active")
+	ErrEmailExists           = infraerrors.Conflict("EMAIL_EXISTS", "email already exists")
+	ErrEmailReserved         = infraerrors.BadRequest("EMAIL_RESERVED", "email is reserved")
+	ErrInvalidToken          = infraerrors.Unauthorized("INVALID_TOKEN", "invalid token")
+	ErrTokenExpired          = infraerrors.Unauthorized("TOKEN_EXPIRED", "token has expired")
+	ErrAccessTokenExpired    = infraerrors.Unauthorized("ACCESS_TOKEN_EXPIRED", "access token has expired")
+	ErrTokenTooLarge         = infraerrors.BadRequest("TOKEN_TOO_LARGE", "token too large")
+	ErrTokenRevoked          = infraerrors.Unauthorized("TOKEN_REVOKED", "token has been revoked")
+	ErrRefreshTokenInvalid   = infraerrors.Unauthorized("REFRESH_TOKEN_INVALID", "invalid refresh token")
+	ErrRefreshTokenExpired   = infraerrors.Unauthorized("REFRESH_TOKEN_EXPIRED", "refresh token has expired")
+	ErrRefreshTokenReused    = infraerrors.Unauthorized("REFRESH_TOKEN_REUSED", "refresh token has been reused")
+	ErrEmailVerifyRequired   = infraerrors.BadRequest("EMAIL_VERIFY_REQUIRED", "email verification is required")
+	ErrEmailSuffixNotAllowed = infraerrors.BadRequest("EMAIL_SUFFIX_NOT_ALLOWED", "email suffix is not allowed")
+	// ErrEmailDomainRegistrationLimit 由用户仓储的邮箱域名限量守卫返回（见 repository/user_repo.go）。
 	ErrEmailDomainRegistrationLimit = infraerrors.BadRequest(
 		"EMAIL_DOMAIN_REGISTRATION_LIMIT",
 		"this email domain cannot register another account; use a mainstream email or contact support to add the enterprise domain",
 	)
-	ErrRegDisabled             = infraerrors.Forbidden("REGISTRATION_DISABLED", "registration is currently disabled")
-	ErrServiceUnavailable      = infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "service temporarily unavailable")
-	ErrCaptchaProviderConflict = infraerrors.ServiceUnavailable("CAPTCHA_PROVIDER_CONFLICT", "multiple captcha providers are enabled")
+	ErrServiceUnavailable = infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "service temporarily unavailable")
 )
 
 // maxTokenLength 限制 token 大小，避免超长 header 触发解析时的异常内存分配。
@@ -67,36 +66,18 @@ type JWTClaims struct {
 
 // AuthService 认证服务
 type AuthService struct {
-	entClient             *dbent.Client
-	userRepo              UserRepository
-	refreshTokenCache     RefreshTokenCache
-	cfg                   *config.Config
-	settingService        *SettingService
-	emailService          *EmailService
-	turnstileService      *TurnstileService
-	tencentCaptchaService *TencentCaptchaService
-	aliyunCaptchaService  *AliyunCaptchaService
-	emailQueueService     *EmailQueueService
-	defaultSubAssigner    DefaultSubscriptionAssigner
-	userPlatformQuotaRepo UserPlatformQuotaRepository
-}
-
-type CaptchaProof struct {
-	// TurnstileToken 承载 Cloudflare Turnstile token；阿里云验证码复用该字段承载 captchaVerifyParam
-	TurnstileToken string
-	TencentTicket  string
-	TencentRandstr string
+	entClient          *dbent.Client
+	userRepo           UserRepository
+	refreshTokenCache  RefreshTokenCache
+	cfg                *config.Config
+	settingService     *SettingService
+	emailService       *EmailService
+	emailQueueService  *EmailQueueService
+	defaultSubAssigner DefaultSubscriptionAssigner
 }
 
 type DefaultSubscriptionAssigner interface {
 	AssignOrExtendSubscription(ctx context.Context, input *AssignSubscriptionInput) (*UserSubscription, bool, error)
-}
-
-type signupGrantPlan struct {
-	Balance        float64
-	Concurrency    int
-	Subscriptions  []DefaultSubscriptionSetting
-	PlatformQuotas map[string]*DefaultPlatformQuotaSetting
 }
 
 // NewAuthService 创建认证服务实例
@@ -107,22 +88,18 @@ func NewAuthService(
 	cfg *config.Config,
 	settingService *SettingService,
 	emailService *EmailService,
-	turnstileService *TurnstileService,
 	emailQueueService *EmailQueueService,
 	defaultSubAssigner DefaultSubscriptionAssigner,
-	userPlatformQuotaRepo UserPlatformQuotaRepository,
 ) *AuthService {
 	return &AuthService{
-		entClient:             entClient,
-		userRepo:              userRepo,
-		refreshTokenCache:     refreshTokenCache,
-		cfg:                   cfg,
-		settingService:        settingService,
-		emailService:          emailService,
-		turnstileService:      turnstileService,
-		emailQueueService:     emailQueueService,
-		defaultSubAssigner:    defaultSubAssigner,
-		userPlatformQuotaRepo: userPlatformQuotaRepo,
+		entClient:          entClient,
+		userRepo:           userRepo,
+		refreshTokenCache:  refreshTokenCache,
+		cfg:                cfg,
+		settingService:     settingService,
+		emailService:       emailService,
+		emailQueueService:  emailQueueService,
+		defaultSubAssigner: defaultSubAssigner,
 	}
 }
 
@@ -131,344 +108,6 @@ func (s *AuthService) EntClient() *dbent.Client {
 		return nil
 	}
 	return s.entClient
-}
-
-func (s *AuthService) SetTencentCaptchaService(tencentCaptchaService *TencentCaptchaService) {
-	s.tencentCaptchaService = tencentCaptchaService
-}
-
-func (s *AuthService) SetAliyunCaptchaService(aliyunCaptchaService *AliyunCaptchaService) {
-	s.aliyunCaptchaService = aliyunCaptchaService
-}
-
-// Register 用户注册，返回token和用户
-func (s *AuthService) Register(ctx context.Context, email, password string) (string, *User, error) {
-	return s.RegisterWithVerification(ctx, email, password, "")
-}
-
-// RegisterWithVerification 用户注册（支持邮件验证），返回token和用户。
-func (s *AuthService) RegisterWithVerification(ctx context.Context, email, password, verifyCode string) (string, *User, error) {
-	// 检查是否开放注册（默认关闭：settingService 未配置时不允许注册）
-	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
-		return "", nil, ErrRegDisabled
-	}
-
-	// 防止用户注册 LinuxDo OAuth 合成邮箱，避免第三方登录与本地账号发生碰撞。
-	if isReservedEmail(email) {
-		return "", nil, ErrEmailReserved
-	}
-
-	// 检查是否需要邮件验证
-	if s.settingService != nil && s.settingService.IsEmailVerifyEnabled(ctx) {
-		// 如果邮件验证已开启但邮件服务未配置，拒绝注册
-		// 这是一个配置错误，不应该允许绕过验证
-		if s.emailService == nil {
-			logger.LegacyPrintf("service.auth", "%s", "[Auth] Email verification enabled but email service not configured, rejecting registration")
-			return "", nil, ErrServiceUnavailable
-		}
-		if verifyCode == "" {
-			return "", nil, ErrEmailVerifyRequired
-		}
-		// 验证邮箱验证码
-		if err := s.emailService.VerifyCode(ctx, email, verifyCode); err != nil {
-			return "", nil, fmt.Errorf("verify code: %w", err)
-		}
-	}
-
-	// 检查邮箱是否已存在（含 +别名 / Gmail 点号变体归一化，防止单个收件箱批量派生注册）
-	existsEmail, err := s.existsByEmailOrAlias(ctx, email)
-	if err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Database error checking email exists: %v", err)
-		return "", nil, ErrServiceUnavailable
-	}
-	if existsEmail {
-		return "", nil, ErrEmailExists
-	}
-	if err := s.validateRegistrationEmailQuota(ctx, email); err != nil {
-		return "", nil, err
-	}
-
-	// 密码哈希
-	hashedPassword, err := s.HashPassword(password)
-	if err != nil {
-		return "", nil, fmt.Errorf("hash password: %w", err)
-	}
-
-	grantPlan := s.resolveSignupGrantPlan(ctx, "email")
-
-	// 新用户默认 RPM（0 = 不限制）。注册时写入，后续作为用户级兜底。
-	var defaultRPMLimit int
-	if s.settingService != nil {
-		defaultRPMLimit = s.settingService.GetDefaultUserRPMLimit(ctx)
-	}
-
-	// 创建用户
-	user := &User{
-		Email:        email,
-		PasswordHash: hashedPassword,
-		Role:         RoleUser,
-		Balance:      grantPlan.Balance,
-		Concurrency:  grantPlan.Concurrency,
-		RPMLimit:     defaultRPMLimit,
-		Status:       StatusActive,
-	}
-
-	if err := s.createUserWithEmailQuota(ctx, user); err != nil {
-		// 优先检查邮箱冲突错误（竞态条件下可能发生）
-		switch {
-		case errors.Is(err, ErrEmailExists):
-			return "", nil, ErrEmailExists
-		case errors.Is(err, ErrEmailDomainRegistrationLimit):
-			return "", nil, ErrEmailDomainRegistrationLimit
-		default:
-			logger.LegacyPrintf("service.auth", "[Auth] Database error creating user: %v", err)
-			return "", nil, ErrServiceUnavailable
-		}
-	}
-	s.postAuthUserBootstrap(ctx, user, "email", true)
-	s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
-	// snapshot user × platform quota（fail-open）
-	_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
-
-	// 生成token
-	token, err := s.GenerateToken(ctx, user)
-	if err != nil {
-		return "", nil, fmt.Errorf("generate token: %w", err)
-	}
-
-	return token, user, nil
-}
-
-// SendVerifyCodeResult 发送验证码返回结果
-type SendVerifyCodeResult struct {
-	Countdown int `json:"countdown"` // 倒计时秒数
-}
-
-// SendVerifyCode 发送邮箱验证码（同步方式）
-func (s *AuthService) SendVerifyCode(ctx context.Context, email string, locale ...string) error {
-	// 检查是否开放注册（默认关闭）
-	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
-		return ErrRegDisabled
-	}
-
-	if isReservedEmail(email) {
-		return ErrEmailReserved
-	}
-	// 检查邮箱是否已存在（含 +别名 / Gmail 点号变体归一化，防止单个收件箱批量派生注册）
-	existsEmail, err := s.existsByEmailOrAlias(ctx, email)
-	if err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Database error checking email exists: %v", err)
-		return ErrServiceUnavailable
-	}
-	if existsEmail {
-		return ErrEmailExists
-	}
-	if err := s.validateRegistrationEmailQuota(ctx, email); err != nil {
-		return err
-	}
-
-	// 发送验证码
-	if s.emailService == nil {
-		return errors.New("email service not configured")
-	}
-
-	// 获取网站名称
-	siteName := "Sub2API"
-	if s.settingService != nil {
-		siteName = s.settingService.GetSiteName(ctx)
-	}
-
-	return s.emailService.SendVerifyCode(ctx, email, siteName, firstEmailLocale(locale))
-}
-
-// SendVerifyCodeAsync 异步发送邮箱验证码并返回倒计时
-func (s *AuthService) SendVerifyCodeAsync(ctx context.Context, email string, locale ...string) (*SendVerifyCodeResult, error) {
-	logger.LegacyPrintf("service.auth", "[Auth] SendVerifyCodeAsync called for email: %s", email)
-
-	// 检查是否开放注册（默认关闭）
-	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
-		logger.LegacyPrintf("service.auth", "%s", "[Auth] Registration is disabled")
-		return nil, ErrRegDisabled
-	}
-
-	if isReservedEmail(email) {
-		return nil, ErrEmailReserved
-	}
-	// 检查邮箱是否已存在（含 +别名 / Gmail 点号变体归一化；在发信前拦截，避免批量脚本消耗发信配额）
-	existsEmail, err := s.existsByEmailOrAlias(ctx, email)
-	if err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Database error checking email exists: %v", err)
-		return nil, ErrServiceUnavailable
-	}
-	if existsEmail {
-		logger.LegacyPrintf("service.auth", "[Auth] Email already exists: %s", email)
-		return nil, ErrEmailExists
-	}
-	if err := s.validateRegistrationEmailQuota(ctx, email); err != nil {
-		return nil, err
-	}
-
-	// 检查邮件队列服务是否配置
-	if s.emailQueueService == nil {
-		logger.LegacyPrintf("service.auth", "%s", "[Auth] Email queue service not configured")
-		return nil, errors.New("email queue service not configured")
-	}
-
-	// 获取网站名称
-	siteName := "Sub2API"
-	if s.settingService != nil {
-		siteName = s.settingService.GetSiteName(ctx)
-	}
-
-	// 异步发送
-	logger.LegacyPrintf("service.auth", "[Auth] Enqueueing verify code for: %s", email)
-	if err := s.emailQueueService.EnqueueVerifyCode(email, siteName, firstEmailLocale(locale)); err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to enqueue: %v", err)
-		return nil, fmt.Errorf("enqueue verify code: %w", err)
-	}
-
-	logger.LegacyPrintf("service.auth", "[Auth] Verify code enqueued successfully for: %s", email)
-	return &SendVerifyCodeResult{
-		Countdown: 60, // 60秒倒计时
-	}, nil
-}
-
-// VerifyCaptchaForRegister 在注册场景下验证当前启用的验证码。
-// 当邮箱验证开启且已提交验证码时，说明验证码发送阶段已完成验证码校验，
-// 此处跳过二次校验，避免一次性 token 在注册提交时重复使用导致误报失败。
-func (s *AuthService) VerifyCaptchaForRegister(ctx context.Context, proof CaptchaProof, remoteIP, verifyCode string) error {
-	if s.IsEmailVerifyEnabled(ctx) && strings.TrimSpace(verifyCode) != "" {
-		logger.LegacyPrintf("service.auth", "%s", "[Auth] Email verify flow detected, skip duplicate captcha check on register")
-		return nil
-	}
-	return s.VerifyCaptcha(ctx, proof, remoteIP)
-}
-
-func (s *AuthService) VerifyCaptcha(ctx context.Context, proof CaptchaProof, remoteIP string) error {
-	required := s.cfg != nil && s.cfg.Server.Mode == "release" && s.cfg.Turnstile.Required
-	if s.settingService == nil {
-		if required {
-			return ErrTurnstileNotConfigured
-		}
-		return nil
-	}
-
-	providerConfig, err := s.settingService.GetCaptchaProviderConfig(ctx)
-	if err != nil {
-		logger.LegacyPrintf("service.auth", "%s", "[Auth] Failed to read captcha provider settings")
-		return ErrServiceUnavailable
-	}
-	turnstileEnabled := providerConfig.TurnstileEnabled
-	tencentEnabled := providerConfig.Tencent.Enabled
-	aliyunEnabled := providerConfig.Aliyun.Enabled
-	if captchaProvidersConflict(turnstileEnabled, tencentEnabled, aliyunEnabled) {
-		return ErrCaptchaProviderConflict
-	}
-	if tencentEnabled {
-		if s.tencentCaptchaService == nil {
-			return ErrTencentCaptchaNotConfigured
-		}
-		return s.tencentCaptchaService.VerifyTicketWithConfig(ctx, providerConfig.Tencent, proof.TencentTicket, proof.TencentRandstr, remoteIP)
-	}
-	if aliyunEnabled {
-		if s.aliyunCaptchaService == nil {
-			return ErrAliyunCaptchaNotConfigured
-		}
-		return s.aliyunCaptchaService.VerifyParamWithConfig(ctx, providerConfig.Aliyun, proof.TurnstileToken)
-	}
-	if turnstileEnabled {
-		if s.turnstileService == nil || strings.TrimSpace(providerConfig.TurnstileSecretKey) == "" {
-			return ErrTurnstileNotConfigured
-		}
-		return s.turnstileService.VerifyTokenWithSecret(ctx, providerConfig.TurnstileSecretKey, proof.TurnstileToken, remoteIP)
-	}
-	if required {
-		return ErrTurnstileNotConfigured
-	}
-	return nil
-}
-
-// captchaProvidersConflict 同一时间仅允许启用一家人机验证服务商
-func captchaProvidersConflict(enabled ...bool) bool {
-	count := 0
-	for _, e := range enabled {
-		if e {
-			count++
-		}
-	}
-	return count > 1
-}
-
-// VerifyActionCaptchaIfEnabled 仅保护动作触发的扩展入口（OAuth 登录启动、passkey 登录），
-// 腾讯天御与阿里云验证码启用时拦截；不扩大 Cloudflare Turnstile 的既有覆盖范围。
-func (s *AuthService) VerifyActionCaptchaIfEnabled(ctx context.Context, proof CaptchaProof, remoteIP string) error {
-	if s == nil || s.settingService == nil {
-		return ErrServiceUnavailable
-	}
-
-	providerConfig, err := s.settingService.GetCaptchaProviderConfig(ctx)
-	if err != nil {
-		logger.LegacyPrintf("service.auth", "%s", "[Auth] Failed to read captcha provider settings")
-		return ErrServiceUnavailable
-	}
-	tencentEnabled := providerConfig.Tencent.Enabled
-	aliyunEnabled := providerConfig.Aliyun.Enabled
-	if !tencentEnabled && !aliyunEnabled {
-		return nil
-	}
-	if captchaProvidersConflict(providerConfig.TurnstileEnabled, tencentEnabled, aliyunEnabled) {
-		return ErrCaptchaProviderConflict
-	}
-	if aliyunEnabled {
-		if s.aliyunCaptchaService == nil {
-			return ErrAliyunCaptchaNotConfigured
-		}
-		return s.aliyunCaptchaService.VerifyParamWithConfig(ctx, providerConfig.Aliyun, proof.TurnstileToken)
-	}
-	if s.tencentCaptchaService == nil {
-		return ErrTencentCaptchaNotConfigured
-	}
-	return s.tencentCaptchaService.VerifyTicketWithConfig(
-		ctx,
-		providerConfig.Tencent,
-		proof.TencentTicket,
-		proof.TencentRandstr,
-		remoteIP,
-	)
-}
-
-// VerifyTurnstileForRegister 保留旧内部接口，生产 handler 使用 VerifyCaptchaForRegister。
-func (s *AuthService) VerifyTurnstileForRegister(ctx context.Context, token, remoteIP, verifyCode string) error {
-	return s.VerifyCaptchaForRegister(ctx, CaptchaProof{TurnstileToken: token}, remoteIP, verifyCode)
-}
-
-// VerifyTurnstile 保留旧内部接口，生产 handler 使用 VerifyCaptcha。
-func (s *AuthService) VerifyTurnstile(ctx context.Context, token string, remoteIP string) error {
-	return s.VerifyCaptcha(ctx, CaptchaProof{TurnstileToken: token}, remoteIP)
-}
-
-// IsTurnstileEnabled 检查是否启用Turnstile验证
-func (s *AuthService) IsTurnstileEnabled(ctx context.Context) bool {
-	if s.turnstileService == nil {
-		return false
-	}
-	return s.turnstileService.IsEnabled(ctx)
-}
-
-// IsRegistrationEnabled 检查是否开放注册
-func (s *AuthService) IsRegistrationEnabled(ctx context.Context) bool {
-	if s.settingService == nil {
-		return false // 安全默认：settingService 未配置时关闭注册
-	}
-	return s.settingService.IsRegistrationEnabled(ctx)
-}
-
-// IsEmailVerifyEnabled 检查是否开启邮件验证
-func (s *AuthService) IsEmailVerifyEnabled(ctx context.Context) bool {
-	if s.settingService == nil {
-		return false
-	}
-	return s.settingService.IsEmailVerifyEnabled(ctx)
 }
 
 // Login 用户登录，返回JWT token
@@ -503,72 +142,6 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	return token, user, nil
 }
 
-func (s *AuthService) assignSubscriptions(ctx context.Context, userID int64, items []DefaultSubscriptionSetting, notes string) {
-	if s.settingService == nil || s.defaultSubAssigner == nil || userID <= 0 {
-		return
-	}
-	for _, item := range items {
-		if _, _, err := s.defaultSubAssigner.AssignOrExtendSubscription(ctx, &AssignSubscriptionInput{
-			UserID:       userID,
-			GroupID:      item.GroupID,
-			ValidityDays: item.ValidityDays,
-			Notes:        notes,
-		}); err != nil {
-			logger.LegacyPrintf("service.auth", "[Auth] Failed to assign default subscription: user_id=%d group_id=%d err=%v", userID, item.GroupID, err)
-		}
-	}
-}
-
-func (s *AuthService) resolveSignupGrantPlan(ctx context.Context, signupSource string) signupGrantPlan {
-	plan := signupGrantPlan{}
-	if s != nil && s.cfg != nil {
-		plan.Balance = s.cfg.Default.UserBalance
-		plan.Concurrency = s.cfg.Default.UserConcurrency
-	}
-	if s == nil || s.settingService == nil {
-		return plan
-	}
-
-	plan.Balance = s.settingService.GetDefaultBalance(ctx)
-	plan.Concurrency = s.settingService.GetDefaultConcurrency(ctx)
-	plan.Subscriptions = s.settingService.GetDefaultSubscriptions(ctx)
-
-	// ============ 全局 quota 装载（必须在 ResolveAuthSourceGrantSettings 之前） ============
-	// 无论 auth source 是否 enabled，全局层都要先装载，确保 !enabled 早退路径也携带全局 quota。
-	if quotas, err := s.settingService.GetDefaultPlatformQuotas(ctx); err == nil {
-		plan.PlatformQuotas = quotas
-	} else {
-		logger.LegacyPrintf("service.auth", "[Auth] Warning: load default platform quotas failed: %v (fail-open)", err)
-	}
-	// ============================================================================================
-
-	resolved, enabled, err := s.settingService.ResolveAuthSourceGrantSettings(ctx, signupSource, false)
-	if err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to load auth source signup defaults for %s: %v", signupSource, err)
-		return plan
-	}
-	if !enabled {
-		return plan // plan.PlatformQuotas 已含全局层
-	}
-
-	plan.Balance = resolved.Balance
-	plan.Concurrency = resolved.Concurrency
-	plan.Subscriptions = resolved.Subscriptions
-
-	// ============ auth source quota merge（仅在 enabled 分支内） ============
-	asQuotas := s.settingService.GetAuthSourcePlatformQuotas(ctx, signupSource)
-	if plan.PlatformQuotas != nil {
-		for platform, patch := range asQuotas {
-			if dst := plan.PlatformQuotas[platform]; dst != nil {
-				mergePlatformQuotaDefaults(dst, patch)
-			}
-		}
-	}
-	// ==============================================================================
-
-	return plan
-}
-
 func authSourceSignupSettings(defaults *AuthSourceDefaultSettings, signupSource string) (ProviderDefaultGrantSettings, bool) {
 	if defaults == nil {
 		return ProviderDefaultGrantSettings{}, false
@@ -579,35 +152,6 @@ func authSourceSignupSettings(defaults *AuthSourceDefaultSettings, signupSource 
 		return defaults.Email, true
 	default:
 		return ProviderDefaultGrantSettings{}, false
-	}
-}
-
-func (s *AuthService) postAuthUserBootstrap(ctx context.Context, user *User, signupSource string, touchLogin bool) {
-	if user == nil || user.ID <= 0 {
-		return
-	}
-
-	if strings.TrimSpace(signupSource) == "" {
-		signupSource = "email"
-	}
-	s.updateUserSignupSource(ctx, user.ID, signupSource)
-
-	if touchLogin {
-		s.touchUserLogin(ctx, user.ID)
-	}
-}
-
-func (s *AuthService) updateUserSignupSource(ctx context.Context, userID int64, signupSource string) {
-	if s == nil || s.entClient == nil || userID <= 0 {
-		return
-	}
-	if strings.TrimSpace(signupSource) == "" {
-		return
-	}
-	if err := s.entClient.User.UpdateOneID(userID).
-		SetSignupSource(signupSource).
-		Exec(ctx); err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to update signup source: user_id=%d source=%s err=%v", userID, signupSource, err)
 	}
 }
 
@@ -780,79 +324,6 @@ func (s *AuthService) validateRegistrationEmailPolicy(ctx context.Context, email
 		return buildEmailSuffixNotAllowedError(whitelist)
 	}
 	return nil
-}
-
-// validateRegistrationEmailQuota 保留白名单为空时的全放行行为；配置白名单后，
-// 非白名单域名默认直接拒绝（严格白名单模式）；仅当域名限量注册开关开启时，
-// 非白名单域名每个最多允许一个账户。
-func (s *AuthService) validateRegistrationEmailQuota(ctx context.Context, email string) error {
-	if s.settingService == nil {
-		return nil
-	}
-	whitelist := s.settingService.GetRegistrationEmailSuffixWhitelist(ctx)
-	if !IsRegistrationEmailSuffixLimited(email, whitelist) {
-		return nil
-	}
-	if !s.settingService.IsRegistrationEmailDomainQuotaEnabled(ctx) {
-		return buildEmailSuffixNotAllowedError(whitelist)
-	}
-
-	domain := RegistrationEmailDomain(email)
-	if domain == "" {
-		return buildEmailSuffixNotAllowedError(whitelist)
-	}
-	quotaRepo, ok := s.userRepo.(RegistrationEmailDomainRepository)
-	if !ok {
-		// 生产装配必须提供原子仓储能力；没有数据库的 unit 测试桩保留旧路径，
-		// 避免无关测试被注册专用依赖干扰。
-		if s.entClient != nil {
-			return ErrServiceUnavailable
-		}
-		return nil
-	}
-	count, err := quotaRepo.CountUsersByEmailDomain(ctx, domain)
-	if err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to count registration email domain %s: %v", domain, err)
-		return ErrServiceUnavailable
-	}
-	if count > 0 {
-		return ErrEmailDomainRegistrationLimit
-	}
-	return nil
-}
-
-func (s *AuthService) createUserWithRegistrationEmailGuard(ctx context.Context, user *User) error {
-	if s == nil || s.userRepo == nil {
-		return ErrServiceUnavailable
-	}
-	whitelist := []string{}
-	if s.settingService != nil {
-		whitelist = s.settingService.GetRegistrationEmailSuffixWhitelist(ctx)
-	}
-	domain := RegistrationEmailDomain(user.Email)
-	if !IsRegistrationEmailSuffixLimited(user.Email, whitelist) {
-		return s.userRepo.CreateWithEmailAliasGuard(ctx, user)
-	}
-	// 开关关闭时非白名单域名在校验阶段已被拒绝；此处兜底防御设置竞态变更。
-	if s.settingService == nil || !s.settingService.IsRegistrationEmailDomainQuotaEnabled(ctx) {
-		return buildEmailSuffixNotAllowedError(whitelist)
-	}
-	if domain == "" {
-		return buildEmailSuffixNotAllowedError(whitelist)
-	}
-	quotaRepo, ok := s.userRepo.(RegistrationEmailDomainRepository)
-	if !ok {
-		if s.entClient != nil {
-			return ErrServiceUnavailable
-		}
-		return s.userRepo.CreateWithEmailAliasGuard(ctx, user)
-	}
-	return quotaRepo.CreateWithEmailAliasGuardAndDomainLimit(ctx, user, domain)
-}
-
-// createUserWithEmailQuota 创建用户（带邮箱别名与域名配额守卫）。
-func (s *AuthService) createUserWithEmailQuota(ctx context.Context, user *User) error {
-	return s.createUserWithRegistrationEmailGuard(ctx, user)
 }
 
 func buildEmailSuffixNotAllowedError(whitelist []string) error {
@@ -1454,37 +925,6 @@ func resolvedTokenVersion(user *User) int64 {
 	sum := sha256.Sum256([]byte(material))
 	fingerprint := int64(binary.BigEndian.Uint64(sum[:8]) & 0x7fffffffffffffff)
 	return user.TokenVersion ^ fingerprint
-}
-
-// snapshotPlatformQuotaDefaults 把 plan.PlatformQuotas（platform × 3 window）以
-// BulkInsertInitial 形式写入 user_platform_quotas 表。失败 fail-open（仅 warn log）。
-func (s *AuthService) snapshotPlatformQuotaDefaults(ctx context.Context, userID int64, plan *signupGrantPlan) error {
-	if s.userPlatformQuotaRepo == nil || plan == nil || len(plan.PlatformQuotas) == 0 {
-		return nil
-	}
-	// 平台配额快照是 best-effort（fail-open）：必须脱离调用方事务执行。
-	// 否则某平台违反 user_platform_quotas 的 CHECK 约束（如尚未进约束的新平台）会让
-	// 整个调用方事务被 Postgres 标记 aborted，把"无关紧要的默认配额快照"放大成
-	// "整笔注册失败"（OAuth pending 路径曾因此 500 → 清 cookie → 404）。
-	ctx = dbent.WithoutTx(ctx)
-	records := make([]UserPlatformQuotaRecord, 0, len(plan.PlatformQuotas))
-	for platform, q := range plan.PlatformQuotas {
-		rec := UserPlatformQuotaRecord{
-			UserID:   userID,
-			Platform: platform,
-		}
-		if q != nil {
-			rec.DailyLimitUSD = q.DailyLimitUSD
-			rec.WeeklyLimitUSD = q.WeeklyLimitUSD
-			rec.MonthlyLimitUSD = q.MonthlyLimitUSD
-		}
-		records = append(records, rec)
-	}
-	if err := s.userPlatformQuotaRepo.BulkInsertInitial(ctx, records); err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Warning: snapshot platform quota failed user=%d: %v (fail-open)", userID, err)
-		return nil // fail-open：返回 nil，让调用方继续
-	}
-	return nil
 }
 
 // RecordSuccessfulLogin updates last-login activity after a non-standard login

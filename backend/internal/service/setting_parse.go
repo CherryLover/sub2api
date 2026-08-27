@@ -21,7 +21,7 @@ import (
 // InitializeDefaultSettings 初始化默认设置
 func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	// 检查是否已有设置
-	_, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEnabled)
+	_, err := s.settingRepo.GetValue(ctx, SettingKeyEmailVerifyEnabled)
 	if err == nil {
 		// 已有设置，不需要初始化
 		return nil
@@ -45,9 +45,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 	// 初始化默认设置
 	defaults := map[string]string{
-		// 单管理员内部部署：注册默认关闭（与 IsRegistrationEnabled 的
-		// fail-closed 语义一致），需要多用户时由管理员在系统设置中显式开启。
-		SettingKeyRegistrationEnabled:                    "false",
 		SettingKeyEmailVerifyEnabled:                     "false",
 		SettingKeyRegistrationEmailSuffixWhitelist:       "[]",
 		SettingKeyRegistrationEmailDomainQuotaEnabled:    "false",
@@ -207,7 +204,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		}
 	}
 	result := &SystemSettings{
-		RegistrationEnabled:                    settings[SettingKeyRegistrationEnabled] == "true",
 		EmailVerifyEnabled:                     emailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:       ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
 		RegistrationEmailDomainQuotaEnabled:    settings[SettingKeyRegistrationEmailDomainQuotaEnabled] == "true",
@@ -231,21 +227,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		SMTPFromName:                           settings[SettingKeySMTPFromName],
 		SMTPUseTLS:                             settings[SettingKeySMTPUseTLS] == "true",
 		SMTPPasswordConfigured:                 settings[SettingKeySMTPPassword] != "",
-		TurnstileEnabled:                       settings[SettingKeyTurnstileEnabled] == "true",
-		TurnstileSiteKey:                       settings[SettingKeyTurnstileSiteKey],
-		TurnstileSecretKeyConfigured:           settings[SettingKeyTurnstileSecretKey] != "",
-		TencentCaptchaEnabled:                  settings[SettingKeyTencentCaptchaEnabled] == "true",
-		TencentCaptchaAppID:                    settings[SettingKeyTencentCaptchaAppID],
-		TencentCaptchaAppSecretKeyConfigured:   settings[SettingKeyTencentCaptchaAppSecretKey] != "",
-		TencentCaptchaCloudSecretIDConfigured:  settings[SettingKeyTencentCaptchaCloudSecretID] != "",
-		TencentCaptchaCloudSecretKeyConfigured: settings[SettingKeyTencentCaptchaCloudSecretKey] != "",
-		TencentCaptchaRegion:                   normalizeTencentCaptchaRegion(settings[SettingKeyTencentCaptchaRegion]),
-		AliyunCaptchaEnabled:                   settings[SettingKeyAliyunCaptchaEnabled] == "true",
-		AliyunCaptchaAccessKeyID:               settings[SettingKeyAliyunCaptchaAccessKeyID],
-		AliyunCaptchaAccessKeySecretConfigured: settings[SettingKeyAliyunCaptchaAccessKeySecret] != "",
-		AliyunCaptchaSceneID:                   settings[SettingKeyAliyunCaptchaSceneID],
-		AliyunCaptchaPrefix:                    settings[SettingKeyAliyunCaptchaPrefix],
-		AliyunCaptchaRegion:                    normalizeAliyunCaptchaRegion(settings[SettingKeyAliyunCaptchaRegion]),
 		APIKeyACLTrustForwardedIP:              apiKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:               forwardedClientIPHeaders,
 		SiteName:                               s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
@@ -293,11 +274,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// 敏感信息直接返回，方便测试连接时使用
 	result.SMTPPassword = settings[SettingKeySMTPPassword]
-	result.TurnstileSecretKey = settings[SettingKeyTurnstileSecretKey]
-	result.TencentCaptchaAppSecretKey = settings[SettingKeyTencentCaptchaAppSecretKey]
-	result.TencentCaptchaCloudSecretID = settings[SettingKeyTencentCaptchaCloudSecretID]
-	result.TencentCaptchaCloudSecretKey = settings[SettingKeyTencentCaptchaCloudSecretKey]
-	result.AliyunCaptchaAccessKeySecret = settings[SettingKeyAliyunCaptchaAccessKeySecret]
 
 	// Model fallback settings
 	result.FallbackModelAnthropic = s.getStringOrDefault(settings, SettingKeyFallbackModelAnthropic, "claude-3-5-sonnet-20241022")

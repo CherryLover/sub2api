@@ -12,7 +12,6 @@ func firstNonEmpty(values ...string) string {
 }
 
 type SystemSettings struct {
-	RegistrationEnabled                 bool
 	EmailVerifyEnabled                  bool
 	RegistrationEmailSuffixWhitelist    []string
 	RegistrationEmailDomainQuotaEnabled bool // 白名单非空时放行非白名单域名限量注册（默认关闭）
@@ -43,28 +42,8 @@ type SystemSettings struct {
 	SMTPFromName           string
 	SMTPUseTLS             bool
 
-	TurnstileEnabled                       bool
-	TurnstileSiteKey                       string
-	TurnstileSecretKey                     string
-	TurnstileSecretKeyConfigured           bool
-	TencentCaptchaEnabled                  bool
-	TencentCaptchaAppID                    string
-	TencentCaptchaAppSecretKey             string
-	TencentCaptchaAppSecretKeyConfigured   bool
-	TencentCaptchaCloudSecretID            string
-	TencentCaptchaCloudSecretIDConfigured  bool
-	TencentCaptchaCloudSecretKey           string
-	TencentCaptchaCloudSecretKeyConfigured bool
-	TencentCaptchaRegion                   string
-	AliyunCaptchaEnabled                   bool
-	AliyunCaptchaAccessKeyID               string
-	AliyunCaptchaAccessKeySecret           string
-	AliyunCaptchaAccessKeySecretConfigured bool
-	AliyunCaptchaSceneID                   string
-	AliyunCaptchaPrefix                    string
-	AliyunCaptchaRegion                    string
-	APIKeyACLTrustForwardedIP              bool
-	ForwardedClientIPHeaders               []string
+	APIKeyACLTrustForwardedIP bool
+	ForwardedClientIPHeaders  []string
 
 	SiteName             string
 	SiteLogo             string
@@ -217,7 +196,6 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
-	RegistrationEnabled                 bool
 	EmailVerifyEnabled                  bool
 	RegistrationEmailSuffixWhitelist    []string
 	RegistrationEmailDomainQuotaEnabled bool
@@ -229,15 +207,6 @@ type PublicSettings struct {
 	LoginAgreementUpdatedAt             string
 	LoginAgreementRevision              string
 	LoginAgreementDocuments             []LoginAgreementDocument
-	TurnstileEnabled                    bool
-	TurnstileSiteKey                    string
-	TencentCaptchaEnabled               bool
-	TencentCaptchaAppID                 string
-	TencentCaptchaRegion                string
-	AliyunCaptchaEnabled                bool
-	AliyunCaptchaSceneID                string
-	AliyunCaptchaPrefix                 string
-	AliyunCaptchaRegion                 string
 	SiteName                            string
 	SiteLogo                            string
 	SiteSubtitle                        string

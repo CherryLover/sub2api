@@ -121,8 +121,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	updates := make(map[string]string)
 
-	// 注册设置
-	updates[SettingKeyRegistrationEnabled] = strconv.FormatBool(settings.RegistrationEnabled)
+	// 邮箱验证 / 注册邮箱策略设置
 	updates[SettingKeyEmailVerifyEnabled] = strconv.FormatBool(settings.EmailVerifyEnabled)
 	registrationEmailSuffixWhitelistJSON, err := json.Marshal(settings.RegistrationEmailSuffixWhitelist)
 	if err != nil {
@@ -168,34 +167,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeySMTPFromName] = settings.SMTPFromName
 	updates[SettingKeySMTPUseTLS] = strconv.FormatBool(settings.SMTPUseTLS)
 
-	// Cloudflare Turnstile 设置（只有非空才更新密钥）
-	updates[SettingKeyTurnstileEnabled] = strconv.FormatBool(settings.TurnstileEnabled)
-	updates[SettingKeyTurnstileSiteKey] = settings.TurnstileSiteKey
-	if settings.TurnstileSecretKey != "" {
-		updates[SettingKeyTurnstileSecretKey] = settings.TurnstileSecretKey
-	}
-
-	updates[SettingKeyTencentCaptchaEnabled] = strconv.FormatBool(settings.TencentCaptchaEnabled)
-	updates[SettingKeyTencentCaptchaAppID] = settings.TencentCaptchaAppID
-	if settings.TencentCaptchaAppSecretKey != "" {
-		updates[SettingKeyTencentCaptchaAppSecretKey] = settings.TencentCaptchaAppSecretKey
-	}
-	if settings.TencentCaptchaCloudSecretID != "" {
-		updates[SettingKeyTencentCaptchaCloudSecretID] = settings.TencentCaptchaCloudSecretID
-	}
-	if settings.TencentCaptchaCloudSecretKey != "" {
-		updates[SettingKeyTencentCaptchaCloudSecretKey] = settings.TencentCaptchaCloudSecretKey
-	}
-	updates[SettingKeyTencentCaptchaRegion] = normalizeTencentCaptchaRegion(settings.TencentCaptchaRegion)
-	// 阿里云验证码 2.0 设置（只有非空才更新密钥）
-	updates[SettingKeyAliyunCaptchaEnabled] = strconv.FormatBool(settings.AliyunCaptchaEnabled)
-	updates[SettingKeyAliyunCaptchaAccessKeyID] = settings.AliyunCaptchaAccessKeyID
-	if settings.AliyunCaptchaAccessKeySecret != "" {
-		updates[SettingKeyAliyunCaptchaAccessKeySecret] = settings.AliyunCaptchaAccessKeySecret
-	}
-	updates[SettingKeyAliyunCaptchaSceneID] = settings.AliyunCaptchaSceneID
-	updates[SettingKeyAliyunCaptchaPrefix] = settings.AliyunCaptchaPrefix
-	updates[SettingKeyAliyunCaptchaRegion] = normalizeAliyunCaptchaRegion(settings.AliyunCaptchaRegion)
 	updates[SettingKeyAPIKeyACLTrustForwardedIP] = strconv.FormatBool(settings.APIKeyACLTrustForwardedIP)
 	forwardedClientIPHeadersJSON, err := json.Marshal(settings.ForwardedClientIPHeaders)
 	if err != nil {

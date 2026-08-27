@@ -67,7 +67,6 @@ type Config struct {
 	CORS                    CORSConfig                    `mapstructure:"cors"`
 	Security                SecurityConfig                `mapstructure:"security"`
 	Billing                 BillingConfig                 `mapstructure:"billing"`
-	Turnstile               TurnstileConfig               `mapstructure:"turnstile"`
 	Database                DatabaseConfig                `mapstructure:"database"`
 	Redis                   RedisConfig                   `mapstructure:"redis"`
 	Ops                     OpsConfig                     `mapstructure:"ops"`
@@ -1293,10 +1292,6 @@ type TotpConfig struct {
 	EncryptionKeyConfigured bool `mapstructure:"-"`
 }
 
-type TurnstileConfig struct {
-	Required bool `mapstructure:"required"`
-}
-
 type DefaultConfig struct {
 	AdminEmail      string  `mapstructure:"admin_email"`
 	AdminPassword   string  `mapstructure:"admin_password"`
@@ -1758,8 +1753,6 @@ func setDefaults() {
 	viper.SetDefault("billing.user_platform_quota_cache_ttl_seconds", 86400)
 	viper.SetDefault("billing.user_platform_quota_sentinel_ttl_seconds", 3600)
 
-	// Turnstile
-	viper.SetDefault("turnstile.required", false)
 
 	// Database
 	viper.SetDefault("database.host", "localhost")

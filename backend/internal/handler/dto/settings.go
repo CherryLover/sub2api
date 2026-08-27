@@ -27,7 +27,6 @@ type CustomEndpoint struct {
 
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
-	RegistrationEnabled                 bool                     `json:"registration_enabled"`
 	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string                 `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled bool                     `json:"registration_email_domain_quota_enabled"`
@@ -66,21 +65,6 @@ type SystemSettings struct {
 	SMTPFromName           string `json:"smtp_from_name"`
 	SMTPUseTLS             bool   `json:"smtp_use_tls"`
 
-	TurnstileEnabled                       bool     `json:"turnstile_enabled"`
-	TurnstileSiteKey                       string   `json:"turnstile_site_key"`
-	TurnstileSecretKeyConfigured           bool     `json:"turnstile_secret_key_configured"`
-	TencentCaptchaEnabled                  bool     `json:"tencent_captcha_enabled"`
-	TencentCaptchaAppID                    string   `json:"tencent_captcha_app_id"`
-	TencentCaptchaAppSecretKeyConfigured   bool     `json:"tencent_captcha_app_secret_key_configured"`
-	TencentCaptchaCloudSecretIDConfigured  bool     `json:"tencent_captcha_cloud_secret_id_configured"`
-	TencentCaptchaCloudSecretKeyConfigured bool     `json:"tencent_captcha_cloud_secret_key_configured"`
-	TencentCaptchaRegion                   string   `json:"tencent_captcha_region"`
-	AliyunCaptchaEnabled                   bool     `json:"aliyun_captcha_enabled"`
-	AliyunCaptchaAccessKeyID               string   `json:"aliyun_captcha_access_key_id"`
-	AliyunCaptchaAccessKeySecretConfigured bool     `json:"aliyun_captcha_access_key_secret_configured"`
-	AliyunCaptchaSceneID                   string   `json:"aliyun_captcha_scene_id"`
-	AliyunCaptchaPrefix                    string   `json:"aliyun_captcha_prefix"`
-	AliyunCaptchaRegion                    string   `json:"aliyun_captcha_region"`
 	APIKeyACLTrustForwardedIP              bool     `json:"api_key_acl_trust_forwarded_ip"`
 	ForwardedClientIPHeaders               []string `json:"forwarded_client_ip_headers"`
 
@@ -244,7 +228,6 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
-	RegistrationEnabled                 bool                     `json:"registration_enabled"`
 	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string                 `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled bool                     `json:"registration_email_domain_quota_enabled"`
@@ -256,15 +239,6 @@ type PublicSettings struct {
 	LoginAgreementUpdatedAt             string                   `json:"login_agreement_updated_at"`
 	LoginAgreementRevision              string                   `json:"login_agreement_revision"`
 	LoginAgreementDocuments             []LoginAgreementDocument `json:"login_agreement_documents"`
-	TurnstileEnabled                    bool                     `json:"turnstile_enabled"`
-	TurnstileSiteKey                    string                   `json:"turnstile_site_key"`
-	TencentCaptchaEnabled               bool                     `json:"tencent_captcha_enabled"`
-	TencentCaptchaAppID                 string                   `json:"tencent_captcha_app_id"`
-	TencentCaptchaRegion                string                   `json:"tencent_captcha_region"`
-	AliyunCaptchaEnabled                bool                     `json:"aliyun_captcha_enabled"`
-	AliyunCaptchaSceneID                string                   `json:"aliyun_captcha_scene_id"`
-	AliyunCaptchaPrefix                 string                   `json:"aliyun_captcha_prefix"`
-	AliyunCaptchaRegion                 string                   `json:"aliyun_captcha_region"`
 	SiteName                            string                   `json:"site_name"`
 	SiteLogo                            string                   `json:"site_logo"`
 	SiteSubtitle                        string                   `json:"site_subtitle"`

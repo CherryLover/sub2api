@@ -22,7 +22,7 @@ func newWebEntryHandler(t *testing.T, cfg *config.Config, stored map[string]stri
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{values: stored}
 	svc := service.NewSettingService(repo, cfg)
-	return NewSettingHandler(svc, nil, nil, nil, nil), repo
+	return NewSettingHandler(svc, nil, nil, nil), repo
 }
 
 func doGetSettings(t *testing.T, h *SettingHandler) *httptest.ResponseRecorder {

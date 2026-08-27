@@ -32,9 +32,6 @@ func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.Sys
 
 func diffSettings(before *service.SystemSettings, after *service.SystemSettings, beforeAuthSourceDefaults *service.AuthSourceDefaultSettings, afterAuthSourceDefaults *service.AuthSourceDefaultSettings, req UpdateSettingsRequest) []string {
 	changed := make([]string, 0, 20)
-	if before.RegistrationEnabled != after.RegistrationEnabled {
-		changed = append(changed, "registration_enabled")
-	}
 	if before.EmailVerifyEnabled != after.EmailVerifyEnabled {
 		changed = append(changed, "email_verify_enabled")
 	}
@@ -105,51 +102,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.SMTPUseTLS != after.SMTPUseTLS {
 		changed = append(changed, "smtp_use_tls")
-	}
-	if before.TurnstileEnabled != after.TurnstileEnabled {
-		changed = append(changed, "turnstile_enabled")
-	}
-	if before.TurnstileSiteKey != after.TurnstileSiteKey {
-		changed = append(changed, "turnstile_site_key")
-	}
-	if req.TurnstileSecretKey != "" {
-		changed = append(changed, "turnstile_secret_key")
-	}
-	if before.TencentCaptchaEnabled != after.TencentCaptchaEnabled {
-		changed = append(changed, "tencent_captcha_enabled")
-	}
-	if before.TencentCaptchaAppID != after.TencentCaptchaAppID {
-		changed = append(changed, "tencent_captcha_app_id")
-	}
-	if req.TencentCaptchaAppSecretKey != "" {
-		changed = append(changed, "tencent_captcha_app_secret_key")
-	}
-	if req.TencentCaptchaCloudSecretID != "" {
-		changed = append(changed, "tencent_captcha_cloud_secret_id")
-	}
-	if req.TencentCaptchaCloudSecretKey != "" {
-		changed = append(changed, "tencent_captcha_cloud_secret_key")
-	}
-	if before.TencentCaptchaRegion != after.TencentCaptchaRegion {
-		changed = append(changed, "tencent_captcha_region")
-	}
-	if before.AliyunCaptchaEnabled != after.AliyunCaptchaEnabled {
-		changed = append(changed, "aliyun_captcha_enabled")
-	}
-	if before.AliyunCaptchaAccessKeyID != after.AliyunCaptchaAccessKeyID {
-		changed = append(changed, "aliyun_captcha_access_key_id")
-	}
-	if req.AliyunCaptchaAccessKeySecret != "" {
-		changed = append(changed, "aliyun_captcha_access_key_secret")
-	}
-	if before.AliyunCaptchaSceneID != after.AliyunCaptchaSceneID {
-		changed = append(changed, "aliyun_captcha_scene_id")
-	}
-	if before.AliyunCaptchaPrefix != after.AliyunCaptchaPrefix {
-		changed = append(changed, "aliyun_captcha_prefix")
-	}
-	if before.AliyunCaptchaRegion != after.AliyunCaptchaRegion {
-		changed = append(changed, "aliyun_captcha_region")
 	}
 	if before.APIKeyACLTrustForwardedIP != after.APIKeyACLTrustForwardedIP {
 		changed = append(changed, "api_key_acl_trust_forwarded_ip")

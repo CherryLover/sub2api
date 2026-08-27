@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -64,39 +63,6 @@ func ProvidePricingService(cfg *config.Config, remoteClient PricingRemoteClient)
 // ProvideEmailQueueService creates EmailQueueService with default worker count
 func ProvideEmailQueueService(emailService *EmailService) *EmailQueueService {
 	return NewEmailQueueService(emailService, 3)
-}
-
-// ProvideAuthService wires the optional captcha providers into AuthService while
-// keeping NewAuthService's public constructor compatible with existing tests.
-func ProvideAuthService(
-	entClient *dbent.Client,
-	userRepo UserRepository,
-	refreshTokenCache RefreshTokenCache,
-	cfg *config.Config,
-	settingService *SettingService,
-	emailService *EmailService,
-	turnstileService *TurnstileService,
-	tencentCaptchaService *TencentCaptchaService,
-	aliyunCaptchaService *AliyunCaptchaService,
-	emailQueueService *EmailQueueService,
-	defaultSubAssigner DefaultSubscriptionAssigner,
-	userPlatformQuotaRepo UserPlatformQuotaRepository,
-) *AuthService {
-	svc := NewAuthService(
-		entClient,
-		userRepo,
-		refreshTokenCache,
-		cfg,
-		settingService,
-		emailService,
-		turnstileService,
-		emailQueueService,
-		defaultSubAssigner,
-		userPlatformQuotaRepo,
-	)
-	svc.SetTencentCaptchaService(tencentCaptchaService)
-	svc.SetAliyunCaptchaService(aliyunCaptchaService)
-	return svc
 }
 
 // ProvideOAuthRefreshAPI creates OAuthRefreshAPI with the default lock TTL.
@@ -800,7 +766,7 @@ func ProvideAPIKeyService(
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	// Core services
-	ProvideAuthService,
+	NewAuthService,
 	NewPasskeyService,
 	NewUserService,
 	ProvideAPIKeyService,
@@ -870,9 +836,6 @@ var ProviderSet = wire.NewSet(
 	NewEmailService,
 	NewNotificationEmailService,
 	ProvideEmailQueueService,
-	NewTurnstileService,
-	NewTencentCaptchaService,
-	NewAliyunCaptchaService,
 	NewSubscriptionService,
 	wire.Bind(new(DefaultSubscriptionAssigner), new(*SubscriptionService)),
 	ProvideConcurrencyService,

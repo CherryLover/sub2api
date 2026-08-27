@@ -44,7 +44,6 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 	}
 
 	response.Success(c, dto.PublicSettings{
-		RegistrationEnabled:                 settings.RegistrationEnabled,
 		EmailVerifyEnabled:                  settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:    settings.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled: settings.RegistrationEmailDomainQuotaEnabled,
@@ -56,15 +55,6 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		LoginAgreementUpdatedAt:             settings.LoginAgreementUpdatedAt,
 		LoginAgreementRevision:              settings.LoginAgreementRevision,
 		LoginAgreementDocuments:             publicLoginAgreementDocumentsToDTO(settings.LoginAgreementDocuments),
-		TurnstileEnabled:                    settings.TurnstileEnabled,
-		TurnstileSiteKey:                    settings.TurnstileSiteKey,
-		TencentCaptchaEnabled:               settings.TencentCaptchaEnabled,
-		TencentCaptchaAppID:                 settings.TencentCaptchaAppID,
-		TencentCaptchaRegion:                settings.TencentCaptchaRegion,
-		AliyunCaptchaEnabled:                settings.AliyunCaptchaEnabled,
-		AliyunCaptchaSceneID:                settings.AliyunCaptchaSceneID,
-		AliyunCaptchaPrefix:                 settings.AliyunCaptchaPrefix,
-		AliyunCaptchaRegion:                 settings.AliyunCaptchaRegion,
 		SiteName:                            settings.SiteName,
 		SiteLogo:                            settings.SiteLogo,
 		SiteSubtitle:                        settings.SiteSubtitle,

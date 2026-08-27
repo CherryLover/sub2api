@@ -21,17 +21,6 @@ type passkeySwitchSettingRepo struct {
 	err    error
 }
 
-type passkeyCaptchaVerifierStub struct {
-	calls int
-	proof service.TencentCaptchaProof
-}
-
-func (s *passkeyCaptchaVerifierStub) VerifyTicket(_ context.Context, _ service.TencentCaptchaCredentials, proof service.TencentCaptchaProof, _ string) (*service.TencentCaptchaVerifyResponse, error) {
-	s.calls++
-	s.proof = proof
-	return &service.TencentCaptchaVerifyResponse{CaptchaCode: 1}, nil
-}
-
 type passkeyBeginSessionStoreStub struct {
 	service.PasskeySessionStore
 	storeCalls int
@@ -113,7 +102,7 @@ func TestPasskeyBeginLoginReportsSettingStoreFailure(t *testing.T) {
 	require.NotContains(t, recorder.Body.String(), "PASSKEY_DISABLED")
 }
 
-func newTencentProtectedPasskeyHandler(t *testing.T) (*PasskeyHandler, *passkeyCaptchaVerifierStub, *passkeyBeginSessionStoreStub) {
+func newPasskeyBeginLoginHandler(t *testing.T) (*PasskeyHandler, *passkeyBeginSessionStoreStub) {
 	t.Helper()
 	cfg := &config.Config{WebAuthn: config.WebAuthnConfig{
 		Enabled:       true,
@@ -121,24 +110,12 @@ func newTencentProtectedPasskeyHandler(t *testing.T) (*PasskeyHandler, *passkeyC
 		RPID:          "sub2api.example.com",
 		RPOrigins:     []string{"https://sub2api.example.com"},
 	}}
-	repo := &passkeySwitchSettingRepo{
-		value: "true",
-		values: map[string]string{
-			service.SettingKeyTencentCaptchaEnabled:        "true",
-			service.SettingKeyTencentCaptchaAppID:          "123456789",
-			service.SettingKeyTencentCaptchaAppSecretKey:   "app-secret",
-			service.SettingKeyTencentCaptchaCloudSecretID:  "cloud-secret-id",
-			service.SettingKeyTencentCaptchaCloudSecretKey: "cloud-secret-key",
-		},
-	}
-	settings := service.NewSettingService(repo, cfg)
-	verifier := &passkeyCaptchaVerifierStub{}
-	authService := service.NewAuthService(nil, nil, nil, cfg, settings, nil, nil, nil, nil, nil)
-	authService.SetTencentCaptchaService(service.NewTencentCaptchaService(settings, verifier))
+	settings := service.NewSettingService(&passkeySwitchSettingRepo{value: "true"}, cfg)
+	authService := service.NewAuthService(nil, nil, nil, cfg, settings, nil, nil, nil)
 	sessions := &passkeyBeginSessionStoreStub{}
 	passkeys, err := service.NewPasskeyService(cfg, nil, sessions, nil)
 	require.NoError(t, err)
-	return NewPasskeyHandler(passkeys, authService, settings), verifier, sessions
+	return NewPasskeyHandler(passkeys, authService, settings), sessions
 }
 
 func newPasskeyBeginLoginContext(body string) (*gin.Context, *httptest.ResponseRecorder) {
@@ -153,31 +130,15 @@ func newPasskeyBeginLoginContext(body string) (*gin.Context, *httptest.ResponseR
 	return ginContext, recorder
 }
 
-func TestPasskeyBeginLoginRejectsMissingTencentCaptchaProof(t *testing.T) {
+// 人机验证已整体移除：passkey 登录启动不再有验证码前置，空请求体即可开始 ceremony。
+func TestPasskeyBeginLoginStartsCeremonyWithoutCaptcha(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler, verifier, sessions := newTencentProtectedPasskeyHandler(t)
+	handler, sessions := newPasskeyBeginLoginHandler(t)
 	ginContext, recorder := newPasskeyBeginLoginContext(`{}`)
 
 	handler.BeginLogin(ginContext)
 
-	require.Equal(t, http.StatusBadRequest, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "TENCENT_CAPTCHA_VERIFICATION_FAILED")
-	require.Zero(t, verifier.calls)
-	require.Zero(t, sessions.storeCalls)
-}
-
-func TestPasskeyBeginLoginAcceptsTencentCaptchaProofBeforeCeremony(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	handler, verifier, sessions := newTencentProtectedPasskeyHandler(t)
-	ginContext, recorder := newPasskeyBeginLoginContext(
-		`{"tencent_captcha_ticket":"ticket-value","tencent_captcha_randstr":"@rand-value"}`,
-	)
-
-	handler.BeginLogin(ginContext)
-
 	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Equal(t, 1, verifier.calls)
-	require.Equal(t, service.TencentCaptchaProof{Ticket: "ticket-value", Randstr: "@rand-value"}, verifier.proof)
 	require.Equal(t, 1, sessions.storeCalls)
 }
 

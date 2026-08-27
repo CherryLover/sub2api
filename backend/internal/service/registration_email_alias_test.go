@@ -3,8 +3,6 @@
 package service
 
 import (
-	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -64,101 +62,4 @@ func TestEmailAliasDedupProbes(t *testing.T) {
 	)
 	require.Nil(t, EmailAliasDedupProbes("not-an-email"))
 	require.Nil(t, EmailAliasDedupProbes("...@gmail.com"))
-}
-
-// aliasDedupRepoStub implements only the methods alias dedup uses; other
-// UserRepository methods come from the embedded nil interface (a wrong call
-// would panic, failing the test).
-type aliasDedupRepoStub struct {
-	UserRepository
-	exists      bool
-	existsErr   error
-	stored      []string
-	aliasErr    error
-	aliasChecks []string
-}
-
-func (s *aliasDedupRepoStub) ExistsByEmail(context.Context, string) (bool, error) {
-	return s.exists, s.existsErr
-}
-
-func (s *aliasDedupRepoStub) ExistsByEmailAlias(_ context.Context, email string) (bool, error) {
-	s.aliasChecks = append(s.aliasChecks, email)
-	if s.aliasErr != nil {
-		return false, s.aliasErr
-	}
-	identity := NormalizeEmailForAliasDedup(email)
-	for _, candidate := range s.stored {
-		if NormalizeEmailForAliasDedup(candidate) == identity {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func TestExistsByEmailOrAlias(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("exact duplicate short-circuits", func(t *testing.T) {
-		repo := &aliasDedupRepoStub{exists: true}
-		svc := &AuthService{userRepo: repo}
-		got, err := svc.existsByEmailOrAlias(ctx, "user@gmail.com")
-		require.NoError(t, err)
-		require.True(t, got)
-		require.Empty(t, repo.aliasChecks, "no alias probe expected after exact hit")
-	})
-
-	t.Run("plus alias variant detected", func(t *testing.T) {
-		repo := &aliasDedupRepoStub{stored: []string{"someone+bulk294@gmail.com"}}
-		svc := &AuthService{userRepo: repo}
-		got, err := svc.existsByEmailOrAlias(ctx, "Someone@gmail.com")
-		require.NoError(t, err)
-		require.True(t, got)
-	})
-
-	t.Run("gmail dot variant detected", func(t *testing.T) {
-		repo := &aliasDedupRepoStub{stored: []string{"some.one@gmail.com"}}
-		svc := &AuthService{userRepo: repo}
-		got, err := svc.existsByEmailOrAlias(ctx, "someone@gmail.com")
-		require.NoError(t, err)
-		require.True(t, got)
-	})
-
-	t.Run("fqdn root dot variant detected", func(t *testing.T) {
-		repo := &aliasDedupRepoStub{stored: []string{"d.axis.2026@gmail.com"}}
-		svc := &AuthService{userRepo: repo}
-		got, err := svc.existsByEmailOrAlias(ctx, "da.xis.2026@gmail.com.")
-		require.NoError(t, err)
-		require.True(t, got)
-	})
-
-	t.Run("different inbox allowed", func(t *testing.T) {
-		repo := &aliasDedupRepoStub{stored: []string{"other@gmail.com"}}
-		svc := &AuthService{userRepo: repo}
-		got, err := svc.existsByEmailOrAlias(ctx, "user@gmail.com")
-		require.NoError(t, err)
-		require.False(t, got)
-	})
-
-	t.Run("distinct plus-prefixed locals allowed", func(t *testing.T) {
-		repo := &aliasDedupRepoStub{stored: []string{"+alice@gmail.com"}}
-		svc := &AuthService{userRepo: repo}
-		got, err := svc.existsByEmailOrAlias(ctx, "+bob@gmail.com")
-		require.NoError(t, err)
-		require.False(t, got)
-	})
-
-	t.Run("alias probe error fails closed", func(t *testing.T) {
-		repo := &aliasDedupRepoStub{aliasErr: errors.New("db down")}
-		svc := &AuthService{userRepo: repo}
-		_, err := svc.existsByEmailOrAlias(ctx, "user@gmail.com")
-		require.Error(t, err)
-	})
-
-	t.Run("exact check error propagates", func(t *testing.T) {
-		repo := &aliasDedupRepoStub{existsErr: errors.New("db down")}
-		svc := &AuthService{userRepo: repo}
-		_, err := svc.existsByEmailOrAlias(ctx, "user@gmail.com")
-		require.Error(t, err)
-	})
 }

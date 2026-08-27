@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
-	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -21,7 +20,6 @@ import (
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
 	// 注册设置
-	RegistrationEnabled                 bool                         `json:"registration_enabled"`
 	EmailVerifyEnabled                  bool                         `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string                     `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled *bool                        `json:"registration_email_domain_quota_enabled"` // 非白名单域名限量注册开关（省略=保持现值）
@@ -52,27 +50,6 @@ type UpdateSettingsRequest struct {
 	SMTPFrom     string `json:"smtp_from_email"`
 	SMTPFromName string `json:"smtp_from_name"`
 	SMTPUseTLS   bool   `json:"smtp_use_tls"`
-
-	// Cloudflare Turnstile 设置
-	TurnstileEnabled   bool   `json:"turnstile_enabled"`
-	TurnstileSiteKey   string `json:"turnstile_site_key"`
-	TurnstileSecretKey string `json:"turnstile_secret_key"`
-
-	// 腾讯天御验证码设置
-	TencentCaptchaEnabled        bool   `json:"tencent_captcha_enabled"`
-	TencentCaptchaAppID          string `json:"tencent_captcha_app_id"`
-	TencentCaptchaAppSecretKey   string `json:"tencent_captcha_app_secret_key"`
-	TencentCaptchaCloudSecretID  string `json:"tencent_captcha_cloud_secret_id"`
-	TencentCaptchaCloudSecretKey string `json:"tencent_captcha_cloud_secret_key"`
-	TencentCaptchaRegion         string `json:"tencent_captcha_region"`
-
-	// 阿里云验证码 2.0 设置
-	AliyunCaptchaEnabled         bool   `json:"aliyun_captcha_enabled"`
-	AliyunCaptchaAccessKeyID     string `json:"aliyun_captcha_access_key_id"`
-	AliyunCaptchaAccessKeySecret string `json:"aliyun_captcha_access_key_secret"`
-	AliyunCaptchaSceneID         string `json:"aliyun_captcha_scene_id"`
-	AliyunCaptchaPrefix          string `json:"aliyun_captcha_prefix"`
-	AliyunCaptchaRegion          string `json:"aliyun_captcha_region"`
 
 	// API Key IP 访问控制设置
 	APIKeyACLTrustForwardedIP *bool     `json:"api_key_acl_trust_forwarded_ip"`
@@ -315,10 +292,6 @@ func omittedSettingKeys(sentFields map[string]json.RawMessage) service.OmittedSe
 }
 
 func settingsAuditRequest(req UpdateSettingsRequest) UpdateSettingsRequest {
-	req.TencentCaptchaAppSecretKey = strings.TrimSpace(req.TencentCaptchaAppSecretKey)
-	req.TencentCaptchaCloudSecretID = strings.TrimSpace(req.TencentCaptchaCloudSecretID)
-	req.TencentCaptchaCloudSecretKey = strings.TrimSpace(req.TencentCaptchaCloudSecretKey)
-	req.AliyunCaptchaAccessKeySecret = strings.TrimSpace(req.AliyunCaptchaAccessKeySecret)
 	return req
 }
 
@@ -420,10 +393,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	req.SMTPPassword = strings.TrimSpace(req.SMTPPassword)
 	req.SMTPFrom = strings.TrimSpace(req.SMTPFrom)
 	req.SMTPFromName = strings.TrimSpace(req.SMTPFromName)
-	req.TencentCaptchaAppID = strings.TrimSpace(req.TencentCaptchaAppID)
-	req.TencentCaptchaAppSecretKey = strings.TrimSpace(req.TencentCaptchaAppSecretKey)
-	req.TencentCaptchaCloudSecretID = strings.TrimSpace(req.TencentCaptchaCloudSecretID)
-	req.TencentCaptchaCloudSecretKey = strings.TrimSpace(req.TencentCaptchaCloudSecretKey)
 	if req.SMTPPort <= 0 {
 		req.SMTPPort = 587
 	}
@@ -439,147 +408,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		req.SMTPFrom = previousSettings.SMTPFrom
 		req.SMTPFromName = previousSettings.SMTPFromName
 		req.SMTPUseTLS = previousSettings.SMTPUseTLS
-	}
-
-	turnstileEnabled := req.TurnstileEnabled
-	if _, sent := sentFields["turnstile_enabled"]; !sent {
-		turnstileEnabled = previousSettings.TurnstileEnabled
-	}
-	tencentCaptchaEnabled := req.TencentCaptchaEnabled
-	if _, sent := sentFields["tencent_captcha_enabled"]; !sent {
-		tencentCaptchaEnabled = previousSettings.TencentCaptchaEnabled
-	}
-	aliyunCaptchaEnabled := req.AliyunCaptchaEnabled
-	if _, sent := sentFields["aliyun_captcha_enabled"]; !sent {
-		aliyunCaptchaEnabled = previousSettings.AliyunCaptchaEnabled
-	}
-	enabledCaptchaProviders := 0
-	for _, enabled := range []bool{turnstileEnabled, tencentCaptchaEnabled, aliyunCaptchaEnabled} {
-		if enabled {
-			enabledCaptchaProviders++
-		}
-	}
-	if enabledCaptchaProviders > 1 {
-		response.BadRequest(c, "Multiple captcha providers (Cloudflare Turnstile / Tencent Captcha / Aliyun Captcha) cannot be enabled at the same time")
-		return
-	}
-	// 阿里云地域 normalize：未发送保留已存值，非法值一律按中国内地落库
-	if _, sent := sentFields["aliyun_captcha_region"]; !sent {
-		req.AliyunCaptchaRegion = previousSettings.AliyunCaptchaRegion
-	}
-	if req.AliyunCaptchaRegion != service.AliyunCaptchaRegionSGP {
-		req.AliyunCaptchaRegion = service.AliyunCaptchaRegionCN
-	}
-	// 天御站点 normalize：未发送保留已存值，非法值一律按中国站落库
-	if _, sent := sentFields["tencent_captcha_region"]; !sent {
-		req.TencentCaptchaRegion = previousSettings.TencentCaptchaRegion
-	}
-	if req.TencentCaptchaRegion != service.TencentCaptchaRegionINTL {
-		req.TencentCaptchaRegion = service.TencentCaptchaRegionCN
-	}
-
-	// Turnstile 参数验证
-	if req.TurnstileEnabled {
-		// 检查必填字段
-		if req.TurnstileSiteKey == "" {
-			response.BadRequest(c, "Turnstile Site Key is required when enabled")
-			return
-		}
-		// 如果未提供 secret key，使用已保存的值（留空保留当前值）
-		if req.TurnstileSecretKey == "" {
-			if previousSettings.TurnstileSecretKey == "" {
-				response.BadRequest(c, "Turnstile Secret Key is required when enabled")
-				return
-			}
-			req.TurnstileSecretKey = previousSettings.TurnstileSecretKey
-		}
-
-		// 当 site_key 或 secret_key 任一变化时验证（避免配置错误导致无法登录）
-		siteKeyChanged := previousSettings.TurnstileSiteKey != req.TurnstileSiteKey
-		secretKeyChanged := previousSettings.TurnstileSecretKey != req.TurnstileSecretKey
-		if siteKeyChanged || secretKeyChanged {
-			if err := h.turnstileService.ValidateSecretKey(c.Request.Context(), req.TurnstileSecretKey); err != nil {
-				response.ErrorFrom(c, err)
-				return
-			}
-		}
-	}
-
-	if tencentCaptchaEnabled {
-		if _, sent := sentFields["tencent_captcha_app_id"]; !sent {
-			req.TencentCaptchaAppID = previousSettings.TencentCaptchaAppID
-		}
-		appID, err := strconv.ParseUint(req.TencentCaptchaAppID, 10, 64)
-		if err != nil || appID == 0 {
-			response.BadRequest(c, "Tencent Captcha CaptchaAppId must be a positive integer when enabled")
-			return
-		}
-		if req.TencentCaptchaAppSecretKey == "" {
-			req.TencentCaptchaAppSecretKey = previousSettings.TencentCaptchaAppSecretKey
-		}
-		if req.TencentCaptchaCloudSecretID == "" {
-			req.TencentCaptchaCloudSecretID = previousSettings.TencentCaptchaCloudSecretID
-		}
-		if req.TencentCaptchaCloudSecretKey == "" {
-			req.TencentCaptchaCloudSecretKey = previousSettings.TencentCaptchaCloudSecretKey
-		}
-		if req.TencentCaptchaAppSecretKey == "" {
-			response.BadRequest(c, "Tencent Captcha AppSecretKey is required when enabled")
-			return
-		}
-		if req.TencentCaptchaCloudSecretID == "" {
-			response.BadRequest(c, "Tencent Cloud SecretId is required when Tencent Captcha is enabled")
-			return
-		}
-		if req.TencentCaptchaCloudSecretKey == "" {
-			response.BadRequest(c, "Tencent Cloud SecretKey is required when Tencent Captcha is enabled")
-			return
-		}
-	}
-
-	// 阿里云验证码 2.0 参数验证
-	if aliyunCaptchaEnabled {
-		if _, sent := sentFields["aliyun_captcha_scene_id"]; !sent {
-			req.AliyunCaptchaSceneID = previousSettings.AliyunCaptchaSceneID
-		}
-		if _, sent := sentFields["aliyun_captcha_prefix"]; !sent {
-			req.AliyunCaptchaPrefix = previousSettings.AliyunCaptchaPrefix
-		}
-		if _, sent := sentFields["aliyun_captcha_access_key_id"]; !sent {
-			req.AliyunCaptchaAccessKeyID = previousSettings.AliyunCaptchaAccessKeyID
-		}
-		if req.AliyunCaptchaSceneID == "" {
-			response.BadRequest(c, "Aliyun Captcha Scene ID is required when enabled")
-			return
-		}
-		if req.AliyunCaptchaPrefix == "" {
-			response.BadRequest(c, "Aliyun Captcha Prefix is required when enabled")
-			return
-		}
-		if req.AliyunCaptchaAccessKeyID == "" {
-			response.BadRequest(c, "Aliyun Captcha AccessKey ID is required when enabled")
-			return
-		}
-		// 如果未提供 AccessKey Secret，使用已保存的值（留空保留当前值）
-		if req.AliyunCaptchaAccessKeySecret == "" {
-			if previousSettings.AliyunCaptchaAccessKeySecret == "" {
-				response.BadRequest(c, "Aliyun Captcha AccessKey Secret is required when enabled")
-				return
-			}
-			req.AliyunCaptchaAccessKeySecret = previousSettings.AliyunCaptchaAccessKeySecret
-		}
-
-		// 凭证任一变化时真实调用一次阿里云校验（避免配置错误导致无法登录）
-		credentialsChanged := previousSettings.AliyunCaptchaAccessKeyID != req.AliyunCaptchaAccessKeyID ||
-			previousSettings.AliyunCaptchaAccessKeySecret != req.AliyunCaptchaAccessKeySecret ||
-			previousSettings.AliyunCaptchaSceneID != req.AliyunCaptchaSceneID ||
-			previousSettings.AliyunCaptchaRegion != req.AliyunCaptchaRegion
-		if credentialsChanged {
-			if err := h.aliyunCaptchaService.ValidateCredentials(c.Request.Context(), req.AliyunCaptchaAccessKeyID, req.AliyunCaptchaAccessKeySecret, req.AliyunCaptchaSceneID, req.AliyunCaptchaRegion); err != nil {
-				response.ErrorFrom(c, err)
-				return
-			}
-		}
 	}
 
 	// TOTP 双因素认证参数验证
@@ -884,7 +712,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		DefaultPlatformQuotas:       req.DefaultPlatformQuotas,
 		AccountSchedulingThresholds: req.AccountSchedulingThresholds,
 
-		RegistrationEnabled:                 req.RegistrationEnabled,
 		EmailVerifyEnabled:                  req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:    req.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled: registrationEmailDomainQuotaEnabled,
@@ -909,21 +736,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFrom:                            req.SMTPFrom,
 		SMTPFromName:                        req.SMTPFromName,
 		SMTPUseTLS:                          req.SMTPUseTLS,
-		TurnstileEnabled:                    req.TurnstileEnabled,
-		TurnstileSiteKey:                    req.TurnstileSiteKey,
-		TurnstileSecretKey:                  req.TurnstileSecretKey,
-		TencentCaptchaEnabled:               req.TencentCaptchaEnabled,
-		TencentCaptchaAppID:                 req.TencentCaptchaAppID,
-		TencentCaptchaAppSecretKey:          req.TencentCaptchaAppSecretKey,
-		TencentCaptchaCloudSecretID:         req.TencentCaptchaCloudSecretID,
-		TencentCaptchaCloudSecretKey:        req.TencentCaptchaCloudSecretKey,
-		TencentCaptchaRegion:                req.TencentCaptchaRegion,
-		AliyunCaptchaEnabled:                req.AliyunCaptchaEnabled,
-		AliyunCaptchaAccessKeyID:            req.AliyunCaptchaAccessKeyID,
-		AliyunCaptchaAccessKeySecret:        req.AliyunCaptchaAccessKeySecret,
-		AliyunCaptchaSceneID:                req.AliyunCaptchaSceneID,
-		AliyunCaptchaPrefix:                 req.AliyunCaptchaPrefix,
-		AliyunCaptchaRegion:                 req.AliyunCaptchaRegion,
 		APIKeyACLTrustForwardedIP: func() bool {
 			if req.APIKeyACLTrustForwardedIP != nil {
 				return *req.APIKeyACLTrustForwardedIP
@@ -1301,7 +1113,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	passkeyConfigured, passkeyRPID, passkeyRPOrigins := h.settingService.PasskeyConfiguration()
 
 	payload := dto.SystemSettings{
-		RegistrationEnabled:                          updatedSettings.RegistrationEnabled,
 		EmailVerifyEnabled:                           updatedSettings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:             updatedSettings.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled:          updatedSettings.RegistrationEmailDomainQuotaEnabled,
@@ -1327,21 +1138,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFrom:                                     updatedSettings.SMTPFrom,
 		SMTPFromName:                                 updatedSettings.SMTPFromName,
 		SMTPUseTLS:                                   updatedSettings.SMTPUseTLS,
-		TurnstileEnabled:                             updatedSettings.TurnstileEnabled,
-		TurnstileSiteKey:                             updatedSettings.TurnstileSiteKey,
-		TurnstileSecretKeyConfigured:                 updatedSettings.TurnstileSecretKeyConfigured,
-		TencentCaptchaEnabled:                        updatedSettings.TencentCaptchaEnabled,
-		TencentCaptchaAppID:                          updatedSettings.TencentCaptchaAppID,
-		TencentCaptchaAppSecretKeyConfigured:         updatedSettings.TencentCaptchaAppSecretKeyConfigured,
-		TencentCaptchaCloudSecretIDConfigured:        updatedSettings.TencentCaptchaCloudSecretIDConfigured,
-		TencentCaptchaCloudSecretKeyConfigured:       updatedSettings.TencentCaptchaCloudSecretKeyConfigured,
-		TencentCaptchaRegion:                         updatedSettings.TencentCaptchaRegion,
-		AliyunCaptchaEnabled:                         updatedSettings.AliyunCaptchaEnabled,
-		AliyunCaptchaAccessKeyID:                     updatedSettings.AliyunCaptchaAccessKeyID,
-		AliyunCaptchaAccessKeySecretConfigured:       updatedSettings.AliyunCaptchaAccessKeySecretConfigured,
-		AliyunCaptchaSceneID:                         updatedSettings.AliyunCaptchaSceneID,
-		AliyunCaptchaPrefix:                          updatedSettings.AliyunCaptchaPrefix,
-		AliyunCaptchaRegion:                          updatedSettings.AliyunCaptchaRegion,
 		APIKeyACLTrustForwardedIP:                    updatedSettings.APIKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:                     updatedSettings.ForwardedClientIPHeaders,
 		SiteName:                                     updatedSettings.SiteName,

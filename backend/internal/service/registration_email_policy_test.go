@@ -3,7 +3,6 @@
 package service
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -43,20 +42,6 @@ func TestIsRegistrationEmailSuffixAllowed(t *testing.T) {
 	require.True(t, IsRegistrationEmailSuffixAllowed("user@b.cn", []string{"@a.com", "*.b.cn"}))
 	require.False(t, IsRegistrationEmailSuffixAllowed("user@c.cn", []string{"@a.com", "*.b.cn"}))
 	require.True(t, IsRegistrationEmailSuffixAllowed("user@any.com", []string{}))
-}
-
-func TestRegistrationEmailQuotaRejectsMalformedDomainWhenWhitelistConfigured(t *testing.T) {
-	repo := &userRepoStub{}
-	svc := newAuthService(repo, map[string]string{
-		SettingKeyRegistrationEnabled:                 "true",
-		SettingKeyRegistrationEmailSuffixWhitelist:    `["@example.com"]`,
-		SettingKeyRegistrationEmailDomainQuotaEnabled: "true",
-	}, nil, nil)
-
-	_, _, err := svc.Register(context.Background(), "malformed-email", "password")
-
-	require.ErrorIs(t, err, ErrEmailSuffixNotAllowed)
-	require.Empty(t, repo.created)
 }
 
 func TestIsRegistrationEmailSuffixLimited(t *testing.T) {

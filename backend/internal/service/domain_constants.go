@@ -162,11 +162,10 @@ const DingTalkConnectSyntheticEmailDomain = "@dingtalk-connect.invalid"
 
 // Setting keys
 const (
-	// 注册设置
-	SettingKeyRegistrationEnabled              = "registration_enabled"                // 是否开放注册
+	// 邮箱验证与邮箱策略设置
 	SettingKeyEmailVerifyEnabled               = "email_verify_enabled"                // 是否开启邮件验证
-	SettingKeyRegistrationEmailSuffixWhitelist = "registration_email_suffix_whitelist" // 注册邮箱后缀白名单（JSON 数组）
-	// 白名单非空时，是否放行非白名单域名按主域名限量注册（每域名 1 个账户）。
+	SettingKeyRegistrationEmailSuffixWhitelist = "registration_email_suffix_whitelist" // 邮箱后缀白名单（JSON 数组）
+	// 白名单非空时，是否放行非白名单域名按主域名限量占用（每域名 1 个账户）。
 	// 默认 false：非白名单域名直接拒绝（白名单严格模式）。
 	SettingKeyRegistrationEmailDomainQuotaEnabled = "registration_email_domain_quota_enabled"
 	SettingKeyPasswordResetEnabled                = "password_reset_enabled"          // 是否启用忘记密码功能（需要先开启邮件验证）
@@ -188,27 +187,6 @@ const (
 	SettingKeySMTPFrom     = "smtp_from"      // 发件人地址
 	SettingKeySMTPFromName = "smtp_from_name" // 发件人名称
 	SettingKeySMTPUseTLS   = "smtp_use_tls"   // 是否使用TLS
-
-	// Cloudflare Turnstile 设置
-	SettingKeyTurnstileEnabled   = "turnstile_enabled"    // 是否启用 Turnstile 验证
-	SettingKeyTurnstileSiteKey   = "turnstile_site_key"   // Turnstile Site Key
-	SettingKeyTurnstileSecretKey = "turnstile_secret_key" // Turnstile Secret Key
-
-	// 腾讯天御验证码设置
-	SettingKeyTencentCaptchaEnabled        = "tencent_captcha_enabled"
-	SettingKeyTencentCaptchaAppID          = "tencent_captcha_app_id"
-	SettingKeyTencentCaptchaAppSecretKey   = "tencent_captcha_app_secret_key"
-	SettingKeyTencentCaptchaCloudSecretID  = "tencent_captcha_cloud_secret_id"
-	SettingKeyTencentCaptchaCloudSecretKey = "tencent_captcha_cloud_secret_key"
-	SettingKeyTencentCaptchaRegion         = "tencent_captcha_region" // 站点："cn"|"intl"，决定前端 SDK 脚本与服务端接入点
-
-	// 阿里云验证码 2.0 设置（与 Turnstile、腾讯天御互斥，同一时间仅可启用一家）
-	SettingKeyAliyunCaptchaEnabled         = "aliyun_captcha_enabled"           // 是否启用阿里云验证码
-	SettingKeyAliyunCaptchaAccessKeyID     = "aliyun_captcha_access_key_id"     // 阿里云 AccessKey ID
-	SettingKeyAliyunCaptchaAccessKeySecret = "aliyun_captcha_access_key_secret" // 阿里云 AccessKey Secret
-	SettingKeyAliyunCaptchaSceneID         = "aliyun_captcha_scene_id"          // 验证场景 ID（所有认证流程共用）
-	SettingKeyAliyunCaptchaPrefix          = "aliyun_captcha_prefix"            // 身份标，前端 SDK 初始化用
-	SettingKeyAliyunCaptchaRegion          = "aliyun_captcha_region"            // 地域："cn"|"sgp"，决定前端脚本区域与服务端接入点
 
 	// API Key IP 访问控制设置
 	SettingKeyAPIKeyACLTrustForwardedIP = "api_key_acl_trust_forwarded_ip" // API Key IP 白/黑名单是否信任转发 IP

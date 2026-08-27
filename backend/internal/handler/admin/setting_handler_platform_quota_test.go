@@ -64,23 +64,6 @@ func TestDiffSettings_NoChangeWhenEqual(t *testing.T) {
 	}
 }
 
-func TestSettingsAuditRequestDoesNotInheritStoredTencentSecrets(t *testing.T) {
-	req := UpdateSettingsRequest{
-		TencentCaptchaAppSecretKey:   "  ",
-		TencentCaptchaCloudSecretID:  "\t",
-		TencentCaptchaCloudSecretKey: "\n",
-	}
-
-	auditReq := settingsAuditRequest(req)
-	req.TencentCaptchaAppSecretKey = "stored-app-secret"
-	req.TencentCaptchaCloudSecretID = "stored-secret-id"
-	req.TencentCaptchaCloudSecretKey = "stored-secret-key"
-
-	require.Empty(t, auditReq.TencentCaptchaAppSecretKey)
-	require.Empty(t, auditReq.TencentCaptchaCloudSecretID)
-	require.Empty(t, auditReq.TencentCaptchaCloudSecretKey)
-}
-
 func TestDiffSettings_DetectsCompactHomeChange(t *testing.T) {
 	changed := diffSettings(
 		&service.SystemSettings{},
@@ -167,11 +150,11 @@ func TestSettingHandler_AuthSourcePlatformQuotas_PutGetRoundTrip(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{
 		values: map[string]string{
-			service.SettingKeyRegistrationEnabled: "false",
+			service.SettingKeyEmailVerifyEnabled: "false",
 		},
 	}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil, nil)
 
 	// PUT：发 email platform quota（openai monthly=20）
 	putBody := map[string]any{

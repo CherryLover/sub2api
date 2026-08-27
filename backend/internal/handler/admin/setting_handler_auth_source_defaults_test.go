@@ -128,14 +128,14 @@ func TestSettingHandler_GetSettings_InjectsAuthSourceDefaults(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{
 		values: map[string]string{
-			service.SettingKeyRegistrationEnabled:                 "true",
+			service.SettingKeyEmailVerifyEnabled:                  "true",
 			service.SettingKeyAuthSourceDefaultEmailBalance:       "9.5",
 			service.SettingKeyAuthSourceDefaultEmailConcurrency:   "8",
 			service.SettingKeyAuthSourceDefaultEmailSubscriptions: `[{"group_id":31,"validity_days":15}]`,
 		},
 	}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil, nil)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -160,7 +160,7 @@ func TestSettingHandler_UpdateSettings_PreservesOmittedAuthSourceDefaults(t *tes
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{
 		values: map[string]string{
-			service.SettingKeyRegistrationEnabled:                    "false",
+			service.SettingKeyEmailVerifyEnabled:                     "false",
 			service.SettingKeyAuthSourceDefaultEmailBalance:          "9.5",
 			service.SettingKeyAuthSourceDefaultEmailConcurrency:      "8",
 			service.SettingKeyAuthSourceDefaultEmailSubscriptions:    `[{"group_id":31,"validity_days":15}]`,
@@ -169,10 +169,10 @@ func TestSettingHandler_UpdateSettings_PreservesOmittedAuthSourceDefaults(t *tes
 		},
 	}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil, nil)
 
 	body := map[string]any{
-		"registration_enabled":              true,
+		"email_verify_enabled":              true,
 		"auth_source_default_email_balance": 12.75,
 	}
 	rawBody, err := json.Marshal(body)
@@ -204,7 +204,7 @@ func TestSettingHandler_UpdateSettings_PersistsAdvancedScheduler(t *testing.T) {
 		values: map[string]string{},
 	}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil, nil)
 
 	body := map[string]any{
 		"openai_advanced_scheduler_enabled":                       true,
@@ -239,7 +239,7 @@ func TestSettingHandler_UpdateSettings_DoesNotPersistPartialSystemSettingsWhenAu
 	gin.SetMode(gin.TestMode)
 	repo := &failingAuthSourceSettingsRepoStub{
 		values: map[string]string{
-			service.SettingKeyRegistrationEnabled:                 "false",
+			service.SettingKeyEmailVerifyEnabled:                  "false",
 			service.SettingKeyAuthSourceDefaultEmailBalance:       "9.5",
 			service.SettingKeyAuthSourceDefaultEmailConcurrency:   "8",
 			service.SettingKeyAuthSourceDefaultEmailSubscriptions: `[{"group_id":31,"validity_days":15}]`,
@@ -247,10 +247,10 @@ func TestSettingHandler_UpdateSettings_DoesNotPersistPartialSystemSettingsWhenAu
 		err: errors.New("write auth source defaults failed"),
 	}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil, nil)
 
 	body := map[string]any{
-		"registration_enabled":              true,
+		"email_verify_enabled":              true,
 		"auth_source_default_email_balance": 12.75,
 	}
 	rawBody, err := json.Marshal(body)
@@ -264,7 +264,7 @@ func TestSettingHandler_UpdateSettings_DoesNotPersistPartialSystemSettingsWhenAu
 	handler.UpdateSettings(c)
 
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
-	require.Equal(t, "false", repo.values[service.SettingKeyRegistrationEnabled])
+	require.Equal(t, "false", repo.values[service.SettingKeyEmailVerifyEnabled])
 	require.Equal(t, "9.5", repo.values[service.SettingKeyAuthSourceDefaultEmailBalance])
 }
 

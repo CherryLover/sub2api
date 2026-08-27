@@ -35,8 +35,6 @@ func generateMenuItemID() (string, error) {
 type SettingHandler struct {
 	settingService           *service.SettingService
 	emailService             *service.EmailService
-	turnstileService         *service.TurnstileService
-	aliyunCaptchaService     *service.AliyunCaptchaService
 	opsService               *service.OpsService
 	notificationEmailService *service.NotificationEmailService
 	totpService              *service.TotpService
@@ -46,12 +44,11 @@ type SettingHandler struct {
 // NewSettingHandler 创建系统设置处理器。
 // 第五个参数（原钉钉身份同步的 UserAttributeService）随 OAuth 登录裁剪不再使用，
 // 保留形参以免改动 wire 装配与既有测试的构造签名。
-func NewSettingHandler(settingService *service.SettingService, emailService *service.EmailService, turnstileService *service.TurnstileService, opsService *service.OpsService, _ *service.UserAttributeService) *SettingHandler {
+func NewSettingHandler(settingService *service.SettingService, emailService *service.EmailService, opsService *service.OpsService, _ *service.UserAttributeService) *SettingHandler {
 	return &SettingHandler{
-		settingService:   settingService,
-		emailService:     emailService,
-		turnstileService: turnstileService,
-		opsService:       opsService,
+		settingService: settingService,
+		emailService:   emailService,
+		opsService:     opsService,
 	}
 }
 
@@ -59,12 +56,6 @@ func NewSettingHandler(settingService *service.SettingService, emailService *ser
 // the constructor signature used by existing unit tests.
 func (h *SettingHandler) SetNotificationEmailService(notificationEmailService *service.NotificationEmailService) {
 	h.notificationEmailService = notificationEmailService
-}
-
-// SetAliyunCaptchaService attaches the Aliyun captcha credential validator without
-// changing the constructor signature used by existing unit tests.
-func (h *SettingHandler) SetAliyunCaptchaService(aliyunCaptchaService *service.AliyunCaptchaService) {
-	h.aliyunCaptchaService = aliyunCaptchaService
 }
 
 // SetStepUpDeps attaches the services backing the step-up switch preconditions
@@ -103,7 +94,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 	passkeyConfigured, passkeyRPID, passkeyRPOrigins := h.settingService.PasskeyConfiguration()
 
 	payload := dto.SystemSettings{
-		RegistrationEnabled:                          settings.RegistrationEnabled,
 		EmailVerifyEnabled:                           settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:             settings.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled:          settings.RegistrationEmailDomainQuotaEnabled,
@@ -129,21 +119,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		SMTPFrom:                                     settings.SMTPFrom,
 		SMTPFromName:                                 settings.SMTPFromName,
 		SMTPUseTLS:                                   settings.SMTPUseTLS,
-		TurnstileEnabled:                             settings.TurnstileEnabled,
-		TurnstileSiteKey:                             settings.TurnstileSiteKey,
-		TurnstileSecretKeyConfigured:                 settings.TurnstileSecretKeyConfigured,
-		TencentCaptchaEnabled:                        settings.TencentCaptchaEnabled,
-		TencentCaptchaAppID:                          settings.TencentCaptchaAppID,
-		TencentCaptchaAppSecretKeyConfigured:         settings.TencentCaptchaAppSecretKeyConfigured,
-		TencentCaptchaCloudSecretIDConfigured:        settings.TencentCaptchaCloudSecretIDConfigured,
-		TencentCaptchaCloudSecretKeyConfigured:       settings.TencentCaptchaCloudSecretKeyConfigured,
-		TencentCaptchaRegion:                         settings.TencentCaptchaRegion,
-		AliyunCaptchaEnabled:                         settings.AliyunCaptchaEnabled,
-		AliyunCaptchaAccessKeyID:                     settings.AliyunCaptchaAccessKeyID,
-		AliyunCaptchaAccessKeySecretConfigured:       settings.AliyunCaptchaAccessKeySecretConfigured,
-		AliyunCaptchaSceneID:                         settings.AliyunCaptchaSceneID,
-		AliyunCaptchaPrefix:                          settings.AliyunCaptchaPrefix,
-		AliyunCaptchaRegion:                          settings.AliyunCaptchaRegion,
 		APIKeyACLTrustForwardedIP:                    settings.APIKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:                     settings.ForwardedClientIPHeaders,
 		SiteName:                                     settings.SiteName,

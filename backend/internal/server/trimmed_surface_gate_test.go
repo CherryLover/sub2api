@@ -5,14 +5,14 @@ package server
 // 裁剪面门禁测试（防回归护栏）。
 //
 // 本项目按"单管理员内部部署"裁剪掉了支付/订单、卡密（redeem）、优惠码
-// （promo）、返佣（affiliate）与六种第三方 OAuth 登录（LinuxDo/微信/钉钉/
-// OIDC/GitHub/Google），并将多用户注册默认关闭。这里用生产 registerRoutes
+// （promo）、返佣（affiliate）、六种第三方 OAuth 登录（LinuxDo/微信/钉钉/
+// OIDC/GitHub/Google），以及注册体系与人机验证。这里用生产 registerRoutes
 // 装配完整路由表后断言：
 //
 //  1. 被裁剪的 SaaS 面路由不存在（精确路径 + 前缀兜底 + 请求级 404）；
-//  2. 默认设置下 POST /api/v1/auth/register 被注册开关拒绝；
-//  3. GET /api/v1/settings/public 不再泄露 payment_enabled 键；
-//  4. 保留面（login/2fa/passkey 登录）完好，防止误删。
+//  2. 注册体系的两条入口（register / send-verify-code）路由整体缺席；
+//  3. GET /api/v1/settings/public 不再泄露 payment_enabled 与人机验证键；
+//  4. 保留面（login/2fa/passkey 登录/忘记密码/重置密码）完好，防止误删。
 //
 // 将来任何人把这些面加回 router.go / routes/*.go，CI 会立即变红。
 
@@ -113,7 +113,7 @@ func newTrimmedSurfaceRouter(t *testing.T) (*gin.Engine, *gateSettingRepo) {
 	settingService := service.NewSettingService(repo, cfg)
 	require.NoError(t, settingService.InitializeDefaultSettings(context.Background()))
 
-	authService := service.NewAuthService(nil, nil, nil, cfg, settingService, nil, nil, nil, nil, nil)
+	authService := service.NewAuthService(nil, nil, nil, cfg, settingService, nil, nil, nil)
 
 	handlers := &handler.Handlers{
 		Auth:          handler.NewAuthHandler(cfg, authService, nil, settingService, nil, nil),
@@ -187,6 +187,9 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/auth/oauth/pending/exchange",
 		// 第三方绑定启动（OAuth 登录删除后已成死胡同端点，随 WP4 一并移除）
 		"/api/v1/user/auth-identities/bind/start",
+		// 注册体系（B3）：注册入口与注册邮箱验证码发送整体移除
+		"/api/v1/auth/register",
+		"/api/v1/auth/send-verify-code",
 		// 应用内更新检查/在线升级/回滚（内部部署由镜像或部署脚本升级）
 		"/api/v1/admin/system/check-updates",
 		"/api/v1/admin/system/rollback-versions",
@@ -225,6 +228,8 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodGet, "/api/v1/user/aff"},
 		{http.MethodGet, "/api/v1/admin/payment/dashboard"},
 		{http.MethodGet, "/api/v1/auth/oauth/linuxdo/start"},
+		{http.MethodPost, "/api/v1/auth/register"},
+		{http.MethodPost, "/api/v1/auth/send-verify-code"},
 		{http.MethodGet, "/api/v1/admin/system/check-updates"},
 		{http.MethodPost, "/api/v1/admin/system/update"},
 		{http.MethodPost, "/api/v1/admin/system/rollback"},
@@ -245,10 +250,15 @@ func TestRetainedAuthSurfaceStillRegistered(t *testing.T) {
 		routes[route.Method+" "+route.Path] = struct{}{}
 	}
 	for _, want := range []string{
-		"POST /api/v1/auth/register", // 路由保留，默认设置下由注册开关拒绝
 		"POST /api/v1/auth/login",
 		"POST /api/v1/auth/login/2fa",
 		"POST /api/v1/auth/passkey/login/begin",
+		"POST /api/v1/auth/passkey/login/finish",
+		// 单管理员部署的忘记密码救命通道：注册体系移除后必须仍然可达。
+		"POST /api/v1/auth/forgot-password",
+		"POST /api/v1/auth/reset-password",
+		"POST /api/v1/auth/refresh",
+		"POST /api/v1/auth/logout",
 	} {
 		_, exists := routes[want]
 		require.Truef(t, exists, "保留面路由 %s 不应被误删", want)
@@ -273,11 +283,13 @@ func TestRetainedSystemSurfaceStillRegistered(t *testing.T) {
 	}
 }
 
-func TestRegisterRejectedUnderDefaultSettings(t *testing.T) {
+// TestRegistrationSurfaceIsAbsent 注册体系已整体移除：入口不再是"被开关拒绝"
+// 而是路由根本不存在，带合法载荷的请求也只能拿到 404。
+func TestRegistrationSurfaceIsAbsent(t *testing.T) {
 	router, repo := newTrimmedSurfaceRouter(t)
 
-	// 种子层面：registration_enabled 默认必须是 false（多用户默认禁用）。
-	require.Equal(t, "false", repo.values[service.SettingKeyRegistrationEnabled])
+	// 种子层面：registration_enabled 已不再写入任何默认值。
+	require.NotContains(t, repo.values, "registration_enabled")
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
@@ -286,15 +298,16 @@ func TestRegisterRejectedUnderDefaultSettings(t *testing.T) {
 	req.RemoteAddr = "203.0.113.10:12345"
 	router.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusForbidden, w.Code)
-	require.Contains(t, w.Body.String(), "REGISTRATION_DISABLED")
-}
+	require.Equal(t, http.StatusNotFound, w.Code)
 
-// TestRegistrationDefaultsClosedWithoutSeededSettings 覆盖全新库尚未种子
-// 默认设置的场景：registration_enabled 行缺失时注册同样 fail-closed。
-func TestRegistrationDefaultsClosedWithoutSeededSettings(t *testing.T) {
-	settingService := service.NewSettingService(newGateSettingRepo(), &config.Config{})
-	require.False(t, settingService.IsRegistrationEnabled(context.Background()))
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/send-verify-code",
+		strings.NewReader(`{"email":"user@example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "203.0.113.10:12345"
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestPublicSettingsHasNoPaymentKey(t *testing.T) {
@@ -334,6 +347,16 @@ func TestPublicSettingsHasNoPaymentKey(t *testing.T) {
 	} {
 		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪功能键 %s", key)
 	}
-	// 公开设置同时应体现注册默认关闭。
-	require.JSONEq(t, "false", string(resp.Data["registration_enabled"]))
+	// 注册体系（B3）与人机验证（B4）的公开设置键随之整体移除，不许回流。
+	for _, key := range []string{
+		"registration_enabled",
+		"turnstile_enabled",
+		"turnstile_site_key",
+		"tencent_captcha_enabled",
+		"tencent_captcha_app_id",
+		"aliyun_captcha_enabled",
+		"aliyun_captcha_scene_id",
+	} {
+		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪的注册/人机验证键 %s", key)
+	}
 }
