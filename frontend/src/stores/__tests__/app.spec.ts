@@ -421,6 +421,65 @@ describe('useAppStore', () => {
       expect(store.cachedPublicSettings).toBeNull()
     })
 
+    it('注入快照带版本号时不额外请求接口', async () => {
+      const windowAny = window as any
+      windowAny.__APP_CONFIG__ = createPublicSettings({ version: 'internal-rc-6a1452d' })
+
+      const store = useAppStore()
+      await store.fetchPublicSettings()
+
+      expect(getPublicSettings).not.toHaveBeenCalled()
+      expect(store.siteVersion).toBe('internal-rc-6a1452d')
+    })
+
+    it('注入快照缺版本号时，首次 fetch 就回落读接口补齐', async () => {
+      const windowAny = window as any
+      windowAny.__APP_CONFIG__ = createPublicSettings({ version: '' })
+      vi.mocked(getPublicSettings).mockResolvedValue(
+        createPublicSettings({ version: 'internal-rc-6a1452d' }),
+      )
+
+      const store = useAppStore()
+      await store.fetchPublicSettings()
+
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+      expect(store.siteVersion).toBe('internal-rc-6a1452d')
+    })
+
+    it('注入快照已被 initFromInjectedConfig 套用时，缺版本号仍会回落读接口', async () => {
+      const windowAny = window as any
+      windowAny.__APP_CONFIG__ = createPublicSettings({ version: '' })
+      vi.mocked(getPublicSettings).mockResolvedValue(
+        createPublicSettings({ version: 'internal-rc-6a1452d' }),
+      )
+
+      const store = useAppStore()
+      expect(store.initFromInjectedConfig()).toBe(true)
+      expect(store.siteVersion).toBe('')
+
+      await store.fetchPublicSettings()
+
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+      expect(store.siteVersion).toBe('internal-rc-6a1452d')
+
+      await store.fetchPublicSettings()
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+    })
+
+    it('接口也拿不到版本号时不会反复请求', async () => {
+      const windowAny = window as any
+      windowAny.__APP_CONFIG__ = createPublicSettings({ version: '' })
+      vi.mocked(getPublicSettings).mockResolvedValue(createPublicSettings({ version: '' }))
+
+      const store = useAppStore()
+      await store.fetchPublicSettings()
+      await store.fetchPublicSettings()
+      await store.fetchPublicSettings()
+
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+      expect(store.siteVersion).toBe('')
+    })
+
     it('fetchPublicSettings(force) 会同步更新运行时注入配置', async () => {
       vi.mocked(getPublicSettings).mockResolvedValue({
         registration_enabled: false,

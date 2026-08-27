@@ -352,8 +352,12 @@ func (s *SettingService) notifyChannelMonitorRuntimeListeners() {
 	}
 }
 
-// SetVersion sets the application version for injection into public settings
+// SetVersion sets the application version for injection into public settings.
+// 调用方是 handler.ProvideSettingHandler（装配阶段），版本号来自构建期 ldflags。
 func (s *SettingService) SetVersion(version string) {
+	if s == nil {
+		return
+	}
 	s.version = version
 }
 

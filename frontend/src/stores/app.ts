@@ -29,6 +29,9 @@ export const useAppStore = defineStore('app', () => {
   const docUrl = ref<string>('')
   const cachedPublicSettings = ref<PublicSettings | null>(null)
   let publicSettingsRequest: Promise<PublicSettings | null> | null = null
+  // 服务端注入的快照里版本号为空时，允许回落读一次 /settings/public 把它补齐。
+  // 一次页面生命周期内最多补一次，避免注入链路真的断掉时反复发请求。
+  let versionBackfillAttempted = false
 
   // Auto-incrementing ID for toasts
   let toastIdCounter = 0
@@ -226,6 +229,17 @@ export const useAppStore = defineStore('app', () => {
   // 不再有单独的版本检查请求与缓存。
 
   /**
+   * 注入快照缺版本号时需要回落读接口补齐。
+   *
+   * 服务端注入的 window.__APP_CONFIG__ 与 /api/v1/settings/public 是两条独立链路，
+   * 注入这条曾经因为装配漏调 SetVersion 而恒返回空串，导致侧边栏版本号完全不显示。
+   * 这里做双保险：注入值为空就别再无条件短路，去接口把版本号取回来。
+   */
+  function needsVersionBackfill(): boolean {
+    return !siteVersion.value && !versionBackfillAttempted
+  }
+
+  /**
    * Apply settings to store state (internal helper to avoid code duplication)
    */
   function applySettings(config: PublicSettings): void {
@@ -254,13 +268,16 @@ export const useAppStore = defineStore('app', () => {
     }
 
     // Check for injected config from server (eliminates flash)
+    // 快照先套用（消除闪烁），但版本号为空时不短路，继续走接口补齐。
     if (!publicSettingsLoaded.value && !force && window.__APP_CONFIG__) {
       applySettings(window.__APP_CONFIG__)
-      return Promise.resolve(window.__APP_CONFIG__)
+      if (!needsVersionBackfill()) {
+        return Promise.resolve(window.__APP_CONFIG__)
+      }
     }
 
     // Return cached data if available and not forcing refresh
-    if (publicSettingsLoaded.value && !force) {
+    if (publicSettingsLoaded.value && !force && !needsVersionBackfill()) {
       if (cachedPublicSettings.value) {
         return Promise.resolve({ ...cachedPublicSettings.value })
       }
@@ -317,10 +334,13 @@ export const useAppStore = defineStore('app', () => {
 
     const request = apiRequest
       .then((data) => {
+        // 无论接口带没带版本号，这一轮补齐都算用掉了，避免死循环发请求。
+        versionBackfillAttempted = true
         applySettings(data)
         return data
       })
       .catch((error) => {
+        versionBackfillAttempted = true
         console.error('Failed to fetch public settings:', error)
         return null
       })
@@ -341,6 +361,7 @@ export const useAppStore = defineStore('app', () => {
   function clearPublicSettingsCache(): void {
     publicSettingsLoaded.value = false
     cachedPublicSettings.value = null
+    versionBackfillAttempted = false
   }
 
   /**
