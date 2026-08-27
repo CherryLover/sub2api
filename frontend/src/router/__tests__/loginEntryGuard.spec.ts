@@ -145,14 +145,10 @@ describe('登录入口隐藏时的导航守卫', () => {
     expect(JSON.stringify(next.mock.calls)).not.toContain('/login')
   })
 
-  it('隐藏模式下注册 / 找回密码在没走过入口时不可达', async () => {
+  it('隐藏模式下找回密码在没走过入口时不可达', async () => {
     appStore.cachedPublicSettings = HIDDEN_SETTINGS
     const guard = await loadRouter('/home')
 
-    expect(await navigate(guard, { path: '/register', name: 'Register' })).toHaveBeenCalledWith({
-      path: '/key-usage',
-      replace: true,
-    })
     expect(await navigate(guard, { path: '/forgot-password', name: 'ForgotPassword' })).toHaveBeenCalledWith({
       path: '/key-usage',
       replace: true,
@@ -166,7 +162,6 @@ describe('登录入口隐藏时的导航守卫', () => {
     for (const route of [
       { path: '/key-usage', name: 'KeyUsage' },
       { path: '/reset-password', name: 'ResetPassword' },
-      { path: '/email-verify', name: 'EmailVerify' },
       { path: '/auth/callback', name: 'OAuthCallback' },
       { path: '/auth/linuxdo/callback', name: 'LinuxDoOAuthCallback' },
       { path: '/payment/result', name: 'PaymentResult' },

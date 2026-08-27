@@ -109,14 +109,12 @@ describe('loginEntry', () => {
     it('/login 被挡；注册与找回密码也被挡', () => {
       landOn('/home')
       expect(isEntryRouteBlocked({ name: 'Login' }, hidden)).toBe(true)
-      expect(isEntryRouteBlocked({ name: 'Register' }, hidden)).toBe(true)
       expect(isEntryRouteBlocked({ name: 'ForgotPassword' }, hidden)).toBe(true)
     })
 
-    it('邮件入口（重置密码 / 邮箱验证）与 OAuth 回调不受影响', () => {
+    it('邮件入口（重置密码）与 OAuth 回调不受影响', () => {
       landOn('/home')
       expect(isEntryRoute({ name: 'ResetPassword' })).toBe(false)
-      expect(isEntryRoute({ name: 'EmailVerify' })).toBe(false)
       expect(isEntryRoute({ name: 'OAuthCallback' })).toBe(false)
       expect(isEntryRouteBlocked({ name: 'ResetPassword' }, hidden)).toBe(false)
       expect(isEntryRouteBlocked({ name: 'KeyUsage' }, hidden)).toBe(false)

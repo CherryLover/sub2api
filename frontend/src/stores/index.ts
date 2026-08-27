@@ -11,5 +11,5 @@ export { useAnnouncementStore } from './announcements'
 export { useAdminComplianceStore } from './adminCompliance'
 
 // Re-export types for convenience
-export type { User, LoginRequest, RegisterRequest, AuthResponse } from '@/types'
+export type { User, LoginRequest, AuthResponse } from '@/types'
 export type { Toast, ToastType, AppState } from '@/types'

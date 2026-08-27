@@ -179,10 +179,10 @@ export function resolveUnauthenticatedTarget(
  * 还会指向一条隐藏模式下不存在的 /login。因此这两个页面只在本标签页已经走过隐藏
  * 登录入口时才可达——从隐藏登录页点过去正常工作，直接开一个新标签页访问则不可达。
  *
- * `/reset-password` 和 `/email-verify` 不在此列：它们是从邮件里点进来的，没有登录
+ * `/reset-password` 不在此列：它是从邮件里点进来的，没有登录
  * 入口上下文，挡掉会直接把这两条流程做死。OAuth 回调 `/auth/*` 也不在此列。
  */
-const HIDDEN_MODE_GATED_ROUTE_NAMES = new Set(['Register', 'ForgotPassword'])
+const HIDDEN_MODE_GATED_ROUTE_NAMES = new Set(['ForgotPassword'])
 
 /** 需要在隐藏模式下做入口判定的路由（静态 /login、被门禁的注册/找回、动态入口）。 */
 export function isEntryRoute(route: {

@@ -282,16 +282,9 @@ export const useAppStore = defineStore('app', () => {
         return Promise.resolve({ ...cachedPublicSettings.value })
       }
       return Promise.resolve({
-        registration_enabled: false,
         email_verify_enabled: false,
         registration_email_suffix_whitelist: [],
         password_reset_enabled: false,
-        turnstile_enabled: false,
-        turnstile_site_key: '',
-        aliyun_captcha_enabled: false,
-        aliyun_captcha_scene_id: '',
-        aliyun_captcha_prefix: '',
-        aliyun_captcha_region: 'cn',
         site_name: siteName.value,
         site_logo: siteLogo.value,
         site_subtitle: '',
