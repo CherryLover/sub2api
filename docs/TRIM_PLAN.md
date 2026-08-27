@@ -72,13 +72,23 @@
 
 | 工作包 | 内容 | 状态 |
 |---|---|---|
-| B1 | 移除登录条款/合规确认 | 🔵 本批实施中 |
-| B2 | 移除通用设置冗余项 | 🔵 本批实施中 |
-| B3 | 注册体系彻底移除 | 🔵 本批实施中（⚠️ 破坏性，必须走 RC 验证） |
-| B4 | 人机验证全部移除 | 🔵 本批实施中 |
-| A1 尾款 | install.sh 的 update/rollback 子命令、`deploy/docker-compose*.yml`、`.env.example`、`deploy/README.md` 的过时"在线更新"注释 | 🔵 本批实施中（A1 应用内部分批次 1 已完成） |
+| B1 | 移除登录条款/合规确认 | ✅ 已交付，待 RC 验证 |
+| B2 | 移除通用设置冗余项 | ✅ 已交付，待 RC 验证 |
+| B3 | 注册体系彻底移除 | ✅ 已交付，待 RC 验证（⚠️ 破坏性） |
+| B4 | 人机验证全部移除 | ✅ 已交付，待 RC 验证 |
+| A1 尾款 | install.sh 的 update/rollback 子命令、`deploy/docker-compose*.yml`、`.env.example`、`deploy/README.md` 的过时"在线更新"注释 | ✅ 已交付（A1 应用内部分批次 1 已完成） |
 | B5 | 邮件体系收敛 | ⏸️ **本批不实施**，调研结论见下方 B5 专节，待站长拍板 |
-| D | 本文档（TRIM_PLAN.md）更新 | 🔵 本批实施中 |
+| D | 本文档（TRIM_PLAN.md）更新 | ✅ 已交付 |
+
+#### 批次 2 交付明细（代码已合流，CI 待确认）
+
+- **B3 注册体系**：注册路由/页面/开关/邮箱验证注册流/注册专用默认值链路全删；`send-verify-code` 经核实只服务注册（TOTP 与邮箱绑定各有独立通道）一并删除。**管理员后台建用户能力保留**——它与注册体系并非深耦合，只共享 `GetDefaultBalance`/`GetDefaultSubscriptions` 两个通用访问器；存量是多用户场景，管理员仍需管理这些用户。
+- **`email_verify_enabled` 键保留**：它另有三处非注册消费者（找回密码的三重与门、TOTP 自助开关的验证方式判断、邮件配置面门控），删键会静默改变保留面语义。仅摘掉注册分支，三处行为逐字未变。副作用已处理：种子探针原用 `registration_enabled` 判断"是否已初始化"，已换为同批种子键。
+- **B4 人机验证**：Turnstile/腾讯/阿里三家服务、设置键、前端组件全删；登录与找回密码**路径保留，只摘掉验证码校验**。
+- **B1 合规确认**：`AdminComplianceGuard` 中间件、`/admin/compliance` 路由、`docs/legal/`、`/legal/:documentId` 页面、登录页勾选与弹窗全删。admin 中间件链现为 `adminAuth → 限流 → 审计`，首次部署登录后台不再有 423 拦截。
+- **B2 站点设置**：实际删除 11 个设置键（`site_name`/`site_subtitle`/`api_base_url`/表格设置 2 键/`contact_info`/`site_logo`/`home_content`/`compact_home_enabled`/`hide_ccs_import_button`/`custom_menu_items`）。有真实消费者的收敛为固定常量（后端 `service.SiteName`、前端 `constants/site.ts`，均为 `Sub2API`），并已验证删除 HTML 注入后标题与图标表现逐字不变——未重蹈批次 1 版本号空值的覆辙。连带删除 CSP `frame-src` 动态注入的整条死代码链（`home_content`/`custom_menu_items` 是其唯二来源）。
+- **A1 尾款**：`install.sh` 删 update/rollback/list-versions 子命令（**保留首次安装能力**——下载是脚本获取二进制的唯一来源），顺带修了覆盖运行中二进制的 ETXTBSY 缺陷；`docker-deploy.sh` 删除从公网拉编排文件的逻辑改用本地文件（避免"部的提交与拉的编排不是同一份"的静默漂移），顺带修了误覆盖 git 跟踪文件的隐患；compose/`.env.example`/README/config.example 的"在线更新"注释改写为准确描述（`update.proxy_url` 仍存活，服务于定价表拉取与 Codex 版本同步，键名沿用）。
+- **镜像坐标内部化**：三个 compose 与 Apple container 路径的默认镜像从上游 `weishaw/sub2api:latest` 改为 `ghcr.io/cherrylover/sub2api:latest`（原先照仓库编排部署会静默拿到**未裁剪的上游镜像**）；两个 `Dockerfile` 的 OCI `image.source` 标签改指本仓库（goreleaser 四个镜像变体里只有一个显式注入该标签，其余继承 Dockerfile，故须在 Dockerfile 侧修正）。`DOCKER.md` 改写而非删除——它被 `release.yml` 的 DockerHub description 步骤引用，删除会留悬空引用。
 
 合流后统一验证 → CI 全绿 → 出 `internal-rc-<short_sha>` 镜像 → way-rc 验证 → 通过后才合并 main
 （原因见第一节 ⚠️ 生产影响）。
@@ -346,6 +356,15 @@ IsPasswordResetEnabled = email_verify_enabled==true
 - 本会话 GitHub 集成无 actions:write，workflow 触发走 `internal-rc-*` 标签推送
 - 迁移 229 为幂等 UPDATE；本轮未删表未改列，镜像回滚无兼容性问题
 
+### 批次 2 实施中记录的后续候选项（均未处理，待排期）
+
+- **CSP 白名单失效条目**：`security_headers.go` 仍保留腾讯天御的 script-src/frame-src/connect-src/worker-src 白名单，批次 1 同样留下了 Stripe/Airwallex 条目。对应 SDK 已删，这些条目现在只是无谓放宽策略，建议作为安全侧收敛项统一清理
+- **`registration_email_domain_quota_enabled`**：注册删除后已无内部消费者，但仍被 admin 设置页读写往返；其兄弟键 `registration_email_suffix_whitelist` 仍被邮箱绑定的校验路径使用，两者在设置页属同一区块，需一并评估
+- **`LOGIN_ENTRY_RESERVED_PREFIXES` 的 `/legal`、`/custom`**（前端 SettingsView 与后端 `config/web_entry.go` 镜像）：对应路由已删，但**刻意保留**——这是自定义登录入口的保留字黑名单，删条目只会放宽允许集，属安全收紧项而非裁剪项。若要收窄需前后端同步改并调整 `web_entry_test.go` 用例
+- **支付遗留文档**：`docs/PAYMENT.md`、`docs/PAYMENT_CN.md`、`docs/ADMIN_PAYMENT_INTEGRATION_API.md` 描述的功能已在批次 1 删除
+- **`custom_endpoints` 设置**：与已删的 `api_base_url` 在设置页相邻但语义不同，本批未动，待站长确认是否一并删除
+- **ent 中的支付实体**（`payment_orders`/`payment_provider_instances` 等）与相关历史迁移：需 ent 重生成，归入 A5 数据库压平
+
 ---
 
 ## 五、内部 RC 镜像部署验证清单
@@ -407,7 +426,7 @@ Postgres 与 Redis 不暴露宿主机端口，仅应用暴露 `${BIND_HOST:-0.0.
 把 `deploy/docker-compose.yml` 中 `sub2api` 服务的镜像行：
 
 ```yaml
-    image: weishaw/sub2api:latest
+    image: ghcr.io/cherrylover/sub2api:latest   # 批次 2 起仓库默认值已是内部镜像
 ```
 
 改为内部镜像：
@@ -603,7 +622,8 @@ docker compose exec postgres psql -U sub2api -d sub2api \
 代码回滚 = 把 compose 里的镜像换回旧 tag，重启应用即可：
 
 ```bash
-# 把 image 改回原坐标（如 weishaw/sub2api:latest 或此前固定的正式版本 tag）后：
+# 把 image 换成上一个可用的内部标签（如 ghcr.io/cherrylover/sub2api:internal-<旧 short_sha>
+# 或已发版的 ghcr.io/cherrylover/sub2api:0.1.182）后：
 docker compose up -d sub2api
 ```
 
