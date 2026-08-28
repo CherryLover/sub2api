@@ -507,16 +507,6 @@ function mountView() {
   });
 }
 
-async function openPaymentTab(wrapper: ReturnType<typeof mountView>) {
-  const paymentTabButton = wrapper
-    .findAll("button")
-    .find((node) => node.text().includes("admin.settings.tabs.payment"));
-
-  expect(paymentTabButton).toBeDefined();
-  await paymentTabButton?.trigger("click");
-  await flushPromises();
-}
-
 async function openSecurityTab(wrapper: ReturnType<typeof mountView>) {
   const securityTabButton = wrapper
     .findAll("button")
@@ -524,16 +514,6 @@ async function openSecurityTab(wrapper: ReturnType<typeof mountView>) {
 
   expect(securityTabButton).toBeDefined();
   await securityTabButton?.trigger("click");
-  await flushPromises();
-}
-
-async function openGatewayTab(wrapper: ReturnType<typeof mountView>) {
-  const gatewayTabButton = wrapper
-    .findAll("button")
-    .find((node) => node.text().includes("admin.settings.tabs.gateway"));
-
-  expect(gatewayTabButton).toBeDefined();
-  await gatewayTabButton?.trigger("click");
   await flushPromises();
 }
 

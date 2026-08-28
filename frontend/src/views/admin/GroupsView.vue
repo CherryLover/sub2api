@@ -5806,8 +5806,6 @@ const handleUpdateGroup = async () => {
     };
     delete (payload as Record<string, unknown>).profit_min_margin_percent;
     delete (payload as Record<string, unknown>).profit_safety_buffer_percent;
-    // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
-    const emptyToNull = (v: any) => (v === "" ? null : v);
     payload.image_rate_multiplier = normalizeRateMultiplier(
       payload.image_rate_multiplier,
     );

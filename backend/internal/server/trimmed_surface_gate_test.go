@@ -271,6 +271,20 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/admin/groups/:id/subscriptions",
 		"/api/v1/admin/users/:id/subscriptions",
 		"/api/v1/admin/users/:id/balance",
+		// 渠道监控 V1 主动探测（批次 3）：监控项 / 模板两组管理端 CRUD 与用户侧
+		// 只读视图整体下线。被动聚合的 V2（/channel-monitor-v2）是保留面，见
+		// TestRetainedChannelMonitorV2SurfaceStillRegistered。
+		"/api/v1/admin/channel-monitors",
+		"/api/v1/admin/channel-monitors/:id",
+		"/api/v1/admin/channel-monitors/:id/duplicate",
+		"/api/v1/admin/channel-monitors/:id/run",
+		"/api/v1/admin/channel-monitors/:id/history",
+		"/api/v1/admin/channel-monitor-templates",
+		"/api/v1/admin/channel-monitor-templates/:id",
+		"/api/v1/admin/channel-monitor-templates/:id/monitors",
+		"/api/v1/admin/channel-monitor-templates/:id/apply",
+		"/api/v1/channel-monitors",
+		"/api/v1/channel-monitors/:id/status",
 	}
 	for _, path := range absentPaths {
 		_, exists := paths[path]
@@ -298,6 +312,11 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/model-plaza",
 		"/api/v1/subscriptions",
 		"/api/v1/admin/subscriptions",
+		// 末尾的 "s" 与 "-templates" 是刻意的：/channel-monitor-v2 不落入这两个
+		// 前缀，保留面因此不受影响。
+		"/api/v1/channel-monitors",
+		"/api/v1/admin/channel-monitors",
+		"/api/v1/admin/channel-monitor-templates",
 	}
 	for path := range paths {
 		for _, prefix := range forbiddenPrefixes {
@@ -348,6 +367,11 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodPost, "/api/v1/admin/subscriptions/assign"},
 		{http.MethodPost, "/api/v1/admin/users/1/balance"},
 		{http.MethodGet, "/api/v1/admin/users/1/subscriptions"},
+		{http.MethodGet, "/api/v1/admin/channel-monitors"},
+		{http.MethodPost, "/api/v1/admin/channel-monitors"},
+		{http.MethodPost, "/api/v1/admin/channel-monitors/1/run"},
+		{http.MethodGet, "/api/v1/admin/channel-monitor-templates"},
+		{http.MethodGet, "/api/v1/channel-monitors"},
 	} {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(probe.method, probe.path, nil)
@@ -410,6 +434,28 @@ func TestRetainedImageSurfaceStillRegistered(t *testing.T) {
 		"POST /v1/images/generations/async",
 		"POST /v1/images/edits/async",
 		"GET /v1/images/tasks/:task_id",
+	} {
+		_, exists := routes[want]
+		require.Truef(t, exists, "保留面路由 %s 不应被误删", want)
+	}
+}
+
+// TestRetainedChannelMonitorV2SurfaceStillRegistered 渠道监控 V1 主动探测删除后，
+// 被动聚合的 V2 必须原样保留 —— 系统模式已切到 v2，误删等于监控整体消失。
+func TestRetainedChannelMonitorV2SurfaceStillRegistered(t *testing.T) {
+	router, _ := newTrimmedSurfaceRouter(t)
+
+	routes := make(map[string]struct{})
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = struct{}{}
+	}
+	for _, want := range []string{
+		"GET /api/v1/admin/channel-monitor-v2/config",
+		"PUT /api/v1/admin/channel-monitor-v2/config",
+		"GET /api/v1/admin/channel-monitor-v2/snapshot",
+		"GET /api/v1/admin/channel-monitor-v2/matrix",
+		"GET /api/v1/channel-monitor-v2/snapshot",
+		"GET /api/v1/channel-monitor-v2/matrix",
 	} {
 		_, exists := routes[want]
 		require.Truef(t, exists, "保留面路由 %s 不应被误删", want)

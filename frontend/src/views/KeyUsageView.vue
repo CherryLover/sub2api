@@ -931,7 +931,6 @@ const ringItems = computed<RingItem[]>(() => {
         })
       }
     }
-  } else {
   }
 
   return items
