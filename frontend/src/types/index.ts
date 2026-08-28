@@ -1664,7 +1664,6 @@ export interface UpdateUserRequest {
   username?: string
   notes?: string
   role?: 'admin' | 'user'
-  balance?: number
   concurrency?: number
   rpm_limit?: number
   status?: 'active' | 'disabled'
