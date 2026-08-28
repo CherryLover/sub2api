@@ -16,7 +16,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
-	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 )
 
 // UsageLogCreate is the builder for creating a UsageLog entity.
@@ -657,11 +656,6 @@ func (_c *UsageLogCreate) SetGroup(v *Group) *UsageLogCreate {
 	return _c.SetGroupID(v.ID)
 }
 
-// SetSubscription sets the "subscription" edge to the UserSubscription entity.
-func (_c *UsageLogCreate) SetSubscription(v *UserSubscription) *UsageLogCreate {
-	return _c.SetSubscriptionID(v.ID)
-}
-
 // Mutation returns the UsageLogMutation object of the builder.
 func (_c *UsageLogCreate) Mutation() *UsageLogMutation {
 	return _c.mutation
@@ -1007,6 +1001,10 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		_spec.SetField(usagelog.FieldBillingMode, field.TypeString, value)
 		_node.BillingMode = &value
 	}
+	if value, ok := _c.mutation.SubscriptionID(); ok {
+		_spec.SetField(usagelog.FieldSubscriptionID, field.TypeInt64, value)
+		_node.SubscriptionID = &value
+	}
 	if value, ok := _c.mutation.InputTokens(); ok {
 		_spec.SetField(usagelog.FieldInputTokens, field.TypeInt, value)
 		_node.InputTokens = value
@@ -1201,23 +1199,6 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.GroupID = &nodes[0]
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := _c.mutation.SubscriptionIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   usagelog.SubscriptionTable,
-			Columns: []string{usagelog.SubscriptionColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(usersubscription.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_node.SubscriptionID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
@@ -1509,6 +1490,12 @@ func (u *UsageLogUpsert) SetSubscriptionID(v int64) *UsageLogUpsert {
 // UpdateSubscriptionID sets the "subscription_id" field to the value that was provided on create.
 func (u *UsageLogUpsert) UpdateSubscriptionID() *UsageLogUpsert {
 	u.SetExcluded(usagelog.FieldSubscriptionID)
+	return u
+}
+
+// AddSubscriptionID adds v to the "subscription_id" field.
+func (u *UsageLogUpsert) AddSubscriptionID(v int64) *UsageLogUpsert {
+	u.Add(usagelog.FieldSubscriptionID, v)
 	return u
 }
 
@@ -2397,6 +2384,13 @@ func (u *UsageLogUpsertOne) ClearGroupID() *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) SetSubscriptionID(v int64) *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.SetSubscriptionID(v)
+	})
+}
+
+// AddSubscriptionID adds v to the "subscription_id" field.
+func (u *UsageLogUpsertOne) AddSubscriptionID(v int64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddSubscriptionID(v)
 	})
 }
 
@@ -3553,6 +3547,13 @@ func (u *UsageLogUpsertBulk) ClearGroupID() *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) SetSubscriptionID(v int64) *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.SetSubscriptionID(v)
+	})
+}
+
+// AddSubscriptionID adds v to the "subscription_id" field.
+func (u *UsageLogUpsertBulk) AddSubscriptionID(v int64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddSubscriptionID(v)
 	})
 }
 

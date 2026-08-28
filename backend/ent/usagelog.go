@@ -15,7 +15,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
-	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 )
 
 // UsageLog is the model entity for the UsageLog schema.
@@ -133,11 +132,9 @@ type UsageLogEdges struct {
 	Account *Account `json:"account,omitempty"`
 	// Group holds the value of the group edge.
 	Group *Group `json:"group,omitempty"`
-	// Subscription holds the value of the subscription edge.
-	Subscription *UserSubscription `json:"subscription,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [5]bool
+	loadedTypes [4]bool
 }
 
 // UserOrErr returns the User value or an error if the edge
@@ -182,17 +179,6 @@ func (e UsageLogEdges) GroupOrErr() (*Group, error) {
 		return nil, &NotFoundError{label: group.Label}
 	}
 	return nil, &NotLoadedError{edge: "group"}
-}
-
-// SubscriptionOrErr returns the Subscription value or an error if the edge
-// was not loaded in eager-loading, or loaded but was not found.
-func (e UsageLogEdges) SubscriptionOrErr() (*UserSubscription, error) {
-	if e.Subscription != nil {
-		return e.Subscription, nil
-	} else if e.loadedTypes[4] {
-		return nil, &NotFoundError{label: usersubscription.Label}
-	}
-	return nil, &NotLoadedError{edge: "subscription"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -569,11 +555,6 @@ func (_m *UsageLog) QueryAccount() *AccountQuery {
 // QueryGroup queries the "group" edge of the UsageLog entity.
 func (_m *UsageLog) QueryGroup() *GroupQuery {
 	return NewUsageLogClient(_m.config).QueryGroup(_m)
-}
-
-// QuerySubscription queries the "subscription" edge of the UsageLog entity.
-func (_m *UsageLog) QuerySubscription() *UserSubscriptionQuery {
-	return NewUsageLogClient(_m.config).QuerySubscription(_m)
 }
 
 // Update returns a builder for updating this UsageLog.

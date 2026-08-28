@@ -1045,6 +1045,26 @@ func SubscriptionIDNotIn(vs ...int64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldNotIn(FieldSubscriptionID, vs...))
 }
 
+// SubscriptionIDGT applies the GT predicate on the "subscription_id" field.
+func SubscriptionIDGT(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldSubscriptionID, v))
+}
+
+// SubscriptionIDGTE applies the GTE predicate on the "subscription_id" field.
+func SubscriptionIDGTE(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldSubscriptionID, v))
+}
+
+// SubscriptionIDLT applies the LT predicate on the "subscription_id" field.
+func SubscriptionIDLT(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldSubscriptionID, v))
+}
+
+// SubscriptionIDLTE applies the LTE predicate on the "subscription_id" field.
+func SubscriptionIDLTE(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldSubscriptionID, v))
+}
+
 // SubscriptionIDIsNil applies the IsNil predicate on the "subscription_id" field.
 func SubscriptionIDIsNil() predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldIsNull(FieldSubscriptionID))
@@ -2584,29 +2604,6 @@ func HasGroup() predicate.UsageLog {
 func HasGroupWith(preds ...predicate.Group) predicate.UsageLog {
 	return predicate.UsageLog(func(s *sql.Selector) {
 		step := newGroupStep()
-		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
-			for _, p := range preds {
-				p(s)
-			}
-		})
-	})
-}
-
-// HasSubscription applies the HasEdge predicate on the "subscription" edge.
-func HasSubscription() predicate.UsageLog {
-	return predicate.UsageLog(func(s *sql.Selector) {
-		step := sqlgraph.NewStep(
-			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, SubscriptionTable, SubscriptionColumn),
-		)
-		sqlgraph.HasNeighbors(s, step)
-	})
-}
-
-// HasSubscriptionWith applies the HasEdge predicate on the "subscription" edge with a given conditions (other predicates).
-func HasSubscriptionWith(preds ...predicate.UserSubscription) predicate.UsageLog {
-	return predicate.UsageLog(func(s *sql.Selector) {
-		step := newSubscriptionStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)
