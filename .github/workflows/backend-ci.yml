@@ -40,7 +40,11 @@ jobs:
       - name: Embed tag build check
         working-directory: backend
         run: |
-          mkdir -p internal/web/dist && touch internal/web/dist/.gitkeep
+          # 桩文件用 index.html 而非 .gitkeep：embed_on.go 现在写的是
+          # //go:embed all:dist，all: 前缀才会收录点文件；若将来有人去掉
+          # all:，只含点文件的桩目录会报 "contains no embeddable files"
+          # 让这一步假失败。非点文件与该前缀解耦，两种写法都成立。
+          mkdir -p internal/web/dist && printf '<!doctype html>\n' > internal/web/dist/index.html
           go build -tags embed ./...
           rm -rf internal/web/dist
 
