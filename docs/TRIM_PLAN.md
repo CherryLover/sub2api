@@ -540,19 +540,20 @@ docker image inspect ghcr.io/cherrylover/sub2api:internal-rc \
 `sub2api`（应用）、`postgres`（postgres:18-alpine）、`redis`（redis:8-alpine），
 Postgres 与 Redis 不暴露宿主机端口，仅应用暴露 `${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-8080}:8080`。
 
-#### 2.1 修改镜像坐标
+#### 2.1 指定镜像坐标
 
-把 `deploy/docker-compose.yml` 中 `sub2api` 服务的镜像行：
+**批次 3 起不要再改 `image:` 行。** 三个 compose 的镜像行统一写成
+`image: ${SUB2API_IMAGE:-ghcr.io/cherrylover/sub2api:latest}`，验证期只需在 `.env`
+里设一行：
 
-```yaml
-    image: ghcr.io/cherrylover/sub2api:latest   # 批次 2 起仓库默认值已是内部镜像
+```bash
+# deploy/.env
+SUB2API_IMAGE=ghcr.io/cherrylover/sub2api:internal-rc
 ```
 
-改为内部镜像：
-
-```yaml
-    image: ghcr.io/cherrylover/sub2api:internal-rc
-```
+不设这一行就会拿到 `:latest`（最近一次**正式发版**的镜像，不是 RC 分支构建）——
+way-rc 就是这么白验了两天。要钉死到某个提交用
+`ghcr.io/cherrylover/sub2api:internal-<short_sha>`。
 
 #### 2.2 准备环境变量
 
@@ -729,8 +730,11 @@ docker compose exec postgres psql -U sub2api -d sub2api \
 # 预期：value = false
 ```
 
-- 原有管理员账号可正常登录（存量库有用户数据时，AUTO_SETUP 会跳过管理员引导，不会覆盖原密码，
-  日志中会出现 "skipping auto admin bootstrap"）；
+- 原有管理员账号可正常登录（存量库已有管理员时，AUTO_SETUP 会跳过引导、不覆盖原密码，
+  日志出现 INFO "Admin user already exists, skipping admin bootstrap"）；
+  若库里有用户但**一个管理员都没有**，批次 3 起会打 WARN
+  "Warning: database already has user data but no admin account..."，
+  按提示用 `docker exec <container> /app/adminpass -email you@example.com -stdin` 自救；
 - 原有分组 / API Key / 用量数据在后台完好可见；
 - 用原有 API Key 按第 5 节方式真发一条请求，转发仍然成功，且新记录进入用量页。
 
@@ -738,10 +742,11 @@ docker compose exec postgres psql -U sub2api -d sub2api \
 
 ### 7. 回滚路径
 
-代码回滚 = 把 compose 里的镜像换回旧 tag，重启应用即可：
+代码回滚 = 把 `.env` 里的 `SUB2API_IMAGE` 换回旧 tag，重启应用即可：
 
 ```bash
-# 把 image 换成上一个可用的内部标签（如 ghcr.io/cherrylover/sub2api:internal-<旧 short_sha>
+# 把 SUB2API_IMAGE 换成上一个可用的内部标签（如
+# ghcr.io/cherrylover/sub2api:internal-<旧 short_sha>
 # 或已发版的 ghcr.io/cherrylover/sub2api:0.1.182）后：
 docker compose up -d sub2api
 ```

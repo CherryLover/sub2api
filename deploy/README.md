@@ -50,11 +50,27 @@ See [APPLE_CONTAINER.md](./APPLE_CONTAINER.md) for configuration, upgrades, pers
 
 ## Docker Deployment (Recommended)
 
-The compose files pull `ghcr.io/cherrylover/sub2api:latest`. Pin a specific build
-by editing the `image:` line (the release pipeline also publishes `x.y.z`, `x.y`
-and `x` tags). Do not point these at the upstream `weishaw/sub2api` image: it is
-the untrimmed build and still carries the payment, registration and third-party
-login surfaces this deployment removes.
+The compose files resolve the application image from `${SUB2API_IMAGE}` and fall
+back to `ghcr.io/cherrylover/sub2api:latest` when it is unset or empty. Set it in
+`.env` — never by editing the `image:` line — so every compose file in the stack
+moves together:
+
+```bash
+# .env
+SUB2API_IMAGE=ghcr.io/cherrylover/sub2api:internal-rc
+```
+
+**Internal RC verification must set `SUB2API_IMAGE=ghcr.io/cherrylover/sub2api:internal-rc`.**
+Deploying the repository compose files as-is pulls `:latest`, i.e. the most
+recent *release* build rather than the RC branch build — verifying against it
+once cost two full days of testing the wrong artifact. Use
+`ghcr.io/cherrylover/sub2api:internal-<short_sha>` to pin or roll back to a
+specific commit; the release pipeline also publishes `x.y.z`, `x.y` and `x` tags
+for normal releases.
+
+Do not point this at the upstream `weishaw/sub2api` image: it is the untrimmed
+build and still carries the payment, registration and third-party login surfaces
+this deployment removes.
 
 ### Method 1: Scripted Preparation (Recommended)
 

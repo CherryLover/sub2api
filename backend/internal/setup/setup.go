@@ -664,7 +664,11 @@ func AutoSetupFromEnv() error {
 		case adminBootstrapReasonAdminExists:
 			logger.LegacyPrintf("setup", "%s", "Admin user already exists, skipping admin bootstrap")
 		case adminBootstrapReasonUsersExistWithoutAdmin:
-			logger.LegacyPrintf("setup", "%s", "Database already has user data; skipping auto admin bootstrap to avoid password overwrite")
+			// WARN 而不是 INFO：这条分支意味着库里有用户但一个管理员都没有，
+			// 自动引导为了不覆盖既有密码而什么都没做，实例会照常 healthy——
+			// 结果是一个谁都登不进后台的实例。只用 INFO 打印等于把它藏起来。
+			// "Warning:" 前缀是 logger.inferStdLogLevel 判定 WARN 的依据，别删。
+			logger.LegacyPrintf("setup", "%s", "Warning: database already has user data but no admin account; skipped auto admin bootstrap to avoid overwriting an existing password. Nobody can sign in to the admin panel until an admin exists - promote an existing user to admin, or set a password with `docker exec <container> /app/adminpass -email you@example.com -stdin`")
 		default:
 			logger.LegacyPrintf("setup", "%s", "Admin bootstrap skipped")
 		}
