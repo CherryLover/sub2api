@@ -113,7 +113,6 @@ export default {
   // Navigation
   nav: {
     dashboard: 'Dashboard',
-    announcements: 'Announcements',
     apiKeys: 'API Keys',
     usage: 'Usage',
     redeem: 'Redeem',

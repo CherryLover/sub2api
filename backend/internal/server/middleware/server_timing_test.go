@@ -107,7 +107,7 @@ func TestIsUserTimingPath(t *testing.T) {
 		{"/api/v1/channels/available", true},
 		{"/api/v1/channels", false},
 		{"/api/v1/usage/stats", true},
-		{"/api/v1/announcements", true},
+		{"/api/v1/announcements", false},
 		{"/api/v1/redeem/history", false},
 		{"/api/v1/subscriptions/active", true},
 		{"/api/v1/channel-monitor-v2", true},

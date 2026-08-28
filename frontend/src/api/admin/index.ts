@@ -8,7 +8,6 @@ import usersAPI from './users'
 import groupsAPI from './groups'
 import accountsAPI from './accounts'
 import proxiesAPI from './proxies'
-import announcementsAPI from './announcements'
 import settingsAPI from './settings'
 import systemAPI from './system'
 import subscriptionsAPI from './subscriptions'
@@ -37,7 +36,6 @@ export const adminAPI = {
   groups: groupsAPI,
   accounts: accountsAPI,
   proxies: proxiesAPI,
-  announcements: announcementsAPI,
   settings: settingsAPI,
   system: systemAPI,
   subscriptions: subscriptionsAPI,
@@ -64,7 +62,6 @@ export {
   groupsAPI,
   accountsAPI,
   proxiesAPI,
-  announcementsAPI,
   settingsAPI,
   systemAPI,
   subscriptionsAPI,

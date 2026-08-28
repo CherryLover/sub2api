@@ -23,7 +23,7 @@ describe('Admin UI request marker', () => {
     expect(shouldMarkAdminUIRequest(requestURL, '/login')).toBe(true)
   })
 
-  it.each(['/keys', '/groups/available', '/auth/me', '/announcements'])(
+  it.each(['/keys', '/groups/available', '/auth/me', '/usage/stats'])(
     'marks shared request %s while an Admin page is active',
     (requestURL) => {
       expect(shouldMarkAdminUIRequest(requestURL, '/admin/dashboard')).toBe(true)
@@ -61,8 +61,6 @@ describe('User UI request marker', () => {
     '/usage',
     '/usage/stats',
     '/usage/dashboard/snapshot-v2',
-    '/announcements',
-    '/announcements/3/read',
     '/subscriptions',
     '/subscriptions/active',
     '/channel-monitor-v2',
@@ -84,6 +82,8 @@ describe('User UI request marker', () => {
     '/redeem/history',
     '/payment/config',
     '/payment/orders',
+    '/announcements',
+    '/announcements/3/read',
     '/auth/oauth/bind-token',
     '',
   ])('does not mark non-user timing API %s', (requestURL) => {

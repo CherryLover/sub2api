@@ -246,6 +246,12 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/v1/images/batches/:id/download",
 		"/v1/images/batches/:id/cancel",
 		"/v1/images/batches/:id/outputs",
+		// 公告体系（批次 3）：用户侧公告列表/已读回执与管理端公告 CRUD 整体下线。
+		"/api/v1/announcements",
+		"/api/v1/announcements/:id/read",
+		"/api/v1/admin/announcements",
+		"/api/v1/admin/announcements/:id",
+		"/api/v1/admin/announcements/:id/read-status",
 	}
 	for _, path := range absentPaths {
 		_, exists := paths[path]
@@ -268,6 +274,8 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/auth/oauth",
 		"/api/v1/admin/compliance",
 		"/api/v1/pages",
+		"/api/v1/announcements",
+		"/api/v1/admin/announcements",
 	}
 	for path := range paths {
 		for _, prefix := range forbiddenPrefixes {
@@ -296,6 +304,8 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/system/check-updates"},
 		{http.MethodPost, "/api/v1/admin/system/update"},
 		{http.MethodPost, "/api/v1/admin/system/rollback"},
+		{http.MethodGet, "/api/v1/announcements"},
+		{http.MethodGet, "/api/v1/admin/announcements"},
 		{http.MethodGet, "/api/v1/admin/compliance"},
 		{http.MethodPost, "/api/v1/admin/compliance/accept"},
 		{http.MethodGet, "/api/v1/pages/help"},
