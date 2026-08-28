@@ -13,17 +13,22 @@
 
 | 原计划阶段 | 状态 | 说明 |
 |---|---|---|
-| 1. Fork 与范围冻结 | 🔵 进行中（批次 2） | 范围与协议决策已定（转发面全保留）；应用内更新检查/在线升级/回滚**批次 1 已整删**；批次 2 做 **A1 尾款**（install.sh 的 update/rollback 子命令、compose/.env.example/README 过时注释） |
-| 2. 数据模型收敛 | ⚪ 未开始 | 修订：不删 User 实体、不建 key_period_usage、不改名 RoutePool；剩余=订阅/余额语义改造 + ent 死实体清理（并入数据库压平） |
-| 3. Key 认证与额度引擎 | 🟢 大部分已满足 | 防爆破/IP ACL/幂等结算/惰性窗口/时区均已存在并经审查确认；待做=周额度改自然周锚点（A3） |
+| 1. Fork 与范围冻结 | ✅ 完成（批次 1 + 2） | 范围与协议决策已定（转发面全保留）；应用内更新检查/在线升级/回滚整删；A1 尾款（install.sh 的 update/rollback 子命令、compose/`.env.example`/README 过时注释）批次 2 交付完毕 |
+| 2. 数据模型收敛 | ✅ 完成（批次 4 + 5） | 订阅/余额语义改造 = 批次 4；ent 17 个死实体删除 + 21 张死表 + 3 个死列 + 50 多个孤儿设置键 = 批次 5。**迁移基线重置未做**，实测数据不支持该改造，见第四节 |
+| 3. Key 认证与额度引擎 | 🟢 大部分完成 | 防爆破/IP ACL/幂等结算/惰性窗口/时区均已存在；额度已在批次 4 统一到 `api_keys.quota`；**待做=周额度改自然周锚点（A3，批次 6）** |
 | 4. 网关与上游账户池 | ✅ 完成（按决策零改动） | 全量保留 |
-| 5. 最小管理员后台 | 🔵 进行中（批次 2） | 商业化入口已拆；批次 2 做 **B1**（登录条款/合规确认）+ **B2**（通用设置冗余项）；Keys/用量页单管理员语义仍未做（A6） |
-| 6. 删除 SaaS 外围 | 🔵 进行中（批次 2） | 批次 1 已删支付/卡密/第三方 OAuth 等（约六成）；批次 2 做 **B3**（注册体系彻底移除）+ **B4**（人机验证全部移除）；公告/模型广场/邮销未删（A2）；**B5 邮件体系调研已完成，待站长拍板**（见第三节 B5 专节） |
-| 7. 安全与上线验证 | 🟡 批次 1 已收口 | 三轮 RC 镜像内网部署验证全部通过并已合并发版（见第二节收口事实）；**批次 2 需重走一轮 RC 验证**；压测与备份恢复演练仍未做（A7） |
+| 5. 最小管理员后台 | 🔵 进行中 | 商业化入口、登录条款、通用设置冗余项、订阅/余额面均已拆；**Keys/用量页单管理员语义仍未做（A6，批次 6）** |
+| 6. 删除 SaaS 外围 | ✅ 完成（批次 1–5） | 批次 1 支付/卡密/第三方 OAuth；批次 2 注册体系/人机验证；批次 3 邮件体系/内容审计/批量生图/渠道监控 V1/公告/模型广场；批次 4 订阅与余额。A2 全部落地 |
+| 7. 安全与上线验证 | 🟡 批次 1、2 已收口 | 批次 1 三轮、批次 2 一轮 RC 镜像内网验证全部通过；**批次 3+4+5 需走一轮合并 RC 验证（尚未开始）**；压测与备份恢复演练仍未做（A7，批次 6） |
 
-**当前位置**（2026-08-28 更新）：批次 1 已合并 main 并发版 v0.1.182（收口事实见第二节）；
-**批次 2 代码全部交付、CI 全绿，RC 镜像 `internal-1e49744` 已部署到 way-rc，验证清单待走**（见第六节）。
-**B5 邮件体系与 A2 去留已于 2026-08-28 由站长拍板**，重排后的批次计划见第三节「站长决策与重排」。
+**当前位置**（2026-08-29 更新）：批次 1 已合并 main 并发版 v0.1.182，批次 2 已于 way-rc 验收通过（见第六节）。
+**批次 3 + 4 + 5 代码已全部交付并合流到分支**（交付明细见第三节「批次 3 / 4 / 5 交付明细」），
+共 757 个文件、约 22 万行删除。本轮首次在本地跑通了与 CI 等价的四个 job
+（`go build`／`-tags embed`／unit／integration／golangci-lint v2.9 零 issue／
+前端 lint + typecheck + 1304 个 vitest 用例／shell 脚本），详见第四节。
+**下一步**：推 GitHub CI → CI 全绿后出 `internal-rc-<short_sha>` 镜像 → way-rc 走第五节验证清单 → 通过才合并 `fork/main`。
+**尚未完成、需站长决策的两项**：迁移基线重置（A5 内，实测不划算，方案见第四节）、
+goreleaser 发版镜像不含 `adminpass`（第四节，**影响合并后的生产 `:latest`，建议合并前解决**）。
 **关口**：auto-release 经站长决策**保持现状不动**（合并后自动发版即预期行为，内部版本线就走 main）。
 
 ### ⚠️ 生产影响：`:latest` 已经是生产的活动标签
@@ -35,10 +40,12 @@
   "发版"与"上生产"之间不再有人工改 tag 的闸门 —— 合并即等于把新版本预置到了生产上。
 - 因此**破坏性变更必须先出 `internal-rc-<short_sha>` 标签、走 way-rc（`way-rc.flyooo.uk`）验证，
   验证通过再合并 main**。禁止"先合并 main 再验证"。
-- 批次 2 中 **B3（注册体系彻底移除）触及登录与用户表语义，属破坏性变更，必须走 RC 验证**；
-  B1/B2/B4/A1 尾款虽是低耦合删除，也一并纳入同一轮 RC 镜像一起验证。
+- 批次 2 的 **B3（注册体系彻底移除）** 触及登录与用户表语义，已按此流程走完 RC 验证；
+  **批次 3 + 4 + 5 同理，且破坏性更强**（批次 4 改计费核心、批次 5 做不可逆的删表删列），
+  必须先出 RC 镜像走完第五节清单，通过才能合并。
 - 回滚路径相应变化：出问题时**不能只靠重启**（重启只会再拉一次 `:latest`），
   需先把生产 compose 的镜像临时钉到上一个正式版本 tag（如 `ghcr.io/cherrylover/sub2api:0.1.182`）再重启。
+  ⚠️ **批次 5 合并之后这还不够** —— 删表删列后回滚必须连数据库一起恢复，见第四节「⛔ 回滚不再是无损操作」。
 
 ---
 
@@ -65,11 +72,11 @@
 
 ---
 
-## 三、批次 2（实施中）与后续 backlog
+## 三、批次 2 – 5 交付记录与后续 backlog
 
-### 批次 2 首发范围与进度
+### 批次 2 首发范围与进度（已交付，way-rc 验收通过）
 
-本批首发 = **B1 + B2 + B3 + B4 + A1 尾款**，多 Agent 并行实施中。
+本批首发 = **B1 + B2 + B3 + B4 + A1 尾款**。
 
 | 工作包 | 内容 | 状态 |
 |---|---|---|
@@ -84,7 +91,7 @@
 | B5 | 邮件体系收敛 | ⏸️ **本批不实施**，调研结论见下方 B5 专节，待站长拍板 |
 | D | 本文档（TRIM_PLAN.md）更新 | ✅ 已交付 |
 
-#### 批次 2 交付明细（代码已合流，CI 待确认）
+#### 批次 2 交付明细（已 CI 全绿并于 internal-1e49744 验收通过）
 
 - **B3 注册体系**：注册路由/页面/开关/邮箱验证注册流/注册专用默认值链路全删；`send-verify-code` 经核实只服务注册（TOTP 与邮箱绑定各有独立通道）一并删除。**管理员后台建用户能力保留**——它与注册体系并非深耦合，只共享 `GetDefaultBalance`/`GetDefaultSubscriptions` 两个通用访问器；存量是多用户场景，管理员仍需管理这些用户。
 - **`email_verify_enabled` 键保留**：它另有三处非注册消费者（找回密码的三重与门、TOTP 自助开关的验证方式判断、邮件配置面门控），删键会静默改变保留面语义。仅摘掉注册分支，三处行为逐字未变。副作用已处理：种子探针原用 `registration_enabled` 判断"是否已初始化"，已换为同批种子键。
@@ -132,15 +139,15 @@
 
 ### A 组：既有 backlog（顺序建议）
 
-| 编号 | 内容 | 对应原阶段 |
-|---|---|---|
-| A1 | 🔵 **尾款批次 2 实施中**。核心已落地（修复轮：应用内更新检查/在线升级/回滚整套已删，版本号展示与 restart 保留；`update.proxy_url` 因定价表与 Codex 同步仍消费而保留原键名）。尾款范围：install.sh 的 update/rollback 子命令、docker-deploy.sh、`deploy/docker-compose*.yml`/`.env.example`/`deploy/README.md` 过时注释。auto-release.yml 经站长决策**保持现状不动** | 阶段 1 |
-| A2 | 公告、模型广场、邮件营销面删除；渠道监控 V1/批量生图/内容安全审计**已于 2026-08-28 拍板**：删内容安全审计、删批量生图、监控删 V1 留 V2（并把线上 `channel_monitor_mode` 切到 `v2`）。详见「站长决策与重排」 | 阶段 6 |
-| A3 | 周额度改自然周（周一 00:00）锚点 | 阶段 3 |
-| A4 | 订阅/余额拆除与 Key 额度直绑改造（最难一刀，单独里程碑） | 阶段 2/6 |
-| A5 | 数据库压平：删除死实体（payment/redeem/promo/subscription_plan 等）、迁移基线重置、支持全新初始化 | 阶段 2 |
-| A6 | 管理后台单管理员化（Keys/用量页直管语义） | 阶段 5 |
-| A7 | 部署文档改写（README/DEV_GUIDE 内部化）+ 压测、备份恢复、Key 泄露演练 | 阶段 7 |
+| 编号 | 内容 | 落点 | 状态 |
+|---|---|---|---|
+| A1 | 应用内更新检查/在线升级/回滚整删（版本号展示与 restart 保留；`update.proxy_url` 因定价表与 Codex 同步仍消费而保留原键名）；尾款 = install.sh 的 update/rollback 子命令、docker-deploy.sh、compose/`.env.example`/README 过时注释。auto-release.yml 经站长决策**保持现状不动** | 批次 1 + 2 | ✅ 已交付 |
+| A2 | 公告、模型广场、邮件营销面删除；内容安全审计删除、批量生图删除、渠道监控删 V1 留 V2（并把 `channel_monitor_mode` 切到 `v2`） | 批次 3 | ✅ 已交付 |
+| A3 | 周额度改自然周（周一 00:00）锚点 | 批次 6 | ⚪ 未开始 |
+| A4 | 订阅/余额拆除与 Key 额度直绑改造（最难一刀，单独里程碑） | 批次 4 | ✅ 已交付 |
+| A5 | 数据库压平：删除死实体（payment/redeem/promo/subscription_plan 等）、**迁移基线重置**、支持全新初始化 | 批次 5 | 🟡 **部分交付** —— 死实体/死表/死列/孤儿键全部清完，**迁移基线重置未做**（见第四节「⛔ 未完成项 1」） |
+| A6 | 管理后台单管理员化（Keys/用量页直管语义） | 批次 6 | ⚪ 未开始 |
+| A7 | 部署文档改写（README/DEV_GUIDE 内部化）+ 压测、备份恢复、Key 泄露演练 | 批次 6 | ⚪ 未开始 |
 
 排序建议（**已被 2026-08-28 决策取代**，保留原文供追溯）：B1–B4 与 A1 合并为批次 2 首发 → A2 → A3 → A4 → A5 → A6 → A7。B5 待决策后并入。
 
@@ -166,68 +173,13 @@
 
 #### 重排后的批次
 
-| 批次 | 范围 | 性质 |
+| 批次 | 范围 | 状态 |
 |---|---|---|
-| **批次 2**（代码已完成） | B1 登录条款 / B2 通用设置冗余项 / B3 注册体系 / B4 人机验证 / A1 尾款 | **待 way-rc 验证** |
-| **批次 3** | B5 邮件体系整删（+ 密码重置小工具）、内容安全审计删除、批量生图删除、渠道监控 V1 删除（模式切 V2）、A2 剩余（公告 / 模型广场 / 邮件营销）、第四节「后续候选项」里的小尾巴（CSP 失效白名单、支付遗留文档、`registration_email_domain_quota_enabled` 等） | 低耦合删除 |
-| **批次 4**（代码已完成） | A4 订阅/余额拆除 + Key 额度直绑；**注册用户默认值随本批消失** | 最难一刀，**待 CI 与 way-rc 验证** |
-| **批次 5**（代码已完成） | A5 数据库压平：payment / redeem / promo / subscription 死实体与死表清理；**充值兑换残留已清干净**。迁移基线重置**未做**，见下方说明 | 结构性 |
-| **批次 6** | A3 周额度自然周锚点、A6 后台单管理员化、A7 文档改写 + 压测 / 备份恢复 / Key 泄露演练 | 收尾 |
-
-> **批次 4 落地说明（2026-08-29）**：额度语义已统一到 `api_keys.quota / quota_used`，
-> 认证中间件只剩「Key 状态 / 过期 / Key 额度」三道闸门，结算主干不再写
-> `users.balance` 与 `user_subscriptions`。配套迁移 `234_drop_subscription_and_balance_semantics.sql`
-> 做了三件事保证存量可用：① 按「已有 Key 绑在该专属分组上」的既成事实回填
-> `user_allowed_groups`（补上旧代码里"订阅型分组直接放行"那条被取消的旁路）；
-> ② 把非订阅分组上**原本就不生效**的 `peak_rate_enabled` 显式关掉，使升级前后计费口径一致；
-> ③ 分组 `subscription_type` 归一为 `standard` 并清掉 8 个已无读写方的设置键。
-> 迁移不删表不删列，`user_subscriptions` / `users.balance` / `groups.subscription_type`
-> 与三个限额列全部保留给批次 5（A5）处理，因此本批可整体回滚。
->
-> ⚠️ **两项行为变更需要在 way-rc 上重点复验**：
-> 1. `quota_used` 现在**无条件累加**（旧实现只在 `quota > 0` 时累加），
->    不限额 Key 的 `quota_used` 会从 0 开始增长——这是"所有 Key 都记账"的前提，
->    但对存量 Key 是可见的行为变化。
-> 2. Key 额度成为唯一闸门后，超支窗口从「Redis 实时余额」退化为
->    「auth cache TTL + 并发 in-flight」——`CheckBillingEligibility` 不再做额度预检，
->    耗尽判定依赖认证缓存快照与结算后的 `InvalidateAuthCacheByKey`。
->    内部单管理员部署可接受；若将来要收紧，需把 Key 额度接进 billing-cache 预检。
-
-> **批次 5 落地说明（2026-08-29）**：本批第一次在本地跑通了真正的 Go 工具链
-> （go1.26.6 临时下载到 scratchpad，用完即删）与一套独立的 PostgreSQL 18.1，
-> 因此结论都是实测而非静态推断。
->
-> **重要发现**：批次 5 开工时，分支上 `go build ./...` **本身就编译不过**
-> —— 批次 3 删公告时删掉了 `domain.AnnouncementTargeting`，但生成的
-> `ent/announcement*.go` 还在引用它。也就是说批次 3 和 4 之后，CI 的
-> 单测 / 集成 / lint 三条流水线全部会红。本批已一并修好。
->
-> 实际交付：
-> - **ent 死实体**：删除 17 个 schema 与全部生成物（支付 3 + 兑换促销 3 +
->   订阅 2 + 批量生图 3 + 渠道监控 V1 4 + 公告 2）；User 去 6 条边、
->   Group 去 2 条边 + 3 个批量生图字段、UsageLog 去指向 user_subscriptions 的边。
->   **ent 是用官方代码生成器重新生成的，不是手工改生成物。**
-> - **死表**：迁移 235 DROP 21 张表（含推广返佣 2 张、内容审计日志 1 张、
->   渠道监控 V1 的聚合水位表）；迁移 236 DROP `groups` 的 3 个批量生图列；
->   迁移 237 清掉 50 多个孤儿设置键。
-> - **刻意保留**：`usage_logs.subscription_id`（repository 裸 SQL 与 DTO 仍在用）、
->   `groups.subscription_type`（可用渠道 DTO 之外，migration 193 的 auth cache
->   触发器函数引用了这一列）、`users.balance` 家族（列还在，service 层已不读）。
-> - **实测验证**：全新库跑完 277 条迁移无报错、最终只剩 4 个活设置键；
->   用 `fork/main` 的 269 条迁移建出「升级前老库」并塞入代表性数据后再升级，
->   28 项断言全过；停在 123 号迁移的老库也能直接升到最新；重复执行为 no-op。
->
-> ⚠️ **迁移基线重置：本批未做，留给站长决策**。理由是实测数据不支持这项改造：
-> 全新库跑完 277 条迁移只要 **0.3–0.6 秒**，"顺序跑历史迁移"并不是真实痛点。
-> 而任何形式的基线重置都要么改迁移执行器（新增"全新库走基线、存量库标记已应用"
-> 的分叉逻辑），要么删历史迁移文件——后者会让**停在中间版本的存量库无法升级**
-> （例：删掉建 `batch_image_jobs` 的 159，而 187 里还有引用它的语句）。
-> 若将来仍要做，建议的最小安全方案是：只加"全新库快速路径"，不删任何历史文件——
-> ① 用一次性脚本把 277 条迁移跑进空库后 `pg_dump --schema-only` 生成
-> `000_baseline.sql`，并在其中附带把全部历史迁移写入 `schema_migrations` 的 INSERT；
-> ② 在 `applyMigrationsFS` 开头判断 `schema_migrations` 是否为空：非空（存量库）
-> 就把 `000_baseline.sql` 直接标记为已应用而不执行；③ 加一个集成测试对拍
-> 「按历史链建库」与「按基线建库」两份 `pg_dump` 必须一致。
+| **批次 2** | B1 登录条款 / B2 通用设置冗余项 / B3 注册体系 / B4 人机验证 / A1 尾款 | ✅ **已交付，way-rc 验收通过**（第六节 internal-1e49744） |
+| **批次 3** | B5 邮件体系整删（+ `adminpass` 密码重置工具）、内容安全审计删除、批量生图删除、渠道监控 V1 删除（模式切 V2）、A2 剩余（公告 / 模型广场 / 邮件营销文案）、第四节「后续候选项」里的小尾巴（CSP 失效白名单、支付遗留文档、`registration_email_domain_quota_enabled`）、批次 2 验收发现的两条部署侧隐患 | ✅ **已交付，待 RC 验证** |
+| **批次 4** | A4 订阅/余额拆除 + Key 额度直绑；**注册用户默认值随本批消失** | ✅ **已交付，待 RC 验证**（最难一刀，两项行为变更须重点复验） |
+| **批次 5** | A5 数据库压平：ent 17 个死实体 + 21 张死表 + 3 个死列 + 50 多个孤儿设置键；**充值兑换残留已清干净**；顺带修好批次 3/4 遗留的编译与格式问题 | ✅ **已交付，待 RC 验证**；⛔ **迁移基线重置未做**，见第四节 |
+| **批次 6** | A3 周额度自然周锚点、A6 后台单管理员化、A7 文档改写 + 压测 / 备份恢复 / Key 泄露演练 | ⚪ 未开始 |
 
 #### 本轮执行方式（站长指定）
 
@@ -247,6 +199,191 @@
    已实测确认请求确实发到了 `api.anthropic.com` 并被上游以 401 拒绝（即链路通到上游门口），
    但**"拿到上游正常应答"这一跳始终未经验证**。考虑到批次 4 将改动计费与额度核心、
    而转发链路是本项目命根子，此缺口应在批次 4 合并前由站长以其他方式补验。
+
+---
+
+### 批次 3 / 4 / 5 交付明细（2026-08-29，代码已全部合流到分支）
+
+> 体例同第二节批次 1 与上方批次 2：**写清删了什么、保留了什么、为什么这么切**。
+> 三批合计 **757 个文件、20699 行新增、222225 行删除**
+> （批次 3：415 文件 / −72944；批次 4：250 文件 / −20091；批次 5：256 文件 / −129353，
+> 其中批次 5 的 18423 行新增几乎全是 ent 重新生成的产物）。
+> 状态一律是「代码已交付、CI 与 way-rc 验证未做」，**唯一例外见每包末尾的 ⛔ 标注**。
+
+#### 批次 3（低耦合整删，7 个工作包，11 个代码提交 + 1 个文档提交）
+
+**WP3-a｜邮件体系整删（B5 方案 A）** — `6173895b2` `50fddf33e` `371c8ca34`
+
+- 后端整删 **27 个文件**：`email_service` / `email_queue_service` / `email_message` /
+  `notification_email_service` / `balance_notify_service` / `content_moderation_email` /
+  `auth_email_binding` / `ops_scheduled_report_service` / `subscription_expiry_service` /
+  `notify_email_entry` / `repository.email_cache` / `admin.setting_handler_email` /
+  `dto.notify_email_entry`，外加 14 个纯邮件测试。
+- **认证面**：`AuthService` 去掉两个构造形参并删掉找回密码五件套；
+  `forgot-password` / `reset-password` / `settings/email-unsubscribe` 三条路由下线。
+- **TOTP 面按 B5-3 的调研结论执行**：`verifyIdentity` 的邮箱验证码分支整删、统一走密码，
+  `InitiateSetup` / `Disable` 去掉 `emailCode` 形参。
+  **登录用的 `VerifyCode` 与敏感操作 step-up 一行未动** —— 这是当初决定"删邮件不影响 2FA 登录"的前提，
+  实施时逐字守住了。
+- **告警与计费收尾**：ops 告警评估器只删邮件推送，**告警事件照旧落库**（B5-6 的"面板内有完整替代"）；
+  网关计费只拆掉两个异步通知调用点与 `BalanceNotifyService` 依赖，**计费口径零改动**。
+- **设置层删 17 个键**（7 个 `smtp_*`、`email_verify_enabled`、`password_reset_enabled`、
+  `frontend_url`、余额提醒 3 个、订阅到期提醒、账号额度提醒 2 个、`ops_email_notification_config`），
+  新增迁移 **230** 幂等清库（18 个显式键 —— 上面 17 个再加 `notification_email_unsubscribe_secret` ——
+  以及 `notification_email_template/preference/delivery/locale` 四个前缀的历史模板行）。
+- ⚠️ **一处必须知情的副作用**：`InitializeDefaultSettings` 判断"是否已种过默认设置"的探测键
+  从 `email_verify_enabled` 换成了 `registration_email_suffix_whitelist`。
+  老库两个键都在，不会重跑种子；但若某个环境的 `settings` 表被手工清过又只留部分键，行为会与以前不同。
+- **配套交付 `backend/cmd/adminpass`**（B5-4 建议的兜底工具）：
+  `-password` 参数 > `ADMINPASS_NEW_PASSWORD` 环境变量 > `-stdin` 三级取密码，
+  bcrypt 走与登录校验同一个 `service.User.SetPassword`，改 `password_hash` 顺带让已签发的
+  access token 失效。已加进 `Dockerfile` 与 `deploy/Dockerfile`。
+  ⛔ **未加进 `Dockerfile.goreleaser` / `.goreleaser.yaml`，即发版镜像里没有这个工具**，
+  详见第四节同名条目 —— **这是本轮唯一一个会影响生产的未完成项**。
+- **前端**：删 6 个组件/页面（模板编辑器、ops 邮件卡片、忘记密码页、重置密码页、
+  余额提醒卡、账号绑定卡），系统设置整个「邮件」标签页移除（标签从 7 项收敛为 6 项），
+  2FA 弹窗只剩密码校验，个人资料的「登录方式绑定」**降级为只读展示**。
+- ⚠️ **降级说明**：普通用户从此无法自助更换登录邮箱，管理员改自己的邮箱只能走后台用户管理
+  （要求已登录）。真被锁在门外时的唯一出路就是 `adminpass`。
+
+**WP3-b｜批量生图整删 + 内容安全审计整删** — `4c3bc2a68` `109a063e6`
+
+- **批量生图**：handler 1 + service 14 + repository 3 及其测试整删，网关十条 `/v1/images/batches*` 下线；
+  `UsageBillingRepository` 去掉三个冻结/结算/解冻方法；分组三个批量字段从六处结构体与两处读写映射摘掉；
+  `BatchImageConfig` 48 个字段与 46 条 viper 默认值删除；前端删掉 2691 行的向导页与整套 i18n。
+- **保留面刻意守死**：`allow_image_generation`、`image_rate_*`、`image_price_1k/2k/4k` 与
+  `/v1/images/generations`、`/v1/images/edits`、异步生图三组路由**一个没动**，
+  并新增 `TestRetainedImageSurfaceStillRegistered` 正面锁住。
+- **内容安全审计**：service 4 + repository 2 + `securityaudit/coordinator_legacy.go` + handler 整删，
+  管理端 `/admin/risk-control` 全组八条路由下线；`Coordinator` 改写为单引擎
+  （去掉双引擎并发与 legacy 优先级仲裁）。
+- **保留面**：**提示词审计一行未动**；`risk_control_enabled` 键保留 ——
+  核查发现它同时是提示词审计的总开关（`securityaudit/prompt_types.go` 与前端 `/admin/prompt-audit`
+  路由守卫都认它），删键会连带打死保留面。仅把前后台文案从「风控中心」改写为「安全审计」，
+  **键名不动**（改键名要动迁移与存量数据，不值当）。cyber 会话屏蔽开关与 TTL 原样保留。
+- ⚠️ **一处行为变化**：`cyber_policy` 命中后不再往 `content_moderation_logs` 写风控记录
+  （该表已无写入方，并在批次 5 被 DROP）。用量行、会话屏蔽、ops 错误日志三条记录路径都保留。
+
+**WP3-c｜渠道监控 V1 整删，模式切 V2** — `2d735ca79`
+
+- 后端删 19 个 service 文件（checker / challenge / 调度器 / 聚合视图 / 配额抓取 / 请求模板 + 测试）、
+  2 个 repository、2 个 handler，17 条路由下线；V2 的 8 条管理端 + 6 条用户端路由**原样保留**。
+- 设置层删 `channel_monitor_mode` / `channel_monitor_default_interval_seconds` /
+  `channel_monitor_show_quota` 三键，V2 从此只受 `channel_monitor_enabled` 一个开关控制（fail-closed）。
+- **迁移 231 是本轮唯一一条"改值而非删键"的迁移**：用 `INSERT ... ON CONFLICT DO UPDATE`
+  把 `channel_monitor_mode` 幂等写成 `'v2'`。新代码根本不读这个键，改值纯粹是为了
+  **回滚到旧镜像时旧代码读到 `'v2'` 会走被动聚合，而不是把会烧上游额度的主动探测重新打开**。
+  写法上刻意避开了 229 的坑（只写 `UPDATE` 对新库是空操作）。
+- 前端删 V1 的两个组件目录、3 个 api 模块与 7 个 spec，`/monitor` 直接进 V2 页。
+
+**WP3-d｜公告整删 + 模型广场整删** — `7ebcb8824` `478b8e767`
+
+- **公告**：后端 12 个文件、8 条路由；前端 8 个文件、顶栏铃铛、用户侧弹窗与已读回执。
+  表结构当时刻意留给批次 5（已在 235 里 DROP）。
+- **模型广场**：后端 5 个文件、1 条公开路由、3 个设置键（迁移 232 清库）；
+  **默认落地页白名单 `allowedDefaultHomePaths` 同步去掉 `/model-plaza`** ——
+  那是白名单，留着等于允许把首页指向一个已经不存在的页面。
+  而 `reservedEntryPaths`（自定义登录路径黑名单）里的 `/model-plaza` **刻意保留**：
+  删黑名单条目只会放宽允许集，属安全收紧项而非裁剪项。
+
+**WP3-e｜第四节小尾巴清账** — `4c9a91120`
+
+- CSP 强制注入表 **27 条收敛为 1 条**（只留 Cloudflare Web Analytics），
+  `frame-src` 收紧为 `'none'`，并加了防回归用例锁死这批主机不许回流。
+- 删除三份支付遗留文档，并把三个 README 里指向它们的条目一并删掉（避免悬空链接）。
+- 删除 `registration_email_domain_quota_enabled`（迁移 233）。
+  **核实结论修正**：兄弟键 `registration_email_suffix_whitelist` **必须保留** ——
+  它是 `InitializeDefaultSettings` 的种子探测键（见 WP3-a 的副作用说明）。
+
+**WP3-f｜批次 2 验收发现的两条部署侧隐患** — `96f704c11`
+
+- 三个 compose 的镜像行改为 `${SUB2API_IMAGE:-...}`，`.env.example` 补 `SUB2API_IMAGE` 项。
+  这正是「way-rc 白验了两天」的根因（第六节 internal-1e49744）。
+- 存量库"有用户但一个管理员都没有"时的日志由 INFO 提到 **WARN**，并补上 `adminpass` 自救指引。
+  **引导逻辑一行未改**：守卫方向不变，宁可没管理员也不覆盖既有密码。
+
+**WP3-g｜i18n 死文案清理 + Passkey 分隔线修正** — `65bcd073d`
+
+- zh/en 各删 61 条键（OAuth 回调、邀请码、优惠码、兑换、支付、订阅、首页四个营销区块），
+  删前逐键 grep 确认零引用，删后两边键集合仍完全一致。
+- 顺带修掉批次 2 验收发现的低危项：Passkey 按钮上方的分隔线从 `auth.oauthOrContinue`
+  （「或使用其他继续」）改为新增的 `auth.passkeyOrContinue`。
+
+#### 批次 4（A4 订阅/余额拆除 + Key 额度直绑，最难一刀）
+
+提交：`c49cf8e1c`（后端）`97c445ded`（前端）`e86906521` `808982db1`（两个复查修复）
+
+- **额度语义统一到 `api_keys.quota / quota_used` 一处，Key 就是额度本身。**
+  认证中间件（Anthropic 与 Gemini 两条入站同步改）只剩「Key 状态 / 过期 / Key 额度」三道闸门。
+- 下线用户侧「我的订阅」、管理端「订阅管理」与管理员充值/扣款接口
+  （门禁里锁死 16 条精确路径 + `/api/v1/subscriptions`、`/api/v1/admin/subscriptions` 两个前缀）；
+  删除订阅域整块与余额写接口（`UpdateBalance` / `DeductBalance` / `AdjustBalance` / `SetBalance`）。
+- **注册用户默认值随本批消失**（当初拍板时就判断它与订阅/余额强耦合、技术上必须随 A4 落地，
+  实施结果印证了这一点）。
+- 高峰时段倍率与订阅类型解绑；专属分组授权取消「订阅型分组直接放行」的旁路，统一按
+  `user_allowed_groups` 判定。
+- **迁移 234 做三件事保证存量可用**：① 按「已有 Key 绑在该专属分组上」的既成事实回填
+  `user_allowed_groups`（补上被取消的那条旁路）；② 把非订阅分组上**原本就不生效**的
+  `peak_rate_enabled` 显式关掉，使升级前后计费口径一致；③ 分组 `subscription_type` 归一为
+  `standard` 并清掉 8 个已无读写方的设置键。**不删表不删列**，因此批次 4 单独可整体回滚。
+- ⚠️ **两项行为变更，必须在 way-rc 上重点复验**（验证项见第五节 4.6）：
+  1. `quota_used` 现在**无条件累加**（旧实现只在 `quota > 0` 时累加）。不限额 Key 的
+     `quota_used` 会从 0 开始增长 —— 这是"所有 Key 都记账"的前提，但对存量 Key 是可见的行为变化。
+  2. Key 额度成为唯一闸门后，超支窗口从「Redis 实时余额」退化为「auth cache TTL + 并发 in-flight」：
+     `CheckBillingEligibility` 不再做额度预检，耗尽判定依赖认证缓存快照与结算后的
+     `InvalidateAuthCacheByKey`。内部单管理员部署可接受；若将来要收紧，需把 Key 额度接进 billing-cache 预检。
+- 两个复查提交修的是**批次 4 自身在无编译器环境下造成的断裂**：误删了仍被 5 处生产代码调用的
+  `getAdminIDFromContext`、误删了仍被 9 个存活测试引用的两个 stub、
+  以及把上游供应商余额当成用户钱包余额盲删了测试数据。
+
+#### 批次 5（A5 数据库压平 + 前四批的收尾修复）
+
+提交：`292f3fa65`（ent）`a5d5bb6cb`（迁移）`269098f60`（gofmt）`81f7361d0` `5612f64d0` `8d3fe8105`（测试与前端修复）
+
+- **本批第一次在本地跑通了真正的工具链**（go1.26.6 + golangci-lint v2.9 + PostgreSQL 18.1 + pnpm 9，
+  全部装在 scratchpad 里、用完即删），所以下面的结论是实测而非静态推断。搭法见第四节。
+- 🔴 **开工时的重要发现**：分支上 `go build ./...` **本身就编译不过** ——
+  批次 3 删公告时删掉了 `domain.AnnouncementTargeting`，但生成的 `ent/announcement*.go` 还在引用它。
+  也就是说批次 3 和 4 之后，**CI 的单测 / 集成 / lint 三条流水线全部会红**。本批一并修好。
+- **ent 死实体**：删除 17 个 schema 与全部生成物（支付 3 + 兑换促销 3 + 订阅 2 + 批量生图 3 +
+  渠道监控 V1 4 + 公告 2）；User 去 6 条边、Group 去 2 条边 + 3 个批量生图字段、
+  UsageLog 去指向 `user_subscriptions` 的边。**ent 是用官方代码生成器重新生成的，不是手工改生成物。**
+- **死表与死键**：迁移 **235** DROP 21 张表（含推广返佣 2 张、内容审计日志 1 张、渠道监控 V1 的聚合水位表）；
+  **236** DROP `groups` 的 3 个批量生图列；**237** 清掉 50 多个孤儿设置键。
+- **刻意保留的三处**：`usage_logs.subscription_id`（repository 裸 SQL 与 DTO 仍在用）、
+  `groups.subscription_type`（可用渠道 DTO 之外，migration 193 的 auth cache 触发器函数引用了这一列）、
+  `users.balance` 家族（列还在，service 层已不读）。
+  另有三个键刻意不删：`registration_enabled`（229 的回滚兜底）、`channel_monitor_mode`（231 的回滚兜底）、
+  `registration_email_suffix_whitelist`（种子探测键）。
+- **实测验证**：全新库跑完 277 条迁移无报错；用 `fork/main` 的 269 条迁移建出「升级前老库」
+  并塞入代表性数据后再升级，28 项断言全过；停在 123 号迁移的老库也能直接升到最新；重复执行为 no-op。
+- **收尾修复**（都不是批次 5 引入的，是批次 3/4 在无编译器环境下留下的）：
+  23 个文件的真实 gofmt 偏差、5 处测试编译失败、若干失效断言、
+  集成测试里对已删表的断言（这批带 `//go:build integration`，本机无 Docker 时静默跳过、
+  但 CI 的 runner 有 Docker 会真跑并必然失败 —— 本次专门起了 colima 实跑验证）、
+  前端 3 处 typecheck 错误与 1 个全红的 spec。
+- **顺带修好一个一直在骗人的护栏**：`Makefile` 的 `FRONTEND_CRITICAL_VITEST` 有 5 条指向已删测试文件。
+  vitest 把这些条目当过滤词，指向已删文件不报错、只是**静默少跑** —— 实测 13 条里只有 8 条真正生效。
+  已清掉死条目、补进 4 条，并加了存在性校验让下次再删测试时直接报错。
+- ⛔ **迁移基线重置：本批未做，留给站长决策。** 这是本轮唯一一个原计划范围内、
+  但**明确判定为不做**的事项，理由与最小安全方案见第四节同名条目。**不要把它当成已交付。**
+
+#### 本轮的门禁护栏现状
+
+`backend/internal/server/trimmed_surface_gate_test.go` 已累积到 **637 行**，
+覆盖 4 类断言，是"删过的东西不许回流"的唯一自动化保障：
+
+| 断言类型 | 规模 | 说明 |
+|---|---|---|
+| 精确路径缺席 | **100 条** | 批次 1–4 删掉的每条代表性路由 |
+| 前缀兜底 | **20 个前缀** | 换个参数名或子路径加回来同样拦截 |
+| 请求级 404 探测 | **46 条** | 防止将来通过 NoRoute/通配符路由复活 |
+| **保留面正面锁定** | 6 组 | 认证面 / 系统面 / **普通生图** / **渠道监控 V2** / **提示词审计** / `risk_control_enabled` 公开键 |
+
+保留面的正面断言是本轮特意加的：前缀兜底写宽一格就会误伤保留面
+（例如 `/api/v1/channel-monitors` 的末尾 `s` 与 `-templates` 后缀就是刻意的，
+少写一个字符就会把保留的 `/channel-monitor-v2` 一起打死）。
+
 
 ---
 
@@ -459,10 +596,70 @@ IsPasswordResetEnabled = email_verify_enabled==true
 
 ## 四、遗留与技术备注
 
-- 4 个基线遗留的未格式化 unit 测试文件（golangci-lint 未配 build-tags 检不到；补配置前先 gofmt）
 - `.gitignore` 对 `docs/*` 为白名单模式，docs 新文件需 `git add -f`
 - 本会话 GitHub 集成无 actions:write，workflow 触发走 `internal-rc-*` 标签推送
-- 迁移 229 为幂等 UPDATE；本轮未删表未改列，镜像回滚无兼容性问题
+- ~~迁移 229 为幂等 UPDATE；本轮未删表未改列，镜像回滚无兼容性问题~~ ——
+  **该结论仅对批次 1 成立，批次 5 之后已失效**，回滚语义见下方「⛔ 回滚不再是无损操作」
+- 4 个基线遗留的未格式化 unit 测试文件：**已随批次 5 的 `269098f60` 用真 gofmt 修掉**，
+  当前 `gofmt -l ./...` 全仓无输出
+
+---
+
+### ⛔ 未完成项 1：迁移基线重置（A5 内，留给站长决策）
+
+**这一项计划里有、本轮明确没做，不要当成已交付。**
+
+不做的理由是实测数据不支持这项改造：全新库跑完 277 条迁移只要 **0.3–0.6 秒**，
+"顺序跑历史迁移"并不是真实痛点。而任何形式的基线重置都要么改迁移执行器
+（新增"全新库走基线、存量库标记已应用"的分叉逻辑），要么删历史迁移文件 ——
+后者会让**停在中间版本的存量库无法升级**（例：删掉建 `batch_image_jobs` 的 159，
+而 187 里还有引用它的语句）。
+
+**需要什么条件才能做**：站长明确"愿意为此承担迁移执行器分叉逻辑的复杂度"。
+若决定做，建议的最小安全方案是**只加"全新库快速路径"、不删任何历史文件**：
+
+1. 用一次性脚本把 277 条迁移跑进空库后 `pg_dump --schema-only` 生成 `000_baseline.sql`，
+   并在其中附带把全部历史迁移写入 `schema_migrations` 的 INSERT；
+2. 在 `applyMigrationsFS` 开头判断 `schema_migrations` 是否为空：非空（存量库）
+   就把 `000_baseline.sql` 直接标记为已应用而不执行；
+3. 加一个集成测试对拍「按历史链建库」与「按基线建库」两份 `pg_dump` 必须一致。
+
+### ⛔ 未完成项 2：goreleaser 发版镜像里没有 `adminpass`（**建议合并前解决**）
+
+**这是本轮唯一一个会影响生产的未完成项。**
+
+批次 3 删掉邮件体系后，`adminpass` 是管理员被锁在门外时的唯一兜底工具。它已经加进
+`Dockerfile` 与 `deploy/Dockerfile`，**因此 RC 镜像里有**（`branch-docker-image.yml`
+用的就是根目录 `./Dockerfile`）。
+
+但**发版链路用的是另一个 Dockerfile**：`release.yml` → goreleaser → `Dockerfile.goreleaser`，
+后者只 `COPY sub2api /app/sub2api` 一个预构建二进制，`.goreleaser.yaml` 的 `builds`
+也只声明了 `./cmd/server` 一个构建目标。**结果是合并 main 后自动发版出的
+`ghcr.io/cherrylover/sub2api:latest`（= 生产实际在跑的镜像）里没有 `/app/adminpass`。**
+
+后果：在 way-rc 上验过的"锁在门外时 `docker exec ... /app/adminpass` 自救"这条路，
+**到了生产上并不存在**。而生产恰恰是那个"删掉了自助找回密码"的环境。
+
+**需要什么条件才能做**：给 `.goreleaser.yaml` 的 `builds` 加第二个构建目标（`./cmd/adminpass`），
+并在 `Dockerfile.goreleaser` 里加一行 `COPY adminpass /app/adminpass`。
+本轮没做的原因是**这会改变上游发布产物的形状**（archives 里会多一个二进制），
+属于需要站长点头的范围，不是可以顺手带过的改动。
+
+### ⛔ 回滚不再是无损操作（批次 5 之后，**语义已变，必读**）
+
+批次 1–4 的迁移都只动 `settings` 表的行，所以"换回旧镜像即可回滚"一直成立。
+**批次 5 的迁移 235 / 236 打破了这个前提**：
+
+- **235 DROP 了 21 张表**（支付 3 + 兑换码 1 + 优惠码 2 + 推广返佣 2 + 订阅 2 +
+  批量生图 3 + 渠道监控 V1 5 + 公告 2 + 内容审计日志 1），一律 `IF EXISTS ... CASCADE`；
+- **236 DROP 了 `groups` 的 3 个批量生图列**。
+
+**换回 `0.1.182` 这类旧镜像后，旧代码会去查这些已经不存在的表和列。**
+也就是说，跑过 235/236 之后，回滚**必须连数据库一起回滚**（从升级前的 `pg_dump` 恢复），
+不能只换 tag 重启。这一条已写进第五节第 7 节的回滚路径，**部署前请务必先确认备份可用**。
+
+反过来，**批次 3 与批次 4 单独回滚仍然安全**（230–234 都不删表不删列），
+所以出问题时的定位顺序应该是：先怀疑 235/236，再往前推。
 
 ### ⚠️ 验证盲区：Docker 门控的集成测试本地会静默跳过
 
@@ -531,8 +728,43 @@ CI 全绿但镜像构建必然失败。
    `127.0.0.1:55432` 即可（注意 scratchpad 路径太长，unix socket 要用 `-k /tmp/<短目录>`）。
    有了它就能真跑迁移、也能造「升级前的老库」做升级演练。
 
-**结论**：后续批次不必再靠「脚本模拟 gofmt 对齐」这类替代手段。批次 3 和 4 遗留的
-23 个 gofmt 偏差、5 处测试编译失败、4 个失效断言，正是这套模拟手段的代价。
+5. **pnpm / 前端**：`corepack` 起 pnpm 9，`node_modules` 装在 scratchpad 之外的仓库目录
+   （`frontend/node_modules`，验证完删掉），即可跑 `lint:check` / `typecheck` / `vitest` / `build`。
+
+**结论**：后续批次不必再靠「脚本模拟 gofmt 对齐」这类替代手段。
+
+### 🔴 教训：批次 3 与 4 是在"分支整体编译不过"的状态下交付的
+
+这是本轮最该记住的一条。批次 3 和 4 全程没有编译器，只能靠 grep、符号扫描、
+括号配平和**自写的 gofmt 对齐模拟器**来代替编译。代价在批次 5 拿到真工具链后一次性暴露：
+
+| 类别 | 数量 | 说明 |
+|---|---|---|
+| **`go build ./...` 直接失败** | 1 处 | 批次 3 删 `domain.AnnouncementTargeting`，但 `ent/announcement*.go` 还在引用 → **CI 三条流水线全红** |
+| 测试编译失败 | 5 处 | 构造器实参个数对不上、stub 缺方法、helper 被连带删除 |
+| 失效断言 / 被盲删的测试数据 | 7 个文件 | 含一处把上游供应商余额误当用户钱包余额而删掉的断言，会让双币种用例必然失败 |
+| 真实 gofmt 偏差 | 23 个文件 | 模拟器识别不出的文件尾空行、连续空行、字面量注释列对齐 |
+| 前端 typecheck 错误 | 3 处 | 死变量与死导入 |
+| 全红的前端 spec | 1 个文件 5 个用例 | 断言批次 4 已删除的列 |
+| 集成测试对已删表的断言 | 3 个文件 | 本机无 Docker 静默跳过，CI runner 有 Docker 会真跑并必挂 |
+
+**这些全部不是"小瑕疵"，其中第一条会让 CI 从批次 3 起就一路全红。**
+静态检查能证明"没有明显的悬空引用"，**不能证明"编译得过"**。
+后续批次务必先按上一节的办法起工具链，再动手删代码。
+
+### ⚠️ 本轮"本地已验证"的确切含义
+
+批次 5 收尾时（`8d3fe8105` / `5612f64d0`）本地跑通了与 CI 等价的检查，具体是：
+
+- 后端：`go build ./...`、`go build -tags embed ./...`（桩 dist 与真实 dist 各一次）、
+  `go vet ./...`、`go test -tags=unit ./...`（88 包全绿）、`go test -tags=integration ./...`
+  （**起了 colima 真 Docker，45 个包含 testcontainers 套件全绿**）、
+  `golangci-lint v2.9 --max-same-issues=0 --max-issues-per-linter=0` 零 issue、`gofmt -l` 无输出；
+- 前端：`lint:check` 0 error、`typecheck` 0 error、`vitest` 179 文件 1304 用例全绿、`pnpm build` 成功；
+- shell：`deploy/tests` 四个脚本本机（macOS）全部 passed。
+
+**仍然覆盖不到的**：Docker 镜像实际构建（见下方同名条目）、
+以及 goreleaser 那条发版链路 —— 后者恰好就是 `adminpass` 缺失的地方。
 
 ### ✅ 分支与 main 无分叉（2026-08-28 核实，更正同日早些时候的错误结论）
 
@@ -556,17 +788,24 @@ CI 全绿但镜像构建必然失败。
 **结论**：批次 3 开工前**没有需要合并的主线**，`fork/main` 就是分支的直接祖先。
 「验的镜像 = 合并后的产物」这个前提**成立**。
 
-### 批次 2 实施中记录的后续候选项
+### 后续候选项台账（批次 2 起累加，2026-08-29 按批次 3–5 实际交付更新）
 
 - [x] **CSP 白名单失效条目**（批次 3 已处理）：强制注入表从 27 条收敛为 1 条，只留 Cloudflare Web Analytics；天御国内/国际站、Turnstile、阿里云验证码、Stripe、Airwallex 的条目与默认策略里的对应域名全部删除，`frame-src` 收紧为 `'none'`。新增防回归用例锁死这批主机不许回流
 - [x] **`registration_email_domain_quota_enabled`**（批次 3 已处理）：整键删除 + 迁移 233 清库。**核实结论修正**：兄弟键 `registration_email_suffix_whitelist` 的邮箱绑定校验路径已随批次 3 邮件体系整删消失（`AuthService.validateRegistrationEmailPolicy` 零调用点，已一并删除），但该键**必须保留**——它是 `InitializeDefaultSettings` 判断"是否已种过默认设置"的探测键，删掉会导致每次启动重跑种子
 - [ ] **`LOGIN_ENTRY_RESERVED_PREFIXES` 的 `/legal`、`/custom`**（前端 SettingsView 与后端 `config/web_entry.go` 镜像）：对应路由已删，但**刻意保留**——这是自定义登录入口的保留字黑名单，删条目只会放宽允许集，属安全收紧项而非裁剪项。若要收窄需前后端同步改并调整 `web_entry_test.go` 用例。批次 3 删模型广场时同理保留了 `/model-plaza`（但把它从**默认落地页白名单** `allowedDefaultHomePaths` 里删掉了，那是白名单，留着等于允许把首页指到已删页面）
 - [x] **支付遗留文档**（批次 3 已处理）：三份文档删除，三个 README 里指向它们的「内置支付系统」条目与生态表格行一并删掉
 - [ ] **`custom_endpoints` 设置**：与已删的 `api_base_url` 在设置页相邻但语义不同，本批未动，待站长确认是否一并删除
-- [ ] **ent 中的支付实体**（`payment_orders`/`payment_provider_instances` 等）与相关历史迁移：需 ent 重生成，归入 A5 数据库压平
+- [x] **ent 中的支付实体**（`payment_orders`/`payment_provider_instances` 等）（批次 5 已处理）：连同另外 14 个死实体一并删除，**用官方生成器重跑 ent generate**，配套迁移 235 DROP 了对应的 21 张表。历史迁移文件本身**未删**（删了会让停在中间版本的老库升不上来），见「⛔ 未完成项 1」
 - [ ] **余额变动记录入口仍指向已删接口**（批次 3 新发现）：`UsageTable.vue` 与 `OpsErrorLogTable.vue` 的余额 tooltip 仍用 `admin.usage.clickToViewBalance`（「点击查看充值记录」），而 `/api/v1/admin/users/:id/balance-history` 已在批次 1 删除；`admin.users.balanceHistory*` 一整组文案同理。点击行为需要复核后再决定是改文案还是去掉入口
 - [ ] **`SettingsView.spec.ts` 的 vue-i18n mock 字典与 `baseSettingsResponse` 仍带已删字段**（批次 3 新发现）：`admin.settings.wechatConnect.*`、`admin.settings.payment*`、`admin.settings.site.*`、`registration_enabled` / `promo_code_enabled` 等。只存在于测试桩里，不进产物，但会让基于关键字 grep 的裁剪审计继续误报
 - [ ] **`admin.groups.claudeMaxSimulation` 中英键路径不一致**（批次 3 新发现，非本轮引入）：zh 挂在 `admin.groups.modelRouting.claudeMaxSimulation`，en 挂在 `admin.groups.claudeMaxSimulation`，两边有一边取不到值
+- [ ] **`config` 层的 `server.frontend_url` 是纯死配置项**（批次 3 新发现）：邮件体系整删后已无任何读取方，但 `config.go` 的字段、viper 默认值、URL 校验与 `config_test` 的用例都还在。留着是为了不动 `config_test`，清理时要连测试一起改
+- [ ] **ops 告警规则的 `notify_email` 与告警事件的 `email_sent` 字段仍在**（批次 3 新发现）：后端结构体（`ops_alert_models.go`）与 DB 列都保留，只是前端不再提供勾选、新建默认 `false`，且永远不会再被写成 `true`。存量为 `true` 的行不会被改写，但已无任何消费方
+- [ ] **`usage_logs.subscription_id` / `groups.subscription_type` / `users.balance` 家族三处刻意保留**（批次 5 决策）：分别因为 repository 裸 SQL 与 DTO 仍在读、migration 193 的 auth cache 触发器函数引用了该列、以及"列还在但 service 层已不读"。都不是漏删，要动需连带改触发器与 DTO 契约
+- [ ] **`registration_enabled` 与 `channel_monitor_mode` 两个键刻意不删**（批次 5 决策）：它们分别是迁移 229 与 231 留下的**回滚兜底**（回滚到旧镜像后旧代码读到这两个值才不会退化成"开放注册"和"重开主动探测"）。等回滚窗口过去后可以单独清理
+- [x] **`Makefile` 的 `FRONTEND_CRITICAL_VITEST` 名单失效**（批次 5 已处理）：5 条指向已删测试文件。vitest 把条目当过滤词，指向已删文件**不报错、只是静默少跑**——实测 13 条里只有 8 条真正生效。已清死条目、补进 4 条，并加了存在性校验，下次再删测试会直接 exit 1
+- [ ] **`security.url_allowlist.enabled=false`**（批次 2 验收发现，仍未决策）：SSRF / URL 白名单校验整体关闭，只剩最小格式校验，启动日志有 WARN。不是裁剪引入的，但**生产上线前需要明确决策是否开启**
+- [ ] **`server.trusted_proxies` 未配置**（批次 2 验收发现，仍未处理）：way-rc 前面是 Cloudflare + Traefik 两层代理，不配这个拿不到可靠的真实客户端 IP，影响 IP 管理 / 风控 / 限流的准确性
 
 ---
 
@@ -582,10 +821,17 @@ CI 全绿但镜像构建必然失败。
 验证内容分三块：空库全新部署、裁剪面验证、老库升级演练。全部通过后把结论告知协调方即可，
 合并 main 与 auto-release 由协调方执行。
 
-> **⚠️ 本清单当前是批次 1 的验收基线。** 批次 2 合流后需按实际交付更新裁剪面预期
-> （已知会变的：第 4.1 条注册接口的预期从 403 翻转为 404，见该条内注），
-> 并新增 B1/B2/B4 的裁剪面探测与"存量 3 用户 + 9 个 Key 仍可用"的回归项。
-> 另注意第一节的 ⚠️ 生产影响：**批次 2 必须先在 way-rc 验证通过才能合并 main**。
+> **⚠️ 本清单已按批次 3 + 4 + 5 的实际交付更新（2026-08-29）。** 与批次 1/2 相比有四处实质变化：
+>
+> 1. **第 4 节裁剪面探测大幅扩充**：新增邮件 / 批量生图 / 内容审计 / 公告 / 模型广场 /
+>    渠道监控 V1 / 订阅与余额七组 404 探测，以及被删设置键的库内核对（4.5）。
+> 2. **新增 4.6「批次 4 两项行为变更复验」** —— 这是本轮**最需要人盯的一节**，
+>    因为它改的是计费核心，且两项都是"能跑通但语义变了"的那种变化，探测不出来，只能观察。
+> 3. **新增 4.7「`adminpass` 兜底工具实测」** —— 删掉自助找回密码后，这是唯一的自救通道，
+>    **必须在 RC 上真跑一次**。⚠️ 同时注意第四节的「⛔ 未完成项 2」：这个工具**不在发版镜像里**。
+> 4. **第 7 节回滚路径重写** —— 批次 5 删了 21 张表和 3 个列，**回滚不再是换 tag 重启那么简单**。
+>
+> 另注意第一节的 ⚠️ 生产影响：**批次 3+4+5 必须先在 way-rc 验证通过才能合并 main**。
 
 ---
 
@@ -693,13 +939,43 @@ docker compose logs sub2api | grep -i "Generated admin password"
 2. 用 `ADMIN_EMAIL` + `ADMIN_PASSWORD`（或日志里的一次性密码）登录，预期进入管理后台。
 3. TOTP（可选验证）：个人设置（`/profile`）里启用两步验证，退出后重新登录走 2FA 流程。
    启用前确认 `.env` 已固定 `TOTP_ENCRYPTION_KEY`，否则重启容器后 TOTP 将失效。
-4. 进入 系统设置（`/admin/settings`），确认"允许注册"默认为**关闭**状态。
-   接口层双确认：
+4. **注册面已整体消失**（批次 2 起注册体系被删除，不再是"开关默认关闭"）：
+   系统设置（`/admin/settings`）里**不再有"允许注册"这一项**，接口层按下面的
+   「新库 / 老库」两分支核对（下面的命令用到 `BASE`，先 `export BASE=http://127.0.0.1:8080`）。
+
+> **⚠️ 这一条在批次 2 验收时被发现"验收标准本身写错了"，此处按新库 / 老库拆开重写。**
+>
+> 根因：迁移 `229_force_registration_disabled.sql` 全文只有
+> `UPDATE settings SET value='false' WHERE key='registration_enabled'`，**没有 INSERT/UPSERT**。
+> 而批次 2 之后种子里也不再写这个键。所以：
+>
+> | 环境 | `settings` 表里有没有 `registration_enabled` 行 | 229 的 UPDATE | 正确的验收预期 |
+> |---|---|---|---|
+> | **新库**（空库全新部署） | **没有**（种子不再写、229 也不 INSERT） | 命中 **0 行**，属正常 | **不要去查这一行**，查了必然查不到，别当成失败 |
+> | **老库**（存量库升级） | **有**（旧版本种下的） | 命中 1 行，改为 `false` | `SELECT value` 应为 `false` |
+>
+> 无论新库老库，**真正的安全闭环都不靠这个开关**，而靠下面三条运行时事实
+> （批次 2 已在 way-rc 实测确认：即使把开关手动置成 `true`，注册接口仍是 404）：
 
 ```bash
-curl -s http://127.0.0.1:8080/api/v1/settings/public | jq '.data.registration_enabled'
-# 预期输出：false
+# ① 路由不存在（新库老库都一样，且与开关取值无关）
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$BASE/api/v1/auth/register" \
+  -H 'Content-Type: application/json' -d '{"email":"probe@example.com","password":"probe12345"}'
+# 预期输出：404
+
+# ② 公开设置里不再下发这个键
+curl -s "$BASE/api/v1/settings/public" | jq -e '.data | has("registration_enabled") | not'
+# 预期输出：true
+
+# ③ 只在老库上做：229 确实把存量值改掉了
+docker compose exec postgres psql -U sub2api -d sub2api \
+  -c "SELECT key, value FROM settings WHERE key = 'registration_enabled';"
+# 老库预期：value = false
+# 新库预期：0 行 —— 这是正确结果，不是失败
 ```
+
+（`registration_enabled` 这一行在批次 5 的迁移 237 里**刻意没有删除**，
+因为它是"回滚到旧镜像后不会退化成完全开放注册"的兜底，见第四节。）
 
 ---
 
@@ -707,54 +983,266 @@ curl -s http://127.0.0.1:8080/api/v1/settings/public | jq '.data.registration_en
 
 以下命令中 `BASE=http://127.0.0.1:8080`，逐条执行并核对预期。
 
-#### 4.1 注册接口被开关拒绝（403，而非 404 —— 路由保留、默认关闭）
+> **本节按批次 3 + 4 + 5 的实际交付重写。** 探测清单与代码里的门禁测试
+> （`backend/internal/server/trimmed_surface_gate_test.go`，637 行）保持一致 ——
+> 门禁测试在 CI 里跑的是"路由表里没有"，这里跑的是"真实镜像上确实 404"，两者互补。
+
+#### 4.1 注册接口已整体消失（404，不再是 403）
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X POST "$BASE/api/v1/auth/register" \
   -H 'Content-Type: application/json' \
   -d '{"email":"probe@example.com","password":"probe12345"}'
-# 预期输出：403
-
-curl -s -X POST "$BASE/api/v1/auth/register" \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"probe@example.com","password":"probe12345"}' | grep -o REGISTRATION_DISABLED
-# 预期输出：REGISTRATION_DISABLED
+# 预期输出：404
 ```
 
-注意：该接口有每分钟 5 次的 IP 限流（Redis 故障时直接拒绝），连发过多会先撞 429，属正常。
+> **批次 1 的旧预期是 403 `REGISTRATION_DISABLED`（路由保留、开关拦截），已作废。**
+> 批次 2 起注册体系整体删除，返回 404 且**与 `registration_enabled` 取值无关**
+> （way-rc 已实测：手动把开关置 `true` 仍是 404）。
+> 该键在新库上根本不存在，详见上方第 3 节的「新库 / 老库」表。
 
-> ⚠️ **批次 2 起本条预期翻转**：B3 把注册体系整体删除后，路由不再存在，
-> **预期从 403 `REGISTRATION_DISABLED` 变为 404**。验证批次 2 的 RC 镜像时按 404 核对；
-> 同时应确认存量 3 个用户仍能正常登录（B3 删的是注册路径，不是多用户数据）。
+同时确认：**存量用户仍能正常登录**（删的是注册路径，不是多用户数据）。
 
-#### 4.2 已裁剪路由全部 404（支付 / 卡密 / 第三方 OAuth 登录）
+#### 4.2 已裁剪路由全部 404
+
+分七组探测，覆盖批次 1 到批次 4 的全部裁剪面。**建议整段贴进终端一次跑完。**
 
 ```bash
-for p in \
-  /api/v1/payment/config \
-  /api/v1/redeem/history \
-  /api/v1/auth/oauth/linuxdo/start ; do
-  printf '%-40s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE$p")"
-done
-# 预期：三行全部为 404
+probe() { printf '%-52s %s\n' "$2 $1" "$(curl -s -o /dev/null -w '%{http_code}' -X "$2" "$BASE$1")"; }
+
+echo "--- 批次 1：支付 / 卡密 / 第三方 OAuth ---"
+probe /api/v1/payment/config              GET
+probe /api/v1/redeem/history              GET
+probe /api/v1/auth/oauth/linuxdo/start    GET
+probe /api/v1/admin/users/1/balance-history GET
+
+echo "--- 批次 2：注册 / 合规确认 ---"
+probe /api/v1/auth/register               POST
+probe /api/v1/auth/send-verify-code       POST
+probe /api/v1/admin/compliance            GET
+
+echo "--- 批次 3：邮件体系 ---"
+probe /api/v1/auth/forgot-password        POST
+probe /api/v1/auth/reset-password         POST
+probe /api/v1/settings/email-unsubscribe  GET
+probe /api/v1/admin/settings/test-smtp    POST
+probe /api/v1/admin/settings/email-templates GET
+probe /api/v1/user/notify-email/send-code POST
+probe /api/v1/user/account-bindings/email/send-code POST
+probe /api/v1/user/totp/send-code         POST
+
+echo "--- 批次 3：批量生图（普通生图是保留面，见 4.4）---"
+probe /v1/images/batches                  POST
+probe /v1/images/batches/models           GET
+
+echo "--- 批次 3：内容安全审计（提示词审计是保留面，见 4.4）---"
+probe /api/v1/admin/risk-control/config   GET
+probe /api/v1/admin/risk-control/logs     GET
+
+echo "--- 批次 3：公告 / 模型广场 ---"
+probe /api/v1/announcements               GET
+probe /api/v1/admin/announcements         GET
+probe /api/v1/model-plaza                 GET
+
+echo "--- 批次 3：渠道监控 V1（V2 是保留面，见 4.4）---"
+probe /api/v1/admin/channel-monitors      GET
+probe /api/v1/admin/channel-monitor-templates GET
+probe /api/v1/channel-monitors            GET
+
+echo "--- 批次 4：订阅体系与用户余额 ---"
+probe /api/v1/subscriptions               GET
+probe /api/v1/subscriptions/active        GET
+probe /api/v1/admin/subscriptions         GET
+probe /api/v1/admin/users/1/balance       POST
+probe /api/v1/admin/users/1/subscriptions GET
+
+# 预期：以上每一行都是 404
 ```
+
+> ⚠️ **带管理员 token 复测一遍**（批次 2 验收时的做法）：不带 token 的 404 有可能只是被鉴权挡住，
+> 带上 token 仍是 404 才能证明路由确实被摘除。
+>
+> ⚠️ **两个容易误判的点**（批次 2 验收踩过，记在这里避免重复排查）：
+> `GET /admin/compliance`（没有 `/api/v1` 前缀）返回 **200 是正常的**，那是 SPA 的 HTML 兜底路由；
+> 后端真实路径 `/api/v1/admin/compliance` 才是 404。同理 `GET /api/v1/admin/dashboard` 返回 404
+> 也不是裁剪导致，后台实际用的是 `/api/v1/admin/dashboard/snapshot-v2` 等子路径。
 
 #### 4.3 公开设置不再泄露已裁剪功能键
 
 ```bash
-curl -s "$BASE/api/v1/settings/public" | jq -e '.data
-  | (has("payment_enabled")
-     or has("linuxdo_oauth_enabled") or has("dingtalk_oauth_enabled")
-     or has("wechat_oauth_enabled")  or has("oidc_oauth_enabled")
-     or has("github_oauth_enabled")  or has("google_oauth_enabled"))
-  | not'
-# 预期输出：true（即上述键一个都不存在）
+curl -s "$BASE/api/v1/settings/public" | jq -e '.data as $d
+  | ([ "payment_enabled",
+       "linuxdo_oauth_enabled","dingtalk_oauth_enabled","wechat_oauth_enabled",
+       "oidc_oauth_enabled","github_oauth_enabled","google_oauth_enabled",
+       "promo_code_enabled","invitation_code_enabled","affiliate_enabled",
+       "registration_enabled","registration_email_domain_quota_enabled",
+       "turnstile_enabled","tencent_captcha_enabled","aliyun_captcha_enabled",
+       "login_agreement_enabled","site_name","site_logo","api_base_url",
+       "email_verify_enabled","password_reset_enabled",
+       "balance_low_notify_enabled","account_quota_notify_enabled",
+       "model_plaza_enabled","model_plaza_require_auth",
+       "channel_monitor_mode","channel_monitor_show_quota",
+       "default_balance","default_subscriptions",
+       "purchase_subscription_enabled" ]
+     | map(. as $k | $d | has($k)) | any) | not'
+# 预期输出：true（上述键一个都不存在）
 ```
 
-#### 4.4 登录页无第三方登录按钮
+**同时确认保留面仍在下发**（防止误删）：
+
+```bash
+curl -s "$BASE/api/v1/settings/public" | jq -e '.data
+  | has("registration_email_suffix_whitelist") and has("risk_control_enabled")'
+# 预期输出：true
+#  - registration_email_suffix_whitelist 是默认设置种子的探测键，删了会导致每次启动重跑种子
+#  - risk_control_enabled 现在是「提示词审计」的总开关（内容审计删除后语义变了，键名未改）
+```
+
+#### 4.4 保留面正面核对（**比 404 探测更重要，别跳过**）
+
+本轮删得很深，几组保留面与被删面只差一个前缀，误删的代价比漏删大得多。
+逐条确认下面这些**必须仍然可用**：
+
+```bash
+# probe() 沿用 4.2 里定义的那个；换终端的话先重新定义一次
+echo "--- 普通生图与异步生图（只删了批量生图）---"
+# 预期：以下每一条都「不是 404」（缺鉴权/参数时返回 401/400 都算通过）
+probe /v1/images/generations              POST
+probe /v1/images/edits                    POST
+probe /v1/images/generations/async        POST
+probe /v1/images/edits/async              POST
+probe /v1/images/tasks/t_1                GET
+
+echo "--- 渠道监控 V2 被动聚合（只删了 V1 主动探测）---"
+# 同上，预期「不是 404」
+probe /api/v1/channel-monitor-v2/snapshot GET
+probe /api/v1/channel-monitor-v2/matrix   GET
+probe /api/v1/admin/channel-monitor-v2/config GET
+```
+
+> 这几条对应代码里的 `TestRetainedImageSurfaceStillRegistered` 与
+> `TestRetainedChannelMonitorV2SurfaceStillRegistered` 两个正面锁定用例。
+> **拿到 404 就说明保留面被误删了，比任何漏删都严重。**
+
+浏览器侧逐项确认：
+
+- **登录页**：只有 邮箱+密码（以及可选的 Passkey 入口），无任何第三方按钮，
+  **也不再有"忘记密码"链接**（批次 3 起该通道整体消失）。
+- **`/profile`**：TOTP 可正常开启与关闭，**弹窗里只有密码校验、没有邮箱验证码输入框**；
+  「登录方式绑定」是**只读展示**（这是批次 3 刻意的降级，不是 bug）。
+- **管理端侧边栏**：「安全审计」分组下只剩「提示词审计」一个子项（内容审核已删）；
+  **没有**公告管理、订阅管理、模型广场入口。
+- **`/admin/settings`**：标签页共 **6 个**，**没有「邮件」标签页**；
+  「功能开关」里渠道监控只剩「启用渠道监控」与「对用户隐藏吞吐速率」两项
+  （模式二选一 / 默认检测间隔 / 展示渠道用量三项已删）。
+- **`/admin/users`**：**没有**「订阅」「余额」两列，也没有充值/扣款菜单项。
+- **`/admin/groups`**：**没有**「订阅计费」列与订阅类型/日周月限额表单；
+  高峰时段倍率现在对所有分组都显示（不再只对订阅分组）。
+- **`/monitor`**：直接进 V2 被动监控页，不再有 V1/V2 切换。
+
+#### 4.5 被删设置键已从库里清干净
+
+批次 3–5 共新增 8 条迁移（230–237），删掉 **62 个**已无消费方的设置键
+（数字来自 `8d3fe8105` 的一致性核对：这 62 个键在 Go、前端、yaml/sh/json 里已零残留）。
+升级后在库里核对一遍：
+
+```bash
+docker compose exec postgres psql -U sub2api -d sub2api -c "
+SELECT key FROM settings WHERE
+     key LIKE 'smtp\_%'          OR key LIKE 'payment\_%'
+  OR key LIKE 'promo\_%'         OR key LIKE 'auth_source_default\_%'
+  OR key LIKE 'notification_email\_%'
+  OR key IN ('email_verify_enabled','password_reset_enabled','frontend_url',
+             'balance_low_notify_enabled','account_quota_notify_enabled',
+             'subscription_expiry_notify_enabled','ops_email_notification_config',
+             'model_plaza_enabled','model_plaza_require_auth','model_plaza_description',
+             'channel_monitor_default_interval_seconds','channel_monitor_show_quota',
+             'registration_email_domain_quota_enabled',
+             'content_moderation_config','default_balance','default_subscriptions');"
+# 预期：0 行
+```
+
+**同时确认三个刻意保留的键还在**（删了会出问题，见第四节）：
+
+```bash
+docker compose exec postgres psql -U sub2api -d sub2api -c "
+SELECT key, value FROM settings WHERE key IN
+  ('registration_enabled','channel_monitor_mode','registration_email_suffix_whitelist');"
+# 老库预期：3 行，且 registration_enabled=false、channel_monitor_mode=v2
+# 新库预期：channel_monitor_mode=v2（迁移 231 是 UPSERT，新库也会补上这一行）
+#           registration_enabled 可能不存在——正常，见第 3 节的新库/老库表
+```
+
+#### 4.6 渠道监控已切到 V2 并真的在聚合
+
+V1 主动探测（会真实消耗上游额度）已整体删除，V2 被动聚合成为唯一实现。
+除了上面的键值核对，还要确认它**确实在工作**：
+
+1. 按第 5 节发几条真实转发请求；
+2. 打开 `/monitor`（或管理端渠道监控页），确认这几条请求被聚合进了 V2 视图；
+3. 确认**没有任何指向上游的额外探测请求**（V1 的行为是定时主动打上游，V2 只汇总真实流量）。
+
+> 若 V2 页面显示"总开关已关闭"，检查 `channel_monitor_enabled`（默认 `true`）——
+> 注意现在**只受这一个开关控制**，`channel_monitor_mode` 已经没有任何代码读它。
+
+#### 4.7 批次 4 的两项行为变更复验（**本轮最需要人盯的一节**）
+
+这两项**探测不出来**，只能观察。它们改的是计费核心，且都是"能跑通但语义变了"的变化。
+
+**① `quota_used` 现在无条件累加**
+
+旧实现只在 `quota > 0` 时累加，所以不限额 Key 的 `quota_used` 永远是 0。
+现在所有 Key 都记账。
+
+```bash
+# 建一个「不限额度」的 Key（quota=0），发几条请求后：
+docker compose exec postgres psql -U sub2api -d sub2api \
+  -c "SELECT id, name, quota, quota_used FROM api_keys ORDER BY id;"
+# 预期：quota=0 的 Key，quota_used 也在增长（旧版本这里恒为 0）
+# 关键确认：quota=0 仍然表示「不限额度」，不会因为 quota_used > quota 就被判定耗尽
+```
+
+**必须确认的反面**：不限额 Key **不会**被误判为额度耗尽而拒绝请求。
+这是本条唯一的真实风险 —— 连发几十条请求确认一直正常转发。
+
+**② 额度耗尽的判定窗口变宽了**
+
+Key 额度成为唯一闸门后，`CheckBillingEligibility` 不再做额度预检，
+耗尽判定依赖「认证缓存快照 + 结算后的缓存失效」。
+**后果：从额度耗尽到实际拒绝之间，存在一个「auth cache TTL + 并发 in-flight」的超支窗口。**
+
+```bash
+# 建一个额度很小的 Key（比如 quota 只够 1-2 次请求），连续发 10 条：
+# 预期：前几条成功，之后开始返回额度耗尽错误
+# 可接受：超出配额一点点（这就是上面说的超支窗口，内部单管理员部署下可接受）
+# 不可接受：一直不拒绝，或者额度还有很多就开始拒绝
+```
+
+#### 4.8 `adminpass` 兜底工具实测（**删掉自助找回密码后的唯一自救通道**）
+
+```bash
+# 在 RC 容器里给管理员改密码（用 stdin，避免密码进入命令行历史与进程列表）
+docker compose exec -T sub2api /app/adminpass -email admin@sub2api.local -stdin <<<'新密码'
+# 预期：打印成功信息；随后用新密码能登录后台
+
+# 不传 -email 时改第一个管理员账号：
+docker compose exec -T sub2api /app/adminpass -stdin <<<'新密码'
+```
+
+> ⚠️ **两条必须知道的事**：
+>
+> 1. **改密码只让 access token 失效，不清 Redis 里的 refresh token。**
+>    旧的 refresh token 在 TTL 内理论上还能换新 access token。
+>    要彻底下线所有设备，改完密码登录后还得在后台点一次「撤销全部会话」。
+> 2. ⛔ **这个工具目前只在 RC 镜像里，不在发版镜像（`:latest`）里** ——
+>    见第四节「⛔ 未完成项 2」。也就是说这一条在 way-rc 上验过之后，
+>    **到了生产上并不成立**。建议合并前先把 goreleaser 那条链路补上，否则这次验证的意义有限。
+
+#### 4.9 登录页无第三方登录按钮
 
 浏览器打开 `/login`：只有 邮箱+密码 登录（以及可选的 Passkey 登录入口），
-无 LinuxDo / 微信 / 钉钉 / OIDC / GitHub / Google 任何第三方按钮。
+无 LinuxDo / 微信 / 钉钉 / OIDC / GitHub / Google 任何第三方按钮，
+也无人机验证组件、无登录条款勾选、无"忘记密码"链接。
 
 ---
 
@@ -778,6 +1266,16 @@ curl -s http://127.0.0.1:8080/v1/messages \
 
 5. **用量可见**：后台 `/admin/usage`（或用户侧 `/usage`）能看到刚才这条请求的记录
    （模型、token 数、时间与实际相符）。
+6. **额度记账正确**（批次 4 新增）：这条请求应让该 Key 的 `quota_used` 增长，
+   **无论这个 Key 有没有配额度**。同时确认 `/v1/usage` 返回的 `remaining`
+   在未配额度时是 `-1`（不限额度），`planName` 取的是分组名 —— 钱包余额语义已经没有了。
+
+> ⚠️ **批次 2 验收遗留、本轮仍未闭环的缺口**：way-rc 唯一的上游账号是假账号
+> （`rc-fake-claude`，status=error），实测能确认请求确实发到了 `api.anthropic.com`
+> 并被上游以 401 拒绝 —— 即**网关侧鉴权 / 分组解析 / 账号选择这一段是通的**，
+> 但**"拿到上游正常应答"这一跳始终未经验证**。
+> 批次 4 恰恰改动了计费与额度核心，**建议这一轮务必配一个真实上游账号把第 5 节走完**，
+> 否则本轮最该验的东西反而是空白。
 
 ---
 
@@ -787,32 +1285,91 @@ curl -s http://127.0.0.1:8080/v1/messages \
 （`sub2api` / `sub2api-postgres` / `sub2api-redis`），同一台机器上无法与原环境同时双开，
 请在另一台机器演练，或临时改掉副本编排里的 `container_name`。
 
+> 🔴 **本轮这一节的重要性远高于前几批。** 批次 5 的迁移 **235 会 DROP 21 张表、236 会 DROP 3 个列**，
+> 这是整个裁剪工程里第一次做**不可逆的结构变更**。演练前请确认备份**真的能恢复**
+> （不是"文件存在"，是"导入回去能起得来"），因为出问题后的回滚必须连库一起回滚，见第 7 节。
+
 ```bash
 # 1) 在旧环境导出备份
 docker exec sub2api-postgres pg_dump -U sub2api -d sub2api > sub2api-backup.sql
 
-# 2) 在演练环境（镜像已换成 internal-rc 的 compose）先只启动库并导入
+# 2) 在演练环境（.env 里已把 SUB2API_IMAGE 设成 :internal-rc）先只启动库并导入
 docker compose up -d postgres redis
 docker compose exec -T postgres psql -U sub2api -d sub2api < sub2api-backup.sql
 
-# 3) 启动应用（首次启动会自动执行嵌入的 SQL 迁移，其中包含本轮新增的 229）
+# 3) 启动应用（首次启动会自动执行嵌入的 SQL 迁移，本轮新增 230–237 共 8 条）
 docker compose up -d sub2api
 docker compose logs -f sub2api   # 观察启动无 error
 ```
 
-逐项确认：
+**6.1 八条新迁移全部执行**
 
 ```bash
-# 迁移 229 已执行（迁移记录在 schema_migrations 表）
-docker compose exec postgres psql -U sub2api -d sub2api \
-  -c "SELECT filename, applied_at FROM schema_migrations WHERE filename = '229_force_registration_disabled.sql';"
-# 预期：返回 1 行
+docker compose exec postgres psql -U sub2api -d sub2api -c "
+SELECT filename, applied_at FROM schema_migrations
+ WHERE substring(filename from 1 for 3) IN
+   ('230','231','232','233','234','235','236','237')
+ ORDER BY filename;"
+# 预期：返回 8 行，applied_at 都落在本次启动窗口内
+#   230 邮件体系设置键   231 渠道监控切 V2      232 模型广场设置键
+#   233 注册域名额度键   234 订阅/余额语义拆除  235 DROP 21 张死表
+#   236 DROP 分组 3 个死列                      237 清 50 多个孤儿设置键
+```
 
-# registration_enabled 被强制置 false（即使老库曾开启注册）
+**6.2 死表确实没了，保留面的表还在**
+
+```bash
+docker compose exec postgres psql -U sub2api -d sub2api -c "
+SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename IN
+ ('payment_orders','payment_audit_logs','payment_provider_instances',
+  'redeem_codes','promo_codes','promo_code_usages',
+  'user_affiliates','user_affiliate_ledger',
+  'subscription_plans','user_subscriptions',
+  'batch_image_jobs','batch_image_items','batch_image_events',
+  'channel_monitors','channel_monitor_histories','channel_monitor_request_templates',
+  'channel_monitor_daily_rollups','channel_monitor_aggregation_watermark',
+  'announcements','announcement_reads','content_moderation_logs');"
+# 预期：0 行（以上就是 235 DROP 掉的全部 21 张表）
+
+docker compose exec postgres psql -U sub2api -d sub2api -c "
+SELECT count(*) FROM pg_tables WHERE schemaname='public'
+   AND tablename LIKE 'channel_monitor_v2%';"
+# 预期：> 0 —— V2 被动监控的表是保留面，绝不能被一起删掉
+```
+
+**6.3 存量业务数据一条不少**（批次 2 验收时生产是 users=3 / api_keys=9 / accounts=7 /
+groups=7 / usage_logs=4018，按你自己升级前的实际值对拍）
+
+```bash
+docker compose exec postgres psql -U sub2api -d sub2api -c "
+SELECT
+  (SELECT count(*) FROM users)      AS users,
+  (SELECT count(*) FROM api_keys)   AS api_keys,
+  (SELECT count(*) FROM accounts)   AS accounts,
+  (SELECT count(*) FROM groups)     AS groups,
+  (SELECT count(*) FROM usage_logs) AS usage_logs;"
+# 预期：与升级前逐项一致。usage_logs 尤其要盯——235 的 CASCADE 只会摘掉
+#      usage_logs.subscription_id 指向 user_subscriptions 的外键约束，
+#      不动列、不动数据、不删行。
+```
+
+**6.4 批次 4 的迁移 234 按预期回填了授权**（否则存量 Key 会因为专属分组失去旁路而失效）
+
+```bash
+docker compose exec postgres psql -U sub2api -d sub2api -c "
+SELECT count(*) FROM user_allowed_groups;"
+# 预期：> 0，且升级后所有存量 API Key 仍能正常转发（用第 5 节的方式实发验证）
+```
+
+**6.5 注册开关**（按上方第 3 节的「新库 / 老库」两分支核对，老库这一支才适用）
+
+```bash
 docker compose exec postgres psql -U sub2api -d sub2api \
   -c "SELECT key, value FROM settings WHERE key = 'registration_enabled';"
-# 预期：value = false
+# 老库预期：value = false
 ```
+
+**6.6 其余逐项确认**
 
 - 原有管理员账号可正常登录（存量库已有管理员时，AUTO_SETUP 会跳过引导、不覆盖原密码，
   日志出现 INFO "Admin user already exists, skipping admin bootstrap"）；
@@ -820,24 +1377,58 @@ docker compose exec postgres psql -U sub2api -d sub2api \
   "Warning: database already has user data but no admin account..."，
   按提示用 `docker exec <container> /app/adminpass -email you@example.com -stdin` 自救；
 - 原有分组 / API Key / 用量数据在后台完好可见；
-- 用原有 API Key 按第 5 节方式真发一条请求，转发仍然成功，且新记录进入用量页。
+- **用原有 API Key 按第 5 节方式真发一条请求，转发仍然成功，且新记录进入用量页**
+  —— 这是整个演练里最关键的一条，批次 4 动了认证与计费主干；
+- 按 4.7 观察一次 `quota_used`：存量 Key 里原本 `quota=0`（不限额）的，
+  升级后 `quota_used` 会开始从 0 增长，**这是预期的行为变化，不是 bug**。
 
 ---
 
 ### 7. 回滚路径
 
-代码回滚 = 把 `.env` 里的 `SUB2API_IMAGE` 换回旧 tag，重启应用即可：
+> 🔴 **本轮回滚语义已改变，与批次 1/2 不同，务必先读这一段。**
+>
+> 批次 1–4 的迁移只动 `settings` 表的行，所以"换回旧镜像重启"一直是完整的回滚。
+> **批次 5 的 235 / 236 DROP 了 21 张表和 3 个列**，旧代码会去查这些已经不存在的对象。
+> 因此跑过 235/236 之后：
+>
+> | 回滚到 | 是否只换 tag 就够 | 说明 |
+> |---|---|---|
+> | 本轮的更早提交（`internal-<旧 short_sha>`，仍在批次 5 之后） | ✅ 够 | 库结构一致 |
+> | **批次 5 之前的任何版本**（含 `0.1.182`、`:latest`） | ❌ **不够** | **必须连数据库一起从升级前的 `pg_dump` 恢复** |
+
+**情况 A：回滚到本轮内的更早提交**
 
 ```bash
-# 把 SUB2API_IMAGE 换成上一个可用的内部标签（如
-# ghcr.io/cherrylover/sub2api:internal-<旧 short_sha>
-# 或已发版的 ghcr.io/cherrylover/sub2api:0.1.182）后：
+# 改 .env 里的 SUB2API_IMAGE，然后：
 docker compose up -d sub2api
 ```
 
-- 迁移 229 是幂等 UPDATE（只把 `settings.registration_enabled` 置为 `'false'`），**不需要回滚**；
-- 旧版本代码配"已跑过 229 的库"没有兼容性问题：本轮裁剪未删表、未改列，库结构对老代码完全可读写；
-- 唯一可见影响：回滚后注册开关仍处于关闭状态，如需开放注册可在旧版本后台设置里重新打开。
+**情况 B：回滚到批次 5 之前的版本（含生产 `:latest`）**
+
+```bash
+# 1) 停应用
+docker compose stop sub2api
+# 2) 从升级前的备份恢复数据库（这一步不能省，否则旧代码会因为表不存在而起不来）
+docker compose exec -T postgres psql -U sub2api -d sub2api < sub2api-backup.sql
+# 3) 把 SUB2API_IMAGE 换回旧 tag 后启动
+docker compose up -d sub2api
+```
+
+其余需要知道的：
+
+- **批次 3 与批次 4 单独回滚仍然安全**（230–234 都不删表不删列）。
+  所以出问题时的定位顺序是：先怀疑 235/236，再往前推。
+- **迁移 229 与 231 是刻意留的回滚兜底**：229 把 `registration_enabled` 置 `false`、
+  231 把 `channel_monitor_mode` 置 `'v2'`。这两个值是写给**旧代码**看的 ——
+  回滚后旧代码读到它们，才不会退化成"完全开放注册"和"重新打开会烧上游额度的主动探测"。
+  这也是批次 5 的迁移 237 清孤儿键时**特意不删这两行**的原因。
+- **⚠️ 注册的回滚语义有个坑**（批次 2 验收发现）：`0.1.182` 里
+  `/api/v1/auth/register` **路由依然存在**（返回 403），真正关死它的是 229 写进 settings 的开关；
+  **只要有人把开关改回 `true`，回滚版本的注册就立刻恢复**。RC 版本则无论开关如何都是 404。
+- **⚠️ SMTP 口令不可恢复**：迁移 230 会删掉 `smtp_password` 等 7 个 `smtp_*` 键。
+  回滚到旧镜像后旧代码会按默认值重新初始化，功能能用，但 **SMTP 要重新填一遍**。
+  如果想留一份备查，得在升级前自己导出。
 
 ---
 
@@ -867,7 +1458,40 @@ docker compose up -d sub2api
 > （合规弹窗内法律文档"查看原文"链接刻意保留，随 B1 整删）。
 > checkbox 待站长在新 RC 镜像上复验通过后勾选。
 
-### internal-1e49744（2026-08-28，第四轮：批次 2 验收——进行中）
+### 第五轮：批次 3 + 4 + 5 合并验收（**尚未开始**，2026-08-29 建档）
+
+**状态：代码已全部合流到分支，RC 镜像还没出，一条验证都还没跑。**
+本小节先按约定占位并写清本轮该盯什么，等镜像出来后把 `internal-<short_sha>` 补进标题。
+
+**开跑前必须先确认的三件事**：
+
+- [ ] **CI 四个 job 在 GitHub 上全绿**。本地已跑通等价检查（见第四节「本轮"本地已验证"的确切含义」），
+      但本地跑通 ≠ CI 全绿：CI 的 runner 有 Docker，会真跑 testcontainers 集成套件。
+- [ ] **RC 镜像构建成功**。CI 覆盖不到镜像构建（见第四节同名条目），而本轮删了大量目录 ——
+      虽然已 grep 过 `Dockerfile` / `deploy/Dockerfile` / `.dockerignore` / `.goreleaser.yaml`，
+      但批次 2 就是在这里连挂两轮。
+- [ ] **升级前的数据库备份可用**（不是"文件存在"，是"导入回去能起得来"）。
+      **本轮是第一次做不可逆结构变更**（DROP 21 张表 + 3 个列），回滚必须连库一起回滚。
+
+**本轮相比前几轮，重点变了的地方**：
+
+| 优先级 | 项 | 为什么这轮特别重要 |
+|---|---|---|
+| 🔴 最高 | 第 5 节**端到端转发**（配真实上游账号） | 批次 4 改了计费与额度核心，而这条链路前两轮都因为假账号没验通。**本轮再空过去，最该验的东西就是空白** |
+| 🔴 最高 | 4.7 **批次 4 两项行为变更** | 探测不出来、只能观察；`quota_used` 无条件累加、耗尽判定窗口变宽 |
+| 🔴 最高 | 第 6 节**老库升级演练** | 第一次不可逆结构变更，21 张表 + 3 个列 |
+| 🟡 高 | 4.8 **`adminpass` 实测** | 删掉自助找回密码后的唯一自救通道；⛔ 注意它**不在发版镜像里**（第四节未完成项 2） |
+| 🟡 高 | 4.4 **保留面正面核对** | 本轮几组保留面与被删面只差一个前缀，误删代价大于漏删 |
+| 🟢 常规 | 4.1–4.3、4.5、4.6、4.9 | 裁剪面探测，按清单跑 |
+
+**已知会带进本轮、但不是本轮引入的两项**（批次 2 验收发现，至今未决策/未处理）：
+
+- [ ] `security.url_allowlist.enabled=false` —— 生产上线前需要明确决策是否开启
+- [ ] `server.trusted_proxies` 未配置 —— 影响真实客户端 IP 的准确性
+
+---
+
+### internal-1e49744（2026-08-28，第四轮：批次 2 验收——**已通过**）
 
 镜像 `ghcr.io/cherrylover/sub2api:internal-rc` = `:internal-1e49744`，
 双架构（amd64 + arm64），来源 commit `1e49744d`（CI 与 Security Scan 均 success）。
@@ -885,6 +1509,9 @@ docker compose up -d sub2api
   `docker-compose.standalone.yml` 三个编排**仍写死 `:latest`**，这正是上面那个坑的来源。
   建议改为可用环境变量覆盖（如 `${SUB2API_IMAGE:-ghcr.io/cherrylover/sub2api:latest}`），
   否则下一个照仓库编排搭验证环境的人会再踩一次。**归入批次 3。**
+  → **批次 3 已交付修复**（`96f704c11`）：三个 compose 改为
+  `${SUB2API_IMAGE:-ghcr.io/cherrylover/sub2api:latest}`，`.env.example` 补 `SUB2API_IMAGE` 项，
+  `deploy/README.md` 同步改写。**待新 RC 镜像复验后勾选。**
 - [x] **数据库状态核实**：way-rc 库停留在 RC 分支状态（最新迁移 `229_force_registration_disabled.sql`，
   共 269 条），main 独有的 `229_plugins` / `230_plugin_artifacts` / `231_*` **均未执行**，
   `plugins` / `plugin_artifacts` 表不存在。故换回 RC 镜像**不构成降级**。
@@ -981,24 +1608,39 @@ docker compose up -d sub2api
       229 全文只有 `UPDATE ... WHERE key='registration_enabled'`，**没有 INSERT/UPSERT**，
       新库从未种过该键，这条 UPDATE 命中 0 行。安全意图由运行时闭环（路由 404 + 不下发该键 + 后端 0 处读取）。
       **建议把该验收项按"新库 / 老库"拆开写**，否则每次新环境验收都会误报。
+      → **已按建议改写**（2026-08-29）：见第五节第 3 节的「新库 / 老库」对照表与三条运行时闭环命令。
+      这是文档修正、不涉及代码，**不需要在 RC 镜像上复验**，但按本节约定仍留给站长确认后勾选。
 - [ ] **中｜零管理员实例的静默风险**：当存量库"有用户但一个 admin 都没有"时，
       setup 打印 `Database already has user data; skipping auto admin bootstrap` 后什么都不做，
       应用照常 healthy —— 结果是一个**谁都登不进去的实例，且日志只有 INFO 级提示**。
       守卫方向正确（宁可没管理员也不覆盖密码），但**建议把该日志提到 WARN**。
+      → **批次 3 已交付修复**（`96f704c11`）：日志提到 WARN 并补上自救指引
+      （提升现有用户为管理员，或用容器内的 `/app/adminpass` 重置密码）；**引导逻辑一行未改**。
+      **待新 RC 镜像复验后勾选。**
 - [ ] **中｜回滚语义需写清**：`0.1.182` 里 `/api/v1/auth/register` **路由依然存在**（返回 403），
       真正关死它的是 229 写进 settings 的开关；**只要有人把开关改回 true，回滚版本的注册就立刻恢复**。
       RC 版本则无论开关如何都是 404。第 7 节应补上这句区别。
+      → **已补**（2026-08-29）：第五节第 7 节现在写清了这条区别，
+      并顺带重写了整节回滚语义 —— 批次 5 删表删列之后，回滚到批次 5 之前的版本
+      **必须连数据库一起恢复**，不能只换 tag。
 - [ ] **中｜`server.trusted_proxies` 未配置**：way-rc 前面是 Cloudflare + Traefik 两层代理，
       不配这个拿不到可靠的真实客户端 IP，影响 IP 管理 / 风控 / 限流的准确性。
 - [ ] **中｜i18n 仍完整携带已裁剪功能的全部文案**：zh 303KB / en 315KB 两个语言包里
       LinuxDo / 微信 / 钉钉 / OIDC / GitHub / Google / captcha / 注册 字符串一个没删。
       无渲染入口、**不构成功能泄露**，但多打包约 600KB 死文案，且会让所有基于关键字 grep 的
       裁剪审计持续误报（本轮已为此多花排查步骤）。**归入批次 3 的 i18n 清理。**
+      → **批次 3 已交付**（`65bcd073d`）：zh/en 各删 61 条键（OAuth 回调、邀请码、优惠码、兑换、
+      支付、订阅、首页四个营销区块），删前逐键 grep 确认零引用，删后两边键集合仍完全一致。
+      批次 3/4 各包在整删功能时也同步删掉了自己那部分文案。**待新 RC 镜像复验后勾选。**
 - [ ] **低｜Passkey 分隔线文案挂错 key**：`LoginView` 里 Passkey 按钮上方仍用 `auth.oauthOrContinue`
       （「或使用其他继续」）。当前 `passkey_enabled=false` 不渲染所以看不见，
       **一旦开启 Passkey，登录页会出现"或使用其他继续"而下面只有一个按钮**，误导用户。
+      → **批次 3 已交付修复**（`65bcd073d`）：改用新增的 `auth.passkeyOrContinue`（「或」/「or」）。
+      **待新 RC 镜像开启 Passkey 复验后勾选。**
 - [ ] **低｜后台邮件模板说明文字过时**：仍在描述"注册""OAuth 补全邮箱""订阅订单支付成功"等已删场景。
       **随批次 3 邮件体系整删一并消失，无需单独处理。**
+      → **已随批次 3 消失**（`6173895b2` / `50fddf33e`）：模板编辑器组件与整个「邮件」标签页已删除，
+      这段说明文字连同宿主界面一起不存在了。**待新 RC 镜像确认设置页只剩 6 个标签后勾选。**
 
 **记录三个"看起来像问题但不是"的点，避免下次复测重复排查**：
 
