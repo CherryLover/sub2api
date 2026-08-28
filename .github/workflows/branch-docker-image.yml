@@ -35,6 +35,12 @@ on:
   push:
     tags:
       - "internal-rc-*"
+    # 第三条等效触发：在裁剪分支上推送 commit message 含 [rc-build] 的提交。
+    # 适用于既没有 actions:write（workflow_dispatch API 403）、推 tag 也被
+    # git 代理拒绝的受限环境 —— 这是协作 agent 唯一能自助触发 RC 构建的通道。
+    # 关键字守卫见 check job 的 if：普通推送一律不构建，不会浪费额度。
+    branches:
+      - "claude/**"
 
 # 同一分支的新构建取消掉还在跑的旧构建：省额度，也避免旧 commit 的镜像
 # 在后面覆盖掉新 commit 的 internal-rc 标签。
@@ -54,6 +60,12 @@ jobs:
     name: 预检与元数据
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # 分支 push 只有在 commit message 显式带 [rc-build] 时才构建；
+    # workflow_dispatch 与 internal-rc-* 标签触发不受该关键字限制。
+    if: >-
+      github.event_name != 'push' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      contains(github.event.head_commit.message, '[rc-build]')
     outputs:
       sha: ${{ steps.meta.outputs.sha }}
       short_sha: ${{ steps.meta.outputs.short_sha }}
