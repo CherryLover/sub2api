@@ -475,14 +475,17 @@ CI 全绿但镜像构建必然失败。
 **结论**：批次 3 开工前**没有需要合并的主线**，`fork/main` 就是分支的直接祖先。
 「验的镜像 = 合并后的产物」这个前提**成立**。
 
-### 批次 2 实施中记录的后续候选项（均未处理，待排期）
+### 批次 2 实施中记录的后续候选项
 
-- **CSP 白名单失效条目**：`security_headers.go` 仍保留腾讯天御的 script-src/frame-src/connect-src/worker-src 白名单，批次 1 同样留下了 Stripe/Airwallex 条目。对应 SDK 已删，这些条目现在只是无谓放宽策略，建议作为安全侧收敛项统一清理
-- **`registration_email_domain_quota_enabled`**：注册删除后已无内部消费者，但仍被 admin 设置页读写往返；其兄弟键 `registration_email_suffix_whitelist` 仍被邮箱绑定的校验路径使用，两者在设置页属同一区块，需一并评估
-- **`LOGIN_ENTRY_RESERVED_PREFIXES` 的 `/legal`、`/custom`**（前端 SettingsView 与后端 `config/web_entry.go` 镜像）：对应路由已删，但**刻意保留**——这是自定义登录入口的保留字黑名单，删条目只会放宽允许集，属安全收紧项而非裁剪项。若要收窄需前后端同步改并调整 `web_entry_test.go` 用例
-- **支付遗留文档**：`docs/PAYMENT.md`、`docs/PAYMENT_CN.md`、`docs/ADMIN_PAYMENT_INTEGRATION_API.md` 描述的功能已在批次 1 删除
-- **`custom_endpoints` 设置**：与已删的 `api_base_url` 在设置页相邻但语义不同，本批未动，待站长确认是否一并删除
-- **ent 中的支付实体**（`payment_orders`/`payment_provider_instances` 等）与相关历史迁移：需 ent 重生成，归入 A5 数据库压平
+- [x] **CSP 白名单失效条目**（批次 3 已处理）：强制注入表从 27 条收敛为 1 条，只留 Cloudflare Web Analytics；天御国内/国际站、Turnstile、阿里云验证码、Stripe、Airwallex 的条目与默认策略里的对应域名全部删除，`frame-src` 收紧为 `'none'`。新增防回归用例锁死这批主机不许回流
+- [x] **`registration_email_domain_quota_enabled`**（批次 3 已处理）：整键删除 + 迁移 233 清库。**核实结论修正**：兄弟键 `registration_email_suffix_whitelist` 的邮箱绑定校验路径已随批次 3 邮件体系整删消失（`AuthService.validateRegistrationEmailPolicy` 零调用点，已一并删除），但该键**必须保留**——它是 `InitializeDefaultSettings` 判断"是否已种过默认设置"的探测键，删掉会导致每次启动重跑种子
+- [ ] **`LOGIN_ENTRY_RESERVED_PREFIXES` 的 `/legal`、`/custom`**（前端 SettingsView 与后端 `config/web_entry.go` 镜像）：对应路由已删，但**刻意保留**——这是自定义登录入口的保留字黑名单，删条目只会放宽允许集，属安全收紧项而非裁剪项。若要收窄需前后端同步改并调整 `web_entry_test.go` 用例。批次 3 删模型广场时同理保留了 `/model-plaza`（但把它从**默认落地页白名单** `allowedDefaultHomePaths` 里删掉了，那是白名单，留着等于允许把首页指到已删页面）
+- [x] **支付遗留文档**（批次 3 已处理）：三份文档删除，三个 README 里指向它们的「内置支付系统」条目与生态表格行一并删掉
+- [ ] **`custom_endpoints` 设置**：与已删的 `api_base_url` 在设置页相邻但语义不同，本批未动，待站长确认是否一并删除
+- [ ] **ent 中的支付实体**（`payment_orders`/`payment_provider_instances` 等）与相关历史迁移：需 ent 重生成，归入 A5 数据库压平
+- [ ] **余额变动记录入口仍指向已删接口**（批次 3 新发现）：`UsageTable.vue` 与 `OpsErrorLogTable.vue` 的余额 tooltip 仍用 `admin.usage.clickToViewBalance`（「点击查看充值记录」），而 `/api/v1/admin/users/:id/balance-history` 已在批次 1 删除；`admin.users.balanceHistory*` 一整组文案同理。点击行为需要复核后再决定是改文案还是去掉入口
+- [ ] **`SettingsView.spec.ts` 的 vue-i18n mock 字典与 `baseSettingsResponse` 仍带已删字段**（批次 3 新发现）：`admin.settings.wechatConnect.*`、`admin.settings.payment*`、`admin.settings.site.*`、`registration_enabled` / `promo_code_enabled` 等。只存在于测试桩里，不进产物，但会让基于关键字 grep 的裁剪审计继续误报
+- [ ] **`admin.groups.claudeMaxSimulation` 中英键路径不一致**（批次 3 新发现，非本轮引入）：zh 挂在 `admin.groups.modelRouting.claudeMaxSimulation`，en 挂在 `admin.groups.claudeMaxSimulation`，两边有一边取不到值
 
 ---
 
