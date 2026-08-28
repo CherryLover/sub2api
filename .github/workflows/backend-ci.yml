@@ -33,6 +33,17 @@ jobs:
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.26.6'
+      # embed_on.go 带 //go:build embed，而 unit / integration / golangci-lint
+      # 三种编译都不带该 tag —— 等于无人检查它，只有 Dockerfile 构建生产镜像时
+      # 才会编译到，编译错误要等出镜像才暴露（批次 2 因此连挂两轮）。
+      # 这里用桩 dist 目录满足 //go:embed all:dist，纯做编译检查后清理。
+      - name: Embed tag build check
+        working-directory: backend
+        run: |
+          mkdir -p internal/web/dist && touch internal/web/dist/.gitkeep
+          go build -tags embed ./...
+          rm -rf internal/web/dist
+
       - name: Unit tests
         working-directory: backend
         run: make test-unit

@@ -382,6 +382,18 @@ IsPasswordResetEnabled = email_verify_enabled==true
 **后续批次删除任何目录/文件后，务必 grep 构建上下文**：`Dockerfile`、`deploy/Dockerfile`、
 `.dockerignore`、`.goreleaser.yaml`。
 
+### ⚠️ `//go:build embed` 的文件在 CI 里无人检查（已加防护）
+
+`backend/internal/web/embed_on.go` 带 `//go:build embed`，而 CI 的三种编译
+（`-tags=unit` / `-tags=integration` / golangci-lint 不配 build-tags）**全都不带该 tag**，
+等于这个文件谁都没编译过；只有 Dockerfile 用 `-tags embed` 构建生产镜像时才会编到。
+批次 2 因此连挂两轮镜像构建：WP-B 删掉站点名/图标注入代码后遗留两个未使用 import，
+CI 全绿但镜像构建必然失败。
+
+**已加防护**：`backend-ci.yml` 的 test job 新增 `Embed tag build check` 步骤
+（桩 dist 目录 + `go build -tags embed ./...`），编译错误现在会在 CI 阶段就暴露。
+注：未改 golangci-lint 的 build-tags，因为换 tag 会反过来漏掉 `embed_off.go`。
+
 ### ⚠️ CI 的 lint 输出不是完整清单
 
 `golangci-lint` 默认 `max-same-issues=3`，同类问题只报前 3 个。批次 2 首轮 CI 报 3 个 gofmt，
