@@ -53,8 +53,6 @@ export default {
     generateNewKey: 'Generate a new API key',
     viewUsage: 'View Usage',
     checkDetailedLogs: 'Check detailed usage logs',
-    redeemCode: 'Redeem Code',
-    addBalanceWithCode: 'Add balance with a code'
   },
 
   // Groups (shared)
@@ -466,8 +464,6 @@ export default {
     overviewDescription: 'Check account status, profile sources, and common actions at a glance.',
     basicsTitle: 'Profile & Avatar',
     basicsDescription: 'Keep your public profile details and avatar aligned.',
-    linkedProfileSources: 'Profile Sources',
-    linkedProfileSourcesDescription: 'Some profile details may stay synced from third-party sign-in methods.',
     securityTitle: 'Security Settings',
     securityDescription: 'Password, two-factor authentication, and alerts live in the right rail.',
     administrator: 'Administrator',
@@ -570,8 +566,6 @@ export default {
       title: 'Connected Sign-In Methods',
       description: 'Email is the only sign-in method for this account.',
       readOnlyHint: 'The sign-in email is managed by the administrator; contact them to change it.',
-      unbindAction: 'Unbind',
-      unbindSuccess: '{providerName} unbound',
       boundCount: '{count} linked records',
       status: {
         bound: 'Bound',

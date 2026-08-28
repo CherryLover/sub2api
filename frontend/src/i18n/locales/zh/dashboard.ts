@@ -53,8 +53,6 @@ export default {
     generateNewKey: '生成新的 API 密钥',
     viewUsage: '查看使用记录',
     checkDetailedLogs: '查看详细的使用日志',
-    redeemCode: '兑换码',
-    addBalanceWithCode: '使用兑换码充值'
   },
 
   // Groups (shared)
@@ -471,8 +469,6 @@ export default {
     overviewDescription: '快速查看账号状态、资料来源与常用设置。',
     basicsTitle: '资料与头像',
     basicsDescription: '维护公开展示信息，并保持头像与昵称风格一致。',
-    linkedProfileSources: '资料来源',
-    linkedProfileSourcesDescription: '部分头像和昵称可能同步自第三方登录方式。',
     securityTitle: '安全设置',
     securityDescription: '密码、双因素认证和通知提醒集中放在右侧。',
     administrator: '管理员',
@@ -575,8 +571,6 @@ export default {
       title: '登录方式绑定',
       description: '本账号仅支持邮箱登录。',
       readOnlyHint: '登录邮箱由管理员维护，需要更换请联系管理员。',
-      unbindAction: '解绑',
-      unbindSuccess: '{providerName} 已解绑',
       boundCount: '已关联 {count} 条记录',
       status: {
         bound: '已绑定',

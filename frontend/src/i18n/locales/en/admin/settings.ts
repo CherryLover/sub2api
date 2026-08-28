@@ -47,10 +47,6 @@ export default {
           "Only email addresses from the specified domains can register; leave empty for no restriction (for example, {'@'}qq.com, {'@'}gmail.com, *.edu.cn)",
         emailSuffixWhitelistPlaceholder: "{'@'}example.com, *.edu.cn",
         emailSuffixWhitelistInputHint: 'Leave empty for no restriction. Use *.edu.cn to match edu.cn and its subdomains.',
-        promoCode: 'Promo Code',
-        promoCodeHint: 'Allow users to use promo codes during registration',
-        invitationCode: 'Invitation Code Registration',
-        invitationCodeHint: 'When enabled, users must enter a valid invitation code to register',
         totp: 'Two-Factor Authentication (2FA)',
         totpHint: 'Allow users to use authenticator apps like Google Authenticator',
         totpKeyNotConfigured:
@@ -146,9 +142,6 @@ export default {
         description: 'Default values for new users',
         defaultBalance: 'Default Balance',
         defaultBalanceHint: 'Initial balance for new users',
-        affiliateRebateRate: 'Affiliate Rebate Rate',
-        affiliateRebateRateHint:
-          'Rebate percentage credited to inviter after recharge (0-100%, e.g. 10 means 10%)',
         defaultConcurrency: 'Default Concurrency',
         defaultConcurrencyHint: 'Maximum concurrent requests for new users',
         defaultUserRpmLimit: 'Default User RPM Limit',

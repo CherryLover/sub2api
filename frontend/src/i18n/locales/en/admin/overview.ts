@@ -614,14 +614,12 @@ export default {
       noBalanceHistory: 'No records found for this user',
       allTypes: 'All Types',
       typeBalance: 'Balance (Redeem)',
-      typeAffiliateBalance: 'Balance (Affiliate Transfer)',
       typeAdminBalance: 'Balance (Admin)',
       typeConcurrency: 'Concurrency (Redeem)',
       typeAdminConcurrency: 'Concurrency (Admin)',
       typeSubscription: 'Subscription',
       failedToLoadBalanceHistory: 'Failed to load balance history',
       createdAt: 'Created',
-      totalRecharged: 'Total Recharged',
       roles: {
         admin: 'Admin',
         user: 'User'

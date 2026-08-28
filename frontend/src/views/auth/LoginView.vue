@@ -98,7 +98,7 @@
           <div class="flex items-center gap-3">
             <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
             <span class="text-xs text-gray-500 dark:text-dark-400">
-              {{ t('auth.oauthOrContinue') }}
+              {{ t('auth.passkeyOrContinue') }}
             </span>
             <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
           </div>
