@@ -462,7 +462,7 @@ type recordUsageOpts struct {
 	LongContextMultiplier float64
 }
 
-// RecordUsage 记录使用量并扣费（或更新订阅用量）
+// RecordUsage 记录使用量并按 API Key 额度扣费
 func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInput) error {
 	return s.recordUsageCore(ctx, &recordUsageCoreInput{
 		Result:             input.Result,

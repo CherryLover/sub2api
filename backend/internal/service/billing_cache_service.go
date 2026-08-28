@@ -77,7 +77,7 @@ type apiKeyRateLimitLoader interface {
 }
 
 // BillingCacheService 计费缓存服务
-// 负责余额和订阅数据的缓存管理，提供高性能的计费资格检查
+// 负责 API Key 额度、限流窗口与 user × platform 配额的缓存管理，提供高性能的计费资格检查
 type BillingCacheService struct {
 	cache                 BillingCache
 	apiKeyRateLimitLoader apiKeyRateLimitLoader
@@ -671,9 +671,8 @@ func circuitStateString(state billingCircuitBreakerState) string {
 	}
 }
 
-// checkUserPlatformQuotaEligibility 在 standard 模式下检查 user × platform 日/周/月 quota。
+// checkUserPlatformQuotaEligibility 检查 user × platform 日/周/月 quota。
 // 返回 nil = 允许；返回 ErrUserPlatform{Daily/Weekly/Monthly}QuotaExhausted = 拒绝（带 window_resets_at metadata）。
-// checkUserPlatformQuotaEligibility 检查用户在指定平台的 USD 配额。
 //
 // 流程（Redis-first / DB-fallback）：
 //  1. 先读 Redis cache；若命中且 SchemaVersion==1，直接用 entry 中的 limits 和 window_start 做校验，
@@ -690,7 +689,7 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	}
 
 	// cache 未配置（如简化部署 / 单测路径）→ 直接走 DB 查询，避免 nil panic。
-	// 其他 check* 方法（balance/subscription/rate-limit）也有类似守卫。
+	// 其他 check* 方法（rate-limit 等）也有类似守卫。
 	var (
 		entry    *UserPlatformQuotaCacheEntry
 		ok       bool
@@ -948,7 +947,7 @@ func quotaWindowExpired(start *time.Time, currWindowStart time.Time) bool {
 }
 
 // monthlyQuotaWindowExpired 判断 30 天滚动月度窗口是否已过期。
-// 过期条件：now - start >= 30×24h（与订阅模式 NeedsMonthlyReset 语义一致）。
+// 过期条件：now - start >= 30×24h。
 // start 为 nil 时视为已过期（未初始化窗口）。
 func monthlyQuotaWindowExpired(start *time.Time, now time.Time) bool {
 	if start == nil {

@@ -57,10 +57,6 @@ func TestUsageBillingRepositoryApply_DeduplicatesAPIKeyQuotaBilling(t *testing.T
 	require.NotNil(t, result2)
 	require.False(t, result2.Applied)
 
-	var balance float64
-	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT balance FROM users WHERE id = $1", user.ID).Scan(&balance))
-	require.InDelta(t, 98.75, balance, 0.000001)
-
 	var quotaUsed float64
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT quota_used FROM api_keys WHERE id = $1", apiKey.ID).Scan(&quotaUsed))
 	require.InDelta(t, 1.25, quotaUsed, 0.000001)
@@ -307,8 +303,4 @@ func TestUsageBillingRepositoryApply_DeduplicatesAgainstArchivedKey(t *testing.T
 	result2, err := repo.Apply(ctx, cmd)
 	require.NoError(t, err)
 	require.False(t, result2.Applied)
-
-	var balance float64
-	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT balance FROM users WHERE id = $1", user.ID).Scan(&balance))
-	require.InDelta(t, 98.75, balance, 0.000001)
 }

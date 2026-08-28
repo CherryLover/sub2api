@@ -18,6 +18,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// getAdminIDFromContext 从鉴权上下文里取出当前管理员 ID，取不到时返回 0。
+// 原先定义在 subscription_handler.go，订阅体系拆除后迁到这里，唯一调用方就是本文件。
+func getAdminIDFromContext(c *gin.Context) int64 {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		return 0
+	}
+	return subject.UserID
+}
+
 // UserWithConcurrency wraps AdminUser with current concurrency info
 type UserWithConcurrency struct {
 	dto.AdminUser

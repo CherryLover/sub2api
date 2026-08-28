@@ -168,7 +168,7 @@ func apiKeyAuth(apiKeyService *service.APIKeyService, cfg *config.Config) gin.Ha
 		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
 		// Async image task polling only reads data that already belongs to the
 		// authenticated key and must remain available after the completed
-		// generation consumes the key's remaining balance.
+		// generation consumes the key's remaining quota.
 		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || isAsyncImageTaskRead(c.Request.Method, c.Request.URL.Path)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────

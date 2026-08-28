@@ -231,7 +231,6 @@ func TestAPIContracts(t *testing.T) {
 						UpdatedAt:    deps.now,
 					},
 				})
-				deps.userSubRepo.SetActiveByUserID(1, nil)
 			},
 			method:     http.MethodGet,
 			path:       "/api/v1/groups/available",
@@ -1275,7 +1274,6 @@ func (stubProxyRepo) CountExpired(ctx context.Context) (int64, error) {
 func (stubProxyRepo) CountExpiringSoon(ctx context.Context, now time.Time) (int64, error) {
 	return 0, nil
 }
-
 
 type stubApiKeyRepo struct {
 	now time.Time

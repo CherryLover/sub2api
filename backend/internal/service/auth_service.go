@@ -128,19 +128,6 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	return token, user, nil
 }
 
-func authSourceSignupSettings(defaults *AuthSourceDefaultSettings, signupSource string) (ProviderDefaultGrantSettings, bool) {
-	if defaults == nil {
-		return ProviderDefaultGrantSettings{}, false
-	}
-
-	switch strings.ToLower(strings.TrimSpace(signupSource)) {
-	case "email":
-		return defaults.Email, true
-	default:
-		return ProviderDefaultGrantSettings{}, false
-	}
-}
-
 func (s *AuthService) touchUserLogin(ctx context.Context, userID int64) {
 	if s == nil || s.entClient == nil || userID <= 0 {
 		return

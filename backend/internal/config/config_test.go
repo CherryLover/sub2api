@@ -1411,16 +1411,6 @@ func TestValidateConfigErrors(t *testing.T) {
 			wantErr: "jwt.secret must be at least 32 bytes",
 		},
 		{
-			name:    "subscription maintenance worker_count non-negative",
-			mutate:  func(c *Config) { c.SubscriptionMaintenance.WorkerCount = -1 },
-			wantErr: "subscription_maintenance.worker_count",
-		},
-		{
-			name:    "subscription maintenance queue_size non-negative",
-			mutate:  func(c *Config) { c.SubscriptionMaintenance.QueueSize = -1 },
-			wantErr: "subscription_maintenance.queue_size",
-		},
-		{
 			name:    "jwt expire hour positive",
 			mutate:  func(c *Config) { c.JWT.ExpireHour = 0 },
 			wantErr: "jwt.expire_hour must be positive",
@@ -1454,11 +1444,6 @@ func TestValidateConfigErrors(t *testing.T) {
 			name:    "billing circuit breaker half open",
 			mutate:  func(c *Config) { c.Billing.CircuitBreaker.HalfOpenRequests = 0 },
 			wantErr: "billing.circuit_breaker.half_open_requests",
-		},
-		{
-			name:    "billing minimum balance reserve",
-			mutate:  func(c *Config) { c.Billing.MinimumBalanceReserve = -0.01 },
-			wantErr: "billing.minimum_balance_reserve",
 		},
 		{
 			name:    "database max open conns",

@@ -134,14 +134,3 @@ func TestSystemPlatformQuotas_EmptyMapClearsAll(t *testing.T) {
 		}
 	}
 }
-
-// TestUpdateSettingsWithAuthSourceDefaults_PlatformQuotaRoundTrip 验证 round-4 fix：
-// PUT /admin/settings 携带的 auth source × platform × window 限额能完整写入并被 GetAuthSourcePlatformQuotas 读回。
-// Round-4 之前 writeProviderDefaultGrantUpdates 完全没写 PQ key，前端配置静默丢失。
-// TestUpdateSettingsWithAuthSourceDefaults_NilPlatformQuotaPreservesExisting 验证 #2 防御：
-// 请求未携带某 auth source 的 platform quota（nil）时跳过写入、保留既有配置，
-// 而非整体替换为空 map 清空（与系统层 nil 守卫一致）。
-// TestGetAuthSourcePlatformQuotas_JSON 验证新 JSON key 读写语义：
-// 写入 JSON，断言已配置平台在结果中、未配置平台不在结果中（override 语义）。
-// TestUpdateSettingsWithAuthSourceDefaults_NegativeQuotaRejected 验证改动 C：
-// auth-source platform quota 含负数时，UpdateSettingsWithAuthSourceDefaults 返回 BadRequest 错误。

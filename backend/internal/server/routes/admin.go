@@ -72,8 +72,6 @@ func RegisterAdminRoutes(
 		// 系统管理
 		registerSystemRoutes(admin, h)
 
-		// 订阅管理
-
 		// 使用记录管理
 		registerUsageRoutes(admin, h)
 

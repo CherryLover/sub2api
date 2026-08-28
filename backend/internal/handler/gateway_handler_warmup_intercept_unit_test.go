@@ -166,7 +166,7 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 		nil, // accountRepo (not used: scheduler snapshot hit)
 		&fakeGroupRepo{group: group},
 		nil, // usageLogRepo
-		nil, // userSubRepo
+		nil,
 		nil, // userGroupRateRepo
 		nil, // cache (disable sticky)
 		nil, // cfg

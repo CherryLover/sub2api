@@ -1296,7 +1296,6 @@ func (r *stubApiKeyRepo) GetRateLimitData(ctx context.Context, id int64) (*servi
 	return nil, nil
 }
 
-
 type fakeSettingRepo struct {
 	values map[string]string
 }

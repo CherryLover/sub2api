@@ -1004,9 +1004,8 @@ func (s *APIKeyService) IncrementUsage(ctx context.Context, keyID int64) error {
 }
 
 // GetAvailableGroups 获取用户有权限绑定的分组列表
-// 返回用户可以选择的分组：
-// - 标准类型分组：公开的（非专属）或用户被明确允许的
-// - 订阅类型分组：用户有有效订阅的
+// 返回用户可以选择的分组：公开分组（非专属）全员可见，
+// 专属分组只对 user_allowed_groups 授权过的用户可见。
 func (s *APIKeyService) GetAvailableGroups(ctx context.Context, userID int64) ([]Group, error) {
 	// 获取用户信息
 	user, err := s.userRepo.GetByID(ctx, userID)
@@ -1041,8 +1040,8 @@ func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword
 
 // GetUserAllowedGroupIDSet 返回 user_allowed_groups 授权给该用户的专属分组 ID 集合。
 //
-// 与 GetAvailableGroups 的区别：这里是「橱窗」语义（模型广场用），不检查订阅有效性，
-// 也不关心分组是否活跃——仅回答"哪些专属分组对该用户可见"。返回值恒非 nil。
+// 与 GetAvailableGroups 的区别：这里是「橱窗」语义（模型广场用），
+// 不关心分组是否活跃——仅回答"哪些专属分组对该用户可见"。返回值恒非 nil。
 func (s *APIKeyService) GetUserAllowedGroupIDSet(ctx context.Context, userID int64) (map[int64]struct{}, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
