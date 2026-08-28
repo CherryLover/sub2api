@@ -76,7 +76,6 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		return
 	}
 
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if h.billingCacheService == nil {
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Billing service unavailable")
 		return
@@ -86,7 +85,6 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		apiKey.User,
 		apiKey,
 		apiKey.Group,
-		subscription,
 		service.QuotaPlatform(c.Request.Context(), apiKey),
 	); err != nil {
 		status, code, message, retryAfter := billingErrorDetails(err)
@@ -112,7 +110,7 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 	}
 	defer userRelease()
 
-	identity := liveCallIdentity(c, apiKey, subject.UserID, subscription)
+	identity := liveCallIdentity(c, apiKey, subject.UserID)
 	created, err := h.gatewayService.CreateLiveCall(c.Request.Context(), request, identity, subject.Concurrency)
 	if err != nil {
 		h.writeLiveCreateError(c, err)
@@ -159,18 +157,11 @@ func liveCallIdentity(
 	c *gin.Context,
 	apiKey *service.APIKey,
 	userID int64,
-	subscription *service.UserSubscription,
 ) service.LiveCallIdentity {
-	var subscriptionID *int64
-	if subscription != nil {
-		value := subscription.ID
-		subscriptionID = &value
-	}
 	return service.LiveCallIdentity{
 		APIKeyID:        apiKey.ID,
 		UserID:          userID,
 		GroupID:         apiKey.GroupID,
-		SubscriptionID:  subscriptionID,
 		UserAgent:       c.GetHeader("User-Agent"),
 		IPAddress:       ip.GetClientIP(c),
 		InboundEndpoint: GetInboundEndpoint(c),

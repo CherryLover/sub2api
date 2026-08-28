@@ -62,37 +62,35 @@ const (
 const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 
 type Config struct {
-	Server                  ServerConfig                  `mapstructure:"server"`
-	Log                     LogConfig                     `mapstructure:"log"`
-	CORS                    CORSConfig                    `mapstructure:"cors"`
-	Security                SecurityConfig                `mapstructure:"security"`
-	Billing                 BillingConfig                 `mapstructure:"billing"`
-	Database                DatabaseConfig                `mapstructure:"database"`
-	Redis                   RedisConfig                   `mapstructure:"redis"`
-	Ops                     OpsConfig                     `mapstructure:"ops"`
-	JWT                     JWTConfig                     `mapstructure:"jwt"`
-	Totp                    TotpConfig                    `mapstructure:"totp"`
-	WebAuthn                WebAuthnConfig                `mapstructure:"webauthn"`
-	Default                 DefaultConfig                 `mapstructure:"default"`
-	RateLimit               RateLimitConfig               `mapstructure:"rate_limit"`
-	Pricing                 PricingConfig                 `mapstructure:"pricing"`
-	Gateway                 GatewayConfig                 `mapstructure:"gateway"`
-	APIKeyAuth              APIKeyAuthCacheConfig         `mapstructure:"api_key_auth_cache"`
-	SubscriptionCache       SubscriptionCacheConfig       `mapstructure:"subscription_cache"`
-	SubscriptionMaintenance SubscriptionMaintenanceConfig `mapstructure:"subscription_maintenance"`
-	Dashboard               DashboardCacheConfig          `mapstructure:"dashboard_cache"`
-	DashboardAgg            DashboardAggregationConfig    `mapstructure:"dashboard_aggregation"`
-	UsageCleanup            UsageCleanupConfig            `mapstructure:"usage_cleanup"`
-	Concurrency             ConcurrencyConfig             `mapstructure:"concurrency"`
-	TokenRefresh            TokenRefreshConfig            `mapstructure:"token_refresh"`
-	RunMode                 string                        `mapstructure:"run_mode" yaml:"run_mode"`
-	Timezone                string                        `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
-	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
-	Update                  UpdateConfig                  `mapstructure:"update"`
-	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
-	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
-	KeyUsage                KeyUsageConfig                `mapstructure:"key_usage"`
-	Web                     WebConfig                     `mapstructure:"web"`
+	Server       ServerConfig               `mapstructure:"server"`
+	Log          LogConfig                  `mapstructure:"log"`
+	CORS         CORSConfig                 `mapstructure:"cors"`
+	Security     SecurityConfig             `mapstructure:"security"`
+	Billing      BillingConfig              `mapstructure:"billing"`
+	Database     DatabaseConfig             `mapstructure:"database"`
+	Redis        RedisConfig                `mapstructure:"redis"`
+	Ops          OpsConfig                  `mapstructure:"ops"`
+	JWT          JWTConfig                  `mapstructure:"jwt"`
+	Totp         TotpConfig                 `mapstructure:"totp"`
+	WebAuthn     WebAuthnConfig             `mapstructure:"webauthn"`
+	Default      DefaultConfig              `mapstructure:"default"`
+	RateLimit    RateLimitConfig            `mapstructure:"rate_limit"`
+	Pricing      PricingConfig              `mapstructure:"pricing"`
+	Gateway      GatewayConfig              `mapstructure:"gateway"`
+	APIKeyAuth   APIKeyAuthCacheConfig      `mapstructure:"api_key_auth_cache"`
+	Dashboard    DashboardCacheConfig       `mapstructure:"dashboard_cache"`
+	DashboardAgg DashboardAggregationConfig `mapstructure:"dashboard_aggregation"`
+	UsageCleanup UsageCleanupConfig         `mapstructure:"usage_cleanup"`
+	Concurrency  ConcurrencyConfig          `mapstructure:"concurrency"`
+	TokenRefresh TokenRefreshConfig         `mapstructure:"token_refresh"`
+	RunMode      string                     `mapstructure:"run_mode" yaml:"run_mode"`
+	Timezone     string                     `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
+	Gemini       GeminiConfig               `mapstructure:"gemini"`
+	Update       UpdateConfig               `mapstructure:"update"`
+	Idempotency  IdempotencyConfig          `mapstructure:"idempotency"`
+	ImageStorage ImageStorageConfig         `mapstructure:"image_storage"`
+	KeyUsage     KeyUsageConfig             `mapstructure:"key_usage"`
+	Web          WebConfig                  `mapstructure:"web"`
 }
 
 type LogConfig struct {
@@ -489,10 +487,6 @@ func normalizeProxyProbeURLs(targets []ProbeURLConfig) ([]ProbeURLConfig, error)
 
 type BillingConfig struct {
 	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker"`
-	// MinimumBalanceReserve is the conservative preflight floor for balance billing.
-	// Requests in balance mode are rejected when the cached balance is below this
-	// amount, even if it is still positive. Set to 0 to keep the legacy balance > 0 gate.
-	MinimumBalanceReserve float64 `mapstructure:"minimum_balance_reserve"`
 	// UserPlatformQuotaCacheTTLSeconds 用户 × 平台 quota 缓存 TTL（秒），默认 86400=1天，覆盖典型 daily 窗口。
 	// 消费点：
 	//   - billing_cache_service.cacheWriteWorker 异步累加
@@ -1245,7 +1239,6 @@ type DefaultConfig struct {
 	AdminEmail      string  `mapstructure:"admin_email"`
 	AdminPassword   string  `mapstructure:"admin_password"`
 	UserConcurrency int     `mapstructure:"user_concurrency"`
-	UserBalance     float64 `mapstructure:"user_balance"`
 	APIKeyPrefix    string  `mapstructure:"api_key_prefix"`
 	RateMultiplier  float64 `mapstructure:"rate_multiplier"`
 }
@@ -1273,20 +1266,6 @@ type InvalidAuthAbuseConfig struct {
 	WindowSeconds int  `mapstructure:"window_seconds"`
 	BlockSeconds  int  `mapstructure:"block_seconds"`
 	Capacity      int  `mapstructure:"capacity"`
-}
-
-// SubscriptionCacheConfig 订阅认证 L1 缓存配置
-type SubscriptionCacheConfig struct {
-	L1Size        int `mapstructure:"l1_size"`
-	L1TTLSeconds  int `mapstructure:"l1_ttl_seconds"`
-	JitterPercent int `mapstructure:"jitter_percent"`
-}
-
-// SubscriptionMaintenanceConfig 订阅窗口维护后台任务配置。
-// 用于将“请求路径触发的维护动作”有界化，避免高并发下 goroutine 膨胀。
-type SubscriptionMaintenanceConfig struct {
-	WorkerCount int `mapstructure:"worker_count"`
-	QueueSize   int `mapstructure:"queue_size"`
 }
 
 // DashboardCacheConfig 仪表盘统计缓存配置
@@ -1698,7 +1677,6 @@ func setDefaults() {
 	viper.SetDefault("billing.circuit_breaker.failure_threshold", 5)
 	viper.SetDefault("billing.circuit_breaker.reset_timeout_seconds", 30)
 	viper.SetDefault("billing.circuit_breaker.half_open_requests", 3)
-	viper.SetDefault("billing.minimum_balance_reserve", 0.000001)
 	viper.SetDefault("billing.user_platform_quota_cache_ttl_seconds", 86400)
 	viper.SetDefault("billing.user_platform_quota_sentinel_ttl_seconds", 3600)
 
@@ -1777,7 +1755,6 @@ func setDefaults() {
 	viper.SetDefault("default.admin_email", "")
 	viper.SetDefault("default.admin_password", "")
 	viper.SetDefault("default.user_concurrency", 5)
-	viper.SetDefault("default.user_balance", 0)
 	viper.SetDefault("default.api_key_prefix", "sk-")
 	viper.SetDefault("default.rate_multiplier", 1.0)
 
@@ -1811,9 +1788,6 @@ func setDefaults() {
 	viper.SetDefault("api_key_auth_cache.invalid_abuse.capacity", 16384)
 
 	// Subscription auth L1 cache
-	viper.SetDefault("subscription_cache.l1_size", 16384)
-	viper.SetDefault("subscription_cache.l1_ttl_seconds", 10)
-	viper.SetDefault("subscription_cache.jitter_percent", 10)
 
 	// Dashboard cache
 	viper.SetDefault("dashboard_cache.enabled", true)
@@ -2062,8 +2036,6 @@ func setDefaults() {
 	viper.SetDefault("gemini.quota.policy", "")
 
 	// Subscription Maintenance (bounded queue + worker pool)
-	viper.SetDefault("subscription_maintenance.worker_count", 2)
-	viper.SetDefault("subscription_maintenance.queue_size", 1024)
 
 	setEnvReachableDefaults()
 }
@@ -2242,13 +2214,6 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.SubscriptionMaintenance.WorkerCount < 0 {
-		return fmt.Errorf("subscription_maintenance.worker_count must be non-negative")
-	}
-	if c.SubscriptionMaintenance.QueueSize < 0 {
-		return fmt.Errorf("subscription_maintenance.queue_size must be non-negative")
-	}
-
 	// Gemini OAuth 配置校验：client_id 与 client_secret 必须同时设置或同时留空。
 	// 留空时表示使用内置的 Gemini CLI OAuth 客户端（其 client_secret 通过环境变量注入）。
 	geminiClientID := strings.TrimSpace(c.Gemini.OAuth.ClientID)
@@ -2348,9 +2313,6 @@ func (c *Config) Validate() error {
 		if c.Billing.CircuitBreaker.HalfOpenRequests <= 0 {
 			return fmt.Errorf("billing.circuit_breaker.half_open_requests must be positive")
 		}
-	}
-	if c.Billing.MinimumBalanceReserve < 0 {
-		return fmt.Errorf("billing.minimum_balance_reserve must be non-negative")
 	}
 	if c.Database.MaxOpenConns <= 0 {
 		return fmt.Errorf("database.max_open_conns must be positive")

@@ -33,17 +33,11 @@ type APIKeyAuthUserSnapshot struct {
 	ID            int64   `json:"id"`
 	Status        string  `json:"status"`
 	Role          string  `json:"role"`
-	Balance       float64 `json:"balance"`
 	Concurrency   int     `json:"concurrency"`
 	AllowedGroups []int64 `json:"allowed_groups,omitempty"`
 
-	// 余额阈值快照字段（邮件通知已移除，保留待 A4 余额语义拆除时一并处理）
-	Email                      string   `json:"email"`
-	Username                   string   `json:"username"`
-	BalanceNotifyEnabled       bool     `json:"balance_notify_enabled"`
-	BalanceNotifyThresholdType string   `json:"balance_notify_threshold_type"`
-	BalanceNotifyThreshold     *float64 `json:"balance_notify_threshold,omitempty"`
-	TotalRecharged             float64  `json:"total_recharged"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
 
 	// RPMLimit 用户级每分钟请求数上限（0 = 不限制）；用于 billing_cache_service.checkRPM 兜底判断。
 	RPMLimit int `json:"rpm_limit"`
@@ -60,11 +54,7 @@ type APIKeyAuthGroupSnapshot struct {
 	Platform                        string                        `json:"platform"`
 	IsExclusive                     bool                          `json:"is_exclusive"`
 	Status                          string                        `json:"status"`
-	SubscriptionType                string                        `json:"subscription_type"`
 	RateMultiplier                  float64                       `json:"rate_multiplier"`
-	DailyLimitUSD                   *float64                      `json:"daily_limit_usd,omitempty"`
-	WeeklyLimitUSD                  *float64                      `json:"weekly_limit_usd,omitempty"`
-	MonthlyLimitUSD                 *float64                      `json:"monthly_limit_usd,omitempty"`
 	AllowImageGeneration            bool                          `json:"allow_image_generation"`
 	ImageRateIndependent            bool                          `json:"image_rate_independent"`
 	ImageRateMultiplier             float64                       `json:"image_rate_multiplier"`

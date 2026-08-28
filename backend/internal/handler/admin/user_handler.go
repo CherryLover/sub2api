@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -59,15 +58,14 @@ func NewUserHandler(
 
 // CreateUserRequest represents admin create user request
 type CreateUserRequest struct {
-	Email         string   `json:"email" binding:"required,email"`
-	Password      string   `json:"password" binding:"required,min=6"`
-	Username      string   `json:"username"`
-	Notes         string   `json:"notes"`
-	Role          string   `json:"role" binding:"omitempty,oneof=admin user"`
-	Balance       *float64 `json:"balance"`
-	Concurrency   int      `json:"concurrency"`
-	RPMLimit      int      `json:"rpm_limit"`
-	AllowedGroups []int64  `json:"allowed_groups"`
+	Email         string  `json:"email" binding:"required,email"`
+	Password      string  `json:"password" binding:"required,min=6"`
+	Username      string  `json:"username"`
+	Notes         string  `json:"notes"`
+	Role          string  `json:"role" binding:"omitempty,oneof=admin user"`
+	Concurrency   int     `json:"concurrency"`
+	RPMLimit      int     `json:"rpm_limit"`
+	AllowedGroups []int64 `json:"allowed_groups"`
 }
 
 // UpdateUserRequest represents admin update user request
@@ -78,7 +76,6 @@ type UpdateUserRequest struct {
 	Username      *string  `json:"username"`
 	Notes         *string  `json:"notes"`
 	Role          string   `json:"role" binding:"omitempty,oneof=admin user"`
-	Balance       *float64 `json:"balance"`
 	Concurrency   *int     `json:"concurrency"`
 	RPMLimit      *int     `json:"rpm_limit"`
 	Status        string   `json:"status" binding:"omitempty,oneof=active disabled"`
@@ -86,13 +83,6 @@ type UpdateUserRequest struct {
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
 	GroupRates map[int64]*float64 `json:"group_rates"`
-}
-
-// UpdateBalanceRequest represents balance update request
-type UpdateBalanceRequest struct {
-	Balance   float64 `json:"balance" binding:"required,gt=0"`
-	Operation string  `json:"operation" binding:"required,oneof=set add subtract"`
-	Notes     string  `json:"notes"`
 }
 
 type BindUserAuthIdentityRequest struct {
@@ -144,11 +134,6 @@ func (h *UserHandler) List(c *gin.Context) {
 	}
 	sortBy := c.DefaultQuery("sort_by", "created_at")
 	sortOrder := c.DefaultQuery("sort_order", "desc")
-	if raw, ok := c.GetQuery("include_subscriptions"); ok {
-		includeSubscriptions := parseBoolQueryWithDefault(raw, true)
-		filters.IncludeSubscriptions = &includeSubscriptions
-	}
-
 	users, total, err := h.adminService.ListUsers(c.Request.Context(), page, pageSize, filters, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -289,7 +274,6 @@ func (h *UserHandler) Create(c *gin.Context) {
 		Username:      req.Username,
 		Notes:         req.Notes,
 		Role:          req.Role,
-		Balance:       req.Balance,
 		Concurrency:   req.Concurrency,
 		RPMLimit:      req.RPMLimit,
 		AllowedGroups: req.AllowedGroups,
@@ -347,7 +331,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 		Username:      req.Username,
 		Notes:         req.Notes,
 		Role:          req.Role,
-		Balance:       req.Balance,
 		Concurrency:   req.Concurrency,
 		RPMLimit:      req.RPMLimit,
 		Status:        req.Status,
@@ -379,37 +362,6 @@ func (h *UserHandler) Delete(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"message": "User deleted successfully"})
-}
-
-// UpdateBalance handles updating user balance
-// POST /api/v1/admin/users/:id/balance
-func (h *UserHandler) UpdateBalance(c *gin.Context) {
-	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		response.BadRequest(c, "Invalid user ID")
-		return
-	}
-
-	var req UpdateBalanceRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	idempotencyPayload := struct {
-		UserID int64                `json:"user_id"`
-		Body   UpdateBalanceRequest `json:"body"`
-	}{
-		UserID: userID,
-		Body:   req,
-	}
-	executeAdminIdempotentJSON(c, "admin.users.balance.update", idempotencyPayload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		user, execErr := h.adminService.UpdateUserBalance(ctx, userID, req.Balance, req.Operation, req.Notes)
-		if execErr != nil {
-			return nil, execErr
-		}
-		return dto.UserFromServiceAdmin(user), nil
-	})
 }
 
 // GetUserAPIKeys handles getting user's API keys

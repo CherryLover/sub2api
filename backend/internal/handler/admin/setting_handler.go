@@ -51,22 +51,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	authSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
 	// Check if ops monitoring is enabled (respects config.ops.enabled)
 	opsEnabled := h.opsService != nil && h.opsService.IsMonitoringEnabled(c.Request.Context())
-	defaultSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(settings.DefaultSubscriptions))
-	for _, sub := range settings.DefaultSubscriptions {
-		defaultSubscriptions = append(defaultSubscriptions, dto.DefaultSubscriptionSetting{
-			GroupID:      sub.GroupID,
-			ValidityDays: sub.ValidityDays,
-		})
-	}
-
 	passkeyConfigured, passkeyRPID, passkeyRPOrigins := h.settingService.PasskeyConfiguration()
 
 	payload := dto.SystemSettings{
@@ -85,12 +71,10 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		DocURL:                                                 settings.DocURL,
 		CustomEndpoints:                                        dto.ParseCustomEndpoints(settings.CustomEndpoints),
 		DefaultConcurrency:                                     settings.DefaultConcurrency,
-		DefaultBalance:                                         settings.DefaultBalance,
 		RiskControlEnabled:                                     settings.RiskControlEnabled,
 		CyberSessionBlockEnabled:                               settings.CyberSessionBlockEnabled,
 		CyberSessionBlockTTLSeconds:                            settings.CyberSessionBlockTTLSeconds,
 		DefaultUserRPMLimit:                                    settings.DefaultUserRPMLimit,
-		DefaultSubscriptions:                                   defaultSubscriptions,
 		EnableModelFallback:                                    settings.EnableModelFallback,
 		FallbackModelAnthropic:                                 settings.FallbackModelAnthropic,
 		FallbackModelOpenAI:                                    settings.FallbackModelOpenAI,
@@ -187,7 +171,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 	// 界面上要显示"现在登录页到底在哪"，还要显示这一项是不是被配置文件锁住了。
 	webEntrySettingsToDTO(h.settingService.ResolveWebEntry(c.Request.Context()), &payload)
 
-	response.Success(c, systemSettingsResponseData(payload, authSourceDefaults))
+	response.Success(c, systemSettingsResponseData(payload))
 }
 
 // openaiFastPolicySettingsToDTO converts service -> dto for OpenAI fast policy.
@@ -224,22 +208,11 @@ func openaiFastPolicySettingsFromDTO(s *dto.OpenAIFastPolicySettings) *service.O
 	return &service.OpenAIFastPolicySettings{Rules: rules}
 }
 
-func systemSettingsResponseData(settings dto.SystemSettings, authSourceDefaults *service.AuthSourceDefaultSettings) map[string]any {
+func systemSettingsResponseData(settings dto.SystemSettings) map[string]any {
 	data := make(map[string]any)
 	raw, err := json.Marshal(settings)
 	if err == nil {
 		_ = json.Unmarshal(raw, &data)
 	}
-	if authSourceDefaults == nil {
-		authSourceDefaults = &service.AuthSourceDefaultSettings{}
-	}
-
-	data["auth_source_default_email_balance"] = authSourceDefaults.Email.Balance
-	data["auth_source_default_email_concurrency"] = authSourceDefaults.Email.Concurrency
-	data["auth_source_default_email_subscriptions"] = authSourceDefaults.Email.Subscriptions
-	data["auth_source_default_email_grant_on_signup"] = authSourceDefaults.Email.GrantOnSignup
-	data["auth_source_default_email_grant_on_first_bind"] = authSourceDefaults.Email.GrantOnFirstBind
-	data["auth_source_default_email_platform_quotas"] = authSourceDefaults.Email.PlatformQuotas
-
 	return data
 }

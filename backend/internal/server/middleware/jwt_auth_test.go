@@ -60,8 +60,8 @@ func newJWTTestEnv(users map[int64]*service.User) (*gin.Engine, *service.AuthSer
 	cfg.JWT.AccessTokenExpireMinutes = 60
 
 	userRepo := &stubJWTUserRepo{users: users}
-	authSvc := service.NewAuthService(nil, userRepo, nil, cfg, nil, nil)
-	userSvc := service.NewUserService(userRepo, nil, nil, nil)
+	authSvc := service.NewAuthService(nil, userRepo, nil, cfg, nil)
+	userSvc := service.NewUserService(userRepo, nil, nil)
 	mw := NewJWTAuthMiddleware(authSvc, userSvc, nil, nil)
 
 	r := gin.New()
@@ -143,8 +143,8 @@ func TestJWTAuth_ValidToken_TouchesLastActive(t *testing.T) {
 	cfg.JWT.AccessTokenExpireMinutes = 60
 
 	userRepo := &stubJWTUserRepo{users: map[int64]*service.User{1: user}}
-	authSvc := service.NewAuthService(nil, userRepo, nil, cfg, nil, nil)
-	userSvc := service.NewUserService(userRepo, nil, nil, nil)
+	authSvc := service.NewAuthService(nil, userRepo, nil, cfg, nil)
+	userSvc := service.NewUserService(userRepo, nil, nil)
 	toucher := &recordingActivityToucher{}
 
 	r := gin.New()

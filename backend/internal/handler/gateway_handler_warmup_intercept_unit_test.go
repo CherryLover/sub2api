@@ -166,8 +166,6 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 		nil, // accountRepo (not used: scheduler snapshot hit)
 		&fakeGroupRepo{group: group},
 		nil, // usageLogRepo
-		nil, // usageBillingRepo
-		nil, // userRepo
 		nil, // userSubRepo
 		nil, // userGroupRateRepo
 		nil, // cache (disable sticky)
@@ -188,13 +186,13 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 		nil, // tlsFPProfileService
 		nil, // channelService
 		nil, // resolver
-		nil, // compositeResolver
+		nil,
 		nil, // userPlatformQuotaRepo
 	)
 
 	// RunModeSimple：跳过计费检查，避免引入 repo/cache 依赖。
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, cfg, nil)
 
 	concurrencySvc := service.NewConcurrencyService(&fakeConcurrencyCache{})
 	concurrencyHelper := NewConcurrencyHelper(concurrencySvc, SSEPingFormatClaude, 0)
@@ -270,7 +268,6 @@ func TestGatewayHandlerMessages_InterceptWarmup_AntigravityAccount_MixedScheduli
 		User: &service.User{
 			ID:          4001,
 			Concurrency: 10,
-			Balance:     100,
 		},
 		Group: group,
 	}
@@ -360,7 +357,6 @@ func TestGatewayHandlerMessages_InterceptWarmup_AntigravityAccount_ForcePlatform
 		User: &service.User{
 			ID:          4002,
 			Concurrency: 10,
-			Balance:     100,
 		},
 		Group: group,
 	}

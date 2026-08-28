@@ -65,19 +65,3 @@ func (s *settingRepoStub) GetAll(ctx context.Context) (map[string]string, error)
 func (s *settingRepoStub) Delete(ctx context.Context, key string) error {
 	panic("unexpected Delete call")
 }
-
-// defaultSubscriptionAssignerStub 记录默认订阅授予调用，供管理员建用户等路径断言。
-type defaultSubscriptionAssignerStub struct {
-	calls []AssignSubscriptionInput
-	err   error
-}
-
-func (s *defaultSubscriptionAssignerStub) AssignOrExtendSubscription(_ context.Context, input *AssignSubscriptionInput) (*UserSubscription, bool, error) {
-	if input != nil {
-		s.calls = append(s.calls, *input)
-	}
-	if s.err != nil {
-		return nil, false, s.err
-	}
-	return &UserSubscription{UserID: input.UserID, GroupID: input.GroupID}, false, nil
-}

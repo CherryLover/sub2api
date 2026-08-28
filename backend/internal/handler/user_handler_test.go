@@ -87,20 +87,6 @@ func (s *userHandlerRepoStub) List(context.Context, pagination.PaginationParams)
 func (s *userHandlerRepoStub) ListWithFilters(context.Context, pagination.PaginationParams, service.UserListFilters) ([]service.User, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
-func (s *userHandlerRepoStub) UpdateBalance(context.Context, int64, float64) error { return nil }
-func (s *userHandlerRepoStub) DeductBalance(context.Context, int64, float64) error { return nil }
-func (s *userHandlerRepoStub) UpdateConcurrency(context.Context, int64, int) error { return nil }
-func (s *userHandlerRepoStub) BatchSetConcurrency(context.Context, []int64, int) (int, error) {
-	return 0, nil
-}
-
-func (s *userHandlerRepoStub) AdjustBalance(ctx context.Context, id int64, delta float64) (service.BalanceChange, error) {
-	panic("unexpected AdjustBalance call")
-}
-
-func (s *userHandlerRepoStub) SetBalance(ctx context.Context, id int64, value float64) (service.BalanceChange, error) {
-	panic("unexpected SetBalance call")
-}
 func (s *userHandlerRepoStub) BatchAddConcurrency(context.Context, []int64, int) (int, error) {
 	return 0, nil
 }
@@ -168,7 +154,7 @@ func TestUserHandlerUpdateProfileReturnsAvatarURL(t *testing.T) {
 			Status:   service.StatusActive,
 		},
 	}
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil), nil, nil)
 
 	body := []byte(`{"avatar_url":"https://cdn.example.com/avatar.png"}`)
 	recorder := httptest.NewRecorder()
@@ -221,7 +207,7 @@ func TestUserHandlerUnbindIdentityReturnsUpdatedProfile(t *testing.T) {
 			},
 		},
 	}
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil), nil, nil)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -280,8 +266,8 @@ func TestUserHandlerUnbindIdentityRevokesAllUserSessionsWhenAuthServiceConfigure
 			ExpireHour: 1,
 		},
 	}
-	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil)
+	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil), authService, nil)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -327,8 +313,8 @@ func TestUserHandlerUnbindIdentityDoesNotRevokeSessionsWhenNothingWasUnbound(t *
 			ExpireHour: 1,
 		},
 	}
-	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil)
+	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil), authService, nil)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)

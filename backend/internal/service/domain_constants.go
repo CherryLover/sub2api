@@ -1,8 +1,6 @@
 package service
 
 import (
-	"fmt"
-
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
@@ -151,21 +149,6 @@ const (
 	AdjustmentTypeAdminConcurrency = domain.AdjustmentTypeAdminConcurrency // 管理员调整并发数
 )
 
-// Group subscription type constants
-const (
-	SubscriptionTypeStandard     = domain.SubscriptionTypeStandard     // 标准计费模式（按余额扣费）
-	SubscriptionTypeSubscription = domain.SubscriptionTypeSubscription // 订阅模式（按限额控制）
-)
-
-// Subscription status constants
-const (
-	SubscriptionStatusActive    = domain.SubscriptionStatusActive
-	SubscriptionStatusExpired   = domain.SubscriptionStatusExpired
-	SubscriptionStatusSuspended = domain.SubscriptionStatusSuspended
-	// SubscriptionStatusRevoked 是 soft-deleted 订阅的 API 展示态，不写入 status 字段。
-	SubscriptionStatusRevoked = "revoked"
-)
-
 // LinuxDoConnectSyntheticEmailDomain 是 LinuxDo Connect 用户的合成邮箱后缀（RFC 保留域名）。
 const LinuxDoConnectSyntheticEmailDomain = "@linuxdo-connect.invalid"
 
@@ -225,17 +208,8 @@ const (
 	SettingKeyCustomEndpoints = "custom_endpoints" // 自定义端点列表（JSON 数组）
 
 	// 默认配置
-	SettingKeyDefaultConcurrency   = "default_concurrency"    // 新用户默认并发量
-	SettingKeyDefaultBalance       = "default_balance"        // 新用户默认余额
-	SettingKeyDefaultSubscriptions = "default_subscriptions"  // 新用户默认订阅列表（JSON）
-	SettingKeyDefaultUserRPMLimit  = "default_user_rpm_limit" // 新用户默认 RPM 限制（0 = 不限制）
-
-	// 注册来源默认授予配置（单管理员内部部署仅保留 email 渠道）
-	SettingKeyAuthSourceDefaultEmailBalance          = "auth_source_default_email_balance"
-	SettingKeyAuthSourceDefaultEmailConcurrency      = "auth_source_default_email_concurrency"
-	SettingKeyAuthSourceDefaultEmailSubscriptions    = "auth_source_default_email_subscriptions"
-	SettingKeyAuthSourceDefaultEmailGrantOnSignup    = "auth_source_default_email_grant_on_signup"
-	SettingKeyAuthSourceDefaultEmailGrantOnFirstBind = "auth_source_default_email_grant_on_first_bind"
+	SettingKeyDefaultConcurrency  = "default_concurrency"    // 新用户默认并发量
+	SettingKeyDefaultUserRPMLimit = "default_user_rpm_limit" // 新用户默认 RPM 限制（0 = 不限制）
 
 	// 管理员 API Key
 	SettingKeyAdminAPIKey = "admin_api_key" // 全局管理员 API Key（用于外部系统集成）
@@ -463,12 +437,6 @@ const SettingKeyDefaultPlatformQuotas = "default_platform_quotas"
 // SettingKeyAccountSchedulingThresholds —— 系统全局：按平台自动停调阈值（JSON map）。
 // 值为 map[platform]percent，1..100；100 = 禁用该平台自动停调。
 const SettingKeyAccountSchedulingThresholds = "account_scheduling_thresholds"
-
-// SettingKeyAuthSourcePlatformQuotas 返回某 auth source 的 platform quota JSON key。
-// 形如 auth_source_default_{source}_platform_quotas
-func SettingKeyAuthSourcePlatformQuotas(source string) string {
-	return fmt.Sprintf("auth_source_default_%s_platform_quotas", source)
-}
 
 // QuotaDimension constants for spark shadow accounts.
 const (

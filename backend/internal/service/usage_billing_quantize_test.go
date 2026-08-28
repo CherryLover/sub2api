@@ -24,7 +24,7 @@ func decimalPlaces(v float64) int32 {
 // 导致余额 delta 与 Key 配额 delta 相差 1e-8，永远无法精确对账。
 //
 // 修复后命令里的金额已经落在 8 位刻度上，存储阶段不再舍入。
-func TestUsageBillingCommandQuantizesBalanceAndQuotaIdentically(t *testing.T) {
+func TestUsageBillingCommandQuantizesQuotaCosts(t *testing.T) {
 	// 10 input × 0.00000125 + 5 output × 0.00001000 = 0.0000625
 	// 0.0000625 × 1.25（分组倍率） = 0.000078125
 	const actualCost = 0.000078125
@@ -34,14 +34,11 @@ func TestUsageBillingCommandQuantizesBalanceAndQuotaIdentically(t *testing.T) {
 		UserID:          1,
 		APIKeyID:        2,
 		AccountID:       3,
-		BalanceCost:     actualCost,
 		APIKeyQuotaCost: actualCost,
 	}
 	cmd.Normalize()
 
-	require.Equal(t, cmd.BalanceCost, cmd.APIKeyQuotaCost,
-		"余额扣减与 API Key 配额累加必须使用同一个规范金额")
-	require.LessOrEqual(t, decimalPlaces(cmd.BalanceCost), int32(UsageBillingMonetaryScale),
+	require.LessOrEqual(t, decimalPlaces(cmd.APIKeyQuotaCost), int32(UsageBillingMonetaryScale),
 		"金额超过 NUMERIC(20,8) 刻度时 PostgreSQL 仍会在存储阶段舍入")
 }
 
@@ -85,33 +82,24 @@ func TestQuantizedAmountsReconcileExactlyOverManyApplications(t *testing.T) {
 		UserID:              1,
 		APIKeyID:            2,
 		AccountID:           3,
-		BalanceCost:         actualCost,
-		SubscriptionCost:    0,
 		APIKeyQuotaCost:     actualCost,
 		APIKeyRateLimitCost: actualCost,
 	}
 	cmd.Normalize()
 
-	unit := decimal.NewFromFloat(cmd.BalanceCost)
+	unit := decimal.NewFromFloat(cmd.APIKeyQuotaCost)
 	for _, n := range []int64{1, 10, 100, 1000} {
 		total := unit.Mul(decimal.NewFromInt(n))
 
-		balance := decimal.NewFromInt(10000).Sub(total)
 		quotaUsed := total
 
-		// NUMERIC(20,8) 存储不改变任何一侧的值。
-		require.True(t, balance.Equal(balance.Round(UsageBillingMonetaryScale)),
-			"n=%d 余额结果超出 NUMERIC(20,8) 刻度", n)
+		// NUMERIC(20,8) 存储不改变累计值。
 		require.True(t, quotaUsed.Equal(quotaUsed.Round(UsageBillingMonetaryScale)),
 			"n=%d 配额结果超出 NUMERIC(20,8) 刻度", n)
-
-		balanceDelta := decimal.NewFromInt(10000).Sub(balance)
-		require.True(t, balanceDelta.Equal(quotaUsed),
-			"n=%d 余额 delta 与配额 delta 不相等: %s vs %s", n, balanceDelta, quotaUsed)
 	}
 }
 
-// 所有金额字段都要量化，避免订阅用量 / 账号配额留在未规范化的刻度上。
+// 所有金额字段都要量化，避免账号配额留在未规范化的刻度上。
 func TestNormalizeQuantizesEveryMonetaryField(t *testing.T) {
 	const raw = 0.0000781234567
 
@@ -120,8 +108,6 @@ func TestNormalizeQuantizesEveryMonetaryField(t *testing.T) {
 		UserID:              1,
 		APIKeyID:            2,
 		AccountID:           3,
-		BalanceCost:         raw,
-		SubscriptionCost:    raw,
 		APIKeyQuotaCost:     raw,
 		APIKeyRateLimitCost: raw,
 		AccountQuotaCost:    raw,
@@ -129,8 +115,6 @@ func TestNormalizeQuantizesEveryMonetaryField(t *testing.T) {
 	cmd.Normalize()
 
 	for name, got := range map[string]float64{
-		"BalanceCost":         cmd.BalanceCost,
-		"SubscriptionCost":    cmd.SubscriptionCost,
 		"APIKeyQuotaCost":     cmd.APIKeyQuotaCost,
 		"APIKeyRateLimitCost": cmd.APIKeyRateLimitCost,
 		"AccountQuotaCost":    cmd.AccountQuotaCost,
@@ -151,7 +135,6 @@ func TestNormalizeKeepsFingerprintDerivedFromRawAmounts(t *testing.T) {
 			UserID:          1,
 			APIKeyID:        2,
 			AccountID:       3,
-			BalanceCost:     raw,
 			APIKeyQuotaCost: raw,
 		}
 	}
@@ -168,12 +151,11 @@ func TestNormalizePreservesExplicitFingerprint(t *testing.T) {
 	cmd := &UsageBillingCommand{
 		RequestID:          "req-5229-explicit",
 		RequestFingerprint: "preset-fingerprint",
-		BalanceCost:        0.0000781234567,
 	}
 	cmd.Normalize()
 
 	require.Equal(t, "preset-fingerprint", cmd.RequestFingerprint)
-	require.LessOrEqual(t, decimalPlaces(cmd.BalanceCost), int32(UsageBillingMonetaryScale))
+	require.LessOrEqual(t, decimalPlaces(cmd.APIKeyQuotaCost), int32(UsageBillingMonetaryScale))
 }
 
 func TestQuantizeUsageBillingAmountPassesThroughNonFinite(t *testing.T) {

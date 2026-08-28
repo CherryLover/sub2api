@@ -83,7 +83,7 @@ var openaiAllowedHeaders = map[string]bool{
 	"x-codex-turn-state":      true,
 	"x-codex-turn-metadata":   true,
 	"x-codex-window-id":       true,
-	responsesLiteHeaderKey:    true,
+	responsesLiteHeaderKey: true,
 }
 
 // OpenAI passthrough allowed headers whitelist.
@@ -102,7 +102,7 @@ var openaiPassthroughAllowedHeaders = map[string]bool{
 	"x-codex-turn-state":      true,
 	"x-codex-turn-metadata":   true,
 	"x-codex-window-id":       true,
-	responsesLiteHeaderKey:    true,
+	responsesLiteHeaderKey: true,
 }
 
 // codex_cli_only 拒绝时记录的请求头白名单（仅用于诊断日志，不参与上游透传）
@@ -408,8 +408,6 @@ type OpenAIGatewayService struct {
 	accountRepo           AccountRepository
 	usageLogRepo          UsageLogRepository
 	usageBillingRepo      UsageBillingRepository
-	userRepo              UserRepository
-	userSubRepo           UserSubscriptionRepository
 	cache                 GatewayCache
 	cfg                   *config.Config
 	codexDetector         CodexClientRestrictionDetector
@@ -474,8 +472,6 @@ func NewOpenAIGatewayService(
 	accountRepo AccountRepository,
 	usageLogRepo UsageLogRepository,
 	usageBillingRepo UsageBillingRepository,
-	userRepo UserRepository,
-	userSubRepo UserSubscriptionRepository,
 	userGroupRateRepo UserGroupRateRepository,
 	cache GatewayCache,
 	cfg *config.Config,
@@ -502,8 +498,6 @@ func NewOpenAIGatewayService(
 		accountRepo:         accountRepo,
 		usageLogRepo:        usageLogRepo,
 		usageBillingRepo:    usageBillingRepo,
-		userRepo:            userRepo,
-		userSubRepo:         userSubRepo,
 		cache:               cache,
 		cfg:                 cfg,
 		codexDetector:       NewOpenAICodexClientRestrictionDetector(cfg),
@@ -642,8 +636,6 @@ func (s *OpenAIGatewayService) getCodexSnapshotThrottle() *accountWriteThrottle 
 func (s *OpenAIGatewayService) billingDeps() *billingDeps {
 	return &billingDeps{
 		accountRepo:           s.accountRepo,
-		userRepo:              s.userRepo,
-		userSubRepo:           s.userSubRepo,
 		billingCacheService:   s.billingCacheService,
 		deferredService:       s.deferredService,
 		userPlatformQuotaRepo: s.userPlatformQuotaRepo,

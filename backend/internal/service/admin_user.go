@@ -117,13 +117,6 @@ func normalizeUserRole(role, fallback string) (string, error) {
 }
 
 func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInput) (*User, error) {
-	balance := 0.0
-	if input.Balance != nil {
-		balance = *input.Balance
-	} else if s.settingService != nil {
-		balance = s.settingService.GetDefaultBalance(ctx)
-	}
-
 	// 角色可由管理员在创建时指定(admin/user);未提供时默认 user。
 	role, err := normalizeUserRole(input.Role, RoleUser)
 	if err != nil {
@@ -135,7 +128,6 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 		Username:      input.Username,
 		Notes:         input.Notes,
 		Role:          role,
-		Balance:       balance,
 		Concurrency:   input.Concurrency,
 		RPMLimit:      input.RPMLimit,
 		Status:        StatusActive,
@@ -152,7 +144,6 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 		logger.LegacyPrintf("service.admin", "audit: admin user created actor_admin_id=%d target_user_id=%d",
 			input.ActorAdminID, user.ID)
 	}
-	s.assignDefaultSubscriptions(ctx, user.ID)
 	return user, nil
 }
 
@@ -160,10 +151,9 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 // 注：读取与写入之间存在竞态窗口，极端并发下仍可能双双降级；作为后台低频操作
 // 的兜底保护足够，彻底防护需依赖数据库层约束。
 func (s *adminServiceImpl) ensureNotLastAdmin(ctx context.Context) error {
-	noSubs := false
 	_, result, err := s.userRepo.ListWithFilters(ctx,
 		pagination.PaginationParams{Page: 1, PageSize: 1},
-		UserListFilters{Role: RoleAdmin, IncludeSubscriptions: &noSubs},
+		UserListFilters{Role: RoleAdmin},
 	)
 	if err != nil {
 		return fmt.Errorf("count admin users: %w", err)
@@ -172,23 +162,6 @@ func (s *adminServiceImpl) ensureNotLastAdmin(ctx context.Context) error {
 		return errors.New("cannot demote the last admin user")
 	}
 	return nil
-}
-
-func (s *adminServiceImpl) assignDefaultSubscriptions(ctx context.Context, userID int64) {
-	if s.settingService == nil || s.defaultSubAssigner == nil || userID <= 0 {
-		return
-	}
-	items := s.settingService.GetDefaultSubscriptions(ctx)
-	for _, item := range items {
-		if _, _, err := s.defaultSubAssigner.AssignOrExtendSubscription(ctx, &AssignSubscriptionInput{
-			UserID:       userID,
-			GroupID:      item.GroupID,
-			ValidityDays: item.ValidityDays,
-			Notes:        "auto assigned by default user subscriptions setting",
-		}); err != nil {
-			logger.LegacyPrintf("service.admin", "failed to assign default subscription: user_id=%d group_id=%d err=%v", userID, item.GroupID, err)
-		}
-	}
 }
 
 func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *UpdateUserInput) (*User, error) {
@@ -481,53 +454,6 @@ func (s *adminServiceImpl) BatchUpdateLimits(ctx context.Context, userIDs []int6
 		}
 	}
 	return affected, nil
-}
-
-func (s *adminServiceImpl) UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*User, error) {
-	// 余额调整必须走原子接口：先读后整行写回会把并发的计费扣款覆盖掉。
-	var (
-		change BalanceChange
-		err    error
-	)
-	switch operation {
-	case "set":
-		change, err = s.userRepo.SetBalance(ctx, userID, balance)
-	case "add":
-		change, err = s.userRepo.AdjustBalance(ctx, userID, balance)
-	case "subtract":
-		change, err = s.userRepo.AdjustBalance(ctx, userID, -balance)
-	default:
-		return nil, fmt.Errorf("unsupported balance operation: %q", operation)
-	}
-	if errors.Is(err, ErrBalanceNegative) {
-		return nil, fmt.Errorf("balance cannot be negative, current balance: %.2f, requested operation would result in: %.2f", change.Old, change.New)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	balanceDiff := change.New - change.Old
-	if s.authCacheInvalidator != nil && balanceDiff != 0 {
-		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
-	}
-
-	if s.billingCacheService != nil {
-		go func() {
-			cacheCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := s.billingCacheService.InvalidateUserBalance(cacheCtx, userID); err != nil {
-				logger.LegacyPrintf("service.admin", "invalidate user balance cache failed: user_id=%d err=%v", userID, err)
-			}
-		}()
-	}
-
-	_ = notes
-	return user, nil
 }
 
 func (s *adminServiceImpl) GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int, sortBy, sortOrder string) ([]APIKey, int64, error) {

@@ -53,19 +53,12 @@ func TestAPIContracts(t *testing.T) {
 					"email_bound": true,
 					"username": "alice",
 						"role": "user",
-						"balance": 12.5,
-						"frozen_balance": 0,
 						"concurrency": 5,
 					"rpm_limit": 0,
 					"status": "active",
 					"allowed_groups": null,
 					"created_at": "2025-01-02T03:04:05Z",
 					"updated_at": "2025-01-02T03:04:05Z",
-					"balance_notify_enabled": false,
-					"balance_notify_threshold_type": "",
-					"balance_notify_threshold": null,
-					"balance_notify_extra_emails": null,
-					"total_recharged": 0,
 					"identities": {
 						"email": {
 							"provider": "email",
@@ -226,7 +219,6 @@ func TestAPIContracts(t *testing.T) {
 						PeakRateMultiplier:   1.0,
 						IsExclusive:          false,
 						Status:               service.StatusActive,
-						SubscriptionType:     service.SubscriptionTypeStandard,
 						ProfitControlEnabled: true,
 						ProfitMinMargin:      0.3,
 						ProfitSafetyBuffer:   0.05,
@@ -260,10 +252,6 @@ func TestAPIContracts(t *testing.T) {
 						"peak_rate_multiplier": 1,
 						"is_exclusive": false,
 						"status": "active",
-						"subscription_type": "standard",
-						"daily_limit_usd": null,
-						"weekly_limit_usd": null,
-						"monthly_limit_usd": null,
 						"long_context_pricing_enabled": false,
 						"image_price_1k": null,
 						"image_price_2k": null,
@@ -291,56 +279,6 @@ func TestAPIContracts(t *testing.T) {
 						"max_reasoning_effort": "",
 						"reasoning_effort_mappings": null,
 						"rpm_limit": 0,
-						"created_at": "2025-01-02T03:04:05Z",
-						"updated_at": "2025-01-02T03:04:05Z"
-					}
-				]
-			}`,
-		},
-		{
-			name: "GET /api/v1/subscriptions",
-			setup: func(t *testing.T, deps *contractDeps) {
-				t.Helper()
-				// 普通用户订阅接口不应包含 assigned_* / notes 等管理员字段。
-				deps.userSubRepo.SetByUserID(1, []service.UserSubscription{
-					{
-						ID:              501,
-						UserID:          1,
-						GroupID:         10,
-						StartsAt:        deps.now,
-						ExpiresAt:       time.Date(2099, 1, 2, 3, 4, 5, 0, time.UTC), // 使用未来日期避免 normalizeSubscriptionStatus 标记为过期
-						Status:          service.SubscriptionStatusActive,
-						DailyUsageUSD:   1.23,
-						WeeklyUsageUSD:  2.34,
-						MonthlyUsageUSD: 3.45,
-						AssignedBy:      ptr(int64(999)),
-						AssignedAt:      deps.now,
-						Notes:           "admin-note",
-						CreatedAt:       deps.now,
-						UpdatedAt:       deps.now,
-					},
-				})
-			},
-			method:     http.MethodGet,
-			path:       "/api/v1/subscriptions",
-			wantStatus: http.StatusOK,
-			wantJSON: `{
-				"code": 0,
-				"message": "success",
-				"data": [
-					{
-						"id": 501,
-						"user_id": 1,
-						"group_id": 10,
-						"starts_at": "2025-01-02T03:04:05Z",
-						"expires_at": "2099-01-02T03:04:05Z",
-						"status": "active",
-						"daily_window_start": null,
-						"weekly_window_start": null,
-						"monthly_window_start": null,
-						"daily_usage_usd": 1.23,
-						"weekly_usage_usd": 2.34,
-						"monthly_usage_usd": 3.45,
 						"created_at": "2025-01-02T03:04:05Z",
 						"updated_at": "2025-01-02T03:04:05Z"
 					}
@@ -500,14 +438,13 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingKeyDocURL: "https://docs.example.com",
 
 					service.SettingKeyDefaultConcurrency: "5",
-					service.SettingKeyDefaultBalance:     "1.25",
 
-					service.SettingKeyOpsMonitoringEnabled:                               "false",
-					service.SettingKeyOpsRealtimeMonitoringEnabled:                       "true",
-					service.SettingKeyOpsQueryModeDefault:                                "auto",
-					service.SettingKeyOpsMetricsIntervalSeconds:                          "60",
-					service.SettingKeyOpenAILowUpstreamRatePriorityEnabled:               "true",
-					service.SettingKeyOpenAIOAuthSchedulingRateMultiplier:                "0.05",
+					service.SettingKeyOpsMonitoringEnabled:                 "false",
+					service.SettingKeyOpsRealtimeMonitoringEnabled:         "true",
+					service.SettingKeyOpsQueryModeDefault:                  "auto",
+					service.SettingKeyOpsMetricsIntervalSeconds:            "60",
+					service.SettingKeyOpenAILowUpstreamRatePriorityEnabled: "true",
+					service.SettingKeyOpenAIOAuthSchedulingRateMultiplier:  "0.05",
 					"openai_advanced_scheduler_enabled":                                  "true",
 					service.SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled:       "false",
 					service.SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled: "false",
@@ -537,17 +474,9 @@ func TestAPIContracts(t *testing.T) {
 						"api_key_acl_trust_forwarded_ip": false,
 					"forwarded_client_ip_headers": [],
 					"doc_url": "https://docs.example.com",
-					"auth_source_default_email_balance": 0,
-					"auth_source_default_email_concurrency": 5,
-					"auth_source_default_email_subscriptions": [],
-					"auth_source_default_email_grant_on_signup": false,
-					"auth_source_default_email_grant_on_first_bind": false,
 					"default_concurrency": 5,
-					"default_balance": 1.25,
 					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"deepseek":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"grok":{"daily":null,"weekly":null,"monthly":null},"kimi":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"zhipu":{"daily":null,"weekly":null,"monthly":null}},
-					"auth_source_default_email_platform_quotas": null,
 					"default_user_rpm_limit": 0,
-					"default_subscriptions": [],
 					"enable_model_fallback": false,
 					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
 					"fallback_model_antigravity": "gemini-2.5-pro",
@@ -676,7 +605,6 @@ type contractDeps struct {
 	cfg         *config.Config
 	apiKeyRepo  *stubApiKeyRepo
 	groupRepo   *stubGroupRepo
-	userSubRepo *stubUserSubscriptionRepo
 	usageRepo   *stubUsageLogRepo
 	settingRepo *stubSettingRepo
 }
@@ -689,13 +617,12 @@ func newContractDeps(t *testing.T) *contractDeps {
 	userRepo := &stubUserRepo{
 		users: map[int64]*service.User{
 			1: {
-				ID:            1,
-				Email:         "alice@example.com",
-				Username:      "alice",
-				Notes:         "hello",
-				Role:          service.RoleUser,
-				Balance:       12.5,
-				Concurrency:   5,
+				ID:       1,
+				Email:    "alice@example.com",
+				Username: "alice",
+				Notes:    "hello",
+				Role:     service.RoleUser,
+						Concurrency: 5,
 				Status:        service.StatusActive,
 				AllowedGroups: nil,
 				CreatedAt:     now,
@@ -707,7 +634,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 	apiKeyRepo := newStubApiKeyRepo(now)
 	apiKeyCache := stubApiKeyCache{}
 	groupRepo := &stubGroupRepo{}
-	userSubRepo := &stubUserSubscriptionRepo{}
 	accountRepo := stubAccountRepo{}
 	proxyRepo := stubProxyRepo{}
 
@@ -718,19 +644,16 @@ func newContractDeps(t *testing.T) *contractDeps {
 		RunMode: config.RunModeStandard,
 	}
 
-	userService := service.NewUserService(userRepo, nil, nil, nil)
-	apiKeyService := service.NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, nil, apiKeyCache, cfg)
+	userService := service.NewUserService(userRepo, nil, nil)
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, nil, apiKeyCache, cfg)
 
 	usageRepo := newStubUsageLogRepo()
 	usageService := service.NewUsageService(usageRepo, userRepo, nil, nil)
 
-	subscriptionService := service.NewSubscriptionService(groupRepo, userSubRepo, nil, nil, cfg)
-	subscriptionHandler := handler.NewSubscriptionHandler(subscriptionService)
-
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
@@ -773,10 +696,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 	v1Usage.GET("/usage", usageHandler.List)
 	v1Usage.GET("/usage/stats", usageHandler.Stats)
 
-	v1Subs := v1.Group("")
-	v1Subs.Use(jwtAuth)
-	v1Subs.GET("/subscriptions", subscriptionHandler.List)
-
 	v1Admin := v1.Group("/admin")
 	v1Admin.Use(adminAuth)
 	v1Admin.GET("/settings", adminSettingHandler.GetSettings)
@@ -788,7 +707,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 		cfg:         cfg,
 		apiKeyRepo:  apiKeyRepo,
 		groupRepo:   groupRepo,
-		userSubRepo: userSubRepo,
 		usageRepo:   usageRepo,
 		settingRepo: settingRepo,
 	}
@@ -880,22 +798,6 @@ func (r *stubUserRepo) List(ctx context.Context, params pagination.PaginationPar
 
 func (r *stubUserRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters service.UserListFilters) ([]service.User, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
-}
-
-func (r *stubUserRepo) UpdateBalance(ctx context.Context, id int64, amount float64) error {
-	return errors.New("not implemented")
-}
-
-func (r *stubUserRepo) DeductBalance(ctx context.Context, id int64, amount float64) error {
-	return errors.New("not implemented")
-}
-
-func (r *stubUserRepo) AdjustBalance(ctx context.Context, id int64, delta float64) (service.BalanceChange, error) {
-	return service.BalanceChange{}, errors.New("not implemented")
-}
-
-func (r *stubUserRepo) SetBalance(ctx context.Context, id int64, value float64) (service.BalanceChange, error) {
-	return service.BalanceChange{}, errors.New("not implemented")
 }
 
 func (r *stubUserRepo) UpdateConcurrency(ctx context.Context, id int64, amount int) error {
@@ -1374,106 +1276,6 @@ func (stubProxyRepo) CountExpiringSoon(ctx context.Context, now time.Time) (int6
 	return 0, nil
 }
 
-type stubUserSubscriptionRepo struct {
-	byUser       map[int64][]service.UserSubscription
-	activeByUser map[int64][]service.UserSubscription
-}
-
-func (r *stubUserSubscriptionRepo) SetByUserID(userID int64, subs []service.UserSubscription) {
-	if r.byUser == nil {
-		r.byUser = make(map[int64][]service.UserSubscription)
-	}
-	r.byUser[userID] = append([]service.UserSubscription(nil), subs...)
-}
-
-func (r *stubUserSubscriptionRepo) SetActiveByUserID(userID int64, subs []service.UserSubscription) {
-	if r.activeByUser == nil {
-		r.activeByUser = make(map[int64][]service.UserSubscription)
-	}
-	r.activeByUser[userID] = append([]service.UserSubscription(nil), subs...)
-}
-
-func (stubUserSubscriptionRepo) Create(ctx context.Context, sub *service.UserSubscription) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) GetByID(ctx context.Context, id int64) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) GetByIDForUpdate(ctx context.Context, id int64) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) GetByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) GetActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) Update(ctx context.Context, sub *service.UserSubscription) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) Delete(ctx context.Context, id int64) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) Restore(ctx context.Context, subscriptionID int64, restoredStatus string) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (r *stubUserSubscriptionRepo) ListByUserID(ctx context.Context, userID int64) ([]service.UserSubscription, error) {
-	if r.byUser == nil {
-		return nil, nil
-	}
-	return append([]service.UserSubscription(nil), r.byUser[userID]...), nil
-}
-func (r *stubUserSubscriptionRepo) ListActiveByUserID(ctx context.Context, userID int64) ([]service.UserSubscription, error) {
-	if r.activeByUser == nil {
-		return nil, nil
-	}
-	return append([]service.UserSubscription(nil), r.activeByUser[userID]...), nil
-}
-func (stubUserSubscriptionRepo) ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
-	return nil, nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) List(ctx context.Context, params pagination.PaginationParams, userID, groupID *int64, status, platform, sortBy, sortOrder string) ([]service.UserSubscription, *pagination.PaginationResult, error) {
-	return nil, nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ExistsByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error) {
-	return false, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ExistsActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error) {
-	return false, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ExtendExpiry(ctx context.Context, subscriptionID int64, newExpiresAt time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) UpdateStatus(ctx context.Context, subscriptionID int64, status string) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) UpdateNotes(ctx context.Context, subscriptionID int64, notes string) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ActivateWindows(ctx context.Context, id int64, dailyStart, periodicStart time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ResetUsageWindows(ctx context.Context, id int64, resetDaily, resetWeekly, resetMonthly bool, dailyStart, periodicStart time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ResetDailyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ResetWeeklyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ResetMonthlyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) IncrementUsage(ctx context.Context, id int64, costUSD float64) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) BatchUpdateExpiredStatus(ctx context.Context) (int64, error) {
-	return 0, errors.New("not implemented")
-}
 
 type stubApiKeyRepo struct {
 	now time.Time
@@ -2121,7 +1923,6 @@ var (
 	_ service.APIKeyRepository           = (*stubApiKeyRepo)(nil)
 	_ service.APIKeyCache                = (*stubApiKeyCache)(nil)
 	_ service.GroupRepository            = (*stubGroupRepo)(nil)
-	_ service.UserSubscriptionRepository = (*stubUserSubscriptionRepo)(nil)
 	_ service.UsageLogRepository         = (*stubUsageLogRepo)(nil)
 	_ service.SettingRepository          = (*stubSettingRepo)(nil)
 )

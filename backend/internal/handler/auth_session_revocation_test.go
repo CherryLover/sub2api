@@ -35,7 +35,7 @@ func TestAuthHandlerRevokeAllSessionsInvalidatesAccessTokens(t *testing.T) {
 			ExpireHour: 1,
 		},
 	}
-	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil, nil)
+	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil)
 	handler := &AuthHandler{authService: authService}
 
 	recorder := httptest.NewRecorder()

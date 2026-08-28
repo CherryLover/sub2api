@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -51,36 +50,6 @@ func (s *SettingService) UpdateSettingsOmitting(ctx context.Context, settings *S
 	return nil
 }
 
-// UpdateSettingsWithAuthSourceDefaults persists system settings and auth-source defaults in a single write.
-func (s *SettingService) UpdateSettingsWithAuthSourceDefaults(ctx context.Context, settings *SystemSettings, authDefaults *AuthSourceDefaultSettings) error {
-	return s.UpdateSettingsWithAuthSourceDefaultsOmitting(ctx, settings, authDefaults, nil)
-}
-
-// UpdateSettingsWithAuthSourceDefaultsOmitting persists system settings and
-// auth-source defaults in a single write, leaving the keys in omitted at their
-// stored value.
-func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx context.Context, settings *SystemSettings, authDefaults *AuthSourceDefaultSettings, omitted OmittedSettingKeys) error {
-	updates, err := s.buildSystemSettingsUpdates(ctx, settings)
-	if err != nil {
-		return err
-	}
-
-	authSourceUpdates, err := s.buildAuthSourceDefaultUpdates(ctx, authDefaults)
-	if err != nil {
-		return err
-	}
-	for key, value := range authSourceUpdates {
-		updates[key] = value
-	}
-	omitted.dropFrom(updates)
-
-	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
-		return err
-	}
-	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
-	return nil
-}
-
 // refreshCachedSettingsAfterWrite keeps the in-process caches in step with the
 // write that just landed. A partial payload carries zero values for the fields
 // it omitted, so in that case the caches are rebuilt from storage rather than
@@ -99,9 +68,6 @@ func (s *SettingService) refreshCachedSettingsAfterWrite(ctx context.Context, se
 }
 
 func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, settings *SystemSettings) (map[string]string, error) {
-	if err := s.validateDefaultSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
-		return nil, err
-	}
 	normalizedWhitelist, err := NormalizeRegistrationEmailSuffixWhitelist(settings.RegistrationEmailSuffixWhitelist)
 	if err != nil {
 		return nil, infraerrors.BadRequest("INVALID_REGISTRATION_EMAIL_SUFFIX_WHITELIST", err.Error())
@@ -151,13 +117,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// 默认配置
 	updates[SettingKeyDefaultConcurrency] = strconv.Itoa(settings.DefaultConcurrency)
-	updates[SettingKeyDefaultBalance] = strconv.FormatFloat(settings.DefaultBalance, 'f', 8, 64)
 	updates[SettingKeyDefaultUserRPMLimit] = strconv.Itoa(settings.DefaultUserRPMLimit)
-	defaultSubsJSON, err := json.Marshal(settings.DefaultSubscriptions)
-	if err != nil {
-		return nil, fmt.Errorf("marshal default subscriptions: %w", err)
-	}
-	updates[SettingKeyDefaultSubscriptions] = string(defaultSubsJSON)
 
 	// Model fallback configuration
 	updates[SettingKeyEnableModelFallback] = strconv.FormatBool(settings.EnableModelFallback)
@@ -370,27 +330,6 @@ func validateDefaultPlatformQuotaMap(m map[string]*DefaultPlatformQuotaSetting) 
 	return nil
 }
 
-func (s *SettingService) buildAuthSourceDefaultUpdates(ctx context.Context, settings *AuthSourceDefaultSettings) (map[string]string, error) {
-	if settings == nil {
-		return nil, nil
-	}
-
-	if err := s.validateDefaultSubscriptionGroups(ctx, settings.Email.Subscriptions); err != nil {
-		return nil, err
-	}
-
-	// 校验 email auth source 的 platform quota map（对等系统层校验）
-	if settings.Email.PlatformQuotas != nil {
-		if err := validateDefaultPlatformQuotaMap(settings.Email.PlatformQuotas); err != nil {
-			return nil, err
-		}
-	}
-
-	updates := make(map[string]string, 6)
-	writeProviderDefaultGrantUpdates(updates, emailAuthSourceDefaultKeys, settings.Email)
-	return updates, nil
-}
-
 func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	if settings == nil {
 		return
@@ -509,41 +448,3 @@ func (s *SettingService) defaultRewriteMessageCacheControl() bool {
 	return false
 }
 
-func (s *SettingService) validateDefaultSubscriptionGroups(ctx context.Context, items []DefaultSubscriptionSetting) error {
-	if len(items) == 0 {
-		return nil
-	}
-
-	checked := make(map[int64]struct{}, len(items))
-	for _, item := range items {
-		if item.GroupID <= 0 {
-			continue
-		}
-		if _, ok := checked[item.GroupID]; ok {
-			return ErrDefaultSubGroupDuplicate.WithMetadata(map[string]string{
-				"group_id": strconv.FormatInt(item.GroupID, 10),
-			})
-		}
-		checked[item.GroupID] = struct{}{}
-		if s.defaultSubGroupReader == nil {
-			continue
-		}
-
-		group, err := s.defaultSubGroupReader.GetByID(ctx, item.GroupID)
-		if err != nil {
-			if errors.Is(err, ErrGroupNotFound) {
-				return ErrDefaultSubGroupInvalid.WithMetadata(map[string]string{
-					"group_id": strconv.FormatInt(item.GroupID, 10),
-				})
-			}
-			return fmt.Errorf("get default subscription group %d: %w", item.GroupID, err)
-		}
-		if !group.IsSubscriptionType() {
-			return ErrDefaultSubGroupInvalid.WithMetadata(map[string]string{
-				"group_id": strconv.FormatInt(item.GroupID, 10),
-			})
-		}
-	}
-
-	return nil
-}

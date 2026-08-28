@@ -97,15 +97,6 @@ func RegisterUserRoutes(
 			usage.POST("/dashboard/api-keys-usage", h.Usage.DashboardAPIKeysUsage)
 		}
 
-		// 用户订阅
-		subscriptions := authenticated.Group("/subscriptions")
-		{
-			subscriptions.GET("", h.Subscription.List)
-			subscriptions.GET("/active", h.Subscription.GetActive)
-			subscriptions.GET("/progress", h.Subscription.GetProgress)
-			subscriptions.GET("/summary", h.Subscription.GetSummary)
-		}
-
 		// 渠道监控（用户只读，被动聚合视图）：受 channel_monitor_enabled 开关控制。
 		monitorV2 := authenticated.Group("/channel-monitor-v2")
 		monitorV2.Use(panelRateLimiter.Heavy())

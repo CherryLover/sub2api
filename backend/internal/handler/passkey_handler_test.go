@@ -111,7 +111,7 @@ func newPasskeyBeginLoginHandler(t *testing.T) (*PasskeyHandler, *passkeyBeginSe
 		RPOrigins:     []string{"https://sub2api.example.com"},
 	}}
 	settings := service.NewSettingService(&passkeySwitchSettingRepo{value: "true"}, cfg)
-	authService := service.NewAuthService(nil, nil, nil, cfg, settings, nil)
+	authService := service.NewAuthService(nil, nil, nil, cfg, settings)
 	sessions := &passkeyBeginSessionStoreStub{}
 	passkeys, err := service.NewPasskeyService(cfg, nil, sessions, nil)
 	require.NoError(t, err)

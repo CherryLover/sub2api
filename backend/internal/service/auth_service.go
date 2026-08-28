@@ -65,16 +65,11 @@ type JWTClaims struct {
 
 // AuthService 认证服务
 type AuthService struct {
-	entClient          *dbent.Client
-	userRepo           UserRepository
-	refreshTokenCache  RefreshTokenCache
-	cfg                *config.Config
-	settingService     *SettingService
-	defaultSubAssigner DefaultSubscriptionAssigner
-}
-
-type DefaultSubscriptionAssigner interface {
-	AssignOrExtendSubscription(ctx context.Context, input *AssignSubscriptionInput) (*UserSubscription, bool, error)
+	entClient         *dbent.Client
+	userRepo          UserRepository
+	refreshTokenCache RefreshTokenCache
+	cfg               *config.Config
+	settingService    *SettingService
 }
 
 // NewAuthService 创建认证服务实例
@@ -84,15 +79,13 @@ func NewAuthService(
 	refreshTokenCache RefreshTokenCache,
 	cfg *config.Config,
 	settingService *SettingService,
-	defaultSubAssigner DefaultSubscriptionAssigner,
 ) *AuthService {
 	return &AuthService{
-		entClient:          entClient,
-		userRepo:           userRepo,
-		refreshTokenCache:  refreshTokenCache,
-		cfg:                cfg,
-		settingService:     settingService,
-		defaultSubAssigner: defaultSubAssigner,
+		entClient:         entClient,
+		userRepo:          userRepo,
+		refreshTokenCache: refreshTokenCache,
+		cfg:               cfg,
+		settingService:    settingService,
 	}
 }
 
@@ -165,75 +158,7 @@ func (s *AuthService) backfillEmailIdentityOnSuccessfulLogin(ctx context.Context
 	if s == nil || user == nil || user.ID <= 0 {
 		return
 	}
-	identity, created := s.ensureEmailAuthIdentity(ctx, user, "auth_service_login_backfill")
-	if s.shouldApplyEmailFirstBindDefaults(ctx, user.ID, identity, created) {
-		if err := s.ApplyProviderDefaultSettingsOnFirstBind(ctx, user.ID, "email"); err != nil {
-			logger.LegacyPrintf("service.auth", "[Auth] Failed to apply email first bind defaults: user_id=%d err=%v", user.ID, err)
-		}
-	}
-}
-
-func (s *AuthService) shouldApplyEmailFirstBindDefaults(
-	ctx context.Context,
-	userID int64,
-	identity *dbent.AuthIdentity,
-	created bool,
-) bool {
-	source := emailAuthIdentitySource(identity.Metadata)
-	if source == "auth_service_login_backfill" {
-		return false
-	}
-	if created {
-		return true
-	}
-	if s == nil || s.entClient == nil || userID <= 0 || identity == nil || identity.UserID != userID {
-		return false
-	}
-	if source != "auth_service_dual_write" {
-		return false
-	}
-
-	hasGrant, err := s.hasProviderGrantRecord(ctx, userID, "email", "first_bind")
-	if err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to inspect email first bind grant state: user_id=%d err=%v", userID, err)
-		return false
-	}
-	return !hasGrant
-}
-
-func emailAuthIdentitySource(metadata map[string]any) string {
-	if len(metadata) == 0 {
-		return ""
-	}
-	raw, ok := metadata["source"]
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(fmt.Sprint(raw))
-}
-
-func (s *AuthService) hasProviderGrantRecord(
-	ctx context.Context,
-	userID int64,
-	providerType string,
-	grantReason string,
-) (bool, error) {
-	if s == nil || s.entClient == nil || userID <= 0 {
-		return false, nil
-	}
-
-	rows, err := s.entClient.QueryContext(
-		ctx,
-		`SELECT 1 FROM user_provider_default_grants WHERE user_id = $1 AND provider_type = $2 AND grant_reason = $3 LIMIT 1`,
-		userID,
-		strings.TrimSpace(providerType),
-		strings.TrimSpace(grantReason),
-	)
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = rows.Close() }()
-	return rows.Next(), rows.Err()
+	_, _ = s.ensureEmailAuthIdentity(ctx, user, "auth_service_login_backfill")
 }
 
 func (s *AuthService) ensureEmailAuthIdentity(ctx context.Context, user *User, source string) (*dbent.AuthIdentity, bool) {

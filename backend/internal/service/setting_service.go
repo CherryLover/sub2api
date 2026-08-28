@@ -86,14 +86,6 @@ func (s *SettingService) ResolveGrokBaseURL(ctx context.Context, account *Accoun
 var (
 	ErrRegistrationDisabled   = infraerrors.Forbidden("REGISTRATION_DISABLED", "registration is currently disabled")
 	ErrSettingNotFound        = infraerrors.NotFound("SETTING_NOT_FOUND", "setting not found")
-	ErrDefaultSubGroupInvalid = infraerrors.BadRequest(
-		"DEFAULT_SUBSCRIPTION_GROUP_INVALID",
-		"default subscription group must exist and be subscription type",
-	)
-	ErrDefaultSubGroupDuplicate = infraerrors.BadRequest(
-		"DEFAULT_SUBSCRIPTION_GROUP_DUPLICATE",
-		"default subscription group cannot be duplicated",
-	)
 )
 
 type SettingRepository interface {
@@ -106,11 +98,6 @@ type SettingRepository interface {
 	Delete(ctx context.Context, key string) error
 }
 
-// DefaultSubscriptionGroupReader validates group references used by default subscriptions.
-type DefaultSubscriptionGroupReader interface {
-	GetByID(ctx context.Context, id int64) (*Group, error)
-}
-
 // WebSearchManagerBuilder creates a websearch.Manager from config (injected by infra layer).
 // proxyURLs maps proxy ID to resolved URL for provider-level proxy support.
 type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[int64]string)
@@ -118,7 +105,6 @@ type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[i
 // SettingService 系统设置服务
 type SettingService struct {
 	settingRepo                 SettingRepository
-	defaultSubGroupReader       DefaultSubscriptionGroupReader
 	proxyRepo                   ProxyRepository // for resolving websearch provider proxy URLs
 	cfg                         *config.Config
 	onUpdate                    func() // Callback when settings are updated (for cache invalidation)
@@ -166,59 +152,12 @@ type DefaultPlatformQuotaSetting struct {
 	MonthlyLimitUSD *float64 `json:"monthly"`
 }
 
-type ProviderDefaultGrantSettings struct {
-	Balance          float64
-	Concurrency      int
-	Subscriptions    []DefaultSubscriptionSetting
-	GrantOnSignup    bool
-	GrantOnFirstBind bool
-	PlatformQuotas   map[string]*DefaultPlatformQuotaSetting // key = platform name
-}
-
-// AuthSourceDefaultSettings 注册来源默认授予配置。
-// 单管理员内部部署只保留 email 渠道（第三方 OAuth 登录渠道已删除）。
-type AuthSourceDefaultSettings struct {
-	Email ProviderDefaultGrantSettings
-}
-
-type authSourceDefaultKeySet struct {
-	// source 是 auth source 标识（如 "email"、"github"），仅用于 parse 时
-	// slog.Warn 诊断输出，不再参与 key 拼接（platformQuotas 字段已存完整 key）。
-	source           string
-	balance          string
-	concurrency      string
-	subscriptions    string
-	grantOnSignup    string
-	grantOnFirstBind string
-	platformQuotas   string // SettingKeyAuthSourcePlatformQuotas(source)
-}
-
-var emailAuthSourceDefaultKeys = authSourceDefaultKeySet{
-	source:           "email",
-	balance:          SettingKeyAuthSourceDefaultEmailBalance,
-	concurrency:      SettingKeyAuthSourceDefaultEmailConcurrency,
-	subscriptions:    SettingKeyAuthSourceDefaultEmailSubscriptions,
-	grantOnSignup:    SettingKeyAuthSourceDefaultEmailGrantOnSignup,
-	grantOnFirstBind: SettingKeyAuthSourceDefaultEmailGrantOnFirstBind,
-	platformQuotas:   SettingKeyAuthSourcePlatformQuotas("email"),
-}
-
-const (
-	defaultAuthSourceBalance     = 0
-	defaultAuthSourceConcurrency = 5
-)
-
 // NewSettingService 创建系统设置服务实例
 func NewSettingService(settingRepo SettingRepository, cfg *config.Config) *SettingService {
 	return &SettingService{
 		settingRepo: settingRepo,
 		cfg:         cfg,
 	}
-}
-
-// SetDefaultSubscriptionGroupReader injects an optional group reader for default subscription validation.
-func (s *SettingService) SetDefaultSubscriptionGroupReader(reader DefaultSubscriptionGroupReader) {
-	s.defaultSubGroupReader = reader
 }
 
 // SetProxyRepository injects a proxy repo for resolving websearch provider proxy URLs.

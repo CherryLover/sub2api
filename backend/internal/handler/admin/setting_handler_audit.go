@@ -3,19 +3,18 @@ package admin
 import (
 	"log/slog"
 
-	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.SystemSettings, after *service.SystemSettings, beforeAuthSourceDefaults *service.AuthSourceDefaultSettings, afterAuthSourceDefaults *service.AuthSourceDefaultSettings, req UpdateSettingsRequest) {
+func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.SystemSettings, after *service.SystemSettings, req UpdateSettingsRequest) {
 	if before == nil || after == nil {
 		return
 	}
 
-	changed := diffSettings(before, after, beforeAuthSourceDefaults, afterAuthSourceDefaults, req)
+	changed := diffSettings(before, after, req)
 	if len(changed) == 0 {
 		return
 	}
@@ -30,7 +29,7 @@ func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.Sys
 	)
 }
 
-func diffSettings(before *service.SystemSettings, after *service.SystemSettings, beforeAuthSourceDefaults *service.AuthSourceDefaultSettings, afterAuthSourceDefaults *service.AuthSourceDefaultSettings, req UpdateSettingsRequest) []string {
+func diffSettings(before *service.SystemSettings, after *service.SystemSettings, req UpdateSettingsRequest) []string {
 	changed := make([]string, 0, 20)
 	if !equalStringSlice(before.RegistrationEmailSuffixWhitelist, after.RegistrationEmailSuffixWhitelist) {
 		changed = append(changed, "registration_email_suffix_whitelist")
@@ -69,12 +68,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.DefaultConcurrency != after.DefaultConcurrency {
 		changed = append(changed, "default_concurrency")
-	}
-	if before.DefaultBalance != after.DefaultBalance {
-		changed = append(changed, "default_balance")
-	}
-	if !equalDefaultSubscriptions(before.DefaultSubscriptions, after.DefaultSubscriptions) {
-		changed = append(changed, "default_subscriptions")
 	}
 	if before.EnableModelFallback != after.EnableModelFallback {
 		changed = append(changed, "enable_model_fallback")
@@ -254,74 +247,7 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if !equalAccountSchedulingThresholds(before.AccountSchedulingThresholds, after.AccountSchedulingThresholds) {
 		changed = append(changed, service.SettingKeyAccountSchedulingThresholds)
 	}
-	changed = appendAuthSourceDefaultChanges(changed, beforeAuthSourceDefaults, afterAuthSourceDefaults)
 	return changed
-}
-
-func appendAuthSourceDefaultChanges(changed []string, before *service.AuthSourceDefaultSettings, after *service.AuthSourceDefaultSettings) []string {
-	if before == nil {
-		before = &service.AuthSourceDefaultSettings{}
-	}
-	if after == nil {
-		after = &service.AuthSourceDefaultSettings{}
-	}
-
-	type providerDefaultGrantField struct {
-		name   string
-		before service.ProviderDefaultGrantSettings
-		after  service.ProviderDefaultGrantSettings
-	}
-
-	fields := []providerDefaultGrantField{
-		{name: "email", before: before.Email, after: after.Email},
-	}
-	for _, field := range fields {
-		if field.before.Balance != field.after.Balance {
-			changed = append(changed, "auth_source_default_"+field.name+"_balance")
-		}
-		if field.before.Concurrency != field.after.Concurrency {
-			changed = append(changed, "auth_source_default_"+field.name+"_concurrency")
-		}
-		if !equalDefaultSubscriptions(field.before.Subscriptions, field.after.Subscriptions) {
-			changed = append(changed, "auth_source_default_"+field.name+"_subscriptions")
-		}
-		if field.before.GrantOnSignup != field.after.GrantOnSignup {
-			changed = append(changed, "auth_source_default_"+field.name+"_grant_on_signup")
-		}
-		if field.before.GrantOnFirstBind != field.after.GrantOnFirstBind {
-			changed = append(changed, "auth_source_default_"+field.name+"_grant_on_first_bind")
-		}
-		// Platform quotas diff：整体替换语义，发单个 JSON key。
-		if !equalPlatformQuotaSettings(field.before.PlatformQuotas, field.after.PlatformQuotas) {
-			changed = append(changed, service.SettingKeyAuthSourcePlatformQuotas(field.name))
-		}
-	}
-	return changed
-}
-
-func normalizeDefaultSubscriptions(input []dto.DefaultSubscriptionSetting) []dto.DefaultSubscriptionSetting {
-	if len(input) == 0 {
-		return nil
-	}
-	normalized := make([]dto.DefaultSubscriptionSetting, 0, len(input))
-	for _, item := range input {
-		if item.GroupID <= 0 || item.ValidityDays <= 0 {
-			continue
-		}
-		if item.ValidityDays > service.MaxValidityDays {
-			item.ValidityDays = service.MaxValidityDays
-		}
-		normalized = append(normalized, item)
-	}
-	return normalized
-}
-
-func normalizeOptionalDefaultSubscriptions(input *[]dto.DefaultSubscriptionSetting) *[]dto.DefaultSubscriptionSetting {
-	if input == nil {
-		return nil
-	}
-	normalized := normalizeDefaultSubscriptions(*input)
-	return &normalized
 }
 
 func float64ValueOrDefault(value *float64, fallback float64) float64 {
@@ -331,63 +257,12 @@ func float64ValueOrDefault(value *float64, fallback float64) float64 {
 	return *value
 }
 
-func intValueOrDefault(value *int, fallback int) int {
-	if value == nil {
-		return fallback
-	}
-	return *value
-}
-
-func boolValueOrDefault(value *bool, fallback bool) bool {
-	if value == nil {
-		return fallback
-	}
-	return *value
-}
-
-func defaultSubscriptionsValueOrDefault(input *[]dto.DefaultSubscriptionSetting, fallback []service.DefaultSubscriptionSetting) []service.DefaultSubscriptionSetting {
-	if input == nil {
-		return fallback
-	}
-	result := make([]service.DefaultSubscriptionSetting, 0, len(*input))
-	for _, item := range *input {
-		result = append(result, service.DefaultSubscriptionSetting{
-			GroupID:      item.GroupID,
-			ValidityDays: item.ValidityDays,
-		})
-	}
-	return result
-}
-
-// platformQuotasValueOrDefault 处理 auth-source platform quota 的 nil 语义：
-// nil = 请求未包含该字段（保留 fallback），non-nil（含 empty map）= 整体覆盖。
-// 注意：JSON null 与字段省略等价——两者均反序列化为 nil map，因此都保留旧值；
-// 若要清空某 source 的所有 quota 配置，须显式发空对象 {}。
-func platformQuotasValueOrDefault(value, fallback map[string]*service.DefaultPlatformQuotaSetting) map[string]*service.DefaultPlatformQuotaSetting {
-	if value == nil {
-		return fallback
-	}
-	return value
-}
-
 func equalStringSlice(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
 		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func equalDefaultSubscriptions(a, b []service.DefaultSubscriptionSetting) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].GroupID != b[i].GroupID || a[i].ValidityDays != b[i].ValidityDays {
 			return false
 		}
 	}

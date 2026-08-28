@@ -21,17 +21,15 @@ const keyUsageGenericAuthMessage = "Invalid or expired key"
 
 // KeyUsageHandler 免登录用量页（/key-usage）的公开 API。
 type KeyUsageHandler struct {
-	keyUsageService     *service.KeyUsageService
-	gateway             *GatewayHandler
-	subscriptionService *service.SubscriptionService
+	keyUsageService *service.KeyUsageService
+	gateway         *GatewayHandler
 }
 
 // NewKeyUsageHandler 创建 handler。gateway 用于复用 /v1/usage 的 payload 组装逻辑。
-func NewKeyUsageHandler(keyUsageService *service.KeyUsageService, gateway *GatewayHandler, subscriptionService *service.SubscriptionService) *KeyUsageHandler {
+func NewKeyUsageHandler(keyUsageService *service.KeyUsageService, gateway *GatewayHandler) *KeyUsageHandler {
 	return &KeyUsageHandler{
-		keyUsageService:     keyUsageService,
-		gateway:             gateway,
-		subscriptionService: subscriptionService,
+		keyUsageService: keyUsageService,
+		gateway:         gateway,
 	}
 }
 
@@ -48,10 +46,7 @@ type KeyUsageSessionResponse struct {
 
 // KeyUsageReportResponse 是用量报告的响应体。
 //
-// usage 复用 /v1/usage 的组装逻辑（同一个 buildUsagePayload），但不是逐字节等价：
-// 免登录路径没有 API Key 中间件，订阅数据由本 handler 自行查询，因此在 simple 运行模式下
-// 这里会比 /v1/usage 多出 subscription 对象（simple 模式的中间件在设置 context 前就返回了，
-// /v1/usage 拿不到订阅）。其余模式下两者字段一致。
+// usage 复用 /v1/usage 的组装逻辑（同一个 buildUsagePayload），字段口径完全一致。
 //
 // usage_available 区分"后端组装用量失败"（usage = null，false）与"确实没有数据"
 // （usage 是对象但内容为空，true）；没有它前端只能看到一个空对象，无法提示用户重试。
@@ -145,7 +140,7 @@ func (h *KeyUsageHandler) Report(c *gin.Context) {
 		usageAvailable bool
 	)
 	if h.gateway != nil {
-		payload, buildErr := h.gateway.BuildAPIKeyUsagePayload(c, apiKey, h.resolveSubscription(c, apiKey))
+		payload, buildErr := h.gateway.BuildAPIKeyUsagePayload(c, apiKey)
 		if buildErr != nil {
 			slog.Warn("key usage payload build failed", "api_key_id", apiKey.ID, "error", buildErr)
 		} else if payload != nil {
@@ -174,19 +169,6 @@ func (h *KeyUsageHandler) Report(c *gin.Context) {
 // 快照缺失（中间件未挂载）时 false 会回落到 server.trusted_proxies 可信链，是更保守的一侧。
 func keyUsageClientIP(c *gin.Context) string {
 	return ippkg.GetSecurityClientIP(c, false)
-}
-
-// resolveSubscription 免登录路径没有经过 API Key 中间件，订阅数据要自己查。
-// 尽力而为：查不到就按"无订阅"渲染，不影响其余板块。
-func (h *KeyUsageHandler) resolveSubscription(c *gin.Context, apiKey *service.APIKey) *service.UserSubscription {
-	if h.subscriptionService == nil || apiKey.Group == nil || !apiKey.Group.IsSubscriptionType() {
-		return nil
-	}
-	subscription, err := h.subscriptionService.GetActiveSubscription(c.Request.Context(), apiKey.UserID, apiKey.Group.ID)
-	if err != nil {
-		return nil
-	}
-	return subscription
 }
 
 // keyUsageRawKeyFromRequest 从请求头提取原始 API Key（Bearer 优先，兼容 x-api-key）。

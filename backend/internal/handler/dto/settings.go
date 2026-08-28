@@ -44,10 +44,8 @@ type SystemSettings struct {
 	DocURL          string           `json:"doc_url"`
 	CustomEndpoints []CustomEndpoint `json:"custom_endpoints"`
 
-	DefaultConcurrency   int                          `json:"default_concurrency"`
-	DefaultBalance       float64                      `json:"default_balance"`
-	DefaultUserRPMLimit  int                          `json:"default_user_rpm_limit"`
-	DefaultSubscriptions []DefaultSubscriptionSetting `json:"default_subscriptions"`
+	DefaultConcurrency  int `json:"default_concurrency"`
+	DefaultUserRPMLimit int `json:"default_user_rpm_limit"`
 
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`
@@ -161,11 +159,6 @@ type SystemSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
-}
-
-type DefaultSubscriptionSetting struct {
-	GroupID      int64 `json:"group_id"`
-	ValidityDays int   `json:"validity_days"`
 }
 
 type PublicSettings struct {

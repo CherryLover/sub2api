@@ -32,12 +32,10 @@ type SystemSettings struct {
 	CustomEndpoints string // JSON array of custom endpoints
 
 	DefaultConcurrency          int
-	DefaultBalance              float64
 	RiskControlEnabled          bool
 	CyberSessionBlockEnabled    bool
 	CyberSessionBlockTTLSeconds int
 	DefaultUserRPMLimit         int
-	DefaultSubscriptions        []DefaultSubscriptionSetting
 
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`
@@ -140,11 +138,6 @@ type SystemSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool
-}
-
-type DefaultSubscriptionSetting struct {
-	GroupID      int64 `json:"group_id"`
-	ValidityDays int   `json:"validity_days"`
 }
 
 type PublicSettings struct {

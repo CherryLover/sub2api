@@ -219,8 +219,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
 
-	// 获取订阅信息（可能为nil）- 提前获取用于后续检查
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
 	// 1. 首先获取用户并发槽位
 	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted)
@@ -236,7 +234,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 
 	// 2. 【新增】Wait后二次检查余额/订阅
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("gateway.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -564,7 +562,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					APIKey:             apiKey,
 					User:               apiKey.User,
 					Account:            account,
-					Subscription:       subscription,
 					PricingAt:          pricingAt,
 					InboundEndpoint:    inboundEndpoint,
 					UpstreamEndpoint:   upstreamEndpoint,
@@ -591,7 +588,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 
 	currentAPIKey := apiKey
-	currentSubscription := subscription
 	var fallbackGroupID *int64
 	if apiKey.Group != nil {
 		fallbackGroupID = apiKey.Group.FallbackGroupIDOnInvalidRequest
@@ -903,7 +899,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						APIKey:             currentAPIKey,
 						User:               currentAPIKey.User,
 						Account:            account,
-						Subscription:       currentSubscription,
 						PricingAt:          pricingAt,
 						InboundEndpoint:    inboundEndpoint,
 						UpstreamEndpoint:   upstreamEndpoint,
@@ -951,18 +946,16 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 							return
 						}
 						if fallbackGroup.Platform != service.PlatformAnthropic ||
-							fallbackGroup.SubscriptionType == service.SubscriptionTypeSubscription ||
 							fallbackGroup.FallbackGroupIDOnInvalidRequest != nil {
 							reqLog.Warn("gateway.fallback_group_invalid",
 								zap.Int64("fallback_group_id", fallbackGroup.ID),
 								zap.String("fallback_platform", fallbackGroup.Platform),
-								zap.String("fallback_subscription_type", fallbackGroup.SubscriptionType),
 							)
 							_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
 							return
 						}
 						fallbackAPIKey := cloneAPIKeyWithGroup(apiKey, fallbackGroup)
-						if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
+						if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
 							status, code, message, retryAfter := billingErrorDetails(err)
 							if retryAfter > 0 {
 								c.Header("Retry-After", strconv.Itoa(retryAfter))
@@ -974,7 +967,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						ctx := context.WithValue(c.Request.Context(), ctxkey.ForcePlatform, "")
 						c.Request = c.Request.WithContext(ctx)
 						currentAPIKey = fallbackAPIKey
-						currentSubscription = nil
 						fallbackUsed = true
 						retryWithFallback = true
 						break
@@ -1429,12 +1421,12 @@ func cloneAPIKeyWithGroup(apiKey *service.APIKey, group *service.Group) *service
 	return &cloned
 }
 
-// Usage handles getting account balance and usage statistics for CC Switch integration
+// Usage handles getting API key quota and usage statistics for CC Switch integration
 // GET /v1/usage
 //
 // Two modes:
 //   - quota_limited: API Key has quota or rate limits configured. Returns key-level limits/usage.
-//   - unrestricted:  No key-level limits. Returns subscription or wallet balance info.
+//   - unrestricted:  No key-level limits configured (quota=0 且无速率限制) → 不限额度。
 func (h *GatewayHandler) Usage(c *gin.Context) {
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok {
@@ -1454,10 +1446,8 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 		return
 	}
 
-	// 订阅信息由 API Key 中间件放进 context（/v1/usage 路径跳过了计费检查，可能没有）
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
-	payload, err := h.buildUsagePayload(c, apiKey, subject, subscription, days)
+	payload, err := h.buildUsagePayload(c, apiKey, subject, days)
 	if err != nil {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to get user info")
 		return
@@ -1468,10 +1458,9 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 // BuildAPIKeyUsagePayload 以"某把 API Key"的视角组装 /v1/usage 的完整响应体，
 // 供免登录用量页（/api/v1/key-usage/report）原样内嵌复用。
 //
-// 免登录页没有走 API Key 中间件，订阅数据由调用方自行查好后传进来；
-// 其余口径（额度/速率限制/用量/按天/模型统计）与 /v1/usage 共用同一份代码，
+// 额度/速率限制/用量/按天/模型统计口径与 /v1/usage 共用同一份代码，
 // 保证同一个页面上不会出现两套对不上的数字。
-func (h *GatewayHandler) BuildAPIKeyUsagePayload(c *gin.Context, apiKey *service.APIKey, subscription *service.UserSubscription) (gin.H, error) {
+func (h *GatewayHandler) BuildAPIKeyUsagePayload(c *gin.Context, apiKey *service.APIKey) (gin.H, error) {
 	// days / start_date / end_date / timezone 与 /v1/usage 语义一致（页面上的日期选择器
 	// 和 7/30/90 天切换靠它们生效）；只是这里对非法 days 回落到默认值而不是返回 400，
 	// 免登录页不该因为一个展示参数就整页失败。
@@ -1479,11 +1468,11 @@ func (h *GatewayHandler) BuildAPIKeyUsagePayload(c *gin.Context, apiKey *service
 	if !ok {
 		days = defaultAPIKeyDailyUsageDays
 	}
-	return h.buildUsagePayload(c, apiKey, middleware2.AuthSubject{UserID: apiKey.UserID}, subscription, days)
+	return h.buildUsagePayload(c, apiKey, middleware2.AuthSubject{UserID: apiKey.UserID}, days)
 }
 
 // buildUsagePayload 组装 /v1/usage 响应体（不写响应，便于复用）。
-func (h *GatewayHandler) buildUsagePayload(c *gin.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, subscription *service.UserSubscription, days int) (gin.H, error) {
+func (h *GatewayHandler) buildUsagePayload(c *gin.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, days int) (gin.H, error) {
 	ctx := c.Request.Context()
 
 	// 解析可选的日期范围参数（用于 model_stats 查询）
@@ -1508,7 +1497,7 @@ func (h *GatewayHandler) buildUsagePayload(c *gin.Context, apiKey *service.APIKe
 		return h.usageQuotaLimited(ctx, apiKey, usageData, dailyUsage, modelStats), nil
 	}
 
-	return h.usageUnrestricted(ctx, apiKey, subject, subscription, usageData, dailyUsage, modelStats)
+	return h.usageUnrestricted(apiKey, usageData, dailyUsage, modelStats), nil
 }
 
 // maxUsageDateRangeDays 是 start_date/end_date 允许跨越的最大天数。
@@ -1705,58 +1694,22 @@ func (h *GatewayHandler) usageQuotaLimited(ctx context.Context, apiKey *service.
 	return resp
 }
 
-// usageUnrestricted 组装 unrestricted 模式的响应体（向后兼容）
-func (h *GatewayHandler) usageUnrestricted(ctx context.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, subscription *service.UserSubscription, usageData gin.H, dailyUsage any, modelStats any) (gin.H, error) {
-	// 订阅模式
-	if apiKey.Group != nil && apiKey.Group.IsSubscriptionType() {
-		resp := gin.H{
-			"mode":     "unrestricted",
-			"isValid":  true,
-			"planName": apiKey.Group.Name,
-			"unit":     "USD",
-		}
-
-		// 订阅信息可能拿不到（/v1/usage 路径跳过了中间件的计费检查）
-		if subscription != nil {
-			remaining := h.calculateSubscriptionRemaining(apiKey.Group, subscription)
-			resp["remaining"] = remaining
-			resp["subscription"] = gin.H{
-				"daily_usage_usd":     subscription.DailyUsageUSD,
-				"weekly_usage_usd":    subscription.WeeklyUsageUSD,
-				"monthly_usage_usd":   subscription.MonthlyUsageUSD,
-				"daily_limit_usd":     apiKey.Group.DailyLimitUSD,
-				"weekly_limit_usd":    apiKey.Group.WeeklyLimitUSD,
-				"monthly_limit_usd":   apiKey.Group.MonthlyLimitUSD,
-				"weekly_window_start": subscription.WeeklyWindowStart,
-				"expires_at":          subscription.ExpiresAt,
-			}
-		}
-
-		if usageData != nil {
-			resp["usage"] = usageData
-		}
-		if dailyUsage != nil {
-			resp["daily_usage"] = dailyUsage
-		}
-		if modelStats != nil {
-			resp["model_stats"] = modelStats
-		}
-		return resp, nil
-	}
-
-	// 余额模式
-	latestUser, err := h.userService.GetByID(ctx, subject.UserID)
-	if err != nil {
-		return nil, err
+// usageUnrestricted 组装 unrestricted 模式的响应体（Key 未配置额度与速率限制）。
+//
+// 额度已直绑在 API Key 上：quota=0 且无速率限制即为"不限额度"，
+// remaining 固定返回 -1（与 CC Switch 既有的"无限制"约定一致）。
+func (h *GatewayHandler) usageUnrestricted(apiKey *service.APIKey, usageData gin.H, dailyUsage any, modelStats any) gin.H {
+	planName := "不限额度"
+	if apiKey.Group != nil && apiKey.Group.Name != "" {
+		planName = apiKey.Group.Name
 	}
 
 	resp := gin.H{
 		"mode":      "unrestricted",
 		"isValid":   true,
-		"planName":  "钱包余额",
-		"remaining": latestUser.Balance,
+		"planName":  planName,
+		"remaining": float64(-1),
 		"unit":      "USD",
-		"balance":   latestUser.Balance,
 	}
 	if usageData != nil {
 		resp["usage"] = usageData
@@ -1767,56 +1720,7 @@ func (h *GatewayHandler) usageUnrestricted(ctx context.Context, apiKey *service.
 	if modelStats != nil {
 		resp["model_stats"] = modelStats
 	}
-	return resp, nil
-}
-
-// calculateSubscriptionRemaining 计算订阅剩余可用额度
-// 逻辑：
-// 1. 如果日/周/月任一限额达到100%，返回0
-// 2. 否则返回所有已配置周期中剩余额度的最小值
-func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, sub *service.UserSubscription) float64 {
-	var remainingValues []float64
-
-	// 检查日限额
-	if group.HasDailyLimit() {
-		remaining := *group.DailyLimitUSD - sub.DailyUsageUSD
-		if remaining <= 0 {
-			return 0
-		}
-		remainingValues = append(remainingValues, remaining)
-	}
-
-	// 检查周限额
-	if group.HasWeeklyLimit() {
-		remaining := *group.WeeklyLimitUSD - sub.WeeklyUsageUSD
-		if remaining <= 0 {
-			return 0
-		}
-		remainingValues = append(remainingValues, remaining)
-	}
-
-	// 检查月限额
-	if group.HasMonthlyLimit() {
-		remaining := *group.MonthlyLimitUSD - sub.MonthlyUsageUSD
-		if remaining <= 0 {
-			return 0
-		}
-		remainingValues = append(remainingValues, remaining)
-	}
-
-	// 如果没有配置任何限额，返回-1表示无限制
-	if len(remainingValues) == 0 {
-		return -1
-	}
-
-	// 返回最小值
-	min := remainingValues[0]
-	for _, v := range remainingValues[1:] {
-		if v < min {
-			min = v
-		}
-	}
-	return min
+	return resp
 }
 
 // handleConcurrencyError handles concurrency-related acquire errors.
@@ -2092,12 +1996,10 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	setOpsRequestContext(c, parsedReq.Model, parsedReq.Stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsedReq.Stream, false)))
 
-	// 获取订阅信息（可能为nil）
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
 	// 校验 billing eligibility（订阅/余额）
 	// 【注意】不计算并发，但需要校验订阅/余额
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
 			c.Header("Retry-After", strconv.Itoa(retryAfter))

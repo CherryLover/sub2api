@@ -201,11 +201,10 @@ type UsageLog struct {
 
 	CreatedAt time.Time
 
-	User         *User
-	APIKey       *APIKey
-	Account      *Account
-	Group        *Group
-	Subscription *UserSubscription
+	User    *User
+	APIKey  *APIKey
+	Account *Account
+	Group   *Group
 }
 
 func (u *UsageLog) TotalTokens() int {

@@ -73,7 +73,6 @@ func RegisterAdminRoutes(
 		registerSystemRoutes(admin, h)
 
 		// 订阅管理
-		registerSubscriptionRoutes(admin, h)
 
 		// 使用记录管理
 		registerUsageRoutes(admin, h)
@@ -254,7 +253,6 @@ func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		users.POST("", h.Admin.User.Create)
 		users.PUT("/:id", h.Admin.User.Update)
 		users.DELETE("/:id", h.Admin.User.Delete)
-		users.POST("/:id/balance", h.Admin.User.UpdateBalance)
 		users.GET("/:id/api-keys", h.Admin.User.GetUserAPIKeys)
 		users.GET("/:id/usage", h.Admin.User.GetUserUsage)
 		users.POST("/:id/replace-group", h.Admin.User.ReplaceGroup)
@@ -557,28 +555,6 @@ func registerSystemRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		system.GET("/version", h.Admin.System.GetVersion)
 		system.POST("/restart", h.Admin.System.RestartService)
 	}
-}
-
-func registerSubscriptionRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	subscriptions := admin.Group("/subscriptions")
-	{
-		subscriptions.GET("", h.Admin.Subscription.List)
-		subscriptions.GET("/:id", h.Admin.Subscription.GetByID)
-		subscriptions.GET("/:id/progress", h.Admin.Subscription.GetProgress)
-		subscriptions.POST("/assign", h.Admin.Subscription.Assign)
-		subscriptions.POST("/bulk-assign", h.Admin.Subscription.BulkAssign)
-		subscriptions.POST("/:id/extend", h.Admin.Subscription.Extend)
-		subscriptions.POST("/:id/reset-quota", h.Admin.Subscription.ResetQuota)
-		subscriptions.POST("/:id/revoke", h.Admin.Subscription.Revoke)
-		subscriptions.POST("/:id/restore", h.Admin.Subscription.Restore)
-		subscriptions.DELETE("/:id", h.Admin.Subscription.Revoke)
-	}
-
-	// 分组下的订阅列表
-	admin.GET("/groups/:id/subscriptions", h.Admin.Subscription.ListByGroup)
-
-	// 用户下的订阅列表
-	admin.GET("/users/:id/subscriptions", h.Admin.Subscription.ListByUser)
 }
 
 func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

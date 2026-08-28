@@ -24,8 +24,8 @@ func newOptionalJWTTestEnv(users map[int64]*service.User) (*gin.Engine, *service
 	cfg.JWT.AccessTokenExpireMinutes = 60
 
 	userRepo := &stubJWTUserRepo{users: users}
-	authSvc := service.NewAuthService(nil, userRepo, nil, cfg, nil, nil)
-	userSvc := service.NewUserService(userRepo, nil, nil, nil)
+	authSvc := service.NewAuthService(nil, userRepo, nil, cfg, nil)
+	userSvc := service.NewUserService(userRepo, nil, nil)
 	mw := NewOptionalJWTAuthMiddleware(authSvc, userSvc, nil, nil)
 
 	r := gin.New()

@@ -1103,9 +1103,6 @@ default:
   # Max concurrent requests per user
   # 每用户最大并发请求数
   user_concurrency: 5
-  # Initial balance for new users
-  # 新用户初始余额
-  user_balance: 0
 
   # API key settings
   # API 密钥设置
@@ -1168,10 +1165,6 @@ billing:
     # Number of requests to allow in half-open state
     # 半开状态允许通过的请求数
     half_open_requests: 3
-  # Conservative minimum balance required before forwarding balance-billed requests.
-  # Set to 0 to only require balance > 0.
-  # 余额计费请求转发前要求的保守最小余额；设为 0 则仅要求余额 > 0。
-  minimum_balance_reserve: 0.000001
   # Cache TTL (seconds) for per-user × per-platform quota records
   # 用户 × 平台 quota 缓存 TTL（秒），默认 86400=1天，覆盖典型 daily 窗口
   user_platform_quota_cache_ttl_seconds: 86400

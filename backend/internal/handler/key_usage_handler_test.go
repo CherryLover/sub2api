@@ -97,7 +97,7 @@ func newTestKeyUsageRouterWithRanking(t *testing.T) (*gin.Engine, *service.APIKe
 	svc := service.NewKeyUsageService(keys, stubKeyUsageModelStats{}, ranking, tokens, time.Minute)
 
 	// gateway 传 nil：本用例只验证公开端点的契约形状，usage 字段退化成空对象。
-	h := NewKeyUsageHandler(svc, nil, nil)
+	h := NewKeyUsageHandler(svc, nil)
 	router := gin.New()
 	group := router.Group("/api/v1/key-usage")
 	group.POST("/session", h.CreateSession)
@@ -432,8 +432,8 @@ func newIPRestrictedKeyUsageRouter(t *testing.T) (*gin.Engine, *service.APIKey, 
 
 	router := gin.New()
 	group := router.Group("/api/v1/key-usage")
-	group.POST("/session", NewKeyUsageHandler(svc, nil, nil).CreateSession)
-	group.GET("/report", NewKeyUsageHandler(svc, nil, nil).Report)
+	group.POST("/session", NewKeyUsageHandler(svc, nil).CreateSession)
+	group.GET("/report", NewKeyUsageHandler(svc, nil).Report)
 	return router, apiKey, svc
 }
 

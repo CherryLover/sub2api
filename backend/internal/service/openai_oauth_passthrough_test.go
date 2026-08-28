@@ -377,8 +377,8 @@ func TestOpenAIGatewayService_OAuthPassthrough_StreamKeepsToolNameAndBodyNormali
 	upstream := &httpUpstreamRecorder{resp: resp}
 
 	svc := &OpenAIGatewayService{
-		cfg:          &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
-		httpUpstream: upstream,
+		cfg:                 &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+		httpUpstream:        upstream,
 		openAITokenProvider: &OpenAITokenProvider{ // minimal: will be bypassed by nil cache/service, but GetAccessToken uses provider only if non-nil
 			accountRepo: nil,
 		},

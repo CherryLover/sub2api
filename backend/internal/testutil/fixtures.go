@@ -15,7 +15,6 @@ func NewTestUser(opts ...func(*service.User)) *service.User {
 		Email:       "test@example.com",
 		Username:    "testuser",
 		Role:        "user",
-		Balance:     100.0,
 		Concurrency: 5,
 		Status:      service.StatusActive,
 		CreatedAt:   time.Now(),

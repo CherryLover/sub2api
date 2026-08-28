@@ -16,15 +16,11 @@ import (
 )
 
 // 错误定义
-// 注：ErrDailyLimitExceeded/ErrWeeklyLimitExceeded/ErrMonthlyLimitExceeded在subscription_service.go中定义
-var ErrInsufficientBalance = infraerrors.BadRequest("INSUFFICIENT_BALANCE", "insufficient balance")
-
 // errBillingCacheUnavailable 内部哨兵：用于 quota 校验路径在 cache==nil 时
 // 与"Redis 故障"走同一条 fail-open + DB 一次性检查的分支。
 var errBillingCacheUnavailable = fmt.Errorf("billing cache unavailable")
 
 var (
-	ErrSubscriptionInvalid       = infraerrors.Forbidden("SUBSCRIPTION_INVALID", "subscription is invalid or expired")
 	ErrBillingServiceUnavailable = infraerrors.ServiceUnavailable("BILLING_SERVICE_ERROR", "Billing service temporarily unavailable. Please retry later.")
 	// RPM 超限错误。gateway_handler 负责映射为 HTTP 429。
 	ErrGroupRPMExceeded = infraerrors.TooManyRequests("GROUP_RPM_EXCEEDED", "group requests-per-minute limit exceeded")
@@ -39,25 +35,11 @@ var (
 	ErrUserPlatformMonthlyQuotaExhausted = infraerrors.TooManyRequests("USER_PLATFORM_MONTHLY_QUOTA_EXHAUSTED", "Monthly usage quota exhausted for this platform.")
 )
 
-// subscriptionCacheData 订阅缓存数据结构（内部使用）
-type subscriptionCacheData struct {
-	Status       string
-	ExpiresAt    time.Time
-	DailyUsage   float64
-	WeeklyUsage  float64
-	MonthlyUsage float64
-	Version      int64
-}
-
 // 缓存写入任务类型
 type cacheWriteKind int
 
 const (
-	cacheWriteSetBalance cacheWriteKind = iota
-	cacheWriteSetSubscription
-	cacheWriteUpdateSubscriptionUsage
-	cacheWriteDeductBalance
-	cacheWriteUpdateRateLimitUsage
+	cacheWriteUpdateRateLimitUsage cacheWriteKind = iota
 )
 
 // 异步缓存写入工作池配置
@@ -78,18 +60,15 @@ const (
 	cacheWriteBufferSize      = 1000            // 任务队列缓冲大小
 	cacheWriteTimeout         = 2 * time.Second // 单个写入操作超时
 	cacheWriteDropLogInterval = 5 * time.Second // 丢弃日志节流间隔
-	balanceLoadTimeout        = 3 * time.Second
 )
 
 // cacheWriteTask 缓存写入任务
 type cacheWriteTask struct {
-	kind             cacheWriteKind
-	userID           int64
-	groupID          int64
-	apiKeyID         int64
-	balance          float64
-	amount           float64
-	subscriptionData *subscriptionCacheData
+	kind     cacheWriteKind
+	userID   int64
+	groupID  int64
+	apiKeyID int64
+	amount   float64
 }
 
 // apiKeyRateLimitLoader defines the interface for loading rate limit data from DB.
@@ -97,17 +76,10 @@ type apiKeyRateLimitLoader interface {
 	GetRateLimitData(ctx context.Context, keyID int64) (*APIKeyRateLimitData, error)
 }
 
-type subscriptionCacheInvalidationPubSub interface {
-	PublishSubscriptionCacheInvalidation(ctx context.Context, cacheKey string) error
-	SubscribeSubscriptionCacheInvalidation(ctx context.Context, handler func(cacheKey string)) error
-}
-
 // BillingCacheService 计费缓存服务
 // 负责余额和订阅数据的缓存管理，提供高性能的计费资格检查
 type BillingCacheService struct {
 	cache                 BillingCache
-	userRepo              UserRepository
-	subRepo               UserSubscriptionRepository
 	apiKeyRateLimitLoader apiKeyRateLimitLoader
 	userRPMCache          UserRPMCache
 	userGroupRateRepo     UserGroupRateRepository
@@ -120,7 +92,6 @@ type BillingCacheService struct {
 	cacheWriteStopOnce sync.Once
 	cacheWriteMu       sync.RWMutex
 	stopped            atomic.Bool
-	balanceLoadSF      singleflight.Group
 	quotaLoadSF        singleflight.Group
 	// 丢弃日志节流计数器（减少高负载下日志噪音）
 	cacheWriteDropFullCount     uint64
@@ -132,8 +103,6 @@ type BillingCacheService struct {
 // NewBillingCacheService 创建计费缓存服务
 func NewBillingCacheService(
 	cache BillingCache,
-	userRepo UserRepository,
-	subRepo UserSubscriptionRepository,
 	apiKeyRepo APIKeyRepository,
 	userRPMCache UserRPMCache,
 	userGroupRateRepo UserGroupRateRepository,
@@ -142,8 +111,6 @@ func NewBillingCacheService(
 ) *BillingCacheService {
 	svc := &BillingCacheService{
 		cache:                 cache,
-		userRepo:              userRepo,
-		subRepo:               subRepo,
 		apiKeyRateLimitLoader: apiKeyRepo,
 		userRPMCache:          userRPMCache,
 		userGroupRateRepo:     userGroupRateRepo,
@@ -219,22 +186,6 @@ func (s *BillingCacheService) cacheWriteWorker(ch <-chan cacheWriteTask) {
 	for task := range ch {
 		ctx, cancel := context.WithTimeout(context.Background(), cacheWriteTimeout)
 		switch task.kind {
-		case cacheWriteSetBalance:
-			s.setBalanceCache(ctx, task.userID, task.balance)
-		case cacheWriteSetSubscription:
-			s.setSubscriptionCache(ctx, task.userID, task.groupID, task.subscriptionData)
-		case cacheWriteUpdateSubscriptionUsage:
-			if s.cache != nil {
-				if err := s.cache.UpdateSubscriptionUsage(ctx, task.userID, task.groupID, task.amount); err != nil {
-					logger.LegacyPrintf("service.billing_cache", "Warning: update subscription cache failed for user %d group %d: %v", task.userID, task.groupID, err)
-				}
-			}
-		case cacheWriteDeductBalance:
-			if s.cache != nil {
-				if err := s.cache.DeductUserBalance(ctx, task.userID, task.amount); err != nil {
-					logger.LegacyPrintf("service.billing_cache", "Warning: deduct balance cache failed for user %d: %v", task.userID, err)
-				}
-			}
 		case cacheWriteUpdateRateLimitUsage:
 			if s.cache != nil {
 				if err := s.cache.UpdateAPIKeyRateLimitUsage(ctx, task.apiKeyID, task.amount); err != nil {
@@ -249,14 +200,6 @@ func (s *BillingCacheService) cacheWriteWorker(ch <-chan cacheWriteTask) {
 // cacheWriteKindName 用于日志中的任务类型标识，便于排查丢弃原因。
 func cacheWriteKindName(kind cacheWriteKind) string {
 	switch kind {
-	case cacheWriteSetBalance:
-		return "set_balance"
-	case cacheWriteSetSubscription:
-		return "set_subscription"
-	case cacheWriteUpdateSubscriptionUsage:
-		return "update_subscription_usage"
-	case cacheWriteDeductBalance:
-		return "deduct_balance"
 	case cacheWriteUpdateRateLimitUsage:
 		return "update_rate_limit_usage"
 	default:
@@ -302,255 +245,6 @@ func (s *BillingCacheService) logCacheWriteDrop(task cacheWriteTask, reason stri
 		task.userID,
 		task.groupID,
 	)
-}
-
-// ============================================
-// 余额缓存方法
-// ============================================
-
-// GetUserBalance 获取用户余额（优先从缓存读取）
-func (s *BillingCacheService) GetUserBalance(ctx context.Context, userID int64) (float64, error) {
-	if s.cache == nil {
-		// Redis不可用，直接查询数据库
-		return s.getUserBalanceFromDB(ctx, userID)
-	}
-
-	// 尝试从缓存读取
-	balance, err := s.cache.GetUserBalance(ctx, userID)
-	if err == nil {
-		return balance, nil
-	}
-
-	// 缓存未命中：singleflight 合并同一 userID 的并发回源请求。
-	value, err, _ := s.balanceLoadSF.Do(strconv.FormatInt(userID, 10), func() (any, error) {
-		loadCtx, cancel := context.WithTimeout(context.Background(), balanceLoadTimeout)
-		defer cancel()
-
-		balance, err := s.getUserBalanceFromDB(loadCtx, userID)
-		if err != nil {
-			return nil, err
-		}
-
-		// 异步建立缓存
-		_ = s.enqueueCacheWrite(cacheWriteTask{
-			kind:    cacheWriteSetBalance,
-			userID:  userID,
-			balance: balance,
-		})
-		return balance, nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	balance, ok := value.(float64)
-	if !ok {
-		return 0, fmt.Errorf("unexpected balance type: %T", value)
-	}
-	return balance, nil
-}
-
-// getUserBalanceFromDB 从数据库获取用户余额
-func (s *BillingCacheService) getUserBalanceFromDB(ctx context.Context, userID int64) (float64, error) {
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return 0, fmt.Errorf("get user balance: %w", err)
-	}
-	return user.Balance, nil
-}
-
-// setBalanceCache 设置余额缓存
-func (s *BillingCacheService) setBalanceCache(ctx context.Context, userID int64, balance float64) {
-	if s.cache == nil {
-		return
-	}
-	if err := s.cache.SetUserBalance(ctx, userID, balance); err != nil {
-		logger.LegacyPrintf("service.billing_cache", "Warning: set balance cache failed for user %d: %v", userID, err)
-	}
-}
-
-// DeductBalanceCache 扣减余额缓存（同步调用）
-func (s *BillingCacheService) DeductBalanceCache(ctx context.Context, userID int64, amount float64) error {
-	if s.cache == nil {
-		return nil
-	}
-	return s.cache.DeductUserBalance(ctx, userID, amount)
-}
-
-// QueueDeductBalance 异步扣减余额缓存
-func (s *BillingCacheService) QueueDeductBalance(userID int64, amount float64) {
-	if s.cache == nil {
-		return
-	}
-	// 队列满时同步回退，避免关键扣减被静默丢弃。
-	if s.enqueueCacheWrite(cacheWriteTask{
-		kind:   cacheWriteDeductBalance,
-		userID: userID,
-		amount: amount,
-	}) {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), cacheWriteTimeout)
-	defer cancel()
-	if err := s.DeductBalanceCache(ctx, userID, amount); err != nil {
-		logger.LegacyPrintf("service.billing_cache", "Warning: deduct balance cache fallback failed for user %d: %v", userID, err)
-	}
-}
-
-// InvalidateUserBalance 失效用户余额缓存
-func (s *BillingCacheService) InvalidateUserBalance(ctx context.Context, userID int64) error {
-	if s.cache == nil {
-		return nil
-	}
-	if err := s.cache.InvalidateUserBalance(ctx, userID); err != nil {
-		logger.LegacyPrintf("service.billing_cache", "Warning: invalidate balance cache failed for user %d: %v", userID, err)
-		return err
-	}
-	return nil
-}
-
-// ============================================
-// 订阅缓存方法
-// ============================================
-
-// GetSubscriptionStatus 获取订阅状态（优先从缓存读取）
-func (s *BillingCacheService) GetSubscriptionStatus(ctx context.Context, userID, groupID int64) (*subscriptionCacheData, error) {
-	if s.cache == nil {
-		return s.getSubscriptionFromDB(ctx, userID, groupID)
-	}
-
-	// 尝试从缓存读取
-	cacheData, err := s.cache.GetSubscriptionCache(ctx, userID, groupID)
-	if err == nil && cacheData != nil {
-		return s.convertFromPortsData(cacheData), nil
-	}
-
-	// 缓存未命中，从数据库读取
-	data, err := s.getSubscriptionFromDB(ctx, userID, groupID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 异步建立缓存
-	_ = s.enqueueCacheWrite(cacheWriteTask{
-		kind:             cacheWriteSetSubscription,
-		userID:           userID,
-		groupID:          groupID,
-		subscriptionData: data,
-	})
-
-	return data, nil
-}
-
-func (s *BillingCacheService) convertFromPortsData(data *SubscriptionCacheData) *subscriptionCacheData {
-	return &subscriptionCacheData{
-		Status:       data.Status,
-		ExpiresAt:    data.ExpiresAt,
-		DailyUsage:   data.DailyUsage,
-		WeeklyUsage:  data.WeeklyUsage,
-		MonthlyUsage: data.MonthlyUsage,
-		Version:      data.Version,
-	}
-}
-
-func (s *BillingCacheService) convertToPortsData(data *subscriptionCacheData) *SubscriptionCacheData {
-	return &SubscriptionCacheData{
-		Status:       data.Status,
-		ExpiresAt:    data.ExpiresAt,
-		DailyUsage:   data.DailyUsage,
-		WeeklyUsage:  data.WeeklyUsage,
-		MonthlyUsage: data.MonthlyUsage,
-		Version:      data.Version,
-	}
-}
-
-// getSubscriptionFromDB 从数据库获取订阅数据
-func (s *BillingCacheService) getSubscriptionFromDB(ctx context.Context, userID, groupID int64) (*subscriptionCacheData, error) {
-	sub, err := s.subRepo.GetActiveByUserIDAndGroupID(ctx, userID, groupID)
-	if err != nil {
-		return nil, fmt.Errorf("get subscription: %w", err)
-	}
-
-	return &subscriptionCacheData{
-		Status:       sub.Status,
-		ExpiresAt:    sub.ExpiresAt,
-		DailyUsage:   sub.DailyUsageUSD,
-		WeeklyUsage:  sub.WeeklyUsageUSD,
-		MonthlyUsage: sub.MonthlyUsageUSD,
-		Version:      sub.UpdatedAt.Unix(),
-	}, nil
-}
-
-// setSubscriptionCache 设置订阅缓存
-func (s *BillingCacheService) setSubscriptionCache(ctx context.Context, userID, groupID int64, data *subscriptionCacheData) {
-	if s.cache == nil || data == nil {
-		return
-	}
-	if err := s.cache.SetSubscriptionCache(ctx, userID, groupID, s.convertToPortsData(data)); err != nil {
-		logger.LegacyPrintf("service.billing_cache", "Warning: set subscription cache failed for user %d group %d: %v", userID, groupID, err)
-	}
-}
-
-// UpdateSubscriptionUsage 更新订阅用量缓存（同步调用）
-func (s *BillingCacheService) UpdateSubscriptionUsage(ctx context.Context, userID, groupID int64, costUSD float64) error {
-	if s.cache == nil {
-		return nil
-	}
-	return s.cache.UpdateSubscriptionUsage(ctx, userID, groupID, costUSD)
-}
-
-// QueueUpdateSubscriptionUsage 异步更新订阅用量缓存
-func (s *BillingCacheService) QueueUpdateSubscriptionUsage(userID, groupID int64, costUSD float64) {
-	if s.cache == nil {
-		return
-	}
-	// 队列满时同步回退，确保订阅用量及时更新。
-	if s.enqueueCacheWrite(cacheWriteTask{
-		kind:    cacheWriteUpdateSubscriptionUsage,
-		userID:  userID,
-		groupID: groupID,
-		amount:  costUSD,
-	}) {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), cacheWriteTimeout)
-	defer cancel()
-	if err := s.UpdateSubscriptionUsage(ctx, userID, groupID, costUSD); err != nil {
-		logger.LegacyPrintf("service.billing_cache", "Warning: update subscription cache fallback failed for user %d group %d: %v", userID, groupID, err)
-	}
-}
-
-// InvalidateSubscription 失效指定订阅缓存
-func (s *BillingCacheService) InvalidateSubscription(ctx context.Context, userID, groupID int64) error {
-	if s.cache == nil {
-		return nil
-	}
-	if err := s.cache.InvalidateSubscriptionCache(ctx, userID, groupID); err != nil {
-		logger.LegacyPrintf("service.billing_cache", "Warning: invalidate subscription cache failed for user %d group %d: %v", userID, groupID, err)
-		return err
-	}
-	return nil
-}
-
-func (s *BillingCacheService) PublishSubscriptionCacheInvalidation(ctx context.Context, cacheKey string) error {
-	if s.cache == nil {
-		return nil
-	}
-	pubsub, ok := s.cache.(subscriptionCacheInvalidationPubSub)
-	if !ok {
-		return nil
-	}
-	return pubsub.PublishSubscriptionCacheInvalidation(ctx, cacheKey)
-}
-
-func (s *BillingCacheService) SubscribeSubscriptionCacheInvalidation(ctx context.Context, handler func(cacheKey string)) error {
-	if s.cache == nil {
-		return nil
-	}
-	pubsub, ok := s.cache.(subscriptionCacheInvalidationPubSub)
-	if !ok {
-		return nil
-	}
-	return pubsub.SubscribeSubscriptionCacheInvalidation(ctx, handler)
 }
 
 // InvalidateAPIKeyRateLimit invalidates the Redis rate-limit usage cache for an API key.
@@ -729,11 +423,12 @@ func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, plat
 // 统一检查方法
 // ============================================
 
-// CheckBillingEligibility 检查用户是否有资格发起请求
-// 余额模式：检查缓存余额 > 0
-// 订阅模式：检查缓存用量未超过限额（Group限额从参数传入）
+// CheckBillingEligibility 检查用户是否有资格发起请求。
+//
+// 额度已直绑在 API Key 上（api_keys.quota / quota_used），Key 额度耗尽由认证中间件
+// 依据 auth cache 快照拦截；本方法负责 user × platform 配额、Key 速率限制与 RPM 限流。
 // platform 为请求的目标平台（如 "anthropic"），传空串 "" 时跳过 user × platform quota 检查。
-func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string) error {
+func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, platform string) error {
 	// 简易模式：跳过所有计费检查
 	if s.cfg.RunMode == config.RunModeSimple {
 		return nil
@@ -742,27 +437,11 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 		return ErrBillingServiceUnavailable
 	}
 
-	// 判断计费模式
-	isSubscriptionMode := group != nil && group.IsSubscriptionType() && subscription != nil
-
-	if isSubscriptionMode {
-		if err := s.checkSubscriptionEligibility(ctx, user.ID, group, subscription); err != nil {
-			return err
-		}
-	} else {
-		if err := s.checkBalanceEligibility(ctx, user.ID); err != nil {
-			return err
-		}
+	if err := s.checkUserPlatformQuotaEligibility(ctx, user.ID, platform); err != nil {
+		return err
 	}
 
-	// user × platform quota 仅在 standard（余额）模式生效；订阅模式豁免
-	if !isSubscriptionMode {
-		if err := s.checkUserPlatformQuotaEligibility(ctx, user.ID, platform); err != nil {
-			return err
-		}
-	}
-
-	// Check API Key rate limits (applies to both billing modes)
+	// Check API Key rate limits
 	if apiKey != nil && apiKey.HasRateLimits() {
 		if err := s.checkAPIKeyRateLimits(ctx, apiKey); err != nil {
 			return err
@@ -856,83 +535,6 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 		if count > user.RPMLimit {
 			return ErrUserRPMExceeded
 		}
-	}
-
-	return nil
-}
-
-func (s *BillingCacheService) minimumBalanceReserve() float64 {
-	if s == nil || s.cfg == nil || s.cfg.Billing.MinimumBalanceReserve <= 0 {
-		return 0
-	}
-	return s.cfg.Billing.MinimumBalanceReserve
-}
-
-func (s *BillingCacheService) balanceBelowEligibilityThreshold(balance float64) bool {
-	if balance <= 0 {
-		return true
-	}
-	minimumReserve := s.minimumBalanceReserve()
-	return minimumReserve > 0 && balance < minimumReserve
-}
-
-// checkBalanceEligibility 检查余额模式资格
-func (s *BillingCacheService) checkBalanceEligibility(ctx context.Context, userID int64) error {
-	balance, err := s.GetUserBalance(ctx, userID)
-	if err != nil {
-		if s.circuitBreaker != nil {
-			s.circuitBreaker.OnFailure(err)
-		}
-		logger.LegacyPrintf("service.billing_cache", "ALERT: billing balance check failed for user %d: %v", userID, err)
-		return ErrBillingServiceUnavailable.WithCause(err)
-	}
-	if s.circuitBreaker != nil {
-		s.circuitBreaker.OnSuccess()
-	}
-
-	if s.balanceBelowEligibilityThreshold(balance) {
-		return ErrInsufficientBalance
-	}
-
-	return nil
-}
-
-// checkSubscriptionEligibility 检查订阅模式资格
-func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, userID int64, group *Group, subscription *UserSubscription) error {
-	// 获取订阅缓存数据
-	subData, err := s.GetSubscriptionStatus(ctx, userID, group.ID)
-	if err != nil {
-		if s.circuitBreaker != nil {
-			s.circuitBreaker.OnFailure(err)
-		}
-		logger.LegacyPrintf("service.billing_cache", "ALERT: billing subscription check failed for user %d group %d: %v", userID, group.ID, err)
-		return ErrBillingServiceUnavailable.WithCause(err)
-	}
-	if s.circuitBreaker != nil {
-		s.circuitBreaker.OnSuccess()
-	}
-
-	// 检查订阅状态
-	if subData.Status != SubscriptionStatusActive {
-		return ErrSubscriptionInvalid
-	}
-
-	// 检查是否过期
-	if time.Now().After(subData.ExpiresAt) {
-		return ErrSubscriptionInvalid
-	}
-
-	// 检查限额（使用传入的Group限额配置）
-	if group.HasDailyLimit() && subData.DailyUsage >= *group.DailyLimitUSD {
-		return ErrDailyLimitExceeded
-	}
-
-	if group.HasWeeklyLimit() && subData.WeeklyUsage >= *group.WeeklyLimitUSD {
-		return ErrWeeklyLimitExceeded
-	}
-
-	if group.HasMonthlyLimit() && subData.MonthlyUsage >= *group.MonthlyLimitUSD {
-		return ErrMonthlyLimitExceeded
 	}
 
 	return nil

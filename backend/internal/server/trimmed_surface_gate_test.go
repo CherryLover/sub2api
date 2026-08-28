@@ -117,7 +117,7 @@ func newTrimmedSurfaceRouter(t *testing.T) (*gin.Engine, *gateSettingRepo) {
 	settingService := service.NewSettingService(repo, cfg)
 	require.NoError(t, settingService.InitializeDefaultSettings(context.Background()))
 
-	authService := service.NewAuthService(nil, nil, nil, cfg, settingService, nil)
+	authService := service.NewAuthService(nil, nil, nil, cfg, settingService)
 
 	handlers := &handler.Handlers{
 		Auth:          handler.NewAuthHandler(cfg, authService, nil, settingService, nil, nil),
@@ -140,7 +140,6 @@ func newTrimmedSurfaceRouter(t *testing.T) (*gin.Engine, *gateSettingRepo) {
 		middleware2.AuditLogMiddleware(pass),
 		middleware2.StepUpAuthMiddleware(pass),
 		nil, // apiKeyService
-		nil, // subscriptionService
 		nil, // opsService
 		settingService,
 		nil, // compositeResolver
@@ -254,6 +253,24 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/admin/announcements",
 		"/api/v1/admin/announcements/:id",
 		"/api/v1/admin/announcements/:id/read-status",
+		// 订阅体系与用户余额（批次 4 / A4）：额度改为直接绑定在 API Key 上，
+		// 用户订阅、管理端订阅管理与管理员充值/扣款端点整体下线。
+		"/api/v1/subscriptions",
+		"/api/v1/subscriptions/active",
+		"/api/v1/subscriptions/progress",
+		"/api/v1/subscriptions/summary",
+		"/api/v1/admin/subscriptions",
+		"/api/v1/admin/subscriptions/:id",
+		"/api/v1/admin/subscriptions/:id/progress",
+		"/api/v1/admin/subscriptions/assign",
+		"/api/v1/admin/subscriptions/bulk-assign",
+		"/api/v1/admin/subscriptions/:id/extend",
+		"/api/v1/admin/subscriptions/:id/reset-quota",
+		"/api/v1/admin/subscriptions/:id/revoke",
+		"/api/v1/admin/subscriptions/:id/restore",
+		"/api/v1/admin/groups/:id/subscriptions",
+		"/api/v1/admin/users/:id/subscriptions",
+		"/api/v1/admin/users/:id/balance",
 	}
 	for _, path := range absentPaths {
 		_, exists := paths[path]
@@ -279,6 +296,8 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/announcements",
 		"/api/v1/admin/announcements",
 		"/api/v1/model-plaza",
+		"/api/v1/subscriptions",
+		"/api/v1/admin/subscriptions",
 	}
 	for path := range paths {
 		for _, prefix := range forbiddenPrefixes {
@@ -323,6 +342,12 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/risk-control/logs"},
 		{http.MethodGet, "/api/v1/admin/risk-control/status"},
 		{http.MethodPost, "/api/v1/admin/risk-control/api-keys/test"},
+		{http.MethodGet, "/api/v1/subscriptions"},
+		{http.MethodGet, "/api/v1/subscriptions/active"},
+		{http.MethodGet, "/api/v1/admin/subscriptions"},
+		{http.MethodPost, "/api/v1/admin/subscriptions/assign"},
+		{http.MethodPost, "/api/v1/admin/users/1/balance"},
+		{http.MethodGet, "/api/v1/admin/users/1/subscriptions"},
 	} {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(probe.method, probe.path, nil)
@@ -517,6 +542,18 @@ func TestPublicSettingsHasNoPaymentKey(t *testing.T) {
 		"account_quota_notify_enabled",
 	} {
 		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪的邮件相关键 %s", key)
+	}
+	// 订阅 / 余额语义（批次 4 / A4）：注册默认值与订阅相关键整体移除，不许回流。
+	for _, key := range []string{
+		"default_balance",
+		"default_subscriptions",
+		"auth_source_default_email_balance",
+		"auth_source_default_email_concurrency",
+		"auth_source_default_email_subscriptions",
+		"auth_source_default_email_grant_on_signup",
+		"auth_source_default_email_grant_on_first_bind",
+	} {
+		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪的订阅/余额键 %s", key)
 	}
 	// 批次 2 裁掉的登录条款与通用设置冗余项，公开设置里同样不许回流。
 	for _, key := range []string{

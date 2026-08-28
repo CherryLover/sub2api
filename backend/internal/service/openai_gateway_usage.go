@@ -24,7 +24,6 @@ type OpenAIRecordUsageInput struct {
 	APIKey             *APIKey
 	User               *User
 	Account            *Account
-	Subscription       *UserSubscription
 	InboundEndpoint    string
 	UpstreamEndpoint   string
 	UserAgent          string // 请求的 User-Agent
@@ -48,7 +47,6 @@ type OpenAIRecordUsageInput struct {
 type CyberPolicyUsageInput struct {
 	APIKey       *APIKey
 	Account      *Account
-	Subscription *UserSubscription
 	RequestID    string
 	Model        string
 	Stream       bool
@@ -90,7 +88,6 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 		APIKey:             in.APIKey,
 		User:               in.APIKey.User,
 		Account:            in.Account,
-		Subscription:       in.Subscription,
 		InboundEndpoint:    in.InboundEndpoint,
 		UpstreamEndpoint:   in.UpstreamEndpoint,
 		UserAgent:          in.UserAgent,
@@ -142,7 +139,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	apiKey := input.APIKey
 	user := input.User
 	account := input.Account
-	subscription := input.Subscription
 	if !isGrokVideoUsageResult(result, nil) {
 		ApplyOpenAIImageBillingResolution(result)
 	}
@@ -274,12 +270,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		}
 	}
 
-	// Determine billing type
-	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+	// 额度直绑 Key 之后只剩一种计费口径。
 	billingType := BillingTypeBalance
-	if isSubscriptionBilling {
-		billingType = BillingTypeSubscription
-	}
 
 	// Create usage log
 	durationMs := int(result.Duration.Milliseconds())
@@ -414,10 +406,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if apiKey.GroupID != nil {
 		usageLog.GroupID = apiKey.GroupID
 	}
-	if subscription != nil {
-		usageLog.SubscriptionID = &subscription.ID
-	}
-
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
@@ -446,9 +434,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			User:                  user,
 			APIKey:                apiKey,
 			Account:               account,
-			Subscription:          subscription,
 			RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
-			IsSubscriptionBill:    isSubscriptionBilling,
 			AccountRateMultiplier: accountRateMultiplier,
 			APIKeyService:         input.APIKeyService,
 			Platform:              quotaPlatform,

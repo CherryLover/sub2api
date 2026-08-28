@@ -146,18 +146,6 @@ func (s *SettingService) GetDefaultConcurrency(ctx context.Context) int {
 	return s.cfg.Default.UserConcurrency
 }
 
-// GetDefaultBalance 获取默认余额
-func (s *SettingService) GetDefaultBalance(ctx context.Context) float64 {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultBalance)
-	if err != nil {
-		return s.cfg.Default.UserBalance
-	}
-	if v, err := strconv.ParseFloat(value, 64); err == nil && v >= 0 {
-		return v
-	}
-	return s.cfg.Default.UserBalance
-}
-
 // GetDefaultUserRPMLimit 获取新用户默认 RPM 限制（0 = 不限制）。未配置则返回 0。
 func (s *SettingService) GetDefaultUserRPMLimit(ctx context.Context) int {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultUserRPMLimit)
@@ -168,78 +156,6 @@ func (s *SettingService) GetDefaultUserRPMLimit(ctx context.Context) int {
 		return v
 	}
 	return 0
-}
-
-// GetDefaultSubscriptions 获取新用户默认订阅配置列表。
-func (s *SettingService) GetDefaultSubscriptions(ctx context.Context) []DefaultSubscriptionSetting {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultSubscriptions)
-	if err != nil {
-		return nil
-	}
-	return parseDefaultSubscriptions(value)
-}
-
-func (s *SettingService) GetAuthSourceDefaultSettings(ctx context.Context) (*AuthSourceDefaultSettings, error) {
-	keys := []string{
-		SettingKeyAuthSourceDefaultEmailBalance,
-		SettingKeyAuthSourceDefaultEmailConcurrency,
-		SettingKeyAuthSourceDefaultEmailSubscriptions,
-		SettingKeyAuthSourceDefaultEmailGrantOnSignup,
-		SettingKeyAuthSourceDefaultEmailGrantOnFirstBind,
-		SettingKeyAuthSourcePlatformQuotas("email"),
-	}
-
-	settings, err := s.settingRepo.GetMultiple(ctx, keys)
-	if err != nil {
-		return nil, fmt.Errorf("get auth source default settings: %w", err)
-	}
-
-	return &AuthSourceDefaultSettings{
-		Email: parseProviderDefaultGrantSettings(settings, emailAuthSourceDefaultKeys),
-	}, nil
-}
-
-func (s *SettingService) ResolveAuthSourceGrantSettings(ctx context.Context, signupSource string, firstBind bool) (ProviderDefaultGrantSettings, bool, error) {
-	result := ProviderDefaultGrantSettings{
-		Balance:       s.GetDefaultBalance(ctx),
-		Concurrency:   s.GetDefaultConcurrency(ctx),
-		Subscriptions: s.GetDefaultSubscriptions(ctx),
-	}
-
-	defaults, err := s.GetAuthSourceDefaultSettings(ctx)
-	if err != nil {
-		return result, false, err
-	}
-
-	providerDefaults, ok := authSourceSignupSettings(defaults, signupSource)
-	if !ok {
-		return result, false, nil
-	}
-
-	enabled := providerDefaults.GrantOnSignup
-	if firstBind {
-		enabled = providerDefaults.GrantOnFirstBind
-	}
-	if !enabled {
-		return result, false, nil
-	}
-
-	return mergeProviderDefaultGrantSettings(result, providerDefaults), true, nil
-}
-
-func (s *SettingService) UpdateAuthSourceDefaultSettings(ctx context.Context, settings *AuthSourceDefaultSettings) error {
-	updates, err := s.buildAuthSourceDefaultUpdates(ctx, settings)
-	if err != nil {
-		return err
-	}
-	if len(updates) == 0 {
-		return nil
-	}
-
-	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
-		return fmt.Errorf("update auth source default settings: %w", err)
-	}
-	return nil
 }
 
 // IsIdentityPatchEnabled 检查是否启用身份补丁（Claude -> Gemini systemInstruction 注入）
@@ -847,16 +763,3 @@ func (s *SettingService) GetAccountSchedulingThresholds(ctx context.Context) map
 	return defaultAccountSchedulingThresholds()
 }
 
-// GetAuthSourcePlatformQuotas 读取指定 auth source 的 platform quota 覆盖（仅返回有配置的平台，override 语义）。
-func (s *SettingService) GetAuthSourcePlatformQuotas(ctx context.Context, source string) map[string]*DefaultPlatformQuotaSetting {
-	out := map[string]*DefaultPlatformQuotaSetting{}
-	raw, err := s.settingRepo.GetValue(ctx, SettingKeyAuthSourcePlatformQuotas(source))
-	if err != nil || raw == "" {
-		return out // 无 override
-	}
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		slog.Warn("[Setting] unmarshal auth source platform quotas failed (fail-open)", "source", source, "error", err)
-		return map[string]*DefaultPlatformQuotaSetting{}
-	}
-	return out // 仅含已配置平台，保持 override 语义
-}

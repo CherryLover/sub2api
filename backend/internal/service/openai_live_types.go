@@ -43,7 +43,6 @@ type LiveCallIdentity struct {
 	APIKeyID        int64
 	UserID          int64
 	GroupID         *int64
-	SubscriptionID  *int64
 	UserAgent       string
 	IPAddress       string
 	InboundEndpoint string
@@ -56,7 +55,6 @@ type LiveCallRecord struct {
 	APIKeyID        int64
 	UserID          int64
 	GroupID         int64
-	SubscriptionID  int64
 	LeaseID         string
 	Model           string
 	CreatedAt       time.Time

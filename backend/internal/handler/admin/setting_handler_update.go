@@ -43,15 +43,8 @@ type UpdateSettingsRequest struct {
 	CustomEndpoints *[]dto.CustomEndpoint `json:"custom_endpoints"`
 
 	// 默认配置
-	DefaultConcurrency                     int                               `json:"default_concurrency"`
-	DefaultBalance                         float64                           `json:"default_balance"`
-	DefaultUserRPMLimit                    int                               `json:"default_user_rpm_limit"`
-	DefaultSubscriptions                   []dto.DefaultSubscriptionSetting  `json:"default_subscriptions"`
-	AuthSourceDefaultEmailBalance          *float64                          `json:"auth_source_default_email_balance"`
-	AuthSourceDefaultEmailConcurrency      *int                              `json:"auth_source_default_email_concurrency"`
-	AuthSourceDefaultEmailSubscriptions    *[]dto.DefaultSubscriptionSetting `json:"auth_source_default_email_subscriptions"`
-	AuthSourceDefaultEmailGrantOnSignup    *bool                             `json:"auth_source_default_email_grant_on_signup"`
-	AuthSourceDefaultEmailGrantOnFirstBind *bool                             `json:"auth_source_default_email_grant_on_first_bind"`
+	DefaultConcurrency  int `json:"default_concurrency"`
+	DefaultUserRPMLimit int `json:"default_user_rpm_limit"`
 
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`
@@ -150,7 +143,6 @@ type UpdateSettingsRequest struct {
 	AccountSchedulingThresholds map[string]int `json:"account_scheduling_thresholds"`
 
 	// auth-source 层 platform quota 覆盖（override 语义：nil = 不修改，non-nil = 整体覆盖该 source 的 quota 配置）。
-	AuthSourceEmailPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_email_platform_quotas"`
 
 	AllowUserViewErrorRequests *bool `json:"allow_user_view_error_requests"`
 }
@@ -265,12 +257,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	previousAuthSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
 	// 登录入口 / 默认首页：先合并 + 校验，非法值（含"隐藏但路径为空"）在这里就被拒掉，
 	// 绝不允许落库——落库了就是登录页再也打不开、服务却照常运行。
 	webEntryPlan, ok := h.planWebEntryUpdate(c, req, previousSettings, omitted)
@@ -325,11 +311,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if req.DefaultConcurrency < 1 {
 		req.DefaultConcurrency = 1
 	}
-	if req.DefaultBalance < 0 {
-		req.DefaultBalance = 0
-	}
-	req.DefaultSubscriptions = normalizeDefaultSubscriptions(req.DefaultSubscriptions)
-	req.AuthSourceDefaultEmailSubscriptions = normalizeOptionalDefaultSubscriptions(req.AuthSourceDefaultEmailSubscriptions)
 
 	// TOTP 双因素认证参数验证
 	// 只有手动配置了加密密钥才允许启用 TOTP 功能
@@ -400,14 +381,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 		req.OpsMetricsIntervalSeconds = &v
 	}
-	defaultSubscriptions := make([]service.DefaultSubscriptionSetting, 0, len(req.DefaultSubscriptions))
-	for _, sub := range req.DefaultSubscriptions {
-		defaultSubscriptions = append(defaultSubscriptions, service.DefaultSubscriptionSetting{
-			GroupID:      sub.GroupID,
-			ValidityDays: sub.ValidityDays,
-		})
-	}
-
 	// 验证最低版本号格式（空字符串=禁用，或合法 semver）
 	if req.MinClaudeCodeVersion != "" {
 		if !semverPattern.MatchString(req.MinClaudeCodeVersion) {
@@ -516,9 +489,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		DocURL:                      req.DocURL,
 		CustomEndpoints:             customEndpointsJSON,
 		DefaultConcurrency:          req.DefaultConcurrency,
-		DefaultBalance:              req.DefaultBalance,
 		DefaultUserRPMLimit:         req.DefaultUserRPMLimit,
-		DefaultSubscriptions:        defaultSubscriptions,
 		EnableModelFallback:         req.EnableModelFallback,
 		FallbackModelAnthropic:      req.FallbackModelAnthropic,
 		FallbackModelOpenAI:         req.FallbackModelOpenAI,
@@ -748,19 +719,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}(),
 	}
 
-	// req.AuthSourceXxxPlatformQuotas 为 nil 表示本次请求未包含该 source 的 quota 配置（保留 previousAuthSourceDefaults 中的值）；
-	// non-nil（含 empty map）表示整体覆盖：empty map = 清空该 source 的所有 quota 配置。
-	authSourceDefaults := &service.AuthSourceDefaultSettings{
-		Email: service.ProviderDefaultGrantSettings{
-			Balance:          float64ValueOrDefault(req.AuthSourceDefaultEmailBalance, previousAuthSourceDefaults.Email.Balance),
-			Concurrency:      intValueOrDefault(req.AuthSourceDefaultEmailConcurrency, previousAuthSourceDefaults.Email.Concurrency),
-			Subscriptions:    defaultSubscriptionsValueOrDefault(req.AuthSourceDefaultEmailSubscriptions, previousAuthSourceDefaults.Email.Subscriptions),
-			GrantOnSignup:    boolValueOrDefault(req.AuthSourceDefaultEmailGrantOnSignup, previousAuthSourceDefaults.Email.GrantOnSignup),
-			GrantOnFirstBind: boolValueOrDefault(req.AuthSourceDefaultEmailGrantOnFirstBind, previousAuthSourceDefaults.Email.GrantOnFirstBind),
-			PlatformQuotas:   platformQuotasValueOrDefault(req.AuthSourceEmailPlatformQuotas, previousAuthSourceDefaults.Email.PlatformQuotas),
-		},
-	}
-	if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), settings, authSourceDefaults, omitted); err != nil {
+	if err := h.settingService.UpdateSettingsOmitting(c.Request.Context(), settings, omitted); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -776,7 +735,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
-	h.auditSettingsUpdate(c, previousSettings, settings, previousAuthSourceDefaults, authSourceDefaults, auditReq)
+	h.auditSettingsUpdate(c, previousSettings, settings, auditReq)
 
 	// 重新获取设置返回
 	updatedSettings, err := h.settingService.GetAllSettings(c.Request.Context())
@@ -784,19 +743,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	updatedAuthSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	updatedDefaultSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(updatedSettings.DefaultSubscriptions))
-	for _, sub := range updatedSettings.DefaultSubscriptions {
-		updatedDefaultSubscriptions = append(updatedDefaultSubscriptions, dto.DefaultSubscriptionSetting{
-			GroupID:      sub.GroupID,
-			ValidityDays: sub.ValidityDays,
-		})
-	}
-
 	passkeyConfigured, passkeyRPID, passkeyRPOrigins := h.settingService.PasskeyConfiguration()
 
 	payload := dto.SystemSettings{
@@ -815,9 +761,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		DocURL:                                                 updatedSettings.DocURL,
 		CustomEndpoints:                                        dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		DefaultConcurrency:                                     updatedSettings.DefaultConcurrency,
-		DefaultBalance:                                         updatedSettings.DefaultBalance,
 		DefaultUserRPMLimit:                                    updatedSettings.DefaultUserRPMLimit,
-		DefaultSubscriptions:                                   updatedDefaultSubscriptions,
 		EnableModelFallback:                                    updatedSettings.EnableModelFallback,
 		FallbackModelAnthropic:                                 updatedSettings.FallbackModelAnthropic,
 		FallbackModelOpenAI:                                    updatedSettings.FallbackModelOpenAI,
@@ -912,5 +856,5 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	// 与 GetSettings 一致：回三层合并后的生效值，保存后界面立刻能回显真实的登录入口。
 	webEntrySettingsToDTO(h.settingService.ResolveWebEntry(c.Request.Context()), &payload)
 
-	response.Success(c, systemSettingsResponseData(payload, updatedAuthSourceDefaults))
+	response.Success(c, systemSettingsResponseData(payload))
 }

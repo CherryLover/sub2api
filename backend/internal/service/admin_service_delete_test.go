@@ -167,22 +167,6 @@ func (s *userRepoStub) UpdateUserLastActiveAt(ctx context.Context, userID int64,
 	panic("unexpected UpdateUserLastActiveAt call")
 }
 
-func (s *userRepoStub) UpdateBalance(ctx context.Context, id int64, amount float64) error {
-	panic("unexpected UpdateBalance call")
-}
-
-func (s *userRepoStub) DeductBalance(ctx context.Context, id int64, amount float64) error {
-	panic("unexpected DeductBalance call")
-}
-
-func (s *userRepoStub) AdjustBalance(ctx context.Context, id int64, delta float64) (BalanceChange, error) {
-	panic("unexpected AdjustBalance call")
-}
-
-func (s *userRepoStub) SetBalance(ctx context.Context, id int64, value float64) (BalanceChange, error) {
-	panic("unexpected SetBalance call")
-}
-
 func (s *userRepoStub) UpdateConcurrency(ctx context.Context, id int64, amount int) error {
 	panic("unexpected UpdateConcurrency call")
 }
@@ -415,39 +399,6 @@ type billingCacheStub struct {
 
 func newBillingCacheStub(buffer int) *billingCacheStub {
 	return &billingCacheStub{invalidations: make(chan subscriptionInvalidateCall, buffer)}
-}
-
-func (s *billingCacheStub) GetUserBalance(ctx context.Context, userID int64) (float64, error) {
-	panic("unexpected GetUserBalance call")
-}
-
-func (s *billingCacheStub) SetUserBalance(ctx context.Context, userID int64, balance float64) error {
-	panic("unexpected SetUserBalance call")
-}
-
-func (s *billingCacheStub) DeductUserBalance(ctx context.Context, userID int64, amount float64) error {
-	panic("unexpected DeductUserBalance call")
-}
-
-func (s *billingCacheStub) InvalidateUserBalance(ctx context.Context, userID int64) error {
-	panic("unexpected InvalidateUserBalance call")
-}
-
-func (s *billingCacheStub) GetSubscriptionCache(ctx context.Context, userID, groupID int64) (*SubscriptionCacheData, error) {
-	panic("unexpected GetSubscriptionCache call")
-}
-
-func (s *billingCacheStub) SetSubscriptionCache(ctx context.Context, userID, groupID int64, data *SubscriptionCacheData) error {
-	panic("unexpected SetSubscriptionCache call")
-}
-
-func (s *billingCacheStub) UpdateSubscriptionUsage(ctx context.Context, userID, groupID int64, cost float64) error {
-	panic("unexpected UpdateSubscriptionUsage call")
-}
-
-func (s *billingCacheStub) InvalidateSubscriptionCache(ctx context.Context, userID, groupID int64) error {
-	s.invalidations <- subscriptionInvalidateCall{userID: userID, groupID: groupID}
-	return nil
 }
 
 func (s *billingCacheStub) GetAPIKeyRateLimit(ctx context.Context, keyID int64) (*APIKeyRateLimitCacheData, error) {

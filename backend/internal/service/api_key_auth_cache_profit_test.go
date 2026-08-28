@@ -35,7 +35,6 @@ func profitAuthTestAPIKey() *APIKey {
 			Status:               StatusActive,
 			Hydrated:             true,
 			RateMultiplier:       0.06,
-			SubscriptionType:     SubscriptionTypeStandard,
 			PeakRateEnabled:      false,
 			ProfitControlEnabled: true,
 			ProfitMinMargin:      0.2,

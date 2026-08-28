@@ -20,7 +20,7 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cfg := &config.Config{JWT: config.JWTConfig{Secret: "test-secret", ExpireHour: 1}}
-	authService := service.NewAuthService(nil, nil, nil, cfg, nil, nil)
+	authService := service.NewAuthService(nil, nil, nil, cfg, nil)
 
 	admin := &service.User{
 		ID:           1,
@@ -40,7 +40,7 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 			return &clone, nil
 		},
 	}
-	userService := service.NewUserService(userRepo, nil, nil, nil)
+	userService := service.NewUserService(userRepo, nil, nil)
 
 	router := gin.New()
 	router.Use(gin.HandlerFunc(NewAdminAuthMiddleware(authService, userService, nil, nil)))
@@ -188,22 +188,6 @@ func (s *stubUserRepo) GetLatestUsedAtByUserID(ctx context.Context, userID int64
 
 func (s *stubUserRepo) UpdateUserLastActiveAt(ctx context.Context, userID int64, activeAt time.Time) error {
 	panic("unexpected UpdateUserLastActiveAt call")
-}
-
-func (s *stubUserRepo) UpdateBalance(ctx context.Context, id int64, amount float64) error {
-	panic("unexpected UpdateBalance call")
-}
-
-func (s *stubUserRepo) DeductBalance(ctx context.Context, id int64, amount float64) error {
-	panic("unexpected DeductBalance call")
-}
-
-func (s *stubUserRepo) AdjustBalance(ctx context.Context, id int64, delta float64) (service.BalanceChange, error) {
-	panic("unexpected AdjustBalance call")
-}
-
-func (s *stubUserRepo) SetBalance(ctx context.Context, id int64, value float64) (service.BalanceChange, error) {
-	panic("unexpected SetBalance call")
 }
 
 func (s *stubUserRepo) UpdateConcurrency(ctx context.Context, id int64, amount int) error {

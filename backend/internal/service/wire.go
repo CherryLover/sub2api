@@ -666,7 +666,6 @@ func ProvideOpsIngressRejectAggregator(opsRepo OpsRepository, opsService *OpsSer
 // ProvideSettingService wires SettingService with group reader and proxy repo.
 func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, cfg *config.Config) *SettingService {
 	svc := NewSettingService(settingRepo, cfg)
-	svc.SetDefaultSubscriptionGroupReader(groupRepo)
 	svc.SetProxyRepository(proxyRepo)
 	if err := svc.LoadForwardedClientIPSettings(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: load forwarded client IP settings failed: %v", err)
@@ -692,15 +691,13 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 // ProvideBillingCacheService wires BillingCacheService with its RPM dependencies.
 func ProvideBillingCacheService(
 	cache BillingCache,
-	userRepo UserRepository,
-	subRepo UserSubscriptionRepository,
 	apiKeyRepo APIKeyRepository,
 	rpmCache UserRPMCache,
 	rateRepo UserGroupRateRepository,
 	cfg *config.Config,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 ) *BillingCacheService {
-	return NewBillingCacheService(cache, userRepo, subRepo, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo)
+	return NewBillingCacheService(cache, apiKeyRepo, rpmCache, rateRepo, cfg, userPlatformQuotaRepo)
 }
 
 // ProvideAPIKeyService wires APIKeyService and connects rate-limit cache invalidation.
@@ -708,14 +705,13 @@ func ProvideAPIKeyService(
 	apiKeyRepo APIKeyRepository,
 	userRepo UserRepository,
 	groupRepo GroupRepository,
-	userSubRepo UserSubscriptionRepository,
 	userGroupRateRepo UserGroupRateRepository,
 	cache APIKeyCache,
 	cfg *config.Config,
 	billingCacheService *BillingCacheService,
 	concurrencyService *ConcurrencyService,
 ) *APIKeyService {
-	svc := NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg)
+	svc := NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userGroupRateRepo, cache, cfg)
 	svc.SetRateLimitCacheInvalidator(billingCacheService)
 	svc.SetConcurrencyService(concurrencyService)
 	return svc
@@ -784,8 +780,6 @@ var ProviderSet = wire.NewSet(
 	ProvideOpsAggregationService,
 	ProvideOpsAlertEvaluatorService,
 	ProvideOpsCleanupService,
-	NewSubscriptionService,
-	wire.Bind(new(DefaultSubscriptionAssigner), new(*SubscriptionService)),
 	ProvideConcurrencyService,
 	ProvideUserMessageQueueService,
 	NewUsageRecordWorkerPool,

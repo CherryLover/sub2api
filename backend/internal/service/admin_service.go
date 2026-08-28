@@ -18,7 +18,6 @@ type AdminService interface {
 	CreateUser(ctx context.Context, input *CreateUserInput) (*User, error)
 	UpdateUser(ctx context.Context, id int64, input *UpdateUserInput) (*User, error)
 	DeleteUser(ctx context.Context, id int64) error
-	UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*User, error)
 	BatchUpdateConcurrency(ctx context.Context, userIDs []int64, value int, mode string) (int, error)
 	BatchUpdateLimits(ctx context.Context, userIDs []int64, concurrency, rpmLimit *int) (int, error)
 	GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int, sortBy, sortOrder string) ([]APIKey, int64, error)
@@ -133,7 +132,6 @@ type CreateUserInput struct {
 	Username      string
 	Notes         string
 	Role          string // 空字符串表示使用默认角色(user);合法值 admin/user
-	Balance       *float64
 	Concurrency   int
 	RPMLimit      int
 	AllowedGroups []int64
@@ -146,10 +144,9 @@ type UpdateUserInput struct {
 	Password      string
 	Username      *string
 	Notes         *string
-	Role          string   // 空字符串表示"未提供"(不修改);合法值 admin/user
-	Balance       *float64 // 使用指针区分"未提供"和"设置为0"
-	Concurrency   *int     // 使用指针区分"未提供"和"设置为0"
-	RPMLimit      *int     // 使用指针区分"未提供"和"设置为0"
+	Role          string // 空字符串表示"未提供"(不修改);合法值 admin/user
+	Concurrency   *int   // 使用指针区分"未提供"和"设置为0"
+	RPMLimit      *int   // 使用指针区分"未提供"和"设置为0"
 	Status        string
 	AllowedGroups *[]int64 // 使用指针区分"未提供"和"设置为空数组"
 	// GroupRates 用户专属分组倍率配置
@@ -203,10 +200,6 @@ type CreateGroupInput struct {
 	Platform                  string
 	RateMultiplier            float64
 	IsExclusive               bool
-	SubscriptionType          string   // standard/subscription
-	DailyLimitUSD             *float64 // 日限额 (USD)
-	WeeklyLimitUSD            *float64 // 周限额 (USD)
-	MonthlyLimitUSD           *float64 // 月限额 (USD)
 	LongContextPricingEnabled bool
 	ModelPricing              []ChannelModelPricing
 	// 图片生成计费配置（仅 antigravity 平台使用）
@@ -275,10 +268,6 @@ type UpdateGroupInput struct {
 	RateMultiplier            *float64 // 使用指针以支持设置为0
 	IsExclusive               *bool
 	Status                    string
-	SubscriptionType          string   // standard/subscription
-	DailyLimitUSD             *float64 // 日限额 (USD)
-	WeeklyLimitUSD            *float64 // 周限额 (USD)
-	MonthlyLimitUSD           *float64 // 月限额 (USD)
 	LongContextPricingEnabled *bool
 	ModelPricing              *[]ChannelModelPricing
 	// 图片生成计费配置（仅 antigravity 平台使用）
@@ -633,8 +622,6 @@ type adminServiceImpl struct {
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	entClient            *dbent.Client // 用于开启数据库事务
 	settingService       *SettingService
-	defaultSubAssigner   DefaultSubscriptionAssigner
-	userSubRepo          UserSubscriptionRepository
 	privacyClientFactory PrivacyClientFactory
 	runtimeBlocker       AccountRuntimeBlocker
 	compositeRouteRepo   CompositeModelRouteRepository
@@ -668,8 +655,6 @@ func NewAdminService(
 	authCacheInvalidator APIKeyAuthCacheInvalidator,
 	entClient *dbent.Client,
 	settingService *SettingService,
-	defaultSubAssigner DefaultSubscriptionAssigner,
-	userSubRepo UserSubscriptionRepository,
 	privacyClientFactory PrivacyClientFactory,
 	runtimeBlocker AccountRuntimeBlocker,
 	compositeRouteRepo CompositeModelRouteRepository,
@@ -693,8 +678,6 @@ func NewAdminService(
 		authCacheInvalidator: authCacheInvalidator,
 		entClient:            entClient,
 		settingService:       settingService,
-		defaultSubAssigner:   defaultSubAssigner,
-		userSubRepo:          userSubRepo,
 		privacyClientFactory: privacyClientFactory,
 		runtimeBlocker:       runtimeBlocker,
 		compositeRouteRepo:   compositeRouteRepo,

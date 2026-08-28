@@ -170,11 +170,6 @@ func (s *stubAdminService) DeleteUser(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (s *stubAdminService) UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*service.User, error) {
-	user := service.User{ID: userID, Balance: balance, Status: service.StatusActive}
-	return &user, nil
-}
-
 func (s *stubAdminService) BatchUpdateConcurrency(ctx context.Context, userIDs []int64, value int, mode string) (int, error) {
 	return len(userIDs), nil
 }

@@ -219,7 +219,6 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 			APIKeyID:              identity.APIKeyID,
 			UserID:                identity.UserID,
 			GroupID:               liveGroupID(identity.GroupID),
-			SubscriptionID:        liveGroupID(identity.SubscriptionID),
 			LeaseID:               leaseID,
 			Model:                 model,
 			CreatedAt:             now,
@@ -821,9 +820,6 @@ func (s *OpenAIGatewayService) finalizeLiveCall(record *LiveCallRecord) {
 	userAgent := record.UserAgent
 	ipAddress := record.IPAddress
 	billingType := int8(BillingTypeBalance)
-	if record.SubscriptionID > 0 {
-		billingType = BillingTypeSubscription
-	}
 	// TODO(billing): Live 会话目前不计费：TotalCost/ActualCost 恒为 0，完全绕过
 	// recordUsageCore/applyUsageBilling，余额模式下极低余额也能反复开启最长
 	// liveMaxSessionDuration 的会话。若确认按时长计费，应在此接入计费管道；
@@ -840,7 +836,6 @@ func (s *OpenAIGatewayService) finalizeLiveCall(record *LiveCallRecord) {
 		Model:            record.Model,
 		RequestedModel:   record.Model,
 		GroupID:          liveOptionalID(record.GroupID),
-		SubscriptionID:   liveOptionalID(record.SubscriptionID),
 		RateMultiplier:   1,
 		BillingType:      billingType,
 		RequestType:      RequestTypeLive,

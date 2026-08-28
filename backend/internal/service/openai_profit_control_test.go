@@ -21,7 +21,6 @@ func profitControlTestGroup(id int64, margin, buffer float64) *Group {
 		Status:               StatusActive,
 		Hydrated:             true,
 		RateMultiplier:       1.0,
-		SubscriptionType:     SubscriptionTypeStandard,
 		ProfitControlEnabled: true,
 		ProfitMinMargin:      margin,
 		ProfitSafetyBuffer:   buffer,
@@ -89,7 +88,6 @@ func TestResolveOpenAIProfitControlGate(t *testing.T) {
 
 	t.Run("threshold applies peak factor exactly like billing", func(t *testing.T) {
 		group := profitControlTestGroup(groupID, 0.5, 0)
-		group.SubscriptionType = SubscriptionTypeSubscription
 		group.PeakRateEnabled = true
 		group.PeakStart = "00:00"
 		group.PeakEnd = "23:59"

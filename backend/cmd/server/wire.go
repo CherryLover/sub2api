@@ -83,7 +83,6 @@ func provideCleanup(
 	pricing *service.PricingService,
 	billingCache *service.BillingCacheService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
-	subscriptionService *service.SubscriptionService,
 	oauth *service.OAuthService,
 	openaiOAuth *service.OpenAIOAuthService,
 	geminiOAuth *service.GeminiOAuthService,
@@ -214,12 +213,6 @@ func provideCleanup(
 			}},
 			{"ProxyExpiryService", func() error {
 				proxyExpiry.Stop()
-				return nil
-			}},
-			{"SubscriptionService", func() error {
-				if subscriptionService != nil {
-					subscriptionService.Stop()
-				}
 				return nil
 			}},
 			{"PricingService", func() error {

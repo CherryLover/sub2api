@@ -32,11 +32,11 @@ func TestAPIKeyAuthInvalidAbuseReturns429BeforeRepository(t *testing.T) {
 		return nil, service.ErrAPIKeyNotFound
 	}}
 	cfg := invalidAuthAbuseTestConfig(3)
-	svc := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	svc := service.NewAPIKeyService(repo, nil, nil, nil, nil, cfg)
 	r := gin.New()
 	var reason IngressRejectReason
 	r.Use(func(c *gin.Context) { c.Next(); reason, _ = GetIngressRejectReason(c) })
-	r.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(svc, nil, cfg)))
+	r.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(svc, cfg)))
 	r.POST("/v1/messages", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	requests := []*http.Request{
@@ -67,7 +67,7 @@ func TestGoogleAPIKeyAuthInvalidAbuseReturnsProtocol429(t *testing.T) {
 		return nil, service.ErrAPIKeyNotFound
 	}}
 	cfg := invalidAuthAbuseTestConfig(2)
-	svc := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	svc := service.NewAPIKeyService(repo, nil, nil, nil, nil, cfg)
 	r := gin.New()
 	var reason IngressRejectReason
 	r.Use(func(c *gin.Context) { c.Next(); reason, _ = GetIngressRejectReason(c) })
@@ -95,7 +95,7 @@ func TestGoogleAPIKeyAuthInvalidAbuseReturnsProtocol429(t *testing.T) {
 
 func TestInvalidAuthAbuseDoesNotCountValidOrOperationalFailures(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	user := &service.User{ID: 1, Status: service.StatusActive, Role: service.RoleUser, Balance: 1}
+	user := &service.User{ID: 1, Status: service.StatusActive, Role: service.RoleUser}
 	repo := &stubApiKeyRepo{getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
 		switch key {
 		case "valid-key":
@@ -107,9 +107,9 @@ func TestInvalidAuthAbuseDoesNotCountValidOrOperationalFailures(t *testing.T) {
 		}
 	}}
 	cfg := invalidAuthAbuseTestConfig(10)
-	svc := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	svc := service.NewAPIKeyService(repo, nil, nil, nil, nil, cfg)
 	r := gin.New()
-	r.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(svc, nil, cfg)))
+	r.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(svc, cfg)))
 	r.POST("/t", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	for _, tc := range []struct {

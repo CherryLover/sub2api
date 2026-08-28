@@ -44,7 +44,7 @@ func TestAuthHandlerGetCurrentUserReturnsProfileCompatibilityFields(t *testing.T
 		}
 
 	handler := &AuthHandler{
-		userService: service.NewUserService(repo, nil, nil, nil),
+		userService: service.NewUserService(repo, nil, nil),
 	}
 
 	recorder := httptest.NewRecorder()

@@ -40,20 +40,13 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 	// 初始化默认设置
 	defaults := map[string]string{
-		SettingKeyRegistrationEmailSuffixWhitelist:       "[]",
-		SettingKeyAPIKeyACLTrustForwardedIP:              "true",
-		SettingKeyForwardedClientIPHeaders:               string(forwardedClientIPHeadersJSON),
-		settingKeyForwardedClientIPModeV2:                "true",
-		SettingKeyCustomEndpoints:                        "[]",
-		SettingKeyDefaultConcurrency:                     strconv.Itoa(s.cfg.Default.UserConcurrency),
-		SettingKeyDefaultBalance:                         strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
-		SettingKeyDefaultUserRPMLimit:                    "0",
-		SettingKeyDefaultSubscriptions:                   "[]",
-		SettingKeyAuthSourceDefaultEmailBalance:          "0",
-		SettingKeyAuthSourceDefaultEmailConcurrency:      "5",
-		SettingKeyAuthSourceDefaultEmailSubscriptions:    "[]",
-		SettingKeyAuthSourceDefaultEmailGrantOnSignup:    "false",
-		SettingKeyAuthSourceDefaultEmailGrantOnFirstBind: "false",
+		SettingKeyRegistrationEmailSuffixWhitelist: "[]",
+		SettingKeyAPIKeyACLTrustForwardedIP:        "true",
+		SettingKeyForwardedClientIPHeaders:         string(forwardedClientIPHeadersJSON),
+		settingKeyForwardedClientIPModeV2:          "true",
+		SettingKeyCustomEndpoints:                  "[]",
+		SettingKeyDefaultConcurrency:               strconv.Itoa(s.cfg.Default.UserConcurrency),
+		SettingKeyDefaultUserRPMLimit:              "0",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",
@@ -198,14 +191,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	if rpm, err := strconv.Atoi(settings[SettingKeyDefaultUserRPMLimit]); err == nil && rpm >= 0 {
 		result.DefaultUserRPMLimit = rpm
 	}
-
-	// 解析浮点数类型
-	if balance, err := strconv.ParseFloat(settings[SettingKeyDefaultBalance], 64); err == nil {
-		result.DefaultBalance = balance
-	} else {
-		result.DefaultBalance = s.cfg.Default.UserBalance
-	}
-	result.DefaultSubscriptions = parseDefaultSubscriptions(settings[SettingKeyDefaultSubscriptions])
 
 	// Model fallback settings
 	result.FallbackModelAnthropic = s.getStringOrDefault(settings, SettingKeyFallbackModelAnthropic, "claude-3-5-sonnet-20241022")
@@ -530,118 +515,3 @@ func normalizeOptionalNonNegativeFloatString(raw string) (string, error) {
 	return strconv.FormatFloat(value, 'f', -1, 64), nil
 }
 
-func parseDefaultSubscriptions(raw string) []DefaultSubscriptionSetting {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-
-	var items []DefaultSubscriptionSetting
-	if err := json.Unmarshal([]byte(raw), &items); err != nil {
-		return nil
-	}
-
-	normalized := make([]DefaultSubscriptionSetting, 0, len(items))
-	for _, item := range items {
-		if item.GroupID <= 0 || item.ValidityDays <= 0 {
-			continue
-		}
-		if item.ValidityDays > MaxValidityDays {
-			item.ValidityDays = MaxValidityDays
-		}
-		normalized = append(normalized, item)
-	}
-
-	return normalized
-}
-
-func parseProviderDefaultGrantSettings(settings map[string]string, keys authSourceDefaultKeySet) ProviderDefaultGrantSettings {
-	result := ProviderDefaultGrantSettings{
-		Balance:          defaultAuthSourceBalance,
-		Concurrency:      defaultAuthSourceConcurrency,
-		Subscriptions:    []DefaultSubscriptionSetting{},
-		GrantOnSignup:    false,
-		GrantOnFirstBind: false,
-	}
-
-	if v, err := strconv.ParseFloat(strings.TrimSpace(settings[keys.balance]), 64); err == nil {
-		result.Balance = v
-	}
-	if v, err := strconv.Atoi(strings.TrimSpace(settings[keys.concurrency])); err == nil {
-		result.Concurrency = v
-	}
-	if items := parseDefaultSubscriptions(settings[keys.subscriptions]); items != nil {
-		result.Subscriptions = items
-	}
-	if raw, ok := settings[keys.grantOnSignup]; ok {
-		result.GrantOnSignup = raw == "true"
-	}
-	if raw, ok := settings[keys.grantOnFirstBind]; ok {
-		result.GrantOnFirstBind = raw == "true"
-	}
-
-	if raw := settings[keys.platformQuotas]; raw != "" {
-		parsed := map[string]*DefaultPlatformQuotaSetting{}
-		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-			slog.Warn("[Setting] parseProviderDefaultGrantSettings: unmarshal auth source platform quotas failed", "source", keys.source, "error", err)
-		} else {
-			result.PlatformQuotas = parsed
-		}
-	}
-
-	return result
-}
-
-func writeProviderDefaultGrantUpdates(updates map[string]string, keys authSourceDefaultKeySet, settings ProviderDefaultGrantSettings) {
-	updates[keys.balance] = strconv.FormatFloat(settings.Balance, 'f', 8, 64)
-	updates[keys.concurrency] = strconv.Itoa(settings.Concurrency)
-
-	subscriptions := settings.Subscriptions
-	if subscriptions == nil {
-		subscriptions = []DefaultSubscriptionSetting{}
-	}
-	raw, err := json.Marshal(subscriptions)
-	if err != nil {
-		raw = []byte("[]")
-	}
-	updates[keys.subscriptions] = string(raw)
-	updates[keys.grantOnSignup] = strconv.FormatBool(settings.GrantOnSignup)
-	updates[keys.grantOnFirstBind] = strconv.FormatBool(settings.GrantOnFirstBind)
-
-	// auth source platform quota：整体替换语义。
-	// nil = 请求未携带该字段，跳过写入以保留既有配置（与系统层 buildSystemSettingsUpdates 的
-	// DefaultPlatformQuotas nil 守卫一致）；非 nil（含空 map）才整体替换。二者语义不可混同。
-	if keys.platformQuotas != "" && settings.PlatformQuotas != nil {
-		blob, err := json.Marshal(settings.PlatformQuotas)
-		if err != nil {
-			blob = []byte("{}")
-		}
-		updates[keys.platformQuotas] = string(blob)
-	}
-}
-
-func mergeProviderDefaultGrantSettings(globalDefaults ProviderDefaultGrantSettings, providerDefaults ProviderDefaultGrantSettings) ProviderDefaultGrantSettings {
-	result := ProviderDefaultGrantSettings{
-		Balance:          globalDefaults.Balance,
-		Concurrency:      globalDefaults.Concurrency,
-		Subscriptions:    append([]DefaultSubscriptionSetting(nil), globalDefaults.Subscriptions...),
-		GrantOnSignup:    providerDefaults.GrantOnSignup,
-		GrantOnFirstBind: providerDefaults.GrantOnFirstBind,
-	}
-
-	// 注意：不能把 parse 默认值 (defaultAuthSourceBalance / defaultAuthSourceConcurrency)
-	// 当作"未配置"哨兵——admin 完全有权显式设成相同的值，那时仍应覆盖 globalDefaults。
-	// 旧实现的 `!= defaultAuthSourceConcurrency` 会把 admin 设的 5 与 fallback 5 混淆，
-	// 导致渠道发放退回到全局默认（如 1），表现为"管理员设 5、新用户实际拿 1"。
-	if providerDefaults.Balance >= 0 {
-		result.Balance = providerDefaults.Balance
-	}
-	if providerDefaults.Concurrency > 0 {
-		result.Concurrency = providerDefaults.Concurrency
-	}
-	if len(providerDefaults.Subscriptions) > 0 {
-		result.Subscriptions = append([]DefaultSubscriptionSetting(nil), providerDefaults.Subscriptions...)
-	}
-
-	return result
-}

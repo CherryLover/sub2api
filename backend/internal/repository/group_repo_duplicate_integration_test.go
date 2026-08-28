@@ -75,7 +75,6 @@ func TestCreateGroupFromSourceRollsBackWhenOutboxInsertFails(t *testing.T) {
 		Platform:             source.Platform,
 		RateMultiplier:       1,
 		Status:               "inactive",
-		SubscriptionType:     service.SubscriptionTypeStandard,
 		DuplicateOperationID: operationID,
 	}
 	err = repo.CreateFromSource(ctx, duplicate, source.ID)

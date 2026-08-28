@@ -84,8 +84,7 @@ func TestApplyUsageBillingEffects_FlagsBalanceOverdraft(t *testing.T) {
 
 	result := &service.UsageBillingApplyResult{Applied: true}
 	err = (&usageBillingRepository{}).applyUsageBillingEffects(ctx, tx, &service.UsageBillingCommand{
-		UserID:      42,
-		BalanceCost: 10,
+		UserID: 42,
 	}, result)
 	require.NoError(t, err)
 	require.NotNil(t, result.NewBalance)
