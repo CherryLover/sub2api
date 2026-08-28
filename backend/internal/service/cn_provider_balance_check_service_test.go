@@ -80,19 +80,21 @@ func TestCNProviderBalanceCheckRunOnceWithoutQuotaService(t *testing.T) {
 // 无明细时退回主币种（兼容旧结果）。
 func TestAllCNBalancesBelowThreshold(t *testing.T) {
 	dualLow := &CNProviderBalanceResult{
+		Balance:  1.0,
 		Currency: "CNY",
 		Balances: []CNProviderBalanceEntry{
-			{Currency: "CNY"},
-			{Currency: "USD"},
+			{Currency: "CNY", Balance: 1.0},
+			{Currency: "USD", Balance: 0.5},
 		},
 	}
 	require.True(t, allCNBalancesBelowThreshold(dualLow, 5.0))
 
 	dualMixed := &CNProviderBalanceResult{
+		Balance:  1.0,
 		Currency: "CNY",
 		Balances: []CNProviderBalanceEntry{
-			{Currency: "CNY"},
-			{Currency: "USD"},
+			{Currency: "CNY", Balance: 1.0},
+			{Currency: "USD", Balance: 20.0},
 		},
 	}
 	require.False(t, allCNBalancesBelowThreshold(dualMixed, 5.0))

@@ -87,6 +87,59 @@ func (s *userHandlerRepoStub) List(context.Context, pagination.PaginationParams)
 func (s *userHandlerRepoStub) ListWithFilters(context.Context, pagination.PaginationParams, service.UserListFilters) ([]service.User, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
+func (s *userHandlerRepoStub) UpdateConcurrency(context.Context, int64, int) error { return nil }
+
+// userHandlerRefreshTokenCacheStub 是 AuthService 的最小 refresh token 缓存桩。
+// 它原本住在本文件里，被「整删邮件体系」那次提交连带删掉，但两处用例还在引用，
+// 导致 unit tag 下的 handler 包编译不过；这里按原样补回。
+type userHandlerRefreshTokenCacheStub struct {
+	revokedUserIDs []int64
+}
+
+func (s *userHandlerRefreshTokenCacheStub) StoreRefreshToken(context.Context, string, *service.RefreshTokenData, time.Duration) error {
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) GetRefreshToken(context.Context, string) (*service.RefreshTokenData, error) {
+	return nil, service.ErrRefreshTokenNotFound
+}
+
+func (s *userHandlerRefreshTokenCacheStub) DeleteRefreshToken(context.Context, string) error {
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) DeleteUserRefreshTokens(_ context.Context, userID int64) error {
+	s.revokedUserIDs = append(s.revokedUserIDs, userID)
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) DeleteTokenFamily(context.Context, string) error {
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) AddToUserTokenSet(context.Context, int64, string, time.Duration) error {
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) AddToFamilyTokenSet(context.Context, string, string, time.Duration) error {
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) GetUserTokenHashes(context.Context, int64) ([]string, error) {
+	return nil, nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) GetFamilyTokenHashes(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) IsTokenInFamily(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+
+func (s *userHandlerRepoStub) BatchSetConcurrency(context.Context, []int64, int) (int, error) {
+	return 0, nil
+}
 func (s *userHandlerRepoStub) BatchAddConcurrency(context.Context, []int64, int) (int, error) {
 	return 0, nil
 }

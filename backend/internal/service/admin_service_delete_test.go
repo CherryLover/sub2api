@@ -442,21 +442,6 @@ func (s *billingCacheStub) BatchGetUserPlatformQuotaCache(ctx context.Context, k
 	panic("unexpected BatchGetUserPlatformQuotaCache call")
 }
 
-func waitForInvalidations(t *testing.T, ch <-chan subscriptionInvalidateCall, expected int) []subscriptionInvalidateCall {
-	t.Helper()
-	calls := make([]subscriptionInvalidateCall, 0, expected)
-	timeout := time.After(2 * time.Second)
-	for len(calls) < expected {
-		select {
-		case call := <-ch:
-			calls = append(calls, call)
-		case <-timeout:
-			t.Fatalf("timeout waiting for %d invalidations, got %d", expected, len(calls))
-		}
-	}
-	return calls
-}
-
 func TestAdminService_DeleteUser_Success(t *testing.T) {
 	repo := &userRepoStub{user: &User{ID: 7, Role: RoleUser}}
 	svc := &adminServiceImpl{userRepo: repo}
@@ -523,7 +508,10 @@ func TestAdminService_DeleteUser_DeleteError(t *testing.T) {
 	require.Equal(t, []int64{9}, repo.deletedIDs)
 }
 
-func TestAdminService_DeleteGroup_Success_WithCacheInvalidation(t *testing.T) {
+// 订阅体系拆除后，删除分组不再需要逐用户失效订阅缓存。
+// billingCacheStub 的所有方法都是 panic，因此这个用例同时锁住
+// 「DeleteGroup 不得再触碰计费缓存」这条负向约束。
+func TestAdminService_DeleteGroup_DoesNotTouchBillingCache(t *testing.T) {
 	cache := newBillingCacheStub(2)
 	repo := &groupRepoStub{affectedUserIDs: []int64{11, 12}}
 	svc := &adminServiceImpl{
@@ -534,12 +522,7 @@ func TestAdminService_DeleteGroup_Success_WithCacheInvalidation(t *testing.T) {
 	err := svc.DeleteGroup(context.Background(), 5)
 	require.NoError(t, err)
 	require.Equal(t, []int64{5}, repo.deleteCalls)
-
-	calls := waitForInvalidations(t, cache.invalidations, 2)
-	require.ElementsMatch(t, []subscriptionInvalidateCall{
-		{userID: 11, groupID: 5},
-		{userID: 12, groupID: 5},
-	}, calls)
+	require.Empty(t, cache.invalidations, "删除分组不应再产生订阅缓存失效")
 }
 
 func TestAdminService_DeleteGroup_InvalidatesAuthCacheForBoundKeys(t *testing.T) {

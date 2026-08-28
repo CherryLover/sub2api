@@ -138,11 +138,6 @@ func TestRecordCyberPolicyUsageLog_SkipsWhenIncomplete(t *testing.T) {
 
 type openAIRecordUsageUserRepoStub struct {
 	UserRepository
-
-	deductCalls int
-	deductErr   error
-	lastAmount  float64
-	lastCtxErr  error
 }
 
 type openAIRecordUsageSubRepoStub struct {
@@ -606,6 +601,7 @@ func TestOpenAIGatewayServiceRecordUsage_FallsBackToGroupDefaultRateOnResolverEr
 	require.Equal(t, groupRate, usageRepo.lastLog.RateMultiplier)
 
 	expected := expectedOpenAICost(t, svc, "gpt-5.1", usage, groupRate)
+	require.InDelta(t, expected.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_FallsBackToGroupDefaultRateWhenResolverMissing(t *testing.T) {

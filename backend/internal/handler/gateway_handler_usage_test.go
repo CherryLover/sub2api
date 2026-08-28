@@ -48,7 +48,7 @@ func TestUsageEndpointQuotaLimitedContract(t *testing.T) {
 		Quota:     100,
 		QuotaUsed: 40,
 	}
-	router := newUsageEndpointRouter(&GatewayHandler{}, apiKey, &middleware.AuthSubject{UserID: 7}, nil)
+	router := newUsageEndpointRouter(&GatewayHandler{}, apiKey, &middleware.AuthSubject{UserID: 7})
 
 	recorder := doUsageRequest(router, "/v1/usage")
 	require.Equal(t, http.StatusOK, recorder.Code)

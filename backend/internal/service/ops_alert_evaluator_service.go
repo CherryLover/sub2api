@@ -662,54 +662,6 @@ func buildOpsAlertDescription(rule *OpsAlertRule, value float64, windowMinutes i
 	)
 }
 
-func isOpsAlertSilenced(now time.Time, rule *OpsAlertRule, event *OpsAlertEvent, silencing OpsAlertSilencingSettings) bool {
-	if !silencing.Enabled {
-		return false
-	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	if strings.TrimSpace(silencing.GlobalUntilRFC3339) != "" {
-		if t, err := time.Parse(time.RFC3339, strings.TrimSpace(silencing.GlobalUntilRFC3339)); err == nil {
-			if now.Before(t) {
-				return true
-			}
-		}
-	}
-
-	for _, entry := range silencing.Entries {
-		untilRaw := strings.TrimSpace(entry.UntilRFC3339)
-		if untilRaw == "" {
-			continue
-		}
-		until, err := time.Parse(time.RFC3339, untilRaw)
-		if err != nil {
-			continue
-		}
-		if now.After(until) {
-			continue
-		}
-		if entry.RuleID != nil && rule != nil && rule.ID > 0 && *entry.RuleID != rule.ID {
-			continue
-		}
-		if len(entry.Severities) > 0 {
-			match := false
-			for _, s := range entry.Severities {
-				if strings.EqualFold(strings.TrimSpace(s), strings.TrimSpace(event.Severity)) || strings.EqualFold(strings.TrimSpace(s), strings.TrimSpace(rule.Severity)) {
-					match = true
-					break
-				}
-			}
-			if !match {
-				continue
-			}
-		}
-		return true
-	}
-
-	return false
-}
-
 func (s *OpsAlertEvaluatorService) tryAcquireLeaderLock(ctx context.Context, lock OpsDistributedLockSettings) (func(), bool) {
 	if !lock.Enabled {
 		return nil, true
