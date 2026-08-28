@@ -170,9 +170,28 @@
 |---|---|---|
 | **批次 2**（代码已完成） | B1 登录条款 / B2 通用设置冗余项 / B3 注册体系 / B4 人机验证 / A1 尾款 | **待 way-rc 验证** |
 | **批次 3** | B5 邮件体系整删（+ 密码重置小工具）、内容安全审计删除、批量生图删除、渠道监控 V1 删除（模式切 V2）、A2 剩余（公告 / 模型广场 / 邮件营销）、第四节「后续候选项」里的小尾巴（CSP 失效白名单、支付遗留文档、`registration_email_domain_quota_enabled` 等） | 低耦合删除 |
-| **批次 4** | A4 订阅/余额拆除 + Key 额度直绑；**注册用户默认值随本批消失** | 最难一刀 |
+| **批次 4**（代码已完成） | A4 订阅/余额拆除 + Key 额度直绑；**注册用户默认值随本批消失** | 最难一刀，**待 CI 与 way-rc 验证** |
 | **批次 5** | A5 数据库压平：payment / redeem / promo / subscription 死实体与历史迁移清理、迁移基线重置；**充值兑换残留在本批清干净** | 结构性 |
 | **批次 6** | A3 周额度自然周锚点、A6 后台单管理员化、A7 文档改写 + 压测 / 备份恢复 / Key 泄露演练 | 收尾 |
+
+> **批次 4 落地说明（2026-08-29）**：额度语义已统一到 `api_keys.quota / quota_used`，
+> 认证中间件只剩「Key 状态 / 过期 / Key 额度」三道闸门，结算主干不再写
+> `users.balance` 与 `user_subscriptions`。配套迁移 `234_drop_subscription_and_balance_semantics.sql`
+> 做了三件事保证存量可用：① 按「已有 Key 绑在该专属分组上」的既成事实回填
+> `user_allowed_groups`（补上旧代码里"订阅型分组直接放行"那条被取消的旁路）；
+> ② 把非订阅分组上**原本就不生效**的 `peak_rate_enabled` 显式关掉，使升级前后计费口径一致；
+> ③ 分组 `subscription_type` 归一为 `standard` 并清掉 8 个已无读写方的设置键。
+> 迁移不删表不删列，`user_subscriptions` / `users.balance` / `groups.subscription_type`
+> 与三个限额列全部保留给批次 5（A5）处理，因此本批可整体回滚。
+>
+> ⚠️ **两项行为变更需要在 way-rc 上重点复验**：
+> 1. `quota_used` 现在**无条件累加**（旧实现只在 `quota > 0` 时累加），
+>    不限额 Key 的 `quota_used` 会从 0 开始增长——这是"所有 Key 都记账"的前提，
+>    但对存量 Key 是可见的行为变化。
+> 2. Key 额度成为唯一闸门后，超支窗口从「Redis 实时余额」退化为
+>    「auth cache TTL + 并发 in-flight」——`CheckBillingEligibility` 不再做额度预检，
+>    耗尽判定依赖认证缓存快照与结算后的 `InvalidateAuthCacheByKey`。
+>    内部单管理员部署可接受；若将来要收紧，需把 Key 额度接进 billing-cache 预检。
 
 #### 本轮执行方式（站长指定）
 
