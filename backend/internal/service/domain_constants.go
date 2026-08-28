@@ -29,6 +29,17 @@ const (
 	RoleUser  = domain.RoleUser
 )
 
+// SecurityAuditProtocol* 标识网关入口使用的请求协议，作为提示词审计
+// （securityaudit）的 protocol 实参在 15 个网关入口之间共享。
+// 原先定义在已删除的内容安全审计里，随该功能下线搬到这里并改名。
+const (
+	SecurityAuditProtocolAnthropicMessages = "anthropic_messages"
+	SecurityAuditProtocolOpenAIResponses   = "openai_responses"
+	SecurityAuditProtocolOpenAIChat        = "openai_chat_completions"
+	SecurityAuditProtocolGemini            = "gemini"
+	SecurityAuditProtocolOpenAIImages      = "openai_images"
+)
+
 // Platform constants
 const (
 	PlatformAnthropic   = domain.PlatformAnthropic
@@ -174,8 +185,7 @@ const (
 	// 白名单非空时，是否放行非白名单域名按主域名限量占用（每域名 1 个账户）。
 	// 默认 false：非白名单域名直接拒绝（白名单严格模式）。
 	SettingKeyRegistrationEmailDomainQuotaEnabled = "registration_email_domain_quota_enabled"
-	SettingKeyRiskControlEnabled                  = "risk_control_enabled"            // 是否启用风控中心入口与审计链路
-	SettingKeyContentModerationConfig             = "content_moderation_config"       // 内容审计配置（JSON）
+	SettingKeyRiskControlEnabled                  = "risk_control_enabled"            // 安全审计总开关：管理端入口与提示词审计链路
 	SettingKeyCyberSessionBlockEnabled            = "cyber_session_block_enabled"     // cyber 命中后会话级自动屏蔽总开关(默认关)
 	SettingKeyCyberSessionBlockTTLSeconds         = "cyber_session_block_ttl_seconds" // 会话屏蔽 TTL 秒数(默认 3600)
 

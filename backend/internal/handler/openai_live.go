@@ -68,7 +68,7 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		reqLog,
 		apiKey,
 		subject,
-		service.ContentModerationProtocolOpenAIResponses,
+		service.SecurityAuditProtocolOpenAIResponses,
 		model,
 		request.Session,
 	); decision != nil && !decision.AllowNextStage {

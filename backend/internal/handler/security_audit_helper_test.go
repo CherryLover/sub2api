@@ -28,14 +28,14 @@ func TestCachesSecurityAuditCompletionSkipsWebSocketStages(t *testing.T) {
 func TestRunSecurityAuditDoesNotSkipSubsequentWebSocketTurns(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := &turnCountingEngine{mode: securityaudit.ModeAsync}
-	coordinator := securityaudit.NewCoordinator(nil, engine)
+	coordinator := securityaudit.NewCoordinator(engine)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 
 	subject := middleware2.AuthSubject{UserID: 7, Concurrency: 1}
-	first := runSecurityAudit(c, nil, coordinator, nil, nil, subject, "openai_responses", "gpt-test",
+	first := runSecurityAudit(c, nil, coordinator, nil, subject, "openai_responses", "gpt-test",
 		[]byte(`{"type":"response.create","response":{"input":"benign"}}`), "first_turn")
 	require.NotNil(t, first)
 	require.True(t, first.AllowNextStage)
@@ -47,7 +47,7 @@ func TestRunSecurityAuditDoesNotSkipSubsequentWebSocketTurns(t *testing.T) {
 	// must still audit every response.create payload.
 	c.Set(securityAuditCompletedContextKey, true)
 
-	second := runSecurityAudit(c, nil, coordinator, nil, nil, subject, "openai_responses", "gpt-test",
+	second := runSecurityAudit(c, nil, coordinator, nil, subject, "openai_responses", "gpt-test",
 		[]byte(`{"type":"response.create","response":{"input":"malicious follow-up"}}`), "subsequent_turn")
 	require.NotNil(t, second)
 	require.Equal(t, int64(2), engine.enqueues.Load(), "subsequent WebSocket turns must be audited again")
@@ -56,14 +56,14 @@ func TestRunSecurityAuditDoesNotSkipSubsequentWebSocketTurns(t *testing.T) {
 func TestRunSecurityAuditDeduplicatesRepeatedPayloadWithinWebSocketTurn(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := &turnCountingEngine{mode: securityaudit.ModeBlocking}
-	coordinator := securityaudit.NewCoordinator(nil, engine)
+	coordinator := securityaudit.NewCoordinator(engine)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	payload := []byte(`{"type":"response.create","response":{"input":"same turn"}}`)
 	c.Set(securityAuditWSTurnContextKey, 2)
-	first := runSecurityAudit(c, nil, coordinator, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
-	second := runSecurityAudit(c, nil, coordinator, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
+	first := runSecurityAudit(c, nil, coordinator, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
+	second := runSecurityAudit(c, nil, coordinator, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
 	require.NotNil(t, first)
 	require.NotNil(t, second)
 	require.True(t, first.AllowNextStage)
@@ -76,7 +76,7 @@ func TestRunSecurityAuditDeduplicatesRepeatedPayloadWithinWebSocketTurn(t *testi
 	require.IsType(t, securityAuditWSDedupeEntry{}, entry)
 
 	c.Set(securityAuditWSTurnContextKey, 3)
-	runSecurityAudit(c, nil, coordinator, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
+	runSecurityAudit(c, nil, coordinator, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
 	require.Equal(t, int64(2), engine.evaluates.Load())
 }
 
@@ -89,16 +89,16 @@ func TestRunSecurityAuditDoesNotCacheFailedWebSocketDecision(t *testing.T) {
 			{Kind: securityaudit.DecisionAllow, AllowNextStage: true},
 		},
 	}
-	coordinator := securityaudit.NewCoordinator(nil, engine)
+	coordinator := securityaudit.NewCoordinator(engine)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	c.Set(securityAuditWSTurnContextKey, 2)
 	payload := []byte(`{"type":"response.create","response":{"input":"retry me"}}`)
 
-	first := runSecurityAudit(c, nil, coordinator, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
+	first := runSecurityAudit(c, nil, coordinator, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
 	_, cachedAfterFailure := c.Get(securityAuditWSDedupeContextKey)
-	second := runSecurityAudit(c, nil, coordinator, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
+	second := runSecurityAudit(c, nil, coordinator, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
 
 	require.False(t, first.AllowNextStage)
 	require.False(t, cachedAfterFailure)
@@ -115,16 +115,16 @@ func TestRunSecurityAuditDoesNotCacheFlaggedWebSocketDecision(t *testing.T) {
 			{Kind: securityaudit.DecisionAllow, AllowNextStage: true},
 		},
 	}
-	coordinator := securityaudit.NewCoordinator(nil, engine)
+	coordinator := securityaudit.NewCoordinator(engine)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	c.Set(securityAuditWSTurnContextKey, 2)
 	payload := []byte(`{"type":"response.create","response":{"input":"retry flagged"}}`)
 
-	first := runSecurityAudit(c, nil, coordinator, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
+	first := runSecurityAudit(c, nil, coordinator, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
 	_, cachedAfterFlag := c.Get(securityAuditWSDedupeContextKey)
-	second := runSecurityAudit(c, nil, coordinator, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
+	second := runSecurityAudit(c, nil, coordinator, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
 
 	require.Equal(t, securityaudit.DecisionFlag, first.Kind)
 	require.True(t, first.AllowNextStage)
@@ -136,7 +136,7 @@ func TestRunSecurityAuditDoesNotCacheFlaggedWebSocketDecision(t *testing.T) {
 func TestRunSecurityAuditLogsWebSocketChecksAndCacheHits(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := &turnCountingEngine{mode: securityaudit.ModeBlocking}
-	coordinator := securityaudit.NewCoordinator(nil, engine)
+	coordinator := securityaudit.NewCoordinator(engine)
 	core, logs := observer.New(zap.InfoLevel)
 	reqLog := zap.New(core)
 	recorder := httptest.NewRecorder()
@@ -145,8 +145,8 @@ func TestRunSecurityAuditLogsWebSocketChecksAndCacheHits(t *testing.T) {
 	c.Set(securityAuditWSTurnContextKey, 2)
 	payload := []byte(`{"type":"response.create","response":{"input":"same turn"}}`)
 
-	runSecurityAudit(c, reqLog, coordinator, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
-	runSecurityAudit(c, reqLog, coordinator, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
+	runSecurityAudit(c, reqLog, coordinator, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
+	runSecurityAudit(c, reqLog, coordinator, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
 
 	startLogs := logs.FilterMessage("security_audit.gateway_check_start").All()
 	require.Len(t, startLogs, 1)

@@ -103,10 +103,7 @@ func RegisterAdminRoutes(
 		registerChannelMonitorRoutes(admin, h, settingService)
 		registerChannelMonitorV2Routes(admin, h, settingService)
 
-		// 风控中心
-		registerContentModerationRoutes(admin, h)
-
-		// 独立提示词输入审计
+		// 提示词输入审计
 		registerPromptAuditRoutes(admin, h)
 
 		// 操作审计日志
@@ -137,20 +134,6 @@ func registerAuditLogRoutes(admin *gin.RouterGroup, h *handler.Handlers, _ middl
 		auditLogs.GET("/:id", h.Admin.AuditLog.Get)
 		// 清空需现场 TOTP 校验（在 handler 内强制），不复用 step-up sudo 窗口
 		auditLogs.POST("/clear", h.Admin.AuditLog.Clear)
-	}
-}
-
-func registerContentModerationRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	risk := admin.Group("/risk-control")
-	{
-		risk.GET("/config", h.Admin.ContentModeration.GetConfig)
-		risk.PUT("/config", h.Admin.ContentModeration.UpdateConfig)
-		risk.POST("/api-keys/test", h.Admin.ContentModeration.TestAPIKeys)
-		risk.GET("/status", h.Admin.ContentModeration.GetStatus)
-		risk.GET("/logs", h.Admin.ContentModeration.ListLogs)
-		risk.POST("/users/:user_id/unban", h.Admin.ContentModeration.UnbanUser)
-		risk.DELETE("/hashes", h.Admin.ContentModeration.DeleteFlaggedHash)
-		risk.DELETE("/hashes/all", h.Admin.ContentModeration.ClearFlaggedHashes)
 	}
 }
 

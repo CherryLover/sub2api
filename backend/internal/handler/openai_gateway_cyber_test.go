@@ -63,7 +63,7 @@ func TestRecordCyberPolicyIfMarked_WithMark(t *testing.T) {
 
 // TestRecordCyberPolicyIfMarked_ForwardSuccessSkipsUsageLog verifies the semantic:
 // when forwardErrored=false the function still sets the guard flag (mark present),
-// but the cyber usage row is NOT requested (only RecordCyberPolicyEvent fires).
+// but the cyber usage row is NOT requested (only the ops error log fires).
 // Since services are nil here we only verify the guard flag and no panic.
 func TestRecordCyberPolicyIfMarked_ForwardSuccessSkipsUsageLog(t *testing.T) {
 	c := newTestGinContext()

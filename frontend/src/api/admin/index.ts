@@ -28,7 +28,6 @@ import tlsFingerprintProfileAPI from './tlsFingerprintProfile'
 import channelsAPI from './channels'
 import channelMonitorAPI from './channelMonitor'
 import channelMonitorTemplateAPI from './channelMonitorTemplate'
-import riskControlAPI from './riskControl'
 import auditAPI from './audit'
 
 /**
@@ -60,7 +59,6 @@ export const adminAPI = {
   channels: channelsAPI,
   channelMonitor: channelMonitorAPI,
   channelMonitorTemplate: channelMonitorTemplateAPI,
-  riskControl: riskControlAPI,
   audit: auditAPI
 }
 
@@ -90,7 +88,6 @@ export {
   channelsAPI,
   channelMonitorAPI,
   channelMonitorTemplateAPI,
-  riskControlAPI,
   auditAPI
 }
 
@@ -101,4 +98,3 @@ export type { AuditLog, AuditLogQuery, AuditLogListResponse } from './audit'
 export type { ErrorPassthroughRule, CreateRuleRequest, UpdateRuleRequest } from './errorPassthrough'
 export type { BackupAgentHealth, DataManagementConfig } from './dataManagement'
 export type { TLSFingerprintProfile, CreateProfileRequest, UpdateProfileRequest } from './tlsFingerprintProfile'
-export type { ContentModerationConfig, ContentModerationLog, ModerationMode } from './riskControl'

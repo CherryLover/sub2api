@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -107,10 +108,17 @@ func TestOpenAIImagesRequestModerationBody_JSONEditIncludesInputImageURLs(t *tes
 		MaskImageURL:   "https://example.com/mask.png",
 	}
 
-	input := ExtractContentModerationInput(ContentModerationProtocolOpenAIImages, parsed.ModerationBody())
+	var payload struct {
+		Prompt string              `json:"prompt"`
+		Images []map[string]string `json:"images"`
+	}
+	require.NoError(t, json.Unmarshal(parsed.ModerationBody(), &payload))
 
-	require.Equal(t, "replace background", input.Text)
-	require.Equal(t, []string{"https://example.com/source.png", "https://example.com/mask.png"}, input.Images)
+	require.Equal(t, "replace background", payload.Prompt)
+	require.Equal(t, []map[string]string{
+		{"image_url": "https://example.com/source.png"},
+		{"image_url": "https://example.com/mask.png"},
+	}, payload.Images)
 }
 
 func TestOpenAIImagesRequestModerationBody_MultipartEditIncludesUploadsInMemory(t *testing.T) {
@@ -131,17 +139,17 @@ func TestOpenAIImagesRequestModerationBody_MultipartEditIncludesUploadsInMemory(
 		},
 	}
 
-	input := ExtractContentModerationInput(ContentModerationProtocolOpenAIImages, parsed.ModerationBody())
+	var payload struct {
+		Prompt string              `json:"prompt"`
+		Images []map[string]string `json:"images"`
+	}
+	require.NoError(t, json.Unmarshal(parsed.ModerationBody(), &payload))
 
-	require.Equal(t, "replace background", input.Text)
-	require.Equal(t, []string{
-		"data:image/png;base64,ZmFrZS1pbWFnZS1ieXRlcw==",
-		"data:image/png;base64,ZmFrZS1tYXNrLWJ5dGVz",
-	}, input.Images)
-
-	log := (&ContentModerationService{}).buildLog(ContentModerationCheckInput{}, defaultContentModerationConfig(), ContentModerationActionAllow, false, "", 0, nil, input.ExcerptText(), nil, nil, "")
-	require.Equal(t, "replace background", log.InputExcerpt)
-	require.NotContains(t, log.InputExcerpt, "ZmFrZS")
+	require.Equal(t, "replace background", payload.Prompt)
+	require.Equal(t, []map[string]string{
+		{"image_url": "data:image/png;base64,ZmFrZS1pbWFnZS1ieXRlcw=="},
+		{"image_url": "data:image/png;base64,ZmFrZS1tYXNrLWJ5dGVz"},
+	}, payload.Images)
 }
 
 func TestOpenAIGatewayServiceParseOpenAIImagesRequest_NormalizesOfficialAndCustomSizes(t *testing.T) {

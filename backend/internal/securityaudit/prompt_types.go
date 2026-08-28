@@ -146,22 +146,11 @@ type PromptDecision struct {
 	AllowNextStage bool              `json:"allow_next_stage"`
 }
 
-type LegacyDecision struct {
-	Allowed    bool   `json:"allowed"`
-	Blocked    bool   `json:"blocked"`
-	Flagged    bool   `json:"flagged"`
-	Message    string `json:"message"`
-	StatusCode int    `json:"status_code"`
-	ErrorCode  string `json:"error_code"`
-	Action     string `json:"action"`
-}
-
 type Decision struct {
 	Kind           DecisionKind    `json:"kind"`
 	HTTPStatus     int             `json:"http_status"`
 	ErrorCode      string          `json:"error_code,omitempty"`
 	ClientMessage  string          `json:"client_message,omitempty"`
-	Legacy         *LegacyDecision `json:"legacy,omitempty"`
 	Prompt         *PromptDecision `json:"prompt,omitempty"`
 	AllowNextStage bool            `json:"allow_next_stage"`
 }

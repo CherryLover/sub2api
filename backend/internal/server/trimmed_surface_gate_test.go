@@ -225,6 +225,16 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/pages",
 		"/api/v1/pages/:slug",
 		"/api/v1/pages/:slug/images/*filename",
+		// 内容安全审计（批次 3）：管理端 /admin/risk-control 全组下线。
+		// 提示词审计 /admin/prompt-audit 是保留面，见
+		// TestRetainedPromptAuditSurfaceStillRegistered。
+		"/api/v1/admin/risk-control/config",
+		"/api/v1/admin/risk-control/status",
+		"/api/v1/admin/risk-control/logs",
+		"/api/v1/admin/risk-control/api-keys/test",
+		"/api/v1/admin/risk-control/users/:user_id/unban",
+		"/api/v1/admin/risk-control/hashes",
+		"/api/v1/admin/risk-control/hashes/all",
 		// 批量生图（批次 3）：网关十条 /v1/images/batches* 端点整体移除。
 		// 普通生图 /v1/images/generations、/v1/images/edits 与异步生图
 		// /v1/images/*/async 是保留面，见 TestRetainedImageSurfaceStillRegistered。
@@ -247,6 +257,7 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 	// （/api/v1/admin/.../oauth/...）是保留面，不在此列。
 	forbiddenPrefixes := []string{
 		"/v1/images/batches",
+		"/api/v1/admin/risk-control",
 		"/api/v1/payment",
 		"/api/v1/admin/payment",
 		"/api/v1/redeem",
@@ -294,6 +305,10 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodGet, "/v1/images/batches/imgbatch_1"},
 		{http.MethodPost, "/v1/images/batches/imgbatch_1/cancel"},
 		{http.MethodDelete, "/v1/images/batches/imgbatch_1"},
+		{http.MethodGet, "/api/v1/admin/risk-control/config"},
+		{http.MethodGet, "/api/v1/admin/risk-control/logs"},
+		{http.MethodGet, "/api/v1/admin/risk-control/status"},
+		{http.MethodPost, "/api/v1/admin/risk-control/api-keys/test"},
 	} {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(probe.method, probe.path, nil)
@@ -360,6 +375,46 @@ func TestRetainedImageSurfaceStillRegistered(t *testing.T) {
 		_, exists := routes[want]
 		require.Truef(t, exists, "保留面路由 %s 不应被误删", want)
 	}
+}
+
+// TestRetainedPromptAuditSurfaceStillRegistered 内容安全审计删除后，提示词审计
+// 必须原样保留 —— 两者是不同功能，risk_control_enabled 现在只作为提示词审计的总开关。
+func TestRetainedPromptAuditSurfaceStillRegistered(t *testing.T) {
+	router, _ := newTrimmedSurfaceRouter(t)
+
+	routes := make(map[string]struct{})
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = struct{}{}
+	}
+	for _, want := range []string{
+		"GET /api/v1/admin/prompt-audit/config",
+		"PUT /api/v1/admin/prompt-audit/config",
+		"GET /api/v1/admin/prompt-audit/runtime",
+		"GET /api/v1/admin/prompt-audit/events",
+	} {
+		_, exists := routes[want]
+		require.Truef(t, exists, "保留面路由 %s 不应被误删", want)
+	}
+}
+
+// TestPublicSettingsKeepsRiskControlSwitch risk_control_enabled 是提示词审计的
+// 总开关，内容安全审计删除后仍必须出现在公开设置里，否则前端菜单与路由守卫会失效。
+func TestPublicSettingsKeepsRiskControlSwitch(t *testing.T) {
+	router, _ := newTrimmedSurfaceRouter(t)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
+	req.RemoteAddr = "203.0.113.10:12345"
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Code int                        `json:"code"`
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Contains(t, resp.Data, "risk_control_enabled")
+	require.NotContains(t, resp.Data, "content_moderation_config")
 }
 
 // TestRegistrationSurfaceIsAbsent 注册体系已整体移除：入口不再是"被开关拒绝"

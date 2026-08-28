@@ -3,24 +3,12 @@ package securityaudit
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
-
-type fakeLegacyEngine struct {
-	decision *LegacyDecision
-	err      error
-	calls    atomic.Int64
-}
-
-func (f *fakeLegacyEngine) Check(context.Context, Request) (*LegacyDecision, error) {
-	f.calls.Add(1)
-	return f.decision, f.err
-}
 
 type fakePromptEngine struct {
 	mode      Mode
@@ -44,7 +32,6 @@ func TestCoordinatorModesAndPriority(t *testing.T) {
 	tests := []struct {
 		name           string
 		mode           Mode
-		legacy         *LegacyDecision
 		prompt         *PromptDecision
 		promptErr      error
 		wantKind       DecisionKind
@@ -56,18 +43,13 @@ func TestCoordinatorModesAndPriority(t *testing.T) {
 		{name: "async only enqueues", mode: ModeAsync, wantKind: DecisionAllow, wantEnqueue: 1},
 		{name: "prompt block", mode: ModeBlocking, prompt: &PromptDecision{Kind: DecisionBlock}, wantKind: DecisionBlock, wantCode: ErrorCodeBlocked, wantEvaluation: 1},
 		{name: "prompt unavailable", mode: ModeBlocking, promptErr: errors.New("down"), wantKind: DecisionUnavailable, wantCode: ErrorCodeUnavailable, wantEvaluation: 1},
-		{name: "legacy wins both block", mode: ModeBlocking,
-			legacy: &LegacyDecision{Blocked: true, StatusCode: http.StatusForbidden, ErrorCode: "content_policy_violation", Message: "legacy"},
-			prompt: &PromptDecision{Kind: DecisionBlock}, wantKind: DecisionBlock, wantCode: "content_policy_violation", wantEvaluation: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			legacy := &fakeLegacyEngine{decision: tt.legacy}
 			prompt := &fakePromptEngine{mode: tt.mode, decision: tt.prompt, err: tt.promptErr}
-			decision := NewCoordinator(legacy, prompt).Check(context.Background(), Request{Body: []byte(`{}`)})
+			decision := NewCoordinator(prompt).Check(context.Background(), Request{Body: []byte(`{}`)})
 			require.Equal(t, tt.wantKind, decision.Kind)
 			require.Equal(t, tt.wantCode, decision.ErrorCode)
-			require.Equal(t, int64(1), legacy.calls.Load())
 			require.Equal(t, tt.wantEnqueue, prompt.enqueues.Load())
 			require.Equal(t, tt.wantEvaluation, prompt.evaluates.Load())
 		})
@@ -78,20 +60,14 @@ func TestCoordinatorDoesNotMutateRequestBody(t *testing.T) {
 	body := []byte(`{"messages":[{"role":"user","content":"hello"}]}`)
 	original := append([]byte(nil), body...)
 	prompt := &fakePromptEngine{mode: ModeAsync}
-	decision := NewCoordinator(&fakeLegacyEngine{}, prompt).Check(context.Background(), Request{Body: body})
+	decision := NewCoordinator(prompt).Check(context.Background(), Request{Body: body})
 	require.True(t, decision.AllowNextStage)
 	require.Equal(t, original, body)
 }
 
-func TestCoordinatorBlockingPriorityCoversBothEngineDecisionMatrix(t *testing.T) {
-	legacyCases := []struct {
-		name     string
-		decision *LegacyDecision
-	}{
-		{name: "allow", decision: &LegacyDecision{Allowed: true, StatusCode: http.StatusOK, Action: "allow"}},
-		{name: "flag", decision: &LegacyDecision{Allowed: true, Flagged: true, StatusCode: http.StatusOK, Action: "flag"}},
-		{name: "block", decision: &LegacyDecision{Blocked: true, StatusCode: http.StatusForbidden, ErrorCode: "legacy_exact_code", Message: "legacy exact message", Action: "block"}},
-	}
+// TestCoordinatorBlockingMapsEveryPromptDecision 内容安全审计删除后，
+// Coordinator 只剩提示词审计一个引擎：网关结果必须完全由 PromptDecision 决定。
+func TestCoordinatorBlockingMapsEveryPromptDecision(t *testing.T) {
 	promptCases := []struct {
 		name     string
 		decision *PromptDecision
@@ -105,51 +81,32 @@ func TestCoordinatorBlockingPriorityCoversBothEngineDecisionMatrix(t *testing.T)
 		{name: "invalid", decision: &PromptDecision{Kind: DecisionInvalid, ErrorCode: ErrorCodeInvalidResponse}, wantKind: DecisionInvalid, wantCode: ErrorCodeInvalidResponse},
 	}
 
-	for _, legacyCase := range legacyCases {
-		for _, promptCase := range promptCases {
-			t.Run(fmt.Sprintf("legacy_%s_prompt_%s", legacyCase.name, promptCase.name), func(t *testing.T) {
-				legacy := &fakeLegacyEngine{decision: legacyCase.decision}
-				prompt := &fakePromptEngine{mode: ModeBlocking, decision: promptCase.decision}
-				decision := NewCoordinator(legacy, prompt).Check(context.Background(), Request{})
+	for _, promptCase := range promptCases {
+		t.Run(promptCase.name, func(t *testing.T) {
+			prompt := &fakePromptEngine{mode: ModeBlocking, decision: promptCase.decision}
+			decision := NewCoordinator(prompt).Check(context.Background(), Request{})
 
-				require.Same(t, legacyCase.decision, decision.Legacy)
-				require.Same(t, promptCase.decision, decision.Prompt)
-				require.Equal(t, int64(1), legacy.calls.Load())
-				require.Equal(t, int64(1), prompt.evaluates.Load())
-				if legacyCase.name == "block" {
-					require.Equal(t, DecisionBlock, decision.Kind)
-					require.Equal(t, "legacy_exact_code", decision.ErrorCode)
-					require.Equal(t, "legacy exact message", decision.ClientMessage)
-					require.False(t, decision.AllowNextStage)
-					return
-				}
-				require.Equal(t, promptCase.wantKind, decision.Kind)
-				require.Equal(t, promptCase.wantCode, decision.ErrorCode)
-				require.Equal(t, promptCase.decision.AllowNextStage, decision.AllowNextStage)
-			})
-		}
+			require.Same(t, promptCase.decision, decision.Prompt)
+			require.Equal(t, int64(1), prompt.evaluates.Load())
+			require.Equal(t, promptCase.wantKind, decision.Kind)
+			require.Equal(t, promptCase.wantCode, decision.ErrorCode)
+			require.Equal(t, promptCase.decision.AllowNextStage, decision.AllowNextStage)
+		})
 	}
 }
 
-func TestCoordinatorPreservesIndependentEngineFactsAndMapsOnlyGatewayOutcome(t *testing.T) {
-	legacyDecision := &LegacyDecision{
-		Allowed: true, Flagged: true, Message: "legacy finding", StatusCode: http.StatusAccepted,
-		ErrorCode: "legacy_observation", Action: "legacy_action",
-	}
+func TestCoordinatorPreservesPromptFactsAndMapsOnlyGatewayOutcome(t *testing.T) {
 	promptResult := &NormalizedResult{
 		Decision: EventCritical, RiskLevel: RiskCritical, Action: ActionBlock,
 		Categories: []string{"pii"}, ScannerScores: map[string]float64{"pii": 1},
 	}
 	promptDecision := &PromptDecision{Kind: DecisionBlock, Result: promptResult}
 	decision := NewCoordinator(
-		&fakeLegacyEngine{decision: legacyDecision},
 		&fakePromptEngine{mode: ModeBlocking, decision: promptDecision},
 	).Check(context.Background(), Request{})
 
-	require.Same(t, legacyDecision, decision.Legacy)
 	require.Same(t, promptDecision, decision.Prompt)
 	require.Same(t, promptResult, decision.Prompt.Result)
-	require.Equal(t, "legacy finding", decision.Legacy.Message)
 	require.Equal(t, []string{"pii"}, decision.Prompt.Result.Categories)
 	require.Equal(t, ErrorCodeBlocked, decision.ErrorCode)
 }
@@ -157,7 +114,7 @@ func TestCoordinatorPreservesIndependentEngineFactsAndMapsOnlyGatewayOutcome(t *
 func TestCoordinatorAsyncEnqueueFailuresNeverChangeResponseOrDownstreamDispatch(t *testing.T) {
 	for _, enqueueErr := range []error{ErrQueueFull, ErrQueueAdmissionBusy, errors.New("redis unavailable"), errors.New("publish failed")} {
 		prompt := &fakePromptEngine{mode: ModeAsync, err: enqueueErr}
-		decision := NewCoordinator(&fakeLegacyEngine{decision: &LegacyDecision{Allowed: true}}, prompt).Check(context.Background(), Request{})
+		decision := NewCoordinator(prompt).Check(context.Background(), Request{})
 		downstreamDispatches := 0
 		status := http.StatusOK
 		responseBody := "unchanged-upstream-response"
