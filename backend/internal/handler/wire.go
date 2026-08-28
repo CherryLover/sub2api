@@ -152,7 +152,6 @@ func ProvideHandlers(
 	totpHandler *TotpHandler,
 	passkeyHandler *PasskeyHandler,
 	availableChannelHandler *AvailableChannelHandler,
-	modelPlazaHandler *ModelPlazaHandler,
 	keyUsageHandler *KeyUsageHandler,
 	asyncImageHandler *AsyncImageHandler,
 	_ *service.IdempotencyCoordinator,
@@ -172,7 +171,6 @@ func ProvideHandlers(
 		Totp:             totpHandler,
 		Passkey:          passkeyHandler,
 		AvailableChannel: availableChannelHandler,
-		ModelPlaza:       modelPlazaHandler,
 		KeyUsage:         keyUsageHandler,
 		AsyncImage:       asyncImageHandler,
 	}
@@ -193,7 +191,6 @@ var ProviderSet = wire.NewSet(
 	NewPasskeyHandler,
 	ProvideSettingHandler,
 	NewAvailableChannelHandler,
-	NewModelPlazaHandler,
 	NewKeyUsageHandler,
 	NewAsyncImageHandler,
 

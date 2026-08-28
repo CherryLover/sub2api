@@ -282,8 +282,6 @@ export const useAppStore = defineStore('app', () => {
         version: siteVersion.value,
         channel_monitor_enabled: true,
         available_channels_enabled: false,
-        model_plaza_enabled: false,
-        model_plaza_require_auth: false,
         risk_control_enabled: false,
         service_quota_enabled: false,
         allow_user_view_error_requests: false,

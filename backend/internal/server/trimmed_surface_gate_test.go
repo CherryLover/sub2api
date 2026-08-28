@@ -246,6 +246,8 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/v1/images/batches/:id/download",
 		"/v1/images/batches/:id/cancel",
 		"/v1/images/batches/:id/outputs",
+		// 模型广场（批次 3）：公开的分组/模型定价橱窗整体下线。
+		"/api/v1/model-plaza",
 		// 公告体系（批次 3）：用户侧公告列表/已读回执与管理端公告 CRUD 整体下线。
 		"/api/v1/announcements",
 		"/api/v1/announcements/:id/read",
@@ -276,6 +278,7 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/pages",
 		"/api/v1/announcements",
 		"/api/v1/admin/announcements",
+		"/api/v1/model-plaza",
 	}
 	for path := range paths {
 		for _, prefix := range forbiddenPrefixes {
@@ -304,6 +307,7 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/system/check-updates"},
 		{http.MethodPost, "/api/v1/admin/system/update"},
 		{http.MethodPost, "/api/v1/admin/system/rollback"},
+		{http.MethodGet, "/api/v1/model-plaza"},
 		{http.MethodGet, "/api/v1/announcements"},
 		{http.MethodGet, "/api/v1/admin/announcements"},
 		{http.MethodGet, "/api/v1/admin/compliance"},
@@ -534,5 +538,12 @@ func TestPublicSettingsHasNoPaymentKey(t *testing.T) {
 		"custom_menu_items",
 	} {
 		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪设置键 %s", key)
+	}
+	// 模型广场（批次 3）：两个公开开关键随广场页一并移除，不许回流。
+	for _, key := range []string{
+		"model_plaza_enabled",
+		"model_plaza_require_auth",
+	} {
+		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含模型广场键 %s", key)
 	}
 }

@@ -118,15 +118,16 @@ func TestWebEntryLockHelpersOnZeroConfig(t *testing.T) {
 }
 
 func TestIsAllowedDefaultHomePath(t *testing.T) {
-	for _, path := range []string{"/home", "/key-usage", "/model-plaza", "/home/"} {
+	for _, path := range []string{"/home", "/key-usage", "/home/"} {
 		require.True(t, IsAllowedDefaultHomePath(path, true), path)
 		require.True(t, IsAllowedDefaultHomePath(path, false), path)
 	}
 	// "/login" 只在登录入口公开时可用：隐藏时用它当落地页会无限重定向。
 	require.True(t, IsAllowedDefaultHomePath("/login", true))
 	require.False(t, IsAllowedDefaultHomePath("/login", false))
-	for _, path := range []string{"/dashboard", "/keys", "/nope", "relative", ""} {
+	// /model-plaza 曾是允许的落地页，模型广场删除后必须一并从白名单里消失。
+	for _, path := range []string{"/model-plaza", "/dashboard", "/keys", "/nope", "relative", ""} {
 		require.False(t, IsAllowedDefaultHomePath(path, true), path)
 	}
-	require.Equal(t, []string{"/home", "/key-usage", "/model-plaza"}, AllowedDefaultHomePaths())
+	require.Equal(t, []string{"/home", "/key-usage"}, AllowedDefaultHomePaths())
 }

@@ -330,10 +330,6 @@ export interface SystemSettings {
   // Available Channels feature switch
   available_channels_enabled: boolean;
 
-  // Model Plaza feature switches + description
-  model_plaza_enabled: boolean;
-  model_plaza_require_auth: boolean;
-  model_plaza_description: string;
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
@@ -438,10 +434,6 @@ export interface UpdateSettingsRequest {
   // Available Channels feature switch
   available_channels_enabled?: boolean;
 
-  // Model Plaza feature switches + description
-  model_plaza_enabled?: boolean;
-  model_plaza_require_auth?: boolean;
-  model_plaza_description?: string;
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;

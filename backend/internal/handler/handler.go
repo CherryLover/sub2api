@@ -50,7 +50,6 @@ type Handlers struct {
 	Totp             *TotpHandler
 	Passkey          *PasskeyHandler
 	AvailableChannel *AvailableChannelHandler
-	ModelPlaza       *ModelPlazaHandler
 	KeyUsage         *KeyUsageHandler
 	AsyncImage       *AsyncImageHandler
 }

@@ -77,7 +77,7 @@ func TestGetSettings_ReportsConfigFileLock(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Web.LoginEntryPublic = true
 	cfg.Web.LoginEntryConfigured = true
-	cfg.Web.DefaultHomePath = "/model-plaza"
+	cfg.Web.DefaultHomePath = "/key-usage"
 	cfg.Web.DefaultHomePathConfigured = true
 
 	h, _ := newWebEntryHandler(t, cfg, map[string]string{
@@ -91,7 +91,7 @@ func TestGetSettings_ReportsConfigFileLock(t *testing.T) {
 	require.True(t, got.DefaultHomePathLockedByConfig)
 	require.True(t, got.LoginEntryPublic, "the config file wins over the stored hidden entry")
 	require.Empty(t, got.LoginEntryPath)
-	require.Equal(t, "/model-plaza", got.DefaultHomePath)
+	require.Equal(t, "/key-usage", got.DefaultHomePath)
 }
 
 // —— 写 ——
@@ -225,7 +225,7 @@ func TestUpdateSettings_RejectsChangeWhileDefaultHomePinnedByConfig(t *testing.T
 	cfg.Web.DefaultHomePathConfigured = true
 
 	h, repo := newWebEntryHandler(t, cfg, map[string]string{})
-	rec := doUpdateSettings(t, h, map[string]any{"default_home_path": "/model-plaza"}, nil)
+	rec := doUpdateSettings(t, h, map[string]any{"default_home_path": "/key-usage"}, nil)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Contains(t, rec.Body.String(), "pinned by the local config file")

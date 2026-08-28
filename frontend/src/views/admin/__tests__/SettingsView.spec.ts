@@ -837,7 +837,7 @@ describe("admin SettingsView login entry controls", () => {
       ...baseSettingsResponse,
       login_entry_public: true,
       login_entry_path: "",
-      default_home_path: "/model-plaza",
+      default_home_path: "/home",
       login_entry_locked_by_config: true,
       default_home_path_locked_by_config: true,
     });

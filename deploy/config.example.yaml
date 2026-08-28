@@ -808,10 +808,10 @@ web:
   # Example / 示例: "/j7q2m9x4vk3p"
   # login_entry_path: ""
 
-  # Landing page for "/". Allowed: /home, /key-usage, /model-plaza
+  # Landing page for "/". Allowed: /home, /key-usage
   # (and /login only while login_entry_public is true).
   # Default /key-usage is the login-free usage lookup page.
-  # 访问 "/" 时落到的页面。允许：/home、/key-usage、/model-plaza
+  # 访问 "/" 时落到的页面。允许：/home、/key-usage
   # （login_entry_public 为 true 时还允许 /login）。
   # 默认 /key-usage，即免登录的用量查询页。
   #

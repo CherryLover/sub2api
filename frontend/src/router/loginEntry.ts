@@ -41,7 +41,6 @@ export const PUBLIC_LOGIN_PATH = '/login'
 const ALLOWED_DEFAULT_HOME_PATHS = new Set([
   '/home',
   '/key-usage',
-  '/model-plaza',
   PUBLIC_LOGIN_PATH,
 ])
 

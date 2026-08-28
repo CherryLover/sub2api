@@ -23,9 +23,8 @@ const loginEntryPathMaxLength = 128
 // 只收无需登录即可打开的页面：把需要登录的页面设成默认首页，会让未登录访问
 // 陷入「首页 -> 登录跳转 -> 首页」的循环。"/login" 只有在登录入口公开时才允许。
 var allowedDefaultHomePaths = map[string]bool{
-	"/home":        true,
-	"/key-usage":   true,
-	"/model-plaza": true,
+	"/home":      true,
+	"/key-usage": true,
 }
 
 // AllowedDefaultHomePaths 返回默认首页白名单（不含只在登录入口公开时可用的 "/login"）。
@@ -124,7 +123,7 @@ func (c *Config) normalizeAndValidateWeb() error {
 	}
 	if !IsAllowedDefaultHomePath(c.Web.DefaultHomePath, c.Web.LoginEntryPublic) {
 		return fmt.Errorf(
-			"web.default_home_path %q is not an allowed landing page (allowed: /home, /key-usage, /model-plaza%s)",
+			"web.default_home_path %q is not an allowed landing page (allowed: /home, /key-usage%s)",
 			c.Web.DefaultHomePath,
 			loginHomeHint(c.Web.LoginEntryPublic),
 		)

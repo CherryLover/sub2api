@@ -28,8 +28,6 @@ function createPublicSettings(overrides: Partial<PublicSettings> = {}): PublicSe
     version: '1.0.0',
     channel_monitor_enabled: true,
     available_channels_enabled: false,
-    model_plaza_enabled: false,
-    model_plaza_require_auth: false,
     service_quota_enabled: false,
     ...overrides,
   }

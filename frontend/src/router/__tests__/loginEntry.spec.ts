@@ -71,11 +71,13 @@ describe('loginEntry', () => {
 
     it('采用配置里的合法页面（含尾斜杠归一化）', () => {
       expect(resolveDefaultHomePath(settings({ default_home_path: '/home' }))).toBe('/home')
-      expect(resolveDefaultHomePath(settings({ default_home_path: '/model-plaza/' }))).toBe('/model-plaza')
+      expect(resolveDefaultHomePath(settings({ default_home_path: '/key-usage/' }))).toBe('/key-usage')
     })
 
     it('拒绝需要登录的页面，避免未登录访问打转', () => {
       expect(resolveDefaultHomePath(settings({ default_home_path: '/dashboard' }))).toBe('/key-usage')
+      // 模型广场已删除：曾经的合法落地页现在必须被拒
+      expect(resolveDefaultHomePath(settings({ default_home_path: '/model-plaza' }))).toBe('/key-usage')
       expect(resolveDefaultHomePath(settings({ default_home_path: '/admin/dashboard' }))).toBe('/key-usage')
       expect(resolveDefaultHomePath(settings({ default_home_path: 'nonsense' }))).toBe('/key-usage')
     })
