@@ -11,10 +11,12 @@ package server
 // 菜单页面（/pages）。这里用生产 registerRoutes 装配完整路由表后断言：
 //
 //  1. 被裁剪的 SaaS 面路由不存在（精确路径 + 前缀兜底 + 请求级 404）；
-//  2. 注册体系的两条入口（register / send-verify-code）路由整体缺席；
+//  2. 注册体系的两条入口（register / send-verify-code）与邮件体系
+//     （forgot/reset-password、email-unsubscribe、SMTP 自测、邮件模板、
+//     通知邮箱、邮箱绑定验证码、TOTP 邮箱验证码）路由整体缺席；
 //  3. GET /api/v1/settings/public 不再泄露 payment_enabled、人机验证键，
 //     以及登录条款与已裁剪的站点/表格/自定义菜单设置键；
-//  4. 保留面（login/2fa/passkey 登录/忘记密码/重置密码）完好，防止误删。
+//  4. 保留面（login/2fa/passkey 登录/refresh/logout）完好，防止误删。
 //
 // 将来任何人把这些面加回 router.go / routes/*.go，CI 会立即变红。
 
@@ -115,7 +117,7 @@ func newTrimmedSurfaceRouter(t *testing.T) (*gin.Engine, *gateSettingRepo) {
 	settingService := service.NewSettingService(repo, cfg)
 	require.NoError(t, settingService.InitializeDefaultSettings(context.Background()))
 
-	authService := service.NewAuthService(nil, nil, nil, cfg, settingService, nil, nil, nil)
+	authService := service.NewAuthService(nil, nil, nil, cfg, settingService, nil)
 
 	handlers := &handler.Handlers{
 		Auth:          handler.NewAuthHandler(cfg, authService, nil, settingService, nil, nil),
@@ -192,6 +194,25 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		// 注册体系（B3）：注册入口与注册邮箱验证码发送整体移除
 		"/api/v1/auth/register",
 		"/api/v1/auth/send-verify-code",
+		// 邮件体系（B5 方案 A）：忘记密码 / 重置密码 / 退订 / SMTP 自测 / 模板编辑
+		"/api/v1/auth/forgot-password",
+		"/api/v1/auth/reset-password",
+		"/api/v1/settings/email-unsubscribe",
+		"/api/v1/admin/settings/test-smtp",
+		"/api/v1/admin/settings/send-test-email",
+		"/api/v1/admin/settings/email-templates",
+		"/api/v1/admin/settings/email-template-preview",
+		"/api/v1/admin/settings/email-templates/:event/:locale",
+		"/api/v1/admin/settings/email-templates/:event/:locale/restore-official",
+		"/api/v1/admin/ops/email-notification/config",
+		// 通知邮箱 / 邮箱绑定验证码 / TOTP 邮箱验证码
+		"/api/v1/user/notify-email",
+		"/api/v1/user/notify-email/send-code",
+		"/api/v1/user/notify-email/verify",
+		"/api/v1/user/notify-email/toggle",
+		"/api/v1/user/account-bindings/email",
+		"/api/v1/user/account-bindings/email/send-code",
+		"/api/v1/user/totp/send-code",
 		// 应用内更新检查/在线升级/回滚（内部部署由镜像或部署脚本升级）
 		"/api/v1/admin/system/check-updates",
 		"/api/v1/admin/system/rollback-versions",
@@ -241,6 +262,14 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodGet, "/api/v1/auth/oauth/linuxdo/start"},
 		{http.MethodPost, "/api/v1/auth/register"},
 		{http.MethodPost, "/api/v1/auth/send-verify-code"},
+		{http.MethodPost, "/api/v1/auth/forgot-password"},
+		{http.MethodPost, "/api/v1/auth/reset-password"},
+		{http.MethodGet, "/api/v1/settings/email-unsubscribe"},
+		{http.MethodPost, "/api/v1/admin/settings/test-smtp"},
+		{http.MethodGet, "/api/v1/admin/settings/email-templates"},
+		{http.MethodPost, "/api/v1/user/notify-email/send-code"},
+		{http.MethodPost, "/api/v1/user/account-bindings/email/send-code"},
+		{http.MethodPost, "/api/v1/user/totp/send-code"},
 		{http.MethodGet, "/api/v1/admin/system/check-updates"},
 		{http.MethodPost, "/api/v1/admin/system/update"},
 		{http.MethodPost, "/api/v1/admin/system/rollback"},
@@ -268,9 +297,6 @@ func TestRetainedAuthSurfaceStillRegistered(t *testing.T) {
 		"POST /api/v1/auth/login/2fa",
 		"POST /api/v1/auth/passkey/login/begin",
 		"POST /api/v1/auth/passkey/login/finish",
-		// 单管理员部署的忘记密码救命通道：注册体系移除后必须仍然可达。
-		"POST /api/v1/auth/forgot-password",
-		"POST /api/v1/auth/reset-password",
 		"POST /api/v1/auth/refresh",
 		"POST /api/v1/auth/logout",
 	} {
@@ -372,6 +398,17 @@ func TestPublicSettingsHasNoPaymentKey(t *testing.T) {
 		"aliyun_captcha_scene_id",
 	} {
 		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪的注册/人机验证键 %s", key)
+	}
+	// 邮件体系（B5 方案 A）：SMTP 与邮件相关的公开开关键整体移除，不许回流。
+	for _, key := range []string{
+		"email_verify_enabled",
+		"password_reset_enabled",
+		"balance_low_notify_enabled",
+		"balance_low_notify_threshold",
+		"balance_low_notify_recharge_url",
+		"account_quota_notify_enabled",
+	} {
+		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪的邮件相关键 %s", key)
 	}
 	// 批次 2 裁掉的登录条款与通用设置冗余项，公开设置里同样不许回流。
 	for _, key := range []string{

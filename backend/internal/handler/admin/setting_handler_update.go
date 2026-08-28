@@ -20,16 +20,13 @@ import (
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
 	// 注册设置
-	EmailVerifyEnabled                  bool     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled *bool    `json:"registration_email_domain_quota_enabled"` // 非白名单域名限量注册开关（省略=保持现值）
-	PasswordResetEnabled                bool     `json:"password_reset_enabled"`
-	FrontendURL                         string   `json:"frontend_url"`
-	TotpEnabled                         bool     `json:"totp_enabled"`             // TOTP 双因素认证
-	PasskeyEnabled                      *bool    `json:"passkey_enabled"`          // Passkey 登录（省略=保持现值）
-	SessionBindingEnabled               *bool    `json:"session_binding_enabled"`  // 会话 IP/UA 绑定（省略=保持现值）
-	StepUpEnabled                       *bool    `json:"step_up_enabled"`          // 敏感操作 step-up 2FA（省略=保持现值）
-	AuditLogRetentionDays               int      `json:"audit_log_retention_days"` // 审计日志保留天数
+	TotpEnabled                         bool     `json:"totp_enabled"`                            // TOTP 双因素认证
+	PasskeyEnabled                      *bool    `json:"passkey_enabled"`                         // Passkey 登录（省略=保持现值）
+	SessionBindingEnabled               *bool    `json:"session_binding_enabled"`                 // 会话 IP/UA 绑定（省略=保持现值）
+	StepUpEnabled                       *bool    `json:"step_up_enabled"`                         // 敏感操作 step-up 2FA（省略=保持现值）
+	AuditLogRetentionDays               int      `json:"audit_log_retention_days"`                // 审计日志保留天数
 
 	// 登录入口 / 默认首页（省略=保持现值）。
 	// 指针类型是刻意的：不带这几个字段的旧客户端/脚本做一次全量保存时，绝不能把
@@ -37,15 +34,6 @@ type UpdateSettingsRequest struct {
 	LoginEntryPublic *bool   `json:"login_entry_public"`
 	LoginEntryPath   *string `json:"login_entry_path"`
 	DefaultHomePath  *string `json:"default_home_path"`
-
-	// 邮件服务设置
-	SMTPHost     string `json:"smtp_host"`
-	SMTPPort     int    `json:"smtp_port"`
-	SMTPUsername string `json:"smtp_username"`
-	SMTPPassword string `json:"smtp_password"`
-	SMTPFrom     string `json:"smtp_from_email"`
-	SMTPFromName string `json:"smtp_from_name"`
-	SMTPUseTLS   bool   `json:"smtp_use_tls"`
 
 	// API Key IP 访问控制设置
 	APIKeyACLTrustForwardedIP *bool     `json:"api_key_acl_trust_forwarded_ip"`
@@ -133,14 +121,6 @@ type UpdateSettingsRequest struct {
 	OpenAIAdvancedSchedulerWeightPreviousResponse      *string  `json:"openai_advanced_scheduler_weight_previous_response"`
 	OpenAIAdvancedSchedulerWeightSessionSticky         *string  `json:"openai_advanced_scheduler_weight_session_sticky"`
 
-	// 余额不足提醒
-	BalanceLowNotifyEnabled         *bool                   `json:"balance_low_notify_enabled"`
-	BalanceLowNotifyThreshold       *float64                `json:"balance_low_notify_threshold"`
-	BalanceLowNotifyRechargeURL     *string                 `json:"balance_low_notify_recharge_url"`
-	SubscriptionExpiryNotifyEnabled *bool                   `json:"subscription_expiry_notify_enabled"`
-	AccountQuotaNotifyEnabled       *bool                   `json:"account_quota_notify_enabled"`
-	AccountQuotaNotifyEmails        *[]dto.NotifyEmailEntry `json:"account_quota_notify_emails"`
-
 	// Channel Monitor feature switch
 	ChannelMonitorEnabled                *bool   `json:"channel_monitor_enabled"`
 	ChannelMonitorMode                   *string `json:"channel_monitor_mode"`
@@ -223,9 +203,7 @@ func (h *SettingHandler) ensureActorTotpForStepUp(c *gin.Context) bool {
 // settingKeyJSONAliases covers the request fields whose JSON name differs from
 // the setting key they persist to. Every other field of UpdateSettingsRequest
 // is named after its setting key.
-var settingKeyJSONAliases = map[string]string{
-	"smtp_from_email": service.SettingKeySMTPFrom,
-}
+var settingKeyJSONAliases = map[string]string{}
 
 // settingKeyByJSONName maps the value-typed top-level JSON fields of
 // UpdateSettingsRequest to the setting key each one writes. Resolved once from
@@ -362,27 +340,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if req.DefaultBalance < 0 {
 		req.DefaultBalance = 0
 	}
-	req.SMTPHost = strings.TrimSpace(req.SMTPHost)
-	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
-	req.SMTPPassword = strings.TrimSpace(req.SMTPPassword)
-	req.SMTPFrom = strings.TrimSpace(req.SMTPFrom)
-	req.SMTPFromName = strings.TrimSpace(req.SMTPFromName)
-	if req.SMTPPort <= 0 {
-		req.SMTPPort = 587
-	}
 	req.DefaultSubscriptions = normalizeDefaultSubscriptions(req.DefaultSubscriptions)
 	req.AuthSourceDefaultEmailSubscriptions = normalizeOptionalDefaultSubscriptions(req.AuthSourceDefaultEmailSubscriptions)
-
-	// SMTP 配置保护：如果请求中 smtp_host 为空但数据库中已有配置，则保留已有 SMTP 配置
-	// 防止前端加载设置失败时空表单覆盖已保存的 SMTP 配置
-	if req.SMTPHost == "" && previousSettings.SMTPHost != "" {
-		req.SMTPHost = previousSettings.SMTPHost
-		req.SMTPPort = previousSettings.SMTPPort
-		req.SMTPUsername = previousSettings.SMTPUsername
-		req.SMTPFrom = previousSettings.SMTPFrom
-		req.SMTPFromName = previousSettings.SMTPFromName
-		req.SMTPUseTLS = previousSettings.SMTPUseTLS
-	}
 
 	// TOTP 双因素认证参数验证
 	// 只有手动配置了加密密钥才允许启用 TOTP 功能
@@ -393,15 +352,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
-	// Frontend URL 验证
-	req.FrontendURL = strings.TrimSpace(req.FrontendURL)
-	if req.FrontendURL != "" {
-		if err := config.ValidateAbsoluteHTTPURL(req.FrontendURL); err != nil {
-			response.BadRequest(c, "Frontend URL must be an absolute http(s) URL")
-			return
-		}
-	}
-
 	// 自定义端点验证
 	const (
 		maxCustomEndpoints        = 10
@@ -559,11 +509,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		DefaultPlatformQuotas:       req.DefaultPlatformQuotas,
 		AccountSchedulingThresholds: req.AccountSchedulingThresholds,
 
-		EmailVerifyEnabled:                  req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:    req.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled: registrationEmailDomainQuotaEnabled,
-		PasswordResetEnabled:                req.PasswordResetEnabled,
-		FrontendURL:                         req.FrontendURL,
 		TotpEnabled:                         req.TotpEnabled,
 		PasskeyEnabled:                      passkeyEnabled,
 		SessionBindingEnabled:               sessionBindingEnabled,
@@ -572,13 +519,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		LoginEntryPath:                      webEntryPlan.LoginEntryPath,
 		DefaultHomePath:                     webEntryPlan.DefaultHomePath,
 		AuditLogRetentionDays:               req.AuditLogRetentionDays,
-		SMTPHost:                            req.SMTPHost,
-		SMTPPort:                            req.SMTPPort,
-		SMTPUsername:                        req.SMTPUsername,
-		SMTPPassword:                        req.SMTPPassword,
-		SMTPFrom:                            req.SMTPFrom,
-		SMTPFromName:                        req.SMTPFromName,
-		SMTPUseTLS:                          req.SMTPUseTLS,
 		APIKeyACLTrustForwardedIP: func() bool {
 			if req.APIKeyACLTrustForwardedIP != nil {
 				return *req.APIKeyACLTrustForwardedIP
@@ -765,42 +705,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerWeightUpstreamCost:     stringSetting(req.OpenAIAdvancedSchedulerWeightUpstreamCost, previousSettings.OpenAIAdvancedSchedulerWeightUpstreamCost),
 		OpenAIAdvancedSchedulerWeightPreviousResponse: stringSetting(req.OpenAIAdvancedSchedulerWeightPreviousResponse, previousSettings.OpenAIAdvancedSchedulerWeightPreviousResponse),
 		OpenAIAdvancedSchedulerWeightSessionSticky:    stringSetting(req.OpenAIAdvancedSchedulerWeightSessionSticky, previousSettings.OpenAIAdvancedSchedulerWeightSessionSticky),
-		BalanceLowNotifyEnabled: func() bool {
-			if req.BalanceLowNotifyEnabled != nil {
-				return *req.BalanceLowNotifyEnabled
-			}
-			return previousSettings.BalanceLowNotifyEnabled
-		}(),
-		BalanceLowNotifyThreshold: func() float64 {
-			if req.BalanceLowNotifyThreshold != nil {
-				return *req.BalanceLowNotifyThreshold
-			}
-			return previousSettings.BalanceLowNotifyThreshold
-		}(),
-		BalanceLowNotifyRechargeURL: func() string {
-			if req.BalanceLowNotifyRechargeURL != nil {
-				return *req.BalanceLowNotifyRechargeURL
-			}
-			return previousSettings.BalanceLowNotifyRechargeURL
-		}(),
-		SubscriptionExpiryNotifyEnabled: func() bool {
-			if req.SubscriptionExpiryNotifyEnabled != nil {
-				return *req.SubscriptionExpiryNotifyEnabled
-			}
-			return previousSettings.SubscriptionExpiryNotifyEnabled
-		}(),
-		AccountQuotaNotifyEnabled: func() bool {
-			if req.AccountQuotaNotifyEnabled != nil {
-				return *req.AccountQuotaNotifyEnabled
-			}
-			return previousSettings.AccountQuotaNotifyEnabled
-		}(),
-		AccountQuotaNotifyEmails: func() []service.NotifyEmailEntry {
-			if req.AccountQuotaNotifyEmails != nil {
-				return dto.NotifyEmailEntriesToService(*req.AccountQuotaNotifyEmails)
-			}
-			return previousSettings.AccountQuotaNotifyEmails
-		}(),
 		ChannelMonitorEnabled: func() bool {
 			if req.ChannelMonitorEnabled != nil {
 				return *req.ChannelMonitorEnabled
@@ -945,11 +849,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	passkeyConfigured, passkeyRPID, passkeyRPOrigins := h.settingService.PasskeyConfiguration()
 
 	payload := dto.SystemSettings{
-		EmailVerifyEnabled:                                     updatedSettings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:                       updatedSettings.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled:                    updatedSettings.RegistrationEmailDomainQuotaEnabled,
-		PasswordResetEnabled:                                   updatedSettings.PasswordResetEnabled,
-		FrontendURL:                                            updatedSettings.FrontendURL,
 		TotpEnabled:                                            updatedSettings.TotpEnabled,
 		TotpEncryptionKeyConfigured:                            h.settingService.IsTotpEncryptionKeyConfigured(),
 		PasskeyEnabled:                                         updatedSettings.PasskeyEnabled,
@@ -959,13 +860,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SessionBindingEnabled:                                  updatedSettings.SessionBindingEnabled,
 		StepUpEnabled:                                          updatedSettings.StepUpEnabled,
 		AuditLogRetentionDays:                                  updatedSettings.AuditLogRetentionDays,
-		SMTPHost:                                               updatedSettings.SMTPHost,
-		SMTPPort:                                               updatedSettings.SMTPPort,
-		SMTPUsername:                                           updatedSettings.SMTPUsername,
-		SMTPPasswordConfigured:                                 updatedSettings.SMTPPasswordConfigured,
-		SMTPFrom:                                               updatedSettings.SMTPFrom,
-		SMTPFromName:                                           updatedSettings.SMTPFromName,
-		SMTPUseTLS:                                             updatedSettings.SMTPUseTLS,
 		APIKeyACLTrustForwardedIP:                              updatedSettings.APIKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:                               updatedSettings.ForwardedClientIPHeaders,
 		DocURL:                                                 updatedSettings.DocURL,
@@ -1036,12 +930,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost:     updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost,
 		OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse: updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse,
 		OpenAIAdvancedSchedulerEffectiveWeightSessionSticky:    updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky,
-		BalanceLowNotifyEnabled:                                updatedSettings.BalanceLowNotifyEnabled,
-		BalanceLowNotifyThreshold:                              updatedSettings.BalanceLowNotifyThreshold,
-		BalanceLowNotifyRechargeURL:                            updatedSettings.BalanceLowNotifyRechargeURL,
-		SubscriptionExpiryNotifyEnabled:                        updatedSettings.SubscriptionExpiryNotifyEnabled,
-		AccountQuotaNotifyEnabled:                              updatedSettings.AccountQuotaNotifyEnabled,
-		AccountQuotaNotifyEmails:                               dto.NotifyEmailEntriesFromService(updatedSettings.AccountQuotaNotifyEmails),
 
 		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
 		ChannelMonitorMode:                   updatedSettings.ChannelMonitorMode,

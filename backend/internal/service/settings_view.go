@@ -12,11 +12,8 @@ func firstNonEmpty(values ...string) string {
 }
 
 type SystemSettings struct {
-	EmailVerifyEnabled                  bool
 	RegistrationEmailSuffixWhitelist    []string
 	RegistrationEmailDomainQuotaEnabled bool // 白名单非空时放行非白名单域名限量注册（默认关闭）
-	PasswordResetEnabled                bool
-	FrontendURL                         string
 	TotpEnabled                         bool // TOTP 双因素认证
 	PasskeyEnabled                      bool // Passkey 登录
 	SessionBindingEnabled               bool // 会话 IP/UA 绑定（变更即失效）
@@ -28,15 +25,6 @@ type SystemSettings struct {
 	LoginEntryPublic bool
 	LoginEntryPath   string
 	DefaultHomePath  string
-
-	SMTPHost               string
-	SMTPPort               int
-	SMTPUsername           string
-	SMTPPassword           string
-	SMTPPasswordConfigured bool
-	SMTPFrom               string
-	SMTPFromName           string
-	SMTPUseTLS             bool
 
 	APIKeyACLTrustForwardedIP bool
 	ForwardedClientIPHeaders  []string
@@ -153,18 +141,6 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse string
 	OpenAIAdvancedSchedulerEffectiveWeightSessionSticky    string
 
-	// 余额不足提醒
-	BalanceLowNotifyEnabled     bool
-	BalanceLowNotifyThreshold   float64
-	BalanceLowNotifyRechargeURL string
-
-	// 订阅到期提醒
-	SubscriptionExpiryNotifyEnabled bool
-
-	// 账号限额通知
-	AccountQuotaNotifyEnabled bool
-	AccountQuotaNotifyEmails  []NotifyEmailEntry
-
 	// 系统全局默认平台配额（key = platform，nil/缺省 = 不限制）
 	DefaultPlatformQuotas map[string]*DefaultPlatformQuotaSetting `json:"default_platform_quotas"`
 
@@ -181,10 +157,8 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
-	EmailVerifyEnabled                  bool
 	RegistrationEmailSuffixWhitelist    []string
 	RegistrationEmailDomainQuotaEnabled bool
-	PasswordResetEnabled                bool
 	TotpEnabled                         bool // TOTP 双因素认证
 	PasskeyEnabled                      bool
 	DocURL                              string
@@ -193,11 +167,6 @@ type PublicSettings struct {
 
 	BackendModeEnabled bool
 	Version            string
-
-	BalanceLowNotifyEnabled     bool
-	AccountQuotaNotifyEnabled   bool
-	BalanceLowNotifyThreshold   float64
-	BalanceLowNotifyRechargeURL string
 
 	// Channel Monitor feature
 	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`

@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"log/slog"
-	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
@@ -280,76 +279,6 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	response.Success(c, UserResponse{
 		userProfileResponse: userProfileResponseFromService(user, identities),
 		RunMode:             runMode,
-	})
-}
-
-// ForgotPasswordRequest 忘记密码请求
-type ForgotPasswordRequest struct {
-	Email string `json:"email" binding:"required,email"`
-}
-
-// ForgotPasswordResponse 忘记密码响应
-type ForgotPasswordResponse struct {
-	Message string `json:"message"`
-}
-
-// ForgotPassword 请求密码重置
-// POST /api/v1/auth/forgot-password
-func (h *AuthHandler) ForgotPassword(c *gin.Context) {
-	var req ForgotPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	frontendBaseURL := strings.TrimSpace(h.settingSvc.GetFrontendURL(c.Request.Context()))
-	if frontendBaseURL == "" {
-		slog.Error("frontend_url not configured in settings or config; cannot build password reset link")
-		response.InternalError(c, "Password reset is not configured")
-		return
-	}
-
-	// Request password reset (async)
-	// Note: This returns success even if email doesn't exist (to prevent enumeration)
-	if err := h.authService.RequestPasswordResetAsync(c.Request.Context(), req.Email, frontendBaseURL, c.GetHeader("Accept-Language")); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	response.Success(c, ForgotPasswordResponse{
-		Message: "If your email is registered, you will receive a password reset link shortly.",
-	})
-}
-
-// ResetPasswordRequest 重置密码请求
-type ResetPasswordRequest struct {
-	Email       string `json:"email" binding:"required,email"`
-	Token       string `json:"token" binding:"required"`
-	NewPassword string `json:"new_password" binding:"required,min=6"`
-}
-
-// ResetPasswordResponse 重置密码响应
-type ResetPasswordResponse struct {
-	Message string `json:"message"`
-}
-
-// ResetPassword 重置密码
-// POST /api/v1/auth/reset-password
-func (h *AuthHandler) ResetPassword(c *gin.Context) {
-	var req ResetPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	// Reset password
-	if err := h.authService.ResetPassword(c.Request.Context(), req.Email, req.Token, req.NewPassword); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	response.Success(c, ResetPasswordResponse{
-		Message: "Your password has been reset successfully. You can now log in with your new password.",
 	})
 }
 

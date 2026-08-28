@@ -205,9 +205,9 @@ func TestBackendModeAuthGuard(t *testing.T) {
 			wantStatus: http.StatusForbidden,
 		},
 		{
-			name:       "enabled_blocks_forgot_password",
+			name:       "enabled_blocks_non_allowlisted_auth_path",
 			enabled:    "true",
-			path:       "/api/v1/auth/forgot-password",
+			path:       "/api/v1/auth/some-self-service",
 			wantStatus: http.StatusForbidden,
 		},
 	}

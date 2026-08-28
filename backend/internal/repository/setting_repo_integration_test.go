@@ -122,24 +122,24 @@ func (s *SettingRepoSuite) TestSet_EmptyValue() {
 func (s *SettingRepoSuite) TestSetMultiple_WithEmptyValues() {
 	// 模拟保存系统设置，部分字段有值，部分字段为空
 	settings := map[string]string{
-		"smtp_host":        "smtp.example.com",
-		"smtp_from_name":   "Sub2api",
-		"smtp_username":    "", // 用户未设置 SMTP 用户名
-		"frontend_url":     "", // 用户未设置前端地址
-		"doc_url":          "", // 用户未设置文档链接
-		"custom_endpoints": "", // 用户未添加自定义端点
+		"grok_default_text_model":  "grok-4.6",
+		"grok_default_base_url_mode": "cli",
+		"identity_patch_prompt":    "", // 用户未设置身份补丁提示词
+		"min_codex_version":        "", // 用户未设置最低 Codex 版本
+		"doc_url":                  "", // 用户未设置文档链接
+		"custom_endpoints":         "", // 用户未添加自定义端点
 	}
 
 	s.Require().NoError(s.repo.SetMultiple(s.ctx, settings), "SetMultiple with empty values should succeed")
 
 	// 验证所有值都正确保存
-	result, err := s.repo.GetMultiple(s.ctx, []string{"smtp_host", "smtp_from_name", "smtp_username", "frontend_url", "doc_url", "custom_endpoints"})
+	result, err := s.repo.GetMultiple(s.ctx, []string{"grok_default_text_model", "grok_default_base_url_mode", "identity_patch_prompt", "min_codex_version", "doc_url", "custom_endpoints"})
 	s.Require().NoError(err, "GetMultiple after SetMultiple with empty values")
 
-	s.Require().Equal("smtp.example.com", result["smtp_host"])
-	s.Require().Equal("Sub2api", result["smtp_from_name"])
-	s.Require().Equal("", result["smtp_username"], "empty smtp_username should be preserved")
-	s.Require().Equal("", result["frontend_url"], "empty frontend_url should be preserved")
+	s.Require().Equal("grok-4.6", result["grok_default_text_model"])
+	s.Require().Equal("cli", result["grok_default_base_url_mode"])
+	s.Require().Equal("", result["identity_patch_prompt"], "empty identity_patch_prompt should be preserved")
+	s.Require().Equal("", result["min_codex_version"], "empty min_codex_version should be preserved")
 	s.Require().Equal("", result["doc_url"], "empty doc_url should be preserved")
 	s.Require().Equal("", result["custom_endpoints"], "empty custom_endpoints should be preserved")
 }

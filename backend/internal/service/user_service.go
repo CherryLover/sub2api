@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -33,7 +32,6 @@ var (
 	ErrPasswordIncorrect        = infraerrors.BadRequest("PASSWORD_INCORRECT", "current password is incorrect")
 	ErrBalanceNegative          = infraerrors.BadRequest("BALANCE_NEGATIVE", "balance cannot be negative")
 	ErrInsufficientPerms        = infraerrors.Forbidden("INSUFFICIENT_PERMISSIONS", "insufficient permissions")
-	ErrNotifyCodeUserRateLimit  = infraerrors.TooManyRequests("NOTIFY_CODE_USER_RATE_LIMIT", "too many verification codes requested, please try again later")
 	ErrAvatarInvalid            = infraerrors.BadRequest("AVATAR_INVALID", "avatar must be a valid image data URL or http(s) URL")
 	ErrAvatarTooLarge           = infraerrors.BadRequest("AVATAR_TOO_LARGE", "avatar image must be 100KB or smaller")
 	ErrAvatarNotImage           = infraerrors.BadRequest("AVATAR_NOT_IMAGE", "avatar content must be an image")
@@ -45,13 +43,8 @@ var (
 )
 
 const (
-	maxNotifyEmails      = 3 // Maximum number of notification emails per user
 	maxInlineAvatarBytes = 100 * 1024
 	targetAvatarBytes    = 20 * 1024
-
-	// User-level rate limiting for notify email verification codes
-	notifyCodeUserRateLimit  = 5
-	notifyCodeUserRateWindow = 10 * time.Minute
 
 	userLastActiveMinTouch    = 10 * time.Minute
 	userLastActiveFailBackoff = 30 * time.Second
@@ -107,8 +100,6 @@ type UserUpdateFields struct {
 	LastActiveAt bool
 	// BalanceNotifySettings 覆盖 balance_notify_enabled / _threshold_type / _threshold。
 	BalanceNotifySettings bool
-	// BalanceNotifyExtraEmails 与上一项分开，避免"改通知阈值"覆盖并发的"加通知邮箱"。
-	BalanceNotifyExtraEmails bool
 	// AllowedGroups 为 true 时才同步 user_allowed_groups 关联表。
 	AllowedGroups bool
 }
@@ -1024,245 +1015,4 @@ func (s *UserService) Delete(ctx context.Context, userID int64) error {
 		return fmt.Errorf("delete user: %w", err)
 	}
 	return nil
-}
-
-// SendNotifyEmailCode sends a verification code to the extra notification email.
-func (s *UserService) SendNotifyEmailCode(ctx context.Context, userID int64, email string, emailService *EmailService, cache EmailCache, locale ...string) error {
-	if err := checkNotifyCodeRateLimit(ctx, cache, userID, email); err != nil {
-		return err
-	}
-
-	code, err := emailService.GenerateVerifyCode()
-	if err != nil {
-		return fmt.Errorf("generate code: %w", err)
-	}
-
-	// Send email first — if SMTP fails, don't write cache or increment counters,
-	// so the user is not locked out by cooldown/rate-limit for a code they never received.
-	if err := s.sendNotifyVerifyEmail(ctx, emailService, userID, email, code, firstEmailLocale(locale)); err != nil {
-		return err
-	}
-
-	if err := saveNotifyVerifyCode(ctx, cache, email, code); err != nil {
-		return err
-	}
-
-	// Increment user-level counter after successful save
-	if _, err := cache.IncrNotifyCodeUserRate(ctx, userID, notifyCodeUserRateWindow); err != nil {
-		slog.Error("failed to increment notify code user rate", "user_id", userID, "error", err)
-	}
-
-	return nil
-}
-
-// checkNotifyCodeRateLimit checks both email cooldown and user-level rate limit.
-func checkNotifyCodeRateLimit(ctx context.Context, cache EmailCache, userID int64, email string) error {
-	existing, err := cache.GetNotifyVerifyCode(ctx, email)
-	if err == nil && existing != nil {
-		if time.Since(existing.CreatedAt) < verifyCodeCooldown {
-			return ErrVerifyCodeTooFrequent
-		}
-	}
-	count, err := cache.GetNotifyCodeUserRate(ctx, userID)
-	if err == nil && count >= notifyCodeUserRateLimit {
-		return ErrNotifyCodeUserRateLimit
-	}
-	return nil
-}
-
-// saveNotifyVerifyCode saves the verification code to cache.
-func saveNotifyVerifyCode(ctx context.Context, cache EmailCache, email, code string) error {
-	data := &VerificationCodeData{
-		Code:      code,
-		Attempts:  0,
-		CreatedAt: time.Now(),
-		ExpiresAt: time.Now().Add(verifyCodeTTL),
-	}
-	if err := cache.SetNotifyVerifyCode(ctx, email, data, verifyCodeTTL); err != nil {
-		return fmt.Errorf("save verify code: %w", err)
-	}
-	return nil
-}
-
-// sendNotifyVerifyEmail builds and sends the verification email.
-func (s *UserService) sendNotifyVerifyEmail(ctx context.Context, emailService *EmailService, userID int64, email, code, locale string) error {
-	siteName := SiteName
-	if emailService.notificationEmailService != nil {
-		if err := emailService.notificationEmailService.Send(ctx, NotificationEmailSendInput{
-			Event:          NotificationEmailEventNotificationEmailVerifyCode,
-			Locale:         locale,
-			RecipientEmail: email,
-			RecipientName:  emailRecipientName(email),
-			UserID:         userID,
-			Variables: map[string]string{
-				"verification_code":  code,
-				"expires_in_minutes": strconv.Itoa(int(verifyCodeTTL / time.Minute)),
-			},
-		}); err == nil {
-			return nil
-		} else {
-			if !shouldFallbackNotificationEmail(err) {
-				return err
-			}
-			slog.Warn("template notification email verification failed; falling back to built-in body", "recipient_hash", notificationEmailHash(email), "err", err.Error())
-		}
-	}
-	subject := fmt.Sprintf("[%s] 通知邮箱验证码 / Notification Email Verification", siteName)
-	body := buildNotifyVerifyEmailBody(code, siteName)
-	return emailService.SendEmail(ctx, email, subject, body)
-}
-
-// VerifyAndAddNotifyEmail verifies the code and adds the email to user's extra emails.
-func (s *UserService) VerifyAndAddNotifyEmail(ctx context.Context, userID int64, email, code string, cache EmailCache) error {
-	if err := verifyNotifyCode(ctx, cache, email, code); err != nil {
-		return err
-	}
-	_ = cache.DeleteNotifyVerifyCode(ctx, email)
-	return s.addOrVerifyNotifyEmail(ctx, userID, email)
-}
-
-// verifyNotifyCode validates the verification code against the cached data.
-func verifyNotifyCode(ctx context.Context, cache EmailCache, email, code string) error {
-	data, err := cache.GetNotifyVerifyCode(ctx, email)
-	if err != nil || data == nil {
-		return ErrInvalidVerifyCode
-	}
-	if data.Attempts >= maxVerifyCodeAttempts {
-		return ErrVerifyCodeMaxAttempts
-	}
-	if subtle.ConstantTimeCompare([]byte(data.Code), []byte(code)) != 1 {
-		data.Attempts++
-		remaining := time.Until(data.ExpiresAt)
-		if remaining <= 0 {
-			return ErrInvalidVerifyCode
-		}
-		if err := cache.SetNotifyVerifyCode(ctx, email, data, remaining); err != nil {
-			slog.Error("failed to update notify verify code attempts", "email", email, "error", err)
-		}
-		if data.Attempts >= maxVerifyCodeAttempts {
-			return ErrVerifyCodeMaxAttempts
-		}
-		return ErrInvalidVerifyCode
-	}
-	return nil
-}
-
-// addOrVerifyNotifyEmail adds the email to user's extra notification emails or marks it as verified.
-// Note: concurrent calls for the same user could race on the read-modify-write of
-// BalanceNotifyExtraEmails. The window is small (requires two verify flows completing
-// simultaneously), and the worst case is a duplicate entry which is harmless.
-func (s *UserService) addOrVerifyNotifyEmail(ctx context.Context, userID int64, email string) error {
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-	for i, e := range user.BalanceNotifyExtraEmails {
-		if strings.EqualFold(e.Email, email) {
-			if !e.Verified {
-				user.BalanceNotifyExtraEmails[i].Verified = true
-				return s.userRepo.Update(ctx, user, UserUpdateFields{BalanceNotifyExtraEmails: true})
-			}
-			return nil // Already verified
-		}
-	}
-	if len(user.BalanceNotifyExtraEmails) >= maxNotifyEmails {
-		return infraerrors.BadRequest("TOO_MANY_NOTIFY_EMAILS", fmt.Sprintf("maximum %d notification emails allowed", maxNotifyEmails))
-	}
-	user.BalanceNotifyExtraEmails = append(user.BalanceNotifyExtraEmails, NotifyEmailEntry{
-		Email:    email,
-		Disabled: false,
-		Verified: true,
-	})
-	return s.userRepo.Update(ctx, user, UserUpdateFields{BalanceNotifyExtraEmails: true})
-}
-
-// RemoveNotifyEmail removes an email from user's extra notification emails.
-func (s *UserService) RemoveNotifyEmail(ctx context.Context, userID int64, email string) error {
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	filtered := make([]NotifyEmailEntry, 0, len(user.BalanceNotifyExtraEmails))
-	found := false
-	for _, e := range user.BalanceNotifyExtraEmails {
-		if strings.EqualFold(e.Email, email) {
-			found = true
-		} else {
-			filtered = append(filtered, e)
-		}
-	}
-	if !found {
-		return infraerrors.BadRequest("EMAIL_NOT_FOUND", "notification email not found")
-	}
-	user.BalanceNotifyExtraEmails = filtered
-	return s.userRepo.Update(ctx, user, UserUpdateFields{BalanceNotifyExtraEmails: true})
-}
-
-// ToggleNotifyEmail toggles the disabled state of a notification email entry.
-func (s *UserService) ToggleNotifyEmail(ctx context.Context, userID int64, email string, disabled bool) error {
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	found := false
-	for i, e := range user.BalanceNotifyExtraEmails {
-		if strings.EqualFold(e.Email, email) {
-			user.BalanceNotifyExtraEmails[i].Disabled = disabled
-			found = true
-			break
-		}
-	}
-	if !found {
-		return infraerrors.BadRequest("EMAIL_NOT_FOUND", "notification email not found")
-	}
-
-	return s.userRepo.Update(ctx, user, UserUpdateFields{BalanceNotifyExtraEmails: true})
-}
-
-// notifyVerifyEmailTemplate is the HTML template for notify email verification.
-// Format args: siteName, code.
-const notifyVerifyEmailTemplate = `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; background-color: #f5f5f5; margin: 0; padding: 20px; }
-        .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .header { background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); color: white; padding: 30px; text-align: center; }
-        .header h1 { margin: 0; font-size: 24px; }
-        .content { padding: 40px 30px; text-align: center; }
-        .code { font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #333; background-color: #f8f9fa; padding: 20px 30px; border-radius: 8px; display: inline-block; margin: 20px 0; font-family: monospace; }
-        .info { color: #666; font-size: 14px; line-height: 1.6; margin-top: 20px; }
-        .footer { background-color: #f8f9fa; padding: 20px; text-align: center; color: #999; font-size: 12px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>%s</h1>
-        </div>
-        <div class="content">
-            <p style="font-size: 18px; color: #333;">通知邮箱验证码 / Notification Email Verification</p>
-            <div class="code">%s</div>
-            <div class="info">
-                <p>您正在添加额外的通知邮箱，请输入此验证码完成验证。</p>
-                <p>You are adding an extra notification email. Please enter this code to verify.</p>
-                <p>此验证码将在 <strong>15 分钟</strong>后失效。</p>
-                <p>This code will expire in <strong>15 minutes</strong>.</p>
-                <p>如果您没有请求此验证码，请忽略此邮件。</p>
-                <p>If you did not request this code, please ignore this email.</p>
-            </div>
-        </div>
-        <div class="footer">
-            <p>此邮件由系统自动发送，请勿回复。/ This is an automated message, please do not reply.</p>
-        </div>
-    </div>
-</body>
-</html>`
-
-// buildNotifyVerifyEmailBody builds the HTML email body for notify email verification.
-func buildNotifyVerifyEmailBody(code, siteName string) string {
-	return fmt.Sprintf(notifyVerifyEmailTemplate, siteName, code)
 }

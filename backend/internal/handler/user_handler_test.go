@@ -168,7 +168,7 @@ func TestUserHandlerUpdateProfileReturnsAvatarURL(t *testing.T) {
 			Status:   service.StatusActive,
 		},
 	}
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil, nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil)
 
 	body := []byte(`{"avatar_url":"https://cdn.example.com/avatar.png"}`)
 	recorder := httptest.NewRecorder()
@@ -192,161 +192,6 @@ func TestUserHandlerUpdateProfileReturnsAvatarURL(t *testing.T) {
 	require.Equal(t, 0, resp.Code)
 	require.Equal(t, "https://cdn.example.com/avatar.png", resp.Data.AvatarURL)
 	require.Equal(t, "handler-avatar", resp.Data.Username)
-}
-
-type userHandlerEmailCacheStub struct {
-	data *service.VerificationCodeData
-}
-
-type userHandlerRefreshTokenCacheStub struct {
-	revokedUserIDs []int64
-}
-
-func (s *userHandlerRefreshTokenCacheStub) StoreRefreshToken(context.Context, string, *service.RefreshTokenData, time.Duration) error {
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) GetRefreshToken(context.Context, string) (*service.RefreshTokenData, error) {
-	return nil, service.ErrRefreshTokenNotFound
-}
-
-func (s *userHandlerRefreshTokenCacheStub) DeleteRefreshToken(context.Context, string) error {
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) DeleteUserRefreshTokens(_ context.Context, userID int64) error {
-	s.revokedUserIDs = append(s.revokedUserIDs, userID)
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) DeleteTokenFamily(context.Context, string) error {
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) AddToUserTokenSet(context.Context, int64, string, time.Duration) error {
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) AddToFamilyTokenSet(context.Context, string, string, time.Duration) error {
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) GetUserTokenHashes(context.Context, int64) ([]string, error) {
-	return nil, nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) GetFamilyTokenHashes(context.Context, string) ([]string, error) {
-	return nil, nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) IsTokenInFamily(context.Context, string, string) (bool, error) {
-	return false, nil
-}
-
-func (s *userHandlerEmailCacheStub) GetVerificationCode(context.Context, string) (*service.VerificationCodeData, error) {
-	return s.data, nil
-}
-
-func (s *userHandlerEmailCacheStub) SetVerificationCode(context.Context, string, *service.VerificationCodeData, time.Duration) error {
-	return nil
-}
-
-func (s *userHandlerEmailCacheStub) DeleteVerificationCode(context.Context, string) error {
-	return nil
-}
-
-func (s *userHandlerEmailCacheStub) GetNotifyVerifyCode(context.Context, string) (*service.VerificationCodeData, error) {
-	return nil, nil
-}
-
-func (s *userHandlerEmailCacheStub) SetNotifyVerifyCode(context.Context, string, *service.VerificationCodeData, time.Duration) error {
-	return nil
-}
-
-func (s *userHandlerEmailCacheStub) DeleteNotifyVerifyCode(context.Context, string) error {
-	return nil
-}
-
-func (s *userHandlerEmailCacheStub) GetPasswordResetToken(context.Context, string) (*service.PasswordResetTokenData, error) {
-	return nil, nil
-}
-
-func (s *userHandlerEmailCacheStub) SetPasswordResetToken(context.Context, string, *service.PasswordResetTokenData, time.Duration) error {
-	return nil
-}
-
-func (s *userHandlerEmailCacheStub) DeletePasswordResetToken(context.Context, string) error {
-	return nil
-}
-
-func (s *userHandlerEmailCacheStub) IsPasswordResetEmailInCooldown(context.Context, string) bool {
-	return false
-}
-
-func (s *userHandlerEmailCacheStub) SetPasswordResetEmailCooldown(context.Context, string, time.Duration) error {
-	return nil
-}
-
-func (s *userHandlerEmailCacheStub) GetNotifyCodeUserRate(context.Context, int64) (int64, error) {
-	return 0, nil
-}
-
-func (s *userHandlerEmailCacheStub) IncrNotifyCodeUserRate(context.Context, int64, time.Duration) (int64, error) {
-	return 0, nil
-}
-
-func TestUserHandlerBindEmailIdentityReturnsProfileResponse(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	repo := &userHandlerRepoStub{
-		user: &service.User{
-			ID:       11,
-			Email:    "legacy-user" + service.LinuxDoConnectSyntheticEmailDomain,
-			Username: "legacy-user",
-			Role:     service.RoleUser,
-			Status:   service.StatusActive,
-		},
-	}
-	emailCache := &userHandlerEmailCacheStub{
-		data: &service.VerificationCodeData{
-			Code:      "123456",
-			CreatedAt: time.Now().UTC(),
-			ExpiresAt: time.Now().UTC().Add(10 * time.Minute),
-		},
-	}
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			Secret:     "test-secret",
-			ExpireHour: 1,
-		},
-	}
-	emailService := service.NewEmailService(nil, emailCache)
-	authService := service.NewAuthService(nil, repo, nil, cfg, nil, emailService, nil, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil)
-
-	body := []byte(`{"email":"new@example.com","verify_code":"123456","password":"new-password"}`)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/user/account-bindings/email", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Params = gin.Params{{Key: "provider", Value: "email"}}
-	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 11})
-
-	handler.BindEmailIdentity(c)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-
-	var resp struct {
-		Code int `json:"code"`
-		Data struct {
-			Email      string `json:"email"`
-			EmailBound bool   `json:"email_bound"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
-	require.Equal(t, 0, resp.Code)
-	require.Equal(t, "new@example.com", resp.Data.Email)
-	require.True(t, resp.Data.EmailBound)
 }
 
 func TestUserHandlerUnbindIdentityReturnsUpdatedProfile(t *testing.T) {
@@ -376,7 +221,7 @@ func TestUserHandlerUnbindIdentityReturnsUpdatedProfile(t *testing.T) {
 			},
 		},
 	}
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil, nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -435,8 +280,8 @@ func TestUserHandlerUnbindIdentityRevokesAllUserSessionsWhenAuthServiceConfigure
 			ExpireHour: 1,
 		},
 	}
-	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil, nil, nil, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil)
+	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -482,8 +327,8 @@ func TestUserHandlerUnbindIdentityDoesNotRevokeSessionsWhenNothingWasUnbound(t *
 			ExpireHour: 1,
 		},
 	}
-	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil, nil, nil, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil)
+	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil, nil)
+	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -497,57 +342,4 @@ func TestUserHandlerUnbindIdentityDoesNotRevokeSessionsWhenNothingWasUnbound(t *
 	require.Empty(t, repo.unbound)
 	require.Empty(t, refreshTokenCache.revokedUserIDs)
 	require.Equal(t, int64(4), repo.user.TokenVersion)
-}
-
-func TestUserHandlerBindEmailIdentityRejectsWrongCurrentPasswordForBoundEmail(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	user := &service.User{
-		ID:       11,
-		Email:    "current@example.com",
-		Username: "bound-user",
-		Role:     service.RoleUser,
-		Status:   service.StatusActive,
-	}
-	require.NoError(t, user.SetPassword("current-password"))
-
-	repo := &userHandlerRepoStub{user: user}
-	emailCache := &userHandlerEmailCacheStub{
-		data: &service.VerificationCodeData{
-			Code:      "123456",
-			CreatedAt: time.Now().UTC(),
-			ExpiresAt: time.Now().UTC().Add(10 * time.Minute),
-		},
-	}
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			Secret:     "test-secret",
-			ExpireHour: 1,
-		},
-	}
-	emailService := service.NewEmailService(nil, emailCache)
-	authService := service.NewAuthService(nil, repo, nil, cfg, nil, emailService, nil, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), authService, nil, nil, nil)
-
-	body := []byte(`{"email":"new@example.com","verify_code":"123456","password":"wrong-password"}`)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/user/account-bindings/email", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 11})
-
-	handler.BindEmailIdentity(c)
-
-	require.Equal(t, http.StatusBadRequest, recorder.Code)
-
-	var resp struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-		Reason  string `json:"reason"`
-	}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
-	require.Equal(t, http.StatusBadRequest, resp.Code)
-	require.Equal(t, "PASSWORD_INCORRECT", resp.Reason)
-	require.Equal(t, "current password is incorrect", resp.Message)
-	require.Equal(t, "current@example.com", repo.user.Email)
 }

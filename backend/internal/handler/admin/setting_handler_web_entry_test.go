@@ -22,7 +22,7 @@ func newWebEntryHandler(t *testing.T, cfg *config.Config, stored map[string]stri
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{values: stored}
 	svc := service.NewSettingService(repo, cfg)
-	return NewSettingHandler(svc, nil, nil, nil), repo
+	return NewSettingHandler(svc, nil, nil), repo
 }
 
 func doGetSettings(t *testing.T, h *SettingHandler) *httptest.ResponseRecorder {
@@ -124,7 +124,7 @@ func TestUpdateSettings_OmittedWebEntryKeepsStoredLayout(t *testing.T) {
 		service.SettingKeyWebDefaultHomePath:  "/home",
 	})
 
-	rec := doUpdateSettings(t, h, map[string]any{"smtp_host": "smtp.example.com"}, nil)
+	rec := doUpdateSettings(t, h, map[string]any{"doc_url": "https://docs.example.com"}, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "false", repo.values[service.SettingKeyWebLoginEntryPublic])
 	require.Equal(t, adminWebEntryHiddenPath, repo.values[service.SettingKeyWebLoginEntryPath])
@@ -247,11 +247,11 @@ func TestUpdateSettings_PinnedWebEntryAcceptsUnchangedValues(t *testing.T) {
 		"login_entry_public": false,
 		"login_entry_path":   adminWebEntryHiddenPath,
 		"default_home_path":  "/home",
-		"smtp_host":          "smtp.example.com",
+		"doc_url":            "https://docs.example.com",
 	}, nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "smtp.example.com", repo.values[service.SettingKeySMTPHost])
+	require.Equal(t, "https://docs.example.com", repo.values[service.SettingKeyDocURL])
 	// 锁定项一律不落库：数据库里保持空，配置文件才是唯一事实来源。
 	require.Empty(t, repo.values[service.SettingKeyWebLoginEntryPath])
 	require.Empty(t, repo.values[service.SettingKeyWebDefaultHomePath])
@@ -284,9 +284,9 @@ func TestUpdateSettings_BrokenStoredWebEntryDoesNotBlockUnrelatedSaves(t *testin
 		service.SettingKeyWebLoginEntryPath:   "",
 	})
 
-	rec := doUpdateSettings(t, h, map[string]any{"smtp_host": "smtp.example.com"}, nil)
+	rec := doUpdateSettings(t, h, map[string]any{"doc_url": "https://docs.example.com"}, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "smtp.example.com", repo.values[service.SettingKeySMTPHost])
+	require.Equal(t, "https://docs.example.com", repo.values[service.SettingKeyDocURL])
 
 	// 坏数据没被顺手改写，但对外的生效布置是"登录入口公开"（fail-open）。
 	require.Equal(t, "false", repo.values[service.SettingKeyWebLoginEntryPublic])

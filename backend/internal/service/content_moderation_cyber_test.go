@@ -77,7 +77,6 @@ func TestRecordCyberPolicyEvent_DisabledWhenRiskControlOff(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 
 	svc.RecordCyberPolicyEvent(context.Background(), CyberPolicyRecordInput{
@@ -105,7 +104,6 @@ func TestRecordCyberPolicyEvent_WritesLogWhenEnabled(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil, // emailService=nil: email path safely skipped
 	)
 
 	svc.RecordCyberPolicyEvent(context.Background(), CyberPolicyRecordInput{
@@ -127,7 +125,7 @@ func TestRecordCyberPolicyEvent_WritesLogWhenEnabled(t *testing.T) {
 	require.Equal(t, "cyber_policy", log.HighestCategory)
 	require.Contains(t, log.Error, "flagged")
 	require.False(t, log.AutoBanned)
-	// emailService is nil, so EmailSent must be false
+	// 邮件体系已移除，EmailSent 恒为 false
 	require.False(t, log.EmailSent)
 
 	// UserID pointer must be set
@@ -209,7 +207,7 @@ func TestRecordCyberPolicyEvent_RespectsContentModerationScope(t *testing.T) {
 					SettingKeyRiskControlEnabled:      "true",
 					SettingKeyContentModerationConfig: tt.config,
 				}},
-				repo, nil, nil, userRepo, nil, nil, nil,
+				repo, nil, nil, userRepo, nil, nil,
 			)
 
 			svc.RecordCyberPolicyEvent(context.Background(), CyberPolicyRecordInput{
@@ -240,7 +238,7 @@ func TestRecordCyberPolicyEvent_InitialRuntimeSnapshotLoadFailureSkipsEvent(t *t
 		SettingKeyRiskControlEnabled:      "true",
 		SettingKeyContentModerationConfig: `{invalid`,
 	}}
-	svc := NewContentModerationService(settingRepo, repo, nil, nil, nil, nil, nil, nil)
+	svc := NewContentModerationService(settingRepo, repo, nil, nil, nil, nil, nil)
 
 	svc.RecordCyberPolicyEvent(context.Background(), CyberPolicyRecordInput{
 		UserID: 1,
@@ -260,7 +258,7 @@ func TestRecordCyberPolicyEvent_RuntimeSnapshotRefreshFailureKeepsStaleScope(t *
 		SettingKeyRiskControlEnabled:      "true",
 		SettingKeyContentModerationConfig: `{"all_groups":true,"model_filter":{"type":"include","models":["gpt-5"]}}`,
 	}}
-	svc := NewContentModerationService(settingRepo, repo, nil, nil, nil, nil, nil, nil)
+	svc := NewContentModerationService(settingRepo, repo, nil, nil, nil, nil, nil)
 	svc.runtimeCacheTTL = time.Minute
 
 	_, err := svc.loadRuntimeSnapshot(context.Background())
@@ -287,20 +285,9 @@ func TestRecordCyberPolicyEvent_RuntimeSnapshotRefreshFailureKeepsStaleScope(t *
 	require.Equal(t, 2, getMultiple)
 }
 
-// TestRecordCyberPolicyEvent_CreateLogBeforeEmail verifies F7: the moderation
-// log is persisted BEFORE email delivery, and EmailSent is patched afterwards —
-// SMTP hangs can no longer swallow the audit record.
-//
-// Note on email ordering: EmailService is a concrete type with no injectable
-// send interface, so SMTP-success cannot be simulated in unit tests.
-// With emailService=nil the email block is skipped and UpdateLogEmailSent is not
-// called (correct: logPersisted && emailSent guard). The test therefore asserts
-// the two invariants that ARE observable without real SMTP:
-//  1. CreateLog runs first (calls[0]=="create").
-//  2. The log is stored with EmailSent=false (not pre-set to true).
-//
-// The update_email_sent path is covered by integration/e2e tests where a real
-// (or test-double) SMTP endpoint is available.
+// TestRecordCyberPolicyEvent_CreateLogBeforeEmail 保留 F7 的落库不变量：
+// 风控日志必须先落库，且 EmailSent 恒为 false（邮件体系已整体移除，
+// UpdateLogEmailSent 不再有任何调用方）。
 func TestRecordCyberPolicyEvent_CreateLogBeforeEmail(t *testing.T) {
 	repo := &cyberOrderingTestRepo{}
 	svc := NewContentModerationService(
@@ -313,7 +300,6 @@ func TestRecordCyberPolicyEvent_CreateLogBeforeEmail(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil, // emailService=nil: email path safely skipped; see doc comment above
 	)
 
 	svc.RecordCyberPolicyEvent(context.Background(), CyberPolicyRecordInput{
@@ -328,16 +314,14 @@ func TestRecordCyberPolicyEvent_CreateLogBeforeEmail(t *testing.T) {
 	require.GreaterOrEqual(t, len(calls), 1, "CreateLog must be called")
 	require.Equal(t, "create", calls[0], "CreateLog must run first (F7: log-before-email)")
 
-	// EmailSent must be false when the log is first persisted (new code sets it
-	// false before CreateLog; email result is patched via UpdateLogEmailSent).
+	// 日志落库时 EmailSent 必须为 false。
 	emailSents := repo.snapshotEmailSents()
 	require.NotEmpty(t, emailSents, "CreateLog must have captured EmailSent value")
 	require.False(t, emailSents[0], "log must be stored with EmailSent=false initially (F7)")
 
-	// With emailService=nil, no email is sent, so UpdateLogEmailSent must NOT
-	// be called (logPersisted && emailSent guard correctly suppresses the patch).
+	// 邮件体系已移除：UpdateLogEmailSent 不应再被调用。
 	require.NotContains(t, calls, "update_email_sent",
-		"UpdateLogEmailSent must not be called when no email was sent")
+		"UpdateLogEmailSent must not be called after the email subsystem removal")
 }
 
 // banCountArgsTestRepo 在 contentModerationTestRepo 基础上记录
@@ -367,7 +351,7 @@ func TestApplyFlaggedAccountSideEffects_PassesExcludeCyberFlag(t *testing.T) {
 	repo := &banCountArgsTestRepo{}
 	svc := NewContentModerationService(
 		&contentModerationTestSettingRepo{values: map[string]string{}},
-		repo, nil, nil, nil, nil, nil, nil,
+		repo, nil, nil, nil, nil, nil,
 	)
 	userID := int64(42)
 
@@ -389,7 +373,7 @@ func TestRecordCyberPolicyEvent_ExcludeFromBanCount_SkipsBanJudgment(t *testing.
 			SettingKeyRiskControlEnabled:      "true",
 			SettingKeyContentModerationConfig: `{"cyber_policy_exclude_from_ban_count":true}`,
 		}},
-		repo, nil, nil, nil, nil, nil, nil,
+		repo, nil, nil, nil, nil, nil,
 	)
 
 	svc.RecordCyberPolicyEvent(context.Background(), CyberPolicyRecordInput{
@@ -416,7 +400,7 @@ func TestRecordCyberPolicyEvent_DefaultCountsTowardBan(t *testing.T) {
 		&contentModerationTestSettingRepo{values: map[string]string{
 			SettingKeyRiskControlEnabled: "true",
 		}},
-		repo, nil, nil, nil, nil, nil, nil,
+		repo, nil, nil, nil, nil, nil,
 	)
 
 	svc.RecordCyberPolicyEvent(context.Background(), CyberPolicyRecordInput{

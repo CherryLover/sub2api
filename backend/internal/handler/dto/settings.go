@@ -16,11 +16,8 @@ type CustomEndpoint struct {
 
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
-	EmailVerifyEnabled                  bool     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled bool     `json:"registration_email_domain_quota_enabled"`
-	PasswordResetEnabled                bool     `json:"password_reset_enabled"`
-	FrontendURL                         string   `json:"frontend_url"`
 	TotpEnabled                         bool     `json:"totp_enabled"`                   // TOTP 双因素认证
 	TotpEncryptionKeyConfigured         bool     `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
 	PasskeyEnabled                      bool     `json:"passkey_enabled"`
@@ -41,14 +38,6 @@ type SystemSettings struct {
 	DefaultHomePath               string `json:"default_home_path"`
 	LoginEntryLockedByConfig      bool   `json:"login_entry_locked_by_config"`
 	DefaultHomePathLockedByConfig bool   `json:"default_home_path_locked_by_config"`
-
-	SMTPHost               string `json:"smtp_host"`
-	SMTPPort               int    `json:"smtp_port"`
-	SMTPUsername           string `json:"smtp_username"`
-	SMTPPasswordConfigured bool   `json:"smtp_password_configured"`
-	SMTPFrom               string `json:"smtp_from_email"`
-	SMTPFromName           string `json:"smtp_from_name"`
-	SMTPUseTLS             bool   `json:"smtp_use_tls"`
 
 	APIKeyACLTrustForwardedIP bool     `json:"api_key_acl_trust_forwarded_ip"`
 	ForwardedClientIPHeaders  []string `json:"forwarded_client_ip_headers"`
@@ -143,14 +132,6 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse string  `json:"openai_advanced_scheduler_effective_weight_previous_response"`
 	OpenAIAdvancedSchedulerEffectiveWeightSessionSticky    string  `json:"openai_advanced_scheduler_effective_weight_session_sticky"`
 
-	// 余额、订阅到期与账号限额通知
-	BalanceLowNotifyEnabled         bool               `json:"balance_low_notify_enabled"`
-	BalanceLowNotifyThreshold       float64            `json:"balance_low_notify_threshold"`
-	BalanceLowNotifyRechargeURL     string             `json:"balance_low_notify_recharge_url"`
-	SubscriptionExpiryNotifyEnabled bool               `json:"subscription_expiry_notify_enabled"`
-	AccountQuotaNotifyEnabled       bool               `json:"account_quota_notify_enabled"`
-	AccountQuotaNotifyEmails        []NotifyEmailEntry `json:"account_quota_notify_emails"`
-
 	// Channel Monitor feature switch
 	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
 	ChannelMonitorMode                   string `json:"channel_monitor_mode"`
@@ -197,10 +178,8 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
-	EmailVerifyEnabled                  bool             `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string         `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled bool             `json:"registration_email_domain_quota_enabled"`
-	PasswordResetEnabled                bool             `json:"password_reset_enabled"`
 	TotpEnabled                         bool             `json:"totp_enabled"` // TOTP 双因素认证
 	PasskeyEnabled                      bool             `json:"passkey_enabled"`
 	DocURL                              string           `json:"doc_url"`
@@ -209,12 +188,8 @@ type PublicSettings struct {
 	Version                             string           `json:"version"`
 	// 服务器全局时区（IANA 名称与当前 UTC 偏移，如 "Asia/Shanghai" / "+08:00"）。
 	// 高峰时段等按服务器本地时间判定的窗口，前端展示时据此标注，避免用户按浏览器本地时间误读。
-	ServerTimezone              string  `json:"server_timezone"`
-	ServerUTCOffset             string  `json:"server_utc_offset"`
-	BalanceLowNotifyEnabled     bool    `json:"balance_low_notify_enabled"`
-	AccountQuotaNotifyEnabled   bool    `json:"account_quota_notify_enabled"`
-	BalanceLowNotifyThreshold   float64 `json:"balance_low_notify_threshold"`
-	BalanceLowNotifyRechargeURL string  `json:"balance_low_notify_recharge_url"`
+	ServerTimezone  string `json:"server_timezone"`
+	ServerUTCOffset string `json:"server_utc_offset"`
 
 	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
 	ChannelMonitorMode                   string `json:"channel_monitor_mode"`
@@ -310,64 +285,6 @@ type OpenAIFastPolicyRule struct {
 // OpenAIFastPolicySettings OpenAI fast 策略配置 DTO
 type OpenAIFastPolicySettings struct {
 	Rules []OpenAIFastPolicyRule `json:"rules"`
-}
-
-// EmailTemplateEventOption 描述可编辑的通知邮件事件。
-type EmailTemplateEventOption struct {
-	Value       string `json:"value"`
-	Label       string `json:"label,omitempty"`
-	Description string `json:"description,omitempty"`
-	Category    string `json:"category,omitempty"`
-	Optional    bool   `json:"optional,omitempty"`
-}
-
-// EmailTemplateSummary is shown in the admin email template list.
-type EmailTemplateSummary struct {
-	Event     string `json:"event"`
-	Locale    string `json:"locale"`
-	Subject   string `json:"subject"`
-	IsCustom  bool   `json:"is_custom,omitempty"`
-	UpdatedAt string `json:"updated_at,omitempty"`
-}
-
-// EmailTemplateListResponse is returned by GET /admin/settings/email-templates.
-type EmailTemplateListResponse struct {
-	Events       []EmailTemplateEventOption `json:"events"`
-	Locales      []string                   `json:"locales"`
-	Templates    []EmailTemplateSummary     `json:"templates,omitempty"`
-	Placeholders []string                   `json:"placeholders,omitempty"`
-}
-
-// EmailTemplateDetail is returned for a specific event/locale template.
-type EmailTemplateDetail struct {
-	Event        string   `json:"event"`
-	Locale       string   `json:"locale"`
-	Subject      string   `json:"subject"`
-	HTML         string   `json:"html"`
-	IsCustom     bool     `json:"is_custom,omitempty"`
-	UpdatedAt    string   `json:"updated_at,omitempty"`
-	Placeholders []string `json:"placeholders,omitempty"`
-}
-
-// UpdateEmailTemplateRequest updates a template override.
-type UpdateEmailTemplateRequest struct {
-	Subject string `json:"subject"`
-	HTML    string `json:"html"`
-}
-
-// PreviewEmailTemplateRequest previews a template without saving it.
-type PreviewEmailTemplateRequest struct {
-	Event     string            `json:"event"`
-	Locale    string            `json:"locale"`
-	Subject   string            `json:"subject"`
-	HTML      string            `json:"html"`
-	Variables map[string]string `json:"variables,omitempty"`
-}
-
-// EmailTemplatePreviewResponse is the rendered preview payload.
-type EmailTemplatePreviewResponse struct {
-	Subject string `json:"subject"`
-	HTML    string `json:"html"`
 }
 
 // ParseCustomEndpoints parses a JSON string into a slice of CustomEndpoint.

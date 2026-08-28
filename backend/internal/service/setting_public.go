@@ -11,32 +11,17 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
-// GetFrontendURL 获取前端基础URL（数据库优先，fallback 到配置文件）
-func (s *SettingService) GetFrontendURL(ctx context.Context) string {
-	val, err := s.settingRepo.GetValue(ctx, SettingKeyFrontendURL)
-	if err == nil && strings.TrimSpace(val) != "" {
-		return strings.TrimSpace(val)
-	}
-	return s.cfg.Server.FrontendURL
-}
-
 // GetPublicSettings 获取公开设置（无需登录）
 func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings, error) {
 	keys := []string{
-		SettingKeyEmailVerifyEnabled,
 		SettingKeyRegistrationEmailSuffixWhitelist,
 		SettingKeyRegistrationEmailDomainQuotaEnabled,
-		SettingKeyPasswordResetEnabled,
 		SettingKeyTotpEnabled,
 		SettingKeyPasskeyEnabled,
 		SettingKeyAPIKeyACLTrustForwardedIP,
 		SettingKeyDocURL,
 		SettingKeyCustomEndpoints,
 		SettingKeyBackendModeEnabled,
-		SettingKeyBalanceLowNotifyEnabled,
-		SettingKeyBalanceLowNotifyThreshold,
-		SettingKeyBalanceLowNotifyRechargeURL,
-		SettingKeyAccountQuotaNotifyEnabled,
 		SettingKeyChannelMonitorEnabled,
 		SettingKeyChannelMonitorMode,
 		SettingKeyChannelMonitorDefaultIntervalSeconds,
@@ -59,31 +44,18 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	// 少一次共处一室就少一次"哪天被顺手 range 出来"的机会。
 	webEntry := s.ResolveWebEntry(ctx)
 
-	// Password reset requires email verification to be enabled
-	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
-	passwordResetEnabled := emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true"
 	registrationEmailSuffixWhitelist := ParseRegistrationEmailSuffixWhitelist(
 		settings[SettingKeyRegistrationEmailSuffixWhitelist],
 	)
-	var balanceLowNotifyThreshold float64
-	if v, err := strconv.ParseFloat(settings[SettingKeyBalanceLowNotifyThreshold], 64); err == nil && v >= 0 {
-		balanceLowNotifyThreshold = v
-	}
 
 	return &PublicSettings{
-		EmailVerifyEnabled:                  emailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:    registrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled: settings[SettingKeyRegistrationEmailDomainQuotaEnabled] == "true",
-		PasswordResetEnabled:                passwordResetEnabled,
 		TotpEnabled:                         settings[SettingKeyTotpEnabled] == "true",
 		PasskeyEnabled:                      s.passkeyConfigured() && s.passkeySettingEnabled(settings),
 		DocURL:                              settings[SettingKeyDocURL],
 		CustomEndpoints:                     settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled:                  settings[SettingKeyBackendModeEnabled] == "true",
-		BalanceLowNotifyEnabled:             settings[SettingKeyBalanceLowNotifyEnabled] == "true",
-		AccountQuotaNotifyEnabled:           settings[SettingKeyAccountQuotaNotifyEnabled] == "true",
-		BalanceLowNotifyThreshold:           balanceLowNotifyThreshold,
-		BalanceLowNotifyRechargeURL:         settings[SettingKeyBalanceLowNotifyRechargeURL],
 
 		ChannelMonitorEnabled:                !isFalseSettingValue(settings[SettingKeyChannelMonitorEnabled]),
 		ChannelMonitorMode:                   normalizeChannelMonitorMode(settings[SettingKeyChannelMonitorMode]),
@@ -281,10 +253,8 @@ func (s *SettingService) IsUserErrorViewAllowed(ctx context.Context) bool {
 // A unit test diffs this struct's JSON keys against dto.PublicSettings to catch
 // drift automatically (see setting_service_injection_test.go).
 type PublicSettingsInjectionPayload struct {
-	EmailVerifyEnabled                  bool            `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string        `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled bool            `json:"registration_email_domain_quota_enabled"`
-	PasswordResetEnabled                bool            `json:"password_reset_enabled"`
 	TotpEnabled                         bool            `json:"totp_enabled"`
 	PasskeyEnabled                      bool            `json:"passkey_enabled"`
 	DocURL                              string          `json:"doc_url"`
@@ -292,12 +262,8 @@ type PublicSettingsInjectionPayload struct {
 	BackendModeEnabled                  bool            `json:"backend_mode_enabled"`
 	Version                             string          `json:"version"`
 	// 服务器全局时区（IANA 名称与当前 UTC 偏移），高峰时段等服务端本地时间窗口的展示标注用
-	ServerTimezone              string  `json:"server_timezone"`
-	ServerUTCOffset             string  `json:"server_utc_offset"`
-	BalanceLowNotifyEnabled     bool    `json:"balance_low_notify_enabled"`
-	AccountQuotaNotifyEnabled   bool    `json:"account_quota_notify_enabled"`
-	BalanceLowNotifyThreshold   float64 `json:"balance_low_notify_threshold"`
-	BalanceLowNotifyRechargeURL string  `json:"balance_low_notify_recharge_url"`
+	ServerTimezone  string `json:"server_timezone"`
+	ServerUTCOffset string `json:"server_utc_offset"`
 
 	// Feature flags — MUST match the opt-in/opt-out registry in
 	// frontend/src/utils/featureFlags.ts. Missing a field here is the bug
@@ -335,10 +301,8 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 	}
 
 	return &PublicSettingsInjectionPayload{
-		EmailVerifyEnabled:                  settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:    settings.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled: settings.RegistrationEmailDomainQuotaEnabled,
-		PasswordResetEnabled:                settings.PasswordResetEnabled,
 		TotpEnabled:                         settings.TotpEnabled,
 		PasskeyEnabled:                      settings.PasskeyEnabled,
 		DocURL:                              settings.DocURL,
@@ -347,10 +311,6 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		Version:                             s.version,
 		ServerTimezone:                      timezone.Name(),
 		ServerUTCOffset:                     timezone.UTCOffset(),
-		BalanceLowNotifyEnabled:             settings.BalanceLowNotifyEnabled,
-		AccountQuotaNotifyEnabled:           settings.AccountQuotaNotifyEnabled,
-		BalanceLowNotifyThreshold:           settings.BalanceLowNotifyThreshold,
-		BalanceLowNotifyRechargeURL:         settings.BalanceLowNotifyRechargeURL,
 
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorMode:                   settings.ChannelMonitorMode,

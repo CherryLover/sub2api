@@ -1,10 +1,6 @@
 package handler
 
 import (
-	"html"
-	"net/http"
-	"strings"
-
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
@@ -15,9 +11,8 @@ import (
 
 // SettingHandler 公开设置处理器（无需认证）
 type SettingHandler struct {
-	settingService           *service.SettingService
-	notificationEmailService *service.NotificationEmailService
-	version                  string
+	settingService *service.SettingService
+	version        string
 }
 
 // NewSettingHandler 创建公开设置处理器
@@ -26,12 +21,6 @@ func NewSettingHandler(settingService *service.SettingService, version string) *
 		settingService: settingService,
 		version:        version,
 	}
-}
-
-// SetNotificationEmailService attaches the public notification email service without
-// changing the constructor signature used by existing tests.
-func (h *SettingHandler) SetNotificationEmailService(notificationEmailService *service.NotificationEmailService) {
-	h.notificationEmailService = notificationEmailService
 }
 
 // GetPublicSettings 获取公开设置
@@ -44,10 +33,8 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 	}
 
 	response.Success(c, dto.PublicSettings{
-		EmailVerifyEnabled:                  settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:    settings.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled: settings.RegistrationEmailDomainQuotaEnabled,
-		PasswordResetEnabled:                settings.PasswordResetEnabled,
 		TotpEnabled:                         settings.TotpEnabled,
 		PasskeyEnabled:                      settings.PasskeyEnabled,
 		DocURL:                              settings.DocURL,
@@ -58,10 +45,6 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		Version:                             h.version,
 		ServerTimezone:                      timezone.Name(),
 		ServerUTCOffset:                     timezone.UTCOffset(),
-		BalanceLowNotifyEnabled:             settings.BalanceLowNotifyEnabled,
-		AccountQuotaNotifyEnabled:           settings.AccountQuotaNotifyEnabled,
-		BalanceLowNotifyThreshold:           settings.BalanceLowNotifyThreshold,
-		BalanceLowNotifyRechargeURL:         settings.BalanceLowNotifyRechargeURL,
 
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorMode:                   settings.ChannelMonitorMode,
@@ -78,25 +61,4 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 
 		AllowUserViewErrorRequests: settings.AllowUserViewErrorRequests,
 	})
-}
-
-// UnsubscribeNotificationEmail handles optional notification email opt-outs.
-// GET /api/v1/settings/email-unsubscribe?token=...
-func (h *SettingHandler) UnsubscribeNotificationEmail(c *gin.Context) {
-	if h.notificationEmailService == nil {
-		response.InternalError(c, "notification email service is not configured")
-		return
-	}
-	token := strings.TrimSpace(c.Query("token"))
-	if token == "" {
-		response.BadRequest(c, "token is required")
-		return
-	}
-	result, err := h.notificationEmailService.Unsubscribe(c.Request.Context(), token)
-	if err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-	body := "<!doctype html><html><head><meta charset=\"utf-8\"><title>Unsubscribed</title></head><body style=\"font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;padding:32px;\"><h1>Unsubscribed</h1><p>You have unsubscribed <strong>" + html.EscapeString(result.Email) + "</strong> from <strong>" + html.EscapeString(result.Event) + "</strong> emails.</p></body></html>"
-	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(body))
 }

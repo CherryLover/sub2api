@@ -13,15 +13,6 @@ import (
 	"time"
 )
 
-// IsEmailVerifyEnabled 检查是否开启邮件验证
-func (s *SettingService) IsEmailVerifyEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyEmailVerifyEnabled)
-	if err != nil {
-		return false
-	}
-	return value == "true"
-}
-
 // IsRegistrationEmailDomainQuotaEnabled 检查白名单非空时是否放行非白名单域名限量注册。
 // 安全默认：设置缺失或查询出错时按关闭处理（保持白名单严格模式）。
 func (s *SettingService) IsRegistrationEmailDomainQuotaEnabled(ctx context.Context) bool {
@@ -39,20 +30,6 @@ func (s *SettingService) GetRegistrationEmailSuffixWhitelist(ctx context.Context
 		return []string{}
 	}
 	return ParseRegistrationEmailSuffixWhitelist(value)
-}
-
-// IsPasswordResetEnabled 检查是否启用密码重置功能
-// 要求：必须同时开启邮件验证
-func (s *SettingService) IsPasswordResetEnabled(ctx context.Context) bool {
-	// Password reset requires email verification to be enabled
-	if !s.IsEmailVerifyEnabled(ctx) {
-		return false
-	}
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyPasswordResetEnabled)
-	if err != nil {
-		return false // 默认关闭
-	}
-	return value == "true"
 }
 
 // IsTotpEnabled 检查是否启用 TOTP 双因素认证功能

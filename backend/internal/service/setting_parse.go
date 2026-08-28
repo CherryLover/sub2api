@@ -20,7 +20,7 @@ import (
 // InitializeDefaultSettings 初始化默认设置
 func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	// 检查是否已有设置
-	_, err := s.settingRepo.GetValue(ctx, SettingKeyEmailVerifyEnabled)
+	_, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEmailSuffixWhitelist)
 	if err == nil {
 		// 已有设置，不需要初始化
 		return nil
@@ -40,7 +40,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 	// 初始化默认设置
 	defaults := map[string]string{
-		SettingKeyEmailVerifyEnabled:                     "false",
 		SettingKeyRegistrationEmailSuffixWhitelist:       "[]",
 		SettingKeyRegistrationEmailDomainQuotaEnabled:    "false",
 		SettingKeyAPIKeyACLTrustForwardedIP:              "true",
@@ -56,8 +55,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAuthSourceDefaultEmailSubscriptions:    "[]",
 		SettingKeyAuthSourceDefaultEmailGrantOnSignup:    "false",
 		SettingKeyAuthSourceDefaultEmailGrantOnFirstBind: "false",
-		SettingKeySMTPPort:                               "587",
-		SettingKeySMTPUseTLS:                             "false",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",
@@ -163,7 +160,6 @@ func parseForwardedClientIPHeadersSetting(value string) ([]string, error) {
 
 // parseSettings 解析设置到结构体
 func (s *SettingService) parseSettings(settings map[string]string) *SystemSettings {
-	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
 	apiKeyACLTrustForwardedIP := false
 	forwardedClientIPHeaders := []string{}
 	if s != nil && s.cfg != nil {
@@ -185,11 +181,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		}
 	}
 	result := &SystemSettings{
-		EmailVerifyEnabled:                  emailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:    ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
 		RegistrationEmailDomainQuotaEnabled: settings[SettingKeyRegistrationEmailDomainQuotaEnabled] == "true",
-		PasswordResetEnabled:                emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
-		FrontendURL:                         settings[SettingKeyFrontendURL],
 		TotpEnabled:                         settings[SettingKeyTotpEnabled] == "true",
 		PasskeyEnabled:                      s.passkeySettingEnabled(settings),
 		SessionBindingEnabled:               settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
@@ -198,12 +191,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		LoginEntryPublic:                    strings.TrimSpace(settings[SettingKeyWebLoginEntryPublic]) != "false", // 缺失=公开
 		LoginEntryPath:                      config.NormalizeEntryPath(settings[SettingKeyWebLoginEntryPath]),
 		DefaultHomePath:                     config.NormalizeEntryPath(settings[SettingKeyWebDefaultHomePath]),
-		SMTPHost:                            settings[SettingKeySMTPHost],
-		SMTPUsername:                        settings[SettingKeySMTPUsername],
-		SMTPFrom:                            settings[SettingKeySMTPFrom],
-		SMTPFromName:                        settings[SettingKeySMTPFromName],
-		SMTPUseTLS:                          settings[SettingKeySMTPUseTLS] == "true",
-		SMTPPasswordConfigured:              settings[SettingKeySMTPPassword] != "",
 		APIKeyACLTrustForwardedIP:           apiKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:            forwardedClientIPHeaders,
 		DocURL:                              settings[SettingKeyDocURL],
@@ -212,12 +199,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 
 	// 解析整数类型
-	if port, err := strconv.Atoi(settings[SettingKeySMTPPort]); err == nil {
-		result.SMTPPort = port
-	} else {
-		result.SMTPPort = 587
-	}
-
 	if concurrency, err := strconv.Atoi(settings[SettingKeyDefaultConcurrency]); err == nil {
 		result.DefaultConcurrency = concurrency
 	} else {
@@ -235,9 +216,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.DefaultBalance = s.cfg.Default.UserBalance
 	}
 	result.DefaultSubscriptions = parseDefaultSubscriptions(settings[SettingKeyDefaultSubscriptions])
-
-	// 敏感信息直接返回，方便测试连接时使用
-	result.SMTPPassword = settings[SettingKeySMTPPassword]
 
 	// Model fallback settings
 	result.FallbackModelAnthropic = s.getStringOrDefault(settings, SettingKeyFallbackModelAnthropic, "claude-3-5-sonnet-20241022")
@@ -403,23 +381,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.UpstreamCost)
 	result.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.PreviousResponse)
 	result.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.SessionSticky)
-
-	// 余额、订阅到期与账号限额通知
-	result.BalanceLowNotifyEnabled = settings[SettingKeyBalanceLowNotifyEnabled] == "true"
-	if v, err := strconv.ParseFloat(settings[SettingKeyBalanceLowNotifyThreshold], 64); err == nil && v >= 0 {
-		result.BalanceLowNotifyThreshold = v
-	}
-	result.BalanceLowNotifyRechargeURL = settings[SettingKeyBalanceLowNotifyRechargeURL]
-	result.SubscriptionExpiryNotifyEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionExpiryNotifyEnabled])
-
-	// 账号限额通知
-	result.AccountQuotaNotifyEnabled = settings[SettingKeyAccountQuotaNotifyEnabled] == "true"
-	if raw := strings.TrimSpace(settings[SettingKeyAccountQuotaNotifyEmails]); raw != "" {
-		result.AccountQuotaNotifyEmails = ParseNotifyEmails(raw)
-	}
-	if result.AccountQuotaNotifyEmails == nil {
-		result.AccountQuotaNotifyEmails = []NotifyEmailEntry{}
-	}
 
 	// 系统层默认 platform quota（修复 Bug B：parseSettings 不填充导致回显恒为 nil）
 	if raw := settings[SettingKeyDefaultPlatformQuotas]; raw != "" {

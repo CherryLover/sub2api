@@ -142,21 +142,18 @@ func ProvideSystemHandler(buildInfo BuildInfo, lockService *service.SystemOperat
 }
 
 // ProvideSettingHandler creates SettingHandler with version from BuildInfo
-func ProvideSettingHandler(settingService *service.SettingService, buildInfo BuildInfo, notificationEmailService *service.NotificationEmailService) *SettingHandler {
+func ProvideSettingHandler(settingService *service.SettingService, buildInfo BuildInfo) *SettingHandler {
 	// 版本号有两条出口：/api/v1/settings/public 走 handler 自己持有的 version，
 	// 而服务端注入 HTML 的 window.__APP_CONFIG__ 走 SettingService.version。
 	// 这里是装配阶段唯一同时拿到 SettingService 与 BuildInfo 的地方，必须把编译期
 	// 版本号灌进 service，否则注入出去的 version 恒为空串（侧边栏版本号消失）。
 	settingService.SetVersion(buildInfo.Version)
-	h := NewSettingHandler(settingService, buildInfo.Version)
-	h.SetNotificationEmailService(notificationEmailService)
-	return h
+	return NewSettingHandler(settingService, buildInfo.Version)
 }
 
-// ProvideAdminSettingHandler creates admin.SettingHandler with notification template APIs.
-func ProvideAdminSettingHandler(settingService *service.SettingService, emailService *service.EmailService, opsService *service.OpsService, userAttributeService *service.UserAttributeService, notificationEmailService *service.NotificationEmailService, totpService *service.TotpService, userService *service.UserService) *admin.SettingHandler {
-	h := admin.NewSettingHandler(settingService, emailService, opsService, userAttributeService)
-	h.SetNotificationEmailService(notificationEmailService)
+// ProvideAdminSettingHandler creates admin.SettingHandler with step-up dependencies.
+func ProvideAdminSettingHandler(settingService *service.SettingService, opsService *service.OpsService, userAttributeService *service.UserAttributeService, totpService *service.TotpService, userService *service.UserService) *admin.SettingHandler {
+	h := admin.NewSettingHandler(settingService, opsService, userAttributeService)
 	h.SetStepUpDeps(totpService, userService)
 	return h
 }

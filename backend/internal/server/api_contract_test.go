@@ -498,16 +498,7 @@ func TestAPIContracts(t *testing.T) {
 			setup: func(t *testing.T, deps *contractDeps) {
 				t.Helper()
 				deps.settingRepo.SetAll(map[string]string{
-					service.SettingKeyEmailVerifyEnabled:               "false",
 					service.SettingKeyRegistrationEmailSuffixWhitelist: "[]",
-
-					service.SettingKeySMTPHost:     "smtp.example.com",
-					service.SettingKeySMTPPort:     "587",
-					service.SettingKeySMTPUsername: "user",
-					service.SettingKeySMTPPassword: "secret",
-					service.SettingKeySMTPFrom:     "no-reply@example.com",
-					service.SettingKeySMTPFromName: "Sub2API",
-					service.SettingKeySMTPUseTLS:   "true",
 
 					service.SettingKeyDocURL: "https://docs.example.com",
 
@@ -532,11 +523,8 @@ func TestAPIContracts(t *testing.T) {
 				"code": 0,
 				"message": "success",
 				"data": {
-					"email_verify_enabled": false,
 					"registration_email_suffix_whitelist": [],
 					"registration_email_domain_quota_enabled": false,
-					"password_reset_enabled": false,
-						"frontend_url": "",
 						"totp_enabled": false,
 						"totp_encryption_key_configured": false,
 						"passkey_enabled": false,
@@ -546,13 +534,6 @@ func TestAPIContracts(t *testing.T) {
 						"session_binding_enabled": false,
 						"step_up_enabled": false,
 						"audit_log_retention_days": 180,
-						"smtp_host": "smtp.example.com",
-						"smtp_port": 587,
-						"smtp_username": "user",
-					"smtp_password_configured": true,
-					"smtp_from_email": "no-reply@example.com",
-					"smtp_from_name": "Sub2API",
-					"smtp_use_tls": true,
 						"ops_monitoring_enabled": false,
 						"ops_realtime_monitoring_enabled": true,
 						"ops_query_mode_default": "auto",
@@ -642,13 +623,7 @@ func TestAPIContracts(t *testing.T) {
 						"rules": []
 					},
 					"custom_endpoints": [],
-					"balance_low_notify_enabled": false,
-					"account_quota_notify_enabled": false,
 					"account_scheduling_thresholds": {"anthropic":100,"grok":100,"openai":100},
-					"subscription_expiry_notify_enabled": true,
-					"balance_low_notify_threshold": 0,
-					"balance_low_notify_recharge_url": "",
-					"account_quota_notify_emails": [],
 					"channel_monitor_enabled": true,
 					"channel_monitor_mode": "v1",
 					"channel_monitor_hide_throughput": true,
@@ -769,7 +744,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
-	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil)
+	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil)
 	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {

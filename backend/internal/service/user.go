@@ -48,7 +48,6 @@ type User struct {
 	BalanceNotifyEnabled       bool
 	BalanceNotifyThresholdType string // "fixed" (default) | "percentage"
 	BalanceNotifyThreshold     *float64
-	BalanceNotifyExtraEmails   []NotifyEmailEntry
 	TotalRecharged             float64
 
 	// RPMLimit 用户级每分钟请求数上限（0 = 不限制）。仅在所用分组未设置 rpm_limit

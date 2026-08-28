@@ -2537,6 +2537,16 @@ func (a *Account) GetQuotaResetTimezone() string {
 
 // --- Quota Notification Getters ---
 
+const (
+	// thresholdTypeFixed 是账号额度提醒阈值的默认解释方式（绝对值）。
+	thresholdTypeFixed = "fixed"
+
+	// 账号额度维度名，用于拼 extra 字段键。
+	quotaDimDaily  = "daily"
+	quotaDimWeekly = "weekly"
+	quotaDimTotal  = "total"
+)
+
 // QuotaNotifyConfig returns the notify configuration for a given quota dimension.
 // dim must be one of quotaDimDaily, quotaDimWeekly, quotaDimTotal.
 func (a *Account) QuotaNotifyConfig(dim string) (enabled bool, threshold float64, thresholdType string) {

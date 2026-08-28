@@ -32,10 +32,9 @@ return 0
 `)
 
 type OpsAlertEvaluatorService struct {
-	opsService   *OpsService
-	opsRepo      OpsRepository
-	emailService *EmailService
-	proxyRepo    ProxyRepository
+	opsService *OpsService
+	opsRepo    OpsRepository
+	proxyRepo  ProxyRepository
 
 	redisClient *redis.Client
 	cfg         *config.Config
@@ -48,8 +47,6 @@ type OpsAlertEvaluatorService struct {
 
 	mu         sync.Mutex
 	ruleStates map[int64]*opsAlertRuleState
-
-	emailLimiter *slidingWindowLimiter
 
 	skipLogMu sync.Mutex
 	skipLogAt time.Time
@@ -65,21 +62,18 @@ type opsAlertRuleState struct {
 func NewOpsAlertEvaluatorService(
 	opsService *OpsService,
 	opsRepo OpsRepository,
-	emailService *EmailService,
 	redisClient *redis.Client,
 	cfg *config.Config,
 	proxyRepo ProxyRepository,
 ) *OpsAlertEvaluatorService {
 	return &OpsAlertEvaluatorService{
-		opsService:   opsService,
-		opsRepo:      opsRepo,
-		emailService: emailService,
-		proxyRepo:    proxyRepo,
-		redisClient:  redisClient,
-		cfg:          cfg,
-		instanceID:   uuid.NewString(),
-		ruleStates:   map[int64]*opsAlertRuleState{},
-		emailLimiter: newSlidingWindowLimiter(0, time.Hour),
+		opsService:  opsService,
+		opsRepo:     opsRepo,
+		proxyRepo:   proxyRepo,
+		redisClient: redisClient,
+		cfg:         cfg,
+		instanceID:  uuid.NewString(),
+		ruleStates:  map[int64]*opsAlertRuleState{},
 	}
 }
 
@@ -198,7 +192,6 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 	rulesEvaluated := 0
 	eventsCreated := 0
 	eventsResolved := 0
-	emailsSent := 0
 
 	now := time.Now().UTC()
 	safeEnd := now.Truncate(time.Minute)
@@ -284,18 +277,12 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				CreatedAt:      now,
 			}
 
-			created, err := s.opsRepo.CreateAlertEvent(ctx, firedEvent)
-			if err != nil {
+			if _, err := s.opsRepo.CreateAlertEvent(ctx, firedEvent); err != nil {
 				logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] create event failed (rule=%d): %v", rule.ID, err)
 				continue
 			}
 
 			eventsCreated++
-			if created != nil && created.ID > 0 {
-				if s.maybeSendAlertEmail(ctx, runtimeCfg, rule, created) {
-					emailsSent++
-				}
-			}
 			continue
 		}
 
@@ -310,7 +297,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 		}
 	}
 
-	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d emails_sent=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved, emailsSent), 2048)
+	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved), 2048)
 	s.recordHeartbeatSuccess(runAt, time.Since(startedAt), result)
 }
 
@@ -675,186 +662,6 @@ func buildOpsAlertDescription(rule *OpsAlertRule, value float64, windowMinutes i
 	)
 }
 
-func (s *OpsAlertEvaluatorService) maybeSendAlertEmail(ctx context.Context, runtimeCfg *OpsAlertRuntimeSettings, rule *OpsAlertRule, event *OpsAlertEvent) bool {
-	if s == nil || s.emailService == nil || s.opsService == nil || event == nil || rule == nil {
-		return false
-	}
-	if event.EmailSent {
-		return false
-	}
-	if !rule.NotifyEmail {
-		return false
-	}
-
-	emailCfg, err := s.opsService.GetEmailNotificationConfig(ctx)
-	if err != nil || emailCfg == nil || !emailCfg.Alert.Enabled {
-		return false
-	}
-
-	if len(emailCfg.Alert.Recipients) == 0 {
-		return false
-	}
-	if !shouldSendOpsAlertEmailByMinSeverity(strings.TrimSpace(emailCfg.Alert.MinSeverity), strings.TrimSpace(rule.Severity)) {
-		return false
-	}
-
-	if runtimeCfg != nil && runtimeCfg.Silencing.Enabled {
-		if isOpsAlertSilenced(time.Now().UTC(), rule, event, runtimeCfg.Silencing) {
-			return false
-		}
-	}
-
-	// Apply/update rate limiter.
-	s.emailLimiter.SetLimit(emailCfg.Alert.RateLimitPerHour)
-
-	subject := fmt.Sprintf("[Ops Alert][%s] %s", strings.TrimSpace(rule.Severity), strings.TrimSpace(rule.Name))
-	body := buildOpsAlertEmailBody(rule, event)
-
-	anySent := false
-	for _, to := range emailCfg.Alert.Recipients {
-		addr := strings.TrimSpace(to)
-		if addr == "" {
-			continue
-		}
-		if !s.emailLimiter.Allow(time.Now().UTC()) {
-			continue
-		}
-		if s.emailService.notificationEmailService != nil {
-			if err := s.emailService.notificationEmailService.Send(ctx, NotificationEmailSendInput{
-				Event:          NotificationEmailEventOpsAlert,
-				RecipientEmail: addr,
-				RecipientName:  emailRecipientName(addr),
-				SourceType:     "ops_alert",
-				SourceID:       fmt.Sprintf("%d", event.ID),
-				Variables:      opsAlertEmailVariables(rule, event),
-			}); err == nil {
-				anySent = true
-				continue
-			} else if !shouldFallbackNotificationEmail(err) {
-				continue
-			}
-		}
-		if err := s.emailService.SendEmail(ctx, addr, subject, body); err != nil {
-			// Ignore per-recipient failures; continue best-effort.
-			continue
-		}
-		anySent = true
-	}
-
-	if anySent {
-		_ = s.opsRepo.UpdateAlertEventEmailSent(context.Background(), event.ID, true)
-	}
-	return anySent
-}
-
-func opsAlertEmailVariables(rule *OpsAlertRule, event *OpsAlertEvent) map[string]string {
-	variables := map[string]string{
-		"rule_name":         "-",
-		"severity":          "-",
-		"alert_status":      "-",
-		"metric_type":       "-",
-		"operator":          "-",
-		"metric_value":      "-",
-		"threshold_value":   "-",
-		"triggered_at":      time.Now().UTC().Format(time.RFC3339),
-		"alert_description": "-",
-	}
-	if rule != nil {
-		variables["rule_name"] = strings.TrimSpace(rule.Name)
-		variables["severity"] = strings.TrimSpace(rule.Severity)
-		variables["metric_type"] = strings.TrimSpace(rule.MetricType)
-		variables["operator"] = strings.TrimSpace(rule.Operator)
-		variables["threshold_value"] = fmt.Sprintf("%.2f", rule.Threshold)
-		if strings.TrimSpace(rule.Description) != "" {
-			variables["alert_description"] = strings.TrimSpace(rule.Description)
-		}
-	}
-	if event != nil {
-		variables["alert_status"] = strings.TrimSpace(event.Status)
-		if event.MetricValue != nil {
-			variables["metric_value"] = fmt.Sprintf("%.2f", *event.MetricValue)
-		}
-		if event.ThresholdValue != nil {
-			variables["threshold_value"] = fmt.Sprintf("%.2f", *event.ThresholdValue)
-		}
-		if !event.FiredAt.IsZero() {
-			variables["triggered_at"] = event.FiredAt.UTC().Format(time.RFC3339)
-		}
-		if strings.TrimSpace(event.Description) != "" {
-			variables["alert_description"] = strings.TrimSpace(event.Description)
-		}
-	}
-	return variables
-}
-
-func buildOpsAlertEmailBody(rule *OpsAlertRule, event *OpsAlertEvent) string {
-	if rule == nil || event == nil {
-		return ""
-	}
-	metric := strings.TrimSpace(rule.MetricType)
-	value := "-"
-	threshold := fmt.Sprintf("%.2f", rule.Threshold)
-	if event.MetricValue != nil {
-		value = fmt.Sprintf("%.2f", *event.MetricValue)
-	}
-	if event.ThresholdValue != nil {
-		threshold = fmt.Sprintf("%.2f", *event.ThresholdValue)
-	}
-	return fmt.Sprintf(`
-<h2>Ops Alert</h2>
-<p><b>Rule</b>: %s</p>
-<p><b>Severity</b>: %s</p>
-<p><b>Status</b>: %s</p>
-<p><b>Metric</b>: %s %s %s</p>
-<p><b>Fired at</b>: %s</p>
-<p><b>Description</b>: %s</p>
-`,
-		htmlEscape(rule.Name),
-		htmlEscape(rule.Severity),
-		htmlEscape(event.Status),
-		htmlEscape(metric),
-		htmlEscape(rule.Operator),
-		htmlEscape(fmt.Sprintf("%s (threshold %s)", value, threshold)),
-		event.FiredAt.Format(time.RFC3339),
-		htmlEscape(event.Description),
-	)
-}
-
-func shouldSendOpsAlertEmailByMinSeverity(minSeverity string, ruleSeverity string) bool {
-	minSeverity = strings.ToLower(strings.TrimSpace(minSeverity))
-	if minSeverity == "" {
-		return true
-	}
-
-	eventLevel := opsEmailSeverityForOps(ruleSeverity)
-	minLevel := strings.ToLower(minSeverity)
-
-	rank := func(level string) int {
-		switch level {
-		case "critical":
-			return 3
-		case "warning":
-			return 2
-		case "info":
-			return 1
-		default:
-			return 0
-		}
-	}
-	return rank(eventLevel) >= rank(minLevel)
-}
-
-func opsEmailSeverityForOps(severity string) string {
-	switch strings.ToUpper(strings.TrimSpace(severity)) {
-	case "P0":
-		return "critical"
-	case "P1":
-		return "warning"
-	default:
-		return "info"
-	}
-}
-
 func isOpsAlertSilenced(now time.Time, rule *OpsAlertRule, event *OpsAlertEvent, silencing OpsAlertSilencingSettings) bool {
 	if !silencing.Enabled {
 		return false
@@ -992,63 +799,6 @@ func (s *OpsAlertEvaluatorService) recordHeartbeatError(runAt time.Time, duratio
 		LastError:      &msg,
 		LastDurationMs: &durMs,
 	})
-}
-
-func htmlEscape(s string) string {
-	replacer := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&quot;",
-		"'", "&#39;",
-	)
-	return replacer.Replace(s)
-}
-
-type slidingWindowLimiter struct {
-	mu     sync.Mutex
-	limit  int
-	window time.Duration
-	sent   []time.Time
-}
-
-func newSlidingWindowLimiter(limit int, window time.Duration) *slidingWindowLimiter {
-	if window <= 0 {
-		window = time.Hour
-	}
-	return &slidingWindowLimiter{
-		limit:  limit,
-		window: window,
-		sent:   []time.Time{},
-	}
-}
-
-func (l *slidingWindowLimiter) SetLimit(limit int) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.limit = limit
-}
-
-func (l *slidingWindowLimiter) Allow(now time.Time) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	if l.limit <= 0 {
-		return true
-	}
-	cutoff := now.Add(-l.window)
-	keep := l.sent[:0]
-	for _, t := range l.sent {
-		if t.After(cutoff) {
-			keep = append(keep, t)
-		}
-	}
-	l.sent = keep
-	if len(l.sent) >= l.limit {
-		return false
-	}
-	l.sent = append(l.sent, now)
-	return true
 }
 
 // computeGroupAvailableRatio returns the available percentage for a group.

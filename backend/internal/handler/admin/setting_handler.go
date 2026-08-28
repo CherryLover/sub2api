@@ -18,29 +18,20 @@ var semverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 // SettingHandler 系统设置处理器
 type SettingHandler struct {
-	settingService           *service.SettingService
-	emailService             *service.EmailService
-	opsService               *service.OpsService
-	notificationEmailService *service.NotificationEmailService
-	totpService              *service.TotpService
-	userService              *service.UserService
+	settingService *service.SettingService
+	opsService     *service.OpsService
+	totpService    *service.TotpService
+	userService    *service.UserService
 }
 
 // NewSettingHandler 创建系统设置处理器。
 // 第五个参数（原钉钉身份同步的 UserAttributeService）随 OAuth 登录裁剪不再使用，
 // 保留形参以免改动 wire 装配与既有测试的构造签名。
-func NewSettingHandler(settingService *service.SettingService, emailService *service.EmailService, opsService *service.OpsService, _ *service.UserAttributeService) *SettingHandler {
+func NewSettingHandler(settingService *service.SettingService, opsService *service.OpsService, _ *service.UserAttributeService) *SettingHandler {
 	return &SettingHandler{
 		settingService: settingService,
-		emailService:   emailService,
 		opsService:     opsService,
 	}
-}
-
-// SetNotificationEmailService attaches the notification template service without changing
-// the constructor signature used by existing unit tests.
-func (h *SettingHandler) SetNotificationEmailService(notificationEmailService *service.NotificationEmailService) {
-	h.notificationEmailService = notificationEmailService
 }
 
 // SetStepUpDeps attaches the services backing the step-up switch preconditions
@@ -79,11 +70,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 	passkeyConfigured, passkeyRPID, passkeyRPOrigins := h.settingService.PasskeyConfiguration()
 
 	payload := dto.SystemSettings{
-		EmailVerifyEnabled:                                     settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:                       settings.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled:                    settings.RegistrationEmailDomainQuotaEnabled,
-		PasswordResetEnabled:                                   settings.PasswordResetEnabled,
-		FrontendURL:                                            settings.FrontendURL,
 		TotpEnabled:                                            settings.TotpEnabled,
 		TotpEncryptionKeyConfigured:                            h.settingService.IsTotpEncryptionKeyConfigured(),
 		PasskeyEnabled:                                         settings.PasskeyEnabled,
@@ -93,13 +81,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		SessionBindingEnabled:                                  settings.SessionBindingEnabled,
 		StepUpEnabled:                                          settings.StepUpEnabled,
 		AuditLogRetentionDays:                                  settings.AuditLogRetentionDays,
-		SMTPHost:                                               settings.SMTPHost,
-		SMTPPort:                                               settings.SMTPPort,
-		SMTPUsername:                                           settings.SMTPUsername,
-		SMTPPasswordConfigured:                                 settings.SMTPPasswordConfigured,
-		SMTPFrom:                                               settings.SMTPFrom,
-		SMTPFromName:                                           settings.SMTPFromName,
-		SMTPUseTLS:                                             settings.SMTPUseTLS,
 		APIKeyACLTrustForwardedIP:                              settings.APIKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:                               settings.ForwardedClientIPHeaders,
 		DocURL:                                                 settings.DocURL,
@@ -174,12 +155,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost:     settings.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost,
 		OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse: settings.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse,
 		OpenAIAdvancedSchedulerEffectiveWeightSessionSticky:    settings.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky,
-		BalanceLowNotifyEnabled:                                settings.BalanceLowNotifyEnabled,
-		BalanceLowNotifyThreshold:                              settings.BalanceLowNotifyThreshold,
-		BalanceLowNotifyRechargeURL:                            settings.BalanceLowNotifyRechargeURL,
-		SubscriptionExpiryNotifyEnabled:                        settings.SubscriptionExpiryNotifyEnabled,
-		AccountQuotaNotifyEnabled:                              settings.AccountQuotaNotifyEnabled,
-		AccountQuotaNotifyEmails:                               dto.NotifyEmailEntriesFromService(settings.AccountQuotaNotifyEmails),
 
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorMode:                   settings.ChannelMonitorMode,

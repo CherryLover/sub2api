@@ -14,13 +14,13 @@ import (
 // Saving settings is a whole-document PUT. A client that sends only the field it
 // cares about must not reset everything else: a payload as small as
 // `{"risk_control_enabled":true}` used to clear every unsent string key, which
-// silently wiped the mail server configuration on the next unrelated save.
+// silently wiped unrelated configuration on the next save.
 
 func TestUpdateSettingsPartialPayloadKeepsUnsentKeys(t *testing.T) {
 	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
-		service.SettingKeySMTPHost:           "smtp.example.com",
-		service.SettingKeySMTPFrom:           "noreply@example.com",
-		service.SettingKeyRiskControlEnabled: "false",
+		service.SettingKeyDocURL:              "https://docs.example.com",
+		service.SettingKeyIdentityPatchPrompt: "keep-me",
+		service.SettingKeyRiskControlEnabled:  "false",
 	})
 
 	rec := doUpdateSettings(t, h, map[string]any{"risk_control_enabled": true}, nil)
@@ -29,35 +29,22 @@ func TestUpdateSettingsPartialPayloadKeepsUnsentKeys(t *testing.T) {
 	require.Equal(t, "true", repo.values[service.SettingKeyRiskControlEnabled],
 		"the field the caller actually sent must be written")
 
-	require.Equal(t, "smtp.example.com", repo.values[service.SettingKeySMTPHost])
-	require.Equal(t, "noreply@example.com", repo.values[service.SettingKeySMTPFrom])
+	require.Equal(t, "https://docs.example.com", repo.values[service.SettingKeyDocURL])
+	require.Equal(t, "keep-me", repo.values[service.SettingKeyIdentityPatchPrompt])
 }
 
 // A full payload keeps whole-document semantics: fields explicitly set to their
 // zero value are still cleared.
 func TestUpdateSettingsFullPayloadStillClearsSentEmptyFields(t *testing.T) {
 	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
-		service.SettingKeyFrontendURL: "https://old.example.com",
+		service.SettingKeyDocURL: "https://old.example.com",
 	})
 
-	rec := doUpdateSettings(t, h, map[string]any{"frontend_url": ""}, nil)
+	rec := doUpdateSettings(t, h, map[string]any{"doc_url": ""}, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.Equal(t, "", repo.values[service.SettingKeyFrontendURL],
+	require.Equal(t, "", repo.values[service.SettingKeyDocURL],
 		"an explicitly sent empty value is a deliberate clear, not an omission")
-}
-
-// smtp_from_email is the one request field whose JSON name differs from its
-// setting key; the alias keeps it from being treated as always-omitted.
-func TestUpdateSettingsSMTPFromAliasIsWritable(t *testing.T) {
-	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
-		service.SettingKeySMTPFrom: "old@example.com",
-	})
-
-	rec := doUpdateSettings(t, h, map[string]any{"smtp_from_email": "new@example.com"}, nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	require.Equal(t, "new@example.com", repo.values[service.SettingKeySMTPFrom])
 }
 
 func TestUpdateSettingsGrokDefaultBaseURLModeIsWritable(t *testing.T) {

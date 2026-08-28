@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS user_provider_default_grants (
 		values: settings,
 	}, cfg)
 
-	svc := service.NewAuthService(client, repo, nil, cfg, settingSvc, nil, nil, defaultSubAssigner)
+	svc := service.NewAuthService(client, repo, nil, cfg, settingSvc, defaultSubAssigner)
 	return svc, repo, client
 }
 

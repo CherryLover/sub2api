@@ -138,11 +138,11 @@ func TestSettingHandler_AuthSourcePlatformQuotas_PutGetRoundTrip(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{
 		values: map[string]string{
-			service.SettingKeyEmailVerifyEnabled: "false",
+			service.SettingKeyRiskControlEnabled: "false",
 		},
 	}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil)
+	handler := NewSettingHandler(svc, nil, nil)
 
 	// PUT：发 email platform quota（openai monthly=20）
 	putBody := map[string]any{

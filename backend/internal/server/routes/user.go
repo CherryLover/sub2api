@@ -31,27 +31,15 @@ func RegisterUserRoutes(
 			user.GET("/profile", h.User.GetProfile)
 			user.PUT("/password", h.User.ChangePassword)
 			user.PUT("", h.User.UpdateProfile)
-			user.POST("/account-bindings/email/send-code", h.User.SendEmailBindingCode)
-			user.POST("/account-bindings/email", h.User.BindEmailIdentity)
 			user.DELETE("/account-bindings/:provider", h.User.UnbindIdentity)
 			user.GET("/api-keys/:id/usage/daily", panelRateLimiter.Heavy(), h.Usage.GetMyAPIKeyDailyUsage)
 			user.GET("/platform-quotas", h.User.GetMyPlatformQuotas)
-
-			// 通知邮箱管理
-			notifyEmail := user.Group("/notify-email")
-			{
-				notifyEmail.POST("/send-code", h.User.SendNotifyEmailCode)
-				notifyEmail.POST("/verify", h.User.VerifyNotifyEmail)
-				notifyEmail.PUT("/toggle", h.User.ToggleNotifyEmail)
-				notifyEmail.DELETE("", h.User.RemoveNotifyEmail)
-			}
 
 			// TOTP 双因素认证
 			totp := user.Group("/totp")
 			{
 				totp.GET("/status", h.Totp.GetStatus)
 				totp.GET("/verification-method", h.Totp.GetVerificationMethod)
-				totp.POST("/send-code", h.Totp.SendVerifyCode)
 				totp.POST("/setup", h.Totp.InitiateSetup)
 				totp.POST("/enable", h.Totp.Enable)
 				totp.POST("/disable", h.Totp.Disable)

@@ -157,7 +157,6 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				user.FieldBalanceNotifyEnabled,
 				user.FieldBalanceNotifyThresholdType,
 				user.FieldBalanceNotifyThreshold,
-				user.FieldBalanceNotifyExtraEmails,
 				user.FieldTotalRecharged,
 				user.FieldSignupSource,
 				user.FieldLastLoginAt,
@@ -938,10 +937,6 @@ func userEntityToService(u *dbent.User) *service.User {
 		CreatedAt:                  u.CreatedAt,
 		UpdatedAt:                  u.UpdatedAt,
 		DeletedAt:                  u.DeletedAt,
-	}
-	// Parse extra emails JSON (supports both old []string and new []NotifyEmailEntry format)
-	if u.BalanceNotifyExtraEmails != "" && u.BalanceNotifyExtraEmails != "[]" {
-		out.BalanceNotifyExtraEmails = service.ParseNotifyEmails(u.BalanceNotifyExtraEmails)
 	}
 	return out
 }

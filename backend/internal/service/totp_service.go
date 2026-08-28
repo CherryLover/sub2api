@@ -21,7 +21,6 @@ var (
 	ErrTotpInvalidCode     = infraerrors.BadRequest("TOTP_INVALID_CODE", "invalid totp code")
 	ErrTotpSetupExpired    = infraerrors.BadRequest("TOTP_SETUP_EXPIRED", "totp setup session expired")
 	ErrTotpTooManyAttempts = infraerrors.TooManyRequests("TOTP_TOO_MANY_ATTEMPTS", "too many verification attempts, please try again later")
-	ErrVerifyCodeRequired  = infraerrors.BadRequest("VERIFY_CODE_REQUIRED", "email verification code is required")
 	ErrPasswordRequired    = infraerrors.BadRequest("PASSWORD_REQUIRED", "password is required")
 )
 
@@ -98,12 +97,10 @@ const (
 
 // TotpService handles TOTP operations
 type TotpService struct {
-	userRepo          UserRepository
-	encryptor         SecretEncryptor
-	cache             TotpCache
-	settingService    *SettingService
-	emailService      *EmailService
-	emailQueueService *EmailQueueService
+	userRepo       UserRepository
+	encryptor      SecretEncryptor
+	cache          TotpCache
+	settingService *SettingService
 }
 
 // NewTotpService creates a new TOTP service
@@ -112,16 +109,12 @@ func NewTotpService(
 	encryptor SecretEncryptor,
 	cache TotpCache,
 	settingService *SettingService,
-	emailService *EmailService,
-	emailQueueService *EmailQueueService,
 ) *TotpService {
 	return &TotpService{
-		userRepo:          userRepo,
-		encryptor:         encryptor,
-		cache:             cache,
-		settingService:    settingService,
-		emailService:      emailService,
-		emailQueueService: emailQueueService,
+		userRepo:       userRepo,
+		encryptor:      encryptor,
+		cache:          cache,
+		settingService: settingService,
 	}
 }
 
@@ -141,22 +134,9 @@ func (s *TotpService) GetStatus(ctx context.Context, userID int64) (*TotpStatus,
 	}, nil
 }
 
-// usesEmailVerification 判断 TOTP 启用/停用时的身份校验方式。
-// 管理员一律使用密码校验：管理员账号的邮箱常为占位地址收不到验证码，
-// 且管理员凭证失守时攻击者往往同时控制通知邮箱，邮箱验证码不构成有效防线。
-// 普通用户维持原有行为：开启邮箱验证时用邮箱验证码，否则用密码。
-func (s *TotpService) usesEmailVerification(ctx context.Context, user *User) bool {
-	return user.Role != RoleAdmin && s.settingService.IsEmailVerifyEnabled(ctx)
-}
-
-// verifyIdentity 按 usesEmailVerification 的结果校验邮箱验证码或密码。
-func (s *TotpService) verifyIdentity(ctx context.Context, user *User, emailCode, password string) error {
-	if s.usesEmailVerification(ctx, user) {
-		if emailCode == "" {
-			return ErrVerifyCodeRequired
-		}
-		return s.emailService.VerifyCode(ctx, user.Email, emailCode)
-	}
+// verifyIdentity 校验开启/关闭 TOTP 时的身份：统一使用账号密码。
+// 邮件体系已整体移除，不再提供邮箱验证码校验分支。
+func (s *TotpService) verifyIdentity(_ context.Context, user *User, password string) error {
 	if password == "" {
 		return ErrPasswordRequired
 	}
@@ -167,8 +147,8 @@ func (s *TotpService) verifyIdentity(ctx context.Context, user *User, emailCode,
 }
 
 // InitiateSetup starts the TOTP setup process
-// If email verification is enabled, emailCode is required; otherwise password is required
-func (s *TotpService) InitiateSetup(ctx context.Context, userID int64, emailCode, password string) (*TotpSetupResponse, error) {
+// 身份复核统一使用账号密码。
+func (s *TotpService) InitiateSetup(ctx context.Context, userID int64, password string) (*TotpSetupResponse, error) {
 	// Check if TOTP feature is enabled globally
 	if !s.settingService.IsTotpEnabled(ctx) {
 		return nil, ErrTotpNotEnabled
@@ -184,7 +164,7 @@ func (s *TotpService) InitiateSetup(ctx context.Context, userID int64, emailCode
 		return nil, ErrTotpAlreadyEnabled
 	}
 
-	if err := s.verifyIdentity(ctx, user, emailCode, password); err != nil {
+	if err := s.verifyIdentity(ctx, user, password); err != nil {
 		return nil, err
 	}
 
@@ -304,8 +284,8 @@ func (s *TotpService) CompleteSetup(ctx context.Context, userID int64, totpCode,
 }
 
 // Disable disables TOTP for a user
-// If email verification is enabled, emailCode is required; otherwise password is required
-func (s *TotpService) Disable(ctx context.Context, userID int64, emailCode, password string) error {
+// 身份复核统一使用账号密码。
+func (s *TotpService) Disable(ctx context.Context, userID int64, password string) error {
 	// Get user
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
@@ -316,7 +296,7 @@ func (s *TotpService) Disable(ctx context.Context, userID int64, emailCode, pass
 		return ErrTotpNotSetup
 	}
 
-	if err := s.verifyIdentity(ctx, user, emailCode, password); err != nil {
+	if err := s.verifyIdentity(ctx, user, password); err != nil {
 		return err
 	}
 
@@ -528,31 +508,10 @@ type VerificationMethod struct {
 }
 
 // GetVerificationMethod returns the verification method for TOTP operations.
-// 与 verifyIdentity 保持同一判定：管理员一律返回 password。
+// 与 verifyIdentity 保持同一判定：恒为 password。
 func (s *TotpService) GetVerificationMethod(ctx context.Context, userID int64) (*VerificationMethod, error) {
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
+	if _, err := s.userRepo.GetByID(ctx, userID); err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
-	if s.usesEmailVerification(ctx, user) {
-		return &VerificationMethod{Method: "email"}, nil
-	}
 	return &VerificationMethod{Method: "password"}, nil
-}
-
-// SendVerifyCode sends an email verification code for TOTP operations
-func (s *TotpService) SendVerifyCode(ctx context.Context, userID int64, locale ...string) error {
-	// Check if email verification is enabled
-	if !s.settingService.IsEmailVerifyEnabled(ctx) {
-		return infraerrors.BadRequest("EMAIL_VERIFY_NOT_ENABLED", "email verification is not enabled")
-	}
-
-	// Get user email
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("get user: %w", err)
-	}
-
-	// Send verification code via queue
-	return s.emailQueueService.EnqueueVerifyCode(user.Email, SiteName, firstEmailLocale(locale))
 }
