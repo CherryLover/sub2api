@@ -156,11 +156,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse: settings.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse,
 		OpenAIAdvancedSchedulerEffectiveWeightSessionSticky:    settings.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky,
 
-		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
-		ChannelMonitorMode:                   settings.ChannelMonitorMode,
-		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
-		ChannelMonitorHideThroughput:         settings.ChannelMonitorHideThroughput,
-		ChannelMonitorShowQuota:              settings.ChannelMonitorShowQuota,
+		ChannelMonitorEnabled:        settings.ChannelMonitorEnabled,
+		ChannelMonitorHideThroughput: settings.ChannelMonitorHideThroughput,
 
 		GrokDefaultTextModel:           settings.GrokDefaultTextModel,
 		GrokCrossClientModelMapEnabled: settings.GrokCrossClientModelMapEnabled,

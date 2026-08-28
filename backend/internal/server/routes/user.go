@@ -113,17 +113,10 @@ func RegisterUserRoutes(
 			subscriptions.GET("/summary", h.Subscription.GetSummary)
 		}
 
-		// 渠道监控（用户只读）
-		monitors := authenticated.Group("/channel-monitors")
-		{
-			monitors.GET("", h.ChannelMonitor.List)
-			monitors.GET("/:id/status", h.ChannelMonitor.GetStatus)
-		}
-
-		// V2 passive views require feature on + mode=v2.
+		// 渠道监控（用户只读，被动聚合视图）：受 channel_monitor_enabled 开关控制。
 		monitorV2 := authenticated.Group("/channel-monitor-v2")
 		monitorV2.Use(panelRateLimiter.Heavy())
-		monitorV2.Use(channelMonitorModeV2Guard(settingService))
+		monitorV2.Use(channelMonitorFeatureGuard(settingService))
 		{
 			monitorV2.GET("/dimensions", h.ChannelMonitorV2.Dimensions)
 			monitorV2.GET("/snapshot", h.ChannelMonitorV2.Snapshot)

@@ -85,14 +85,11 @@ export default {
       loadFailed: 'Failed to load V2 config',
       saveSuccess: 'V2 monitor config saved',
       saveFailed: 'Failed to save V2 config',
-      modeBanner:
-        'System mode is currently {mode}. V2 minute aggregation will not run; this config can be prepared now and takes effect after switching to {modeV2}. Change mode under System Settings → Feature switches.',
-      modeClosed: 'Channel monitor disabled',
-      modeV1: 'V1 active probes',
-      modeV2: 'V2 passive monitoring',
+      disabledBanner:
+        'The channel monitor switch is currently off, so minute aggregation will not run. This config can be saved now and takes effect as soon as the switch is turned on, under System Settings → Feature switches.',
       enableTitle: 'Enable V2 aggregation',
       enableHint:
-        'Applies when system mode is V2. Turning this off only stops this config’s aggregation; the system mode switch remains under Feature switches.',
+        'Applies while the channel monitor switch is on. Turning this off only stops this config’s aggregation; the main switch remains under Feature switches.',
       refreshTitle: 'Aggregation interval',
       refreshHint: 'Affects matrix time granularity and refresh cadence',
       refreshAria: 'Aggregation interval',
@@ -134,14 +131,8 @@ export default {
       },
     },
     admin: {
-      descriptionV1:
-        'System mode is V1 active probes: manage probe monitors and run checks now; V2 aggregation does not run.',
-      descriptionV2:
-        'System mode is V2 passive monitoring: configure aggregation dimensions; V1 active probes do not run.',
-      tabAria: 'Monitor management',
-      tabV2: 'V2 data monitor config',
-      tabV1Active: 'V1 active probes',
-      tabV1History: 'V1 history (probes not active in current mode)',
+      description:
+        'Passively aggregates real gateway traffic. Configure aggregation dimensions, health thresholds, and error categories.',
     },
   },
 }

@@ -63,20 +63,7 @@ func newChannelMonitorRouteSettings(enabled bool) *service.SettingService {
 	}, &config.Config{})
 }
 
-func newChannelMonitorModeSettings(enabled bool, mode string) *service.SettingService {
-	enabledVal := "false"
-	if enabled {
-		enabledVal = "true"
-	}
-	return service.NewSettingService(&channelMonitorRouteSettingRepoStub{
-		values: map[string]string{
-			service.SettingKeyChannelMonitorEnabled: enabledVal,
-			service.SettingKeyChannelMonitorMode:    mode,
-		},
-	}, &config.Config{})
-}
-
-func TestChannelMonitorAdminFeatureGuard(t *testing.T) {
+func TestChannelMonitorFeatureGuard(t *testing.T) {
 	tests := []struct {
 		name       string
 		svc        *service.SettingService
@@ -104,7 +91,7 @@ func TestChannelMonitorAdminFeatureGuard(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 
 			router := gin.New()
-			router.Use(channelMonitorAdminFeatureGuard(tt.svc))
+			router.Use(channelMonitorFeatureGuard(tt.svc))
 			router.GET("/test", func(c *gin.Context) {
 				c.JSON(http.StatusOK, gin.H{"ok": true})
 			})
@@ -116,57 +103,6 @@ func TestChannelMonitorAdminFeatureGuard(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 			if tt.wantStatus == http.StatusForbidden {
 				require.Contains(t, rec.Body.String(), "CHANNEL_MONITOR_DISABLED")
-			}
-		})
-	}
-}
-
-func TestChannelMonitorModeV2Guard(t *testing.T) {
-	tests := []struct {
-		name       string
-		svc        *service.SettingService
-		wantStatus int
-		wantCode   string
-	}{
-		{
-			name:       "nil blocks as disabled",
-			svc:        nil,
-			wantStatus: http.StatusForbidden,
-			wantCode:   "CHANNEL_MONITOR_DISABLED",
-		},
-		{
-			name:       "feature off blocks",
-			svc:        newChannelMonitorModeSettings(false, service.ChannelMonitorModeV2),
-			wantStatus: http.StatusForbidden,
-			wantCode:   "CHANNEL_MONITOR_DISABLED",
-		},
-		{
-			name:       "mode v1 blocks with mode mismatch",
-			svc:        newChannelMonitorModeSettings(true, service.ChannelMonitorModeV1),
-			wantStatus: http.StatusForbidden,
-			wantCode:   "CHANNEL_MONITOR_MODE_MISMATCH",
-		},
-		{
-			name:       "mode v2 allows",
-			svc:        newChannelMonitorModeSettings(true, service.ChannelMonitorModeV2),
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
-			router := gin.New()
-			router.Use(channelMonitorModeV2Guard(tt.svc))
-			router.GET("/test", func(c *gin.Context) {
-				c.JSON(http.StatusOK, gin.H{"ok": true})
-			})
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
-			router.ServeHTTP(rec, req)
-			require.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantCode != "" {
-				require.Contains(t, rec.Body.String(), tt.wantCode)
 			}
 		})
 	}

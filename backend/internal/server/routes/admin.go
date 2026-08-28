@@ -100,7 +100,6 @@ func RegisterAdminRoutes(
 		registerChannelRoutes(admin, h)
 
 		// 渠道监控
-		registerChannelMonitorRoutes(admin, h, settingService)
 		registerChannelMonitorV2Routes(admin, h, settingService)
 
 		// 提示词输入审计
@@ -669,62 +668,27 @@ func registerChannelRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
-func registerChannelMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers, settingService *service.SettingService) {
-	guard := channelMonitorAdminFeatureGuard(settingService)
-	monitors := admin.Group("/channel-monitors")
-	monitors.Use(guard)
-	{
-		monitors.GET("", h.Admin.ChannelMonitor.List)
-		monitors.POST("", h.Admin.ChannelMonitor.Create)
-		monitors.GET("/:id", h.Admin.ChannelMonitor.Get)
-		monitors.POST("/:id/duplicate", h.Admin.ChannelMonitor.Duplicate)
-		monitors.PUT("/:id", h.Admin.ChannelMonitor.Update)
-		monitors.DELETE("/:id", h.Admin.ChannelMonitor.Delete)
-		monitors.POST("/:id/run", h.Admin.ChannelMonitor.Run)
-		monitors.GET("/:id/history", h.Admin.ChannelMonitor.History)
-	}
-
-	templates := admin.Group("/channel-monitor-templates")
-	templates.Use(guard)
-	{
-		templates.GET("", h.Admin.ChannelMonitorTemplate.List)
-		templates.POST("", h.Admin.ChannelMonitorTemplate.Create)
-		templates.GET("/:id", h.Admin.ChannelMonitorTemplate.Get)
-		templates.PUT("/:id", h.Admin.ChannelMonitorTemplate.Update)
-		templates.DELETE("/:id", h.Admin.ChannelMonitorTemplate.Delete)
-		templates.GET("/:id/monitors", h.Admin.ChannelMonitorTemplate.AssociatedMonitors)
-		templates.POST("/:id/apply", h.Admin.ChannelMonitorTemplate.Apply)
-	}
-}
-
 func registerChannelMonitorV2Routes(admin *gin.RouterGroup, h *handler.Handlers, settingService *service.SettingService) {
-	// Config GET/PUT: feature enabled only (operators can prepare V2 before flipping mode).
-	// Read/matrix endpoints: require mode=v2 so V1 deployments do not serve passive data.
-	featureGuard := channelMonitorAdminFeatureGuard(settingService)
-	modeV2Guard := channelMonitorModeV2Guard(settingService)
+	// Config and read endpoints share one gate: the channel_monitor_enabled switch.
+	guard := channelMonitorFeatureGuard(settingService)
 
 	monitor := admin.Group("/channel-monitor-v2")
+	monitor.Use(guard)
 	{
-		config := monitor.Group("")
-		config.Use(featureGuard)
-		{
-			config.GET("/config", h.ChannelMonitorV2.GetConfig)
-			config.PUT("/config", h.ChannelMonitorV2.UpdateConfig)
-		}
-		reads := monitor.Group("")
-		reads.Use(modeV2Guard)
-		{
-			reads.GET("/dimensions", h.ChannelMonitorV2.Dimensions)
-			reads.GET("/snapshot", h.ChannelMonitorV2.AdminSnapshot)
-			reads.GET("/models", h.ChannelMonitorV2.AdminModels)
-			reads.GET("/matrix", h.ChannelMonitorV2.AdminMatrix)
-			reads.GET("/errors", h.ChannelMonitorV2.Errors)
-			reads.GET("/users", h.ChannelMonitorV2.AdminUsers)
-		}
+		monitor.GET("/config", h.ChannelMonitorV2.GetConfig)
+		monitor.PUT("/config", h.ChannelMonitorV2.UpdateConfig)
+		monitor.GET("/dimensions", h.ChannelMonitorV2.Dimensions)
+		monitor.GET("/snapshot", h.ChannelMonitorV2.AdminSnapshot)
+		monitor.GET("/models", h.ChannelMonitorV2.AdminModels)
+		monitor.GET("/matrix", h.ChannelMonitorV2.AdminMatrix)
+		monitor.GET("/errors", h.ChannelMonitorV2.Errors)
+		monitor.GET("/users", h.ChannelMonitorV2.AdminUsers)
 	}
 }
 
-func channelMonitorAdminFeatureGuard(settingService *service.SettingService) gin.HandlerFunc {
+// channelMonitorFeatureGuard requires the channel_monitor_enabled switch to be on.
+// A nil settingService fails closed so the passive views are never served blind.
+func channelMonitorFeatureGuard(settingService *service.SettingService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if settingService != nil && settingService.GetChannelMonitorRuntime(c.Request.Context()).Enabled {
 			c.Next()
@@ -732,28 +696,5 @@ func channelMonitorAdminFeatureGuard(settingService *service.SettingService) gin
 		}
 		response.ErrorFrom(c, service.ErrChannelMonitorDisabled)
 		c.Abort()
-	}
-}
-
-// channelMonitorModeV2Guard requires feature enabled and channel_monitor_mode=v2.
-func channelMonitorModeV2Guard(settingService *service.SettingService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if settingService == nil {
-			response.ErrorFrom(c, service.ErrChannelMonitorDisabled)
-			c.Abort()
-			return
-		}
-		rt := settingService.GetChannelMonitorRuntime(c.Request.Context())
-		if !rt.Enabled {
-			response.ErrorFrom(c, service.ErrChannelMonitorDisabled)
-			c.Abort()
-			return
-		}
-		if !rt.PassiveAggregationAllowed() {
-			response.ErrorFrom(c, service.ErrChannelMonitorModeMismatch)
-			c.Abort()
-			return
-		}
-		c.Next()
 	}
 }

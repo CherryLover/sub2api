@@ -27,7 +27,6 @@ function createPublicSettings(overrides: Partial<PublicSettings> = {}): PublicSe
     backend_mode_enabled: false,
     version: '1.0.0',
     channel_monitor_enabled: true,
-    channel_monitor_default_interval_seconds: 60,
     available_channels_enabled: false,
     model_plaza_enabled: false,
     model_plaza_require_auth: false,

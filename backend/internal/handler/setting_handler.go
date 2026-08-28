@@ -46,11 +46,8 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		ServerTimezone:                      timezone.Name(),
 		ServerUTCOffset:                     timezone.UTCOffset(),
 
-		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
-		ChannelMonitorMode:                   settings.ChannelMonitorMode,
-		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
-		ChannelMonitorHideThroughput:         settings.ChannelMonitorHideThroughput,
-		ChannelMonitorShowQuota:              settings.ChannelMonitorShowQuota,
+		ChannelMonitorEnabled:        settings.ChannelMonitorEnabled,
+		ChannelMonitorHideThroughput: settings.ChannelMonitorHideThroughput,
 
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 

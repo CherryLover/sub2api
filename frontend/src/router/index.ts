@@ -266,7 +266,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/monitor',
     name: 'ChannelStatus',
-    component: () => import('@/views/user/ChannelStatusView.vue'),
+    component: () => import('@/views/user/ChannelStatusV2View.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: false,

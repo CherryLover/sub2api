@@ -13,24 +13,13 @@ export default {
       features: {
         channelMonitor: {
           title: '渠道监控',
-          description: '启用后在 V1 主动探测与 V2 被动用量监控中二选一。关闭后两种模式的后台任务均停止，用户端入口隐藏。',
-          configureLink: '前往 渠道管理 > 渠道监控 配置监控项',
+          description: '被动汇总网关真实请求，输出各平台/模型的健康度、错误分类与延迟。关闭后聚合任务停止，用户端入口隐藏。',
+          configureLink: '前往 渠道管理 > 渠道监控 配置聚合维度',
           enabled: '启用渠道监控',
-          enabledHint: '关闭后 V1 调度器与 V2 聚合均停止；已有配置与历史保留。',
-          mode: '监控模式',
-          modeHint: '默认 V1（主动探测）。仅在需要被动聚合时切换到 V2；同一时间只能启用一种实现。',
-          modeV2: 'V2 被动监控',
-          modeV1: 'V1 主动探测',
-          modeV2Hint: '需主动选择：基于真实网关流量聚合健康指标，不向上游发送探活请求；启用期间 V1 探测停止。',
-          modeV1Hint: '默认模式：按配置的渠道监控项定时发起上游健康检查（产生探测流量）。',
-          defaultInterval: '默认检测间隔（秒）',
-          defaultIntervalHint: '仅 V1 模式使用：新建渠道监控时表单的默认值，可被单个渠道覆盖。范围 15 – 3600 秒。',
+          enabledHint: '关闭后分钟聚合停止，管理端与用户端接口一律返回「功能已关闭」；已有配置与历史保留。',
           hideThroughput: '对用户隐藏吞吐速率（RPM / TPM）',
           hideThroughputHint:
             '开启后，用户端渠道监控页面与用户 API 不返回 RPM/TPM，避免用「速率 × 时间窗」反推集群规模。管理员仍可见完整指标；错误率、延迟、缓存率照常展示。',
-          showQuota: '向用户展示渠道用量/余额',
-          showQuotaHint:
-            '开启后，配额模式的渠道监控会在用户端渠道状态页展示关联账号的用量滚动窗口/余额。默认关闭；管理员始终可见。',
         },
         availableChannels: {
           title: '可用渠道',

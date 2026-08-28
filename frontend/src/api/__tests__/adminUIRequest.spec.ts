@@ -65,8 +65,8 @@ describe('User UI request marker', () => {
     '/announcements/3/read',
     '/subscriptions',
     '/subscriptions/active',
-    '/channel-monitors',
-    '/channel-monitors/9/status',
+    '/channel-monitor-v2',
+    '/channel-monitor-v2/snapshot',
     '/api/v1/auth/me',
     '/api/v1/keys?page=1',
   ])('marks user timing API %s', (requestURL) => {
