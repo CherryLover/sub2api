@@ -171,7 +171,7 @@
 | **批次 2**（代码已完成） | B1 登录条款 / B2 通用设置冗余项 / B3 注册体系 / B4 人机验证 / A1 尾款 | **待 way-rc 验证** |
 | **批次 3** | B5 邮件体系整删（+ 密码重置小工具）、内容安全审计删除、批量生图删除、渠道监控 V1 删除（模式切 V2）、A2 剩余（公告 / 模型广场 / 邮件营销）、第四节「后续候选项」里的小尾巴（CSP 失效白名单、支付遗留文档、`registration_email_domain_quota_enabled` 等） | 低耦合删除 |
 | **批次 4**（代码已完成） | A4 订阅/余额拆除 + Key 额度直绑；**注册用户默认值随本批消失** | 最难一刀，**待 CI 与 way-rc 验证** |
-| **批次 5** | A5 数据库压平：payment / redeem / promo / subscription 死实体与历史迁移清理、迁移基线重置；**充值兑换残留在本批清干净** | 结构性 |
+| **批次 5**（代码已完成） | A5 数据库压平：payment / redeem / promo / subscription 死实体与死表清理；**充值兑换残留已清干净**。迁移基线重置**未做**，见下方说明 | 结构性 |
 | **批次 6** | A3 周额度自然周锚点、A6 后台单管理员化、A7 文档改写 + 压测 / 备份恢复 / Key 泄露演练 | 收尾 |
 
 > **批次 4 落地说明（2026-08-29）**：额度语义已统一到 `api_keys.quota / quota_used`，
@@ -192,6 +192,42 @@
 >    「auth cache TTL + 并发 in-flight」——`CheckBillingEligibility` 不再做额度预检，
 >    耗尽判定依赖认证缓存快照与结算后的 `InvalidateAuthCacheByKey`。
 >    内部单管理员部署可接受；若将来要收紧，需把 Key 额度接进 billing-cache 预检。
+
+> **批次 5 落地说明（2026-08-29）**：本批第一次在本地跑通了真正的 Go 工具链
+> （go1.26.6 临时下载到 scratchpad，用完即删）与一套独立的 PostgreSQL 18.1，
+> 因此结论都是实测而非静态推断。
+>
+> **重要发现**：批次 5 开工时，分支上 `go build ./...` **本身就编译不过**
+> —— 批次 3 删公告时删掉了 `domain.AnnouncementTargeting`，但生成的
+> `ent/announcement*.go` 还在引用它。也就是说批次 3 和 4 之后，CI 的
+> 单测 / 集成 / lint 三条流水线全部会红。本批已一并修好。
+>
+> 实际交付：
+> - **ent 死实体**：删除 17 个 schema 与全部生成物（支付 3 + 兑换促销 3 +
+>   订阅 2 + 批量生图 3 + 渠道监控 V1 4 + 公告 2）；User 去 6 条边、
+>   Group 去 2 条边 + 3 个批量生图字段、UsageLog 去指向 user_subscriptions 的边。
+>   **ent 是用官方代码生成器重新生成的，不是手工改生成物。**
+> - **死表**：迁移 235 DROP 21 张表（含推广返佣 2 张、内容审计日志 1 张、
+>   渠道监控 V1 的聚合水位表）；迁移 236 DROP `groups` 的 3 个批量生图列；
+>   迁移 237 清掉 50 多个孤儿设置键。
+> - **刻意保留**：`usage_logs.subscription_id`（repository 裸 SQL 与 DTO 仍在用）、
+>   `groups.subscription_type`（可用渠道 DTO 之外，migration 193 的 auth cache
+>   触发器函数引用了这一列）、`users.balance` 家族（列还在，service 层已不读）。
+> - **实测验证**：全新库跑完 277 条迁移无报错、最终只剩 4 个活设置键；
+>   用 `fork/main` 的 269 条迁移建出「升级前老库」并塞入代表性数据后再升级，
+>   28 项断言全过；停在 123 号迁移的老库也能直接升到最新；重复执行为 no-op。
+>
+> ⚠️ **迁移基线重置：本批未做，留给站长决策**。理由是实测数据不支持这项改造：
+> 全新库跑完 277 条迁移只要 **0.3–0.6 秒**，"顺序跑历史迁移"并不是真实痛点。
+> 而任何形式的基线重置都要么改迁移执行器（新增"全新库走基线、存量库标记已应用"
+> 的分叉逻辑），要么删历史迁移文件——后者会让**停在中间版本的存量库无法升级**
+> （例：删掉建 `batch_image_jobs` 的 159，而 187 里还有引用它的语句）。
+> 若将来仍要做，建议的最小安全方案是：只加"全新库快速路径"，不删任何历史文件——
+> ① 用一次性脚本把 277 条迁移跑进空库后 `pg_dump --schema-only` 生成
+> `000_baseline.sql`，并在其中附带把全部历史迁移写入 `schema_migrations` 的 INSERT；
+> ② 在 `applyMigrationsFS` 开头判断 `schema_migrations` 是否为空：非空（存量库）
+> 就把 `000_baseline.sql` 直接标记为已应用而不执行；③ 加一个集成测试对拍
+> 「按历史链建库」与「按基线建库」两份 `pg_dump` 必须一致。
 
 #### 本轮执行方式（站长指定）
 
@@ -471,6 +507,32 @@ CI 全绿但镜像构建必然失败。
 
 另注：`unused` 检查不带 build tag 编译，因此**仅被 `//go:build unit` 测试引用的死函数会被判定为 unused**
 （单测绿但 lint 红）。批次 1 与批次 2 各栽过一次，删除批量代码后需专门留意。
+
+### ✅ 本机其实拿得到 Go / golangci-lint / PostgreSQL（批次 5 验证，2026-08-29）
+
+站长的约束是「不要往系统里装东西」，而不是「不能有工具链」。批次 5 用下面这套办法
+在 **scratchpad 里** 起了完整的验证环境，全程不碰 `/usr/local`、不改 PATH、不用 brew，
+结束后整个目录删掉即可，系统零残留：
+
+1. **Go**：从 `https://go.dev/dl/go1.26.6.darwin-arm64.tar.gz` 下载解压到 scratchpad，
+   用一个小包装脚本导出 `GOROOT` / `GOPATH` / `GOMODCACHE` / `GOCACHE`（全部指向 scratchpad）
+   再调 `go`。版本与 CI 的 `go.mod` 完全一致。
+2. **ent 代码生成**：`go run -mod=mod entgo.io/ent/cmd/ent generate --feature
+   sql/upsert,intercept,sql/execquery,sql/lock --idtype int64 ./schema`（在 `backend/ent` 下跑）。
+   注意生成器要**先能加载 `ent/schema` 包**，所以顺序必须是「改 schema → 生成」，
+   不能先把生成物删掉（`schema/mixins/soft_delete.go` 依赖生成出来的 `ent/intercept`）。
+   若 schema 引用了已被删除的 domain 类型，先补一个临时 stub、生成完再删。
+   ent v0.14 会自己清理不再需要的生成文件，不用手工删。
+3. **golangci-lint**：`GOBIN=<scratchpad>/bin go install
+   github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0`，
+   与 CI 同版本、直接读仓库里的 `.golangci.yml`。
+4. **PostgreSQL**：`io.zonky.test.postgres:embedded-postgres-binaries-darwin-arm64v8:18.1.0`
+   这个 Maven 制品解压出来就是可重定位的 Postgres，`initdb` + `pg_ctl` 起在
+   `127.0.0.1:55432` 即可（注意 scratchpad 路径太长，unix socket 要用 `-k /tmp/<短目录>`）。
+   有了它就能真跑迁移、也能造「升级前的老库」做升级演练。
+
+**结论**：后续批次不必再靠「脚本模拟 gofmt 对齐」这类替代手段。批次 3 和 4 遗留的
+23 个 gofmt 偏差、5 处测试编译失败、4 个失效断言，正是这套模拟手段的代价。
 
 ### ✅ 分支与 main 无分叉（2026-08-28 核实，更正同日早些时候的错误结论）
 
