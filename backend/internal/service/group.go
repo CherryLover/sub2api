@@ -41,20 +41,17 @@ type Group struct {
 	DefaultValidityDays int
 
 	// 图片生成计费配置（antigravity 和 gemini 平台使用）
-	AllowImageGeneration         bool
-	AllowBatchImageGeneration    bool
-	ImageRateIndependent         bool
-	ImageRateMultiplier          float64
-	ImagePrice1K                 *float64
-	ImagePrice2K                 *float64
-	ImagePrice4K                 *float64
-	BatchImageDiscountMultiplier float64
-	BatchImageHoldMultiplier     float64
-	VideoRateIndependent         bool
-	VideoRateMultiplier          float64
-	VideoPrice480P               *float64
-	VideoPrice720P               *float64
-	VideoPrice1080P              *float64
+	AllowImageGeneration bool
+	ImageRateIndependent bool
+	ImageRateMultiplier  float64
+	ImagePrice1K         *float64
+	ImagePrice2K         *float64
+	ImagePrice4K         *float64
+	VideoRateIndependent bool
+	VideoRateMultiplier  float64
+	VideoPrice480P       *float64
+	VideoPrice720P       *float64
+	VideoPrice1080P      *float64
 	// VideoModelPrices is optional per-model-family per-second pricing
 	// (groups.video_model_prices JSONB). Shape: family → resolution → USD/s.
 	// When set for a model, overrides VideoPrice* for that model only.

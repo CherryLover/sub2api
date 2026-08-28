@@ -64,7 +64,6 @@ var reservedEntryPaths = map[string]bool{
 	"/model-plaza":        true,
 	"/dashboard":          true,
 	"/keys":               true,
-	"/batch-image":        true,
 	"/usage":              true,
 	"/available-channels": true,
 	"/profile":            true,

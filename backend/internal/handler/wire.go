@@ -125,17 +125,6 @@ func ProvideOpenAIGatewayHandler(
 	return h
 }
 
-func ProvideBatchImageHandler(
-	batchService *service.BatchImagePublicService,
-	download *service.BatchImageDownloadService,
-	cleanup *service.BatchImageCleanupService,
-	openAI *OpenAIGatewayHandler,
-) *BatchImageHandler {
-	h := NewBatchImageHandler(batchService, download, cleanup)
-	h.openAI = openAI
-	return h
-}
-
 // ProvideSystemHandler creates admin.SystemHandler with version from BuildInfo
 func ProvideSystemHandler(buildInfo BuildInfo, lockService *service.SystemOperationLockService) *admin.SystemHandler {
 	return admin.NewSystemHandler(buildInfo.Version, lockService)
@@ -178,7 +167,6 @@ func ProvideHandlers(
 	modelPlazaHandler *ModelPlazaHandler,
 	keyUsageHandler *KeyUsageHandler,
 	asyncImageHandler *AsyncImageHandler,
-	batchImageHandler *BatchImageHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -201,7 +189,6 @@ func ProvideHandlers(
 		ModelPlaza:       modelPlazaHandler,
 		KeyUsage:         keyUsageHandler,
 		AsyncImage:       asyncImageHandler,
-		BatchImage:       batchImageHandler,
 	}
 }
 
@@ -225,7 +212,6 @@ var ProviderSet = wire.NewSet(
 	NewModelPlazaHandler,
 	NewKeyUsageHandler,
 	NewAsyncImageHandler,
-	ProvideBatchImageHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,

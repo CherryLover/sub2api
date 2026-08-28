@@ -12,7 +12,7 @@ terminate healthy long generations and streams.
   limit request processing or response streaming.
 - `server.max_request_body_size: 268435456` is the absolute 256 MiB safety net.
 - `gateway.max_body_size: 268435456` remains available to multimodal, Gemini,
-  image, video, and batch-image endpoints.
+  image, and video endpoints.
 - `gateway.text_max_body_size: 33554432` limits the known pure-text
   `/embeddings` and `/alpha/search` endpoints to 32 MiB.
 - H2C defaults to 50 concurrent streams per connection, a 2 MiB connection

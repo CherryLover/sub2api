@@ -225,6 +225,17 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/pages",
 		"/api/v1/pages/:slug",
 		"/api/v1/pages/:slug/images/*filename",
+		// 批量生图（批次 3）：网关十条 /v1/images/batches* 端点整体移除。
+		// 普通生图 /v1/images/generations、/v1/images/edits 与异步生图
+		// /v1/images/*/async 是保留面，见 TestRetainedImageSurfaceStillRegistered。
+		"/v1/images/batches",
+		"/v1/images/batches/models",
+		"/v1/images/batches/:id",
+		"/v1/images/batches/:id/items",
+		"/v1/images/batches/:id/items/:custom_id/content",
+		"/v1/images/batches/:id/download",
+		"/v1/images/batches/:id/cancel",
+		"/v1/images/batches/:id/outputs",
 	}
 	for _, path := range absentPaths {
 		_, exists := paths[path]
@@ -235,6 +246,7 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 	// 注意 /api/v1/auth/oauth 仅覆盖用户登录 OAuth；管理端上游账号 OAuth
 	// （/api/v1/admin/.../oauth/...）是保留面，不在此列。
 	forbiddenPrefixes := []string{
+		"/v1/images/batches",
 		"/api/v1/payment",
 		"/api/v1/admin/payment",
 		"/api/v1/redeem",
@@ -276,6 +288,12 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/compliance"},
 		{http.MethodPost, "/api/v1/admin/compliance/accept"},
 		{http.MethodGet, "/api/v1/pages/help"},
+		{http.MethodPost, "/v1/images/batches"},
+		{http.MethodGet, "/v1/images/batches"},
+		{http.MethodGet, "/v1/images/batches/models"},
+		{http.MethodGet, "/v1/images/batches/imgbatch_1"},
+		{http.MethodPost, "/v1/images/batches/imgbatch_1/cancel"},
+		{http.MethodDelete, "/v1/images/batches/imgbatch_1"},
 	} {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(probe.method, probe.path, nil)
@@ -317,6 +335,27 @@ func TestRetainedSystemSurfaceStillRegistered(t *testing.T) {
 	for _, want := range []string{
 		"GET /api/v1/admin/system/version",
 		"POST /api/v1/admin/system/restart",
+	} {
+		_, exists := routes[want]
+		require.Truef(t, exists, "保留面路由 %s 不应被误删", want)
+	}
+}
+
+// TestRetainedImageSurfaceStillRegistered 批量生图删除后，普通生图与异步生图
+// 必须原样保留 —— 这是两个不同功能，别一起误删。
+func TestRetainedImageSurfaceStillRegistered(t *testing.T) {
+	router, _ := newTrimmedSurfaceRouter(t)
+
+	routes := make(map[string]struct{})
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = struct{}{}
+	}
+	for _, want := range []string{
+		"POST /v1/images/generations",
+		"POST /v1/images/edits",
+		"POST /v1/images/generations/async",
+		"POST /v1/images/edits/async",
+		"GET /v1/images/tasks/:task_id",
 	} {
 		_, exists := routes[want]
 		require.Truef(t, exists, "保留面路由 %s 不应被误删", want)

@@ -140,36 +140,6 @@ func TestAsyncImageSuccessfulPrecheckIsNotRepeatedByDetachedExecution(t *testing
 	executionMu.Unlock()
 }
 
-func TestBatchImagePromptGuardRunsBeforePersistenceOrBilling(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	engine := blockingHandlerPromptEngine()
-	openAI := &OpenAIGatewayHandler{securityAuditCoordinator: securityaudit.NewCoordinator(nil, engine)}
-	h := &BatchImageHandler{openAI: openAI}
-	router := gin.New()
-	router.Use(securityAuditMediaTestMiddleware)
-	router.POST("/v1/images/batches", h.Submit)
-	body := map[string]any{
-		"model": "gemini-image-test",
-		"items": []map[string]any{{
-			"custom_id": "one", "prompt": "blocked batch prompt",
-			"reference_images": []map[string]any{{"mime_type": "image/png", "data": []byte("BINARY_CANARY")}},
-		}},
-	}
-	raw, err := json.Marshal(body)
-	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodPost, "/v1/images/batches", strings.NewReader(string(raw)))
-	request.Header.Set("Content-Type", "application/json")
-	recorder := httptest.NewRecorder()
-	require.NotPanics(t, func() { router.ServeHTTP(recorder, request) }, "nil service would panic if Submit were reached")
-	require.Equal(t, http.StatusForbidden, recorder.Code)
-	evaluated, _, requests := engine.snapshot()
-	require.Equal(t, 1, evaluated)
-	require.Len(t, requests, 1)
-	require.Contains(t, string(requests[0].Body), "blocked batch prompt")
-	require.NotContains(t, string(requests[0].Body), "BINARY_CANARY")
-	require.NotContains(t, string(requests[0].Body), "QklOQVJZX0NBTkFSWQ==")
-}
-
 func TestSecurityAuditBlockingFailuresLeaveAllDownstreamCountersAtZero(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, kind := range []securityaudit.DecisionKind{securityaudit.DecisionBlock, securityaudit.DecisionUnavailable, securityaudit.DecisionInvalid} {

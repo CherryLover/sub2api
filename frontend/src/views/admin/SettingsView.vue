@@ -6559,7 +6559,7 @@ const LOGIN_ENTRY_PATH_MAX_LENGTH = 128;
 const LOGIN_ENTRY_RESERVED_PATHS = new Set([
   "/", "/home", "/login", "/register", "/email-verify", "/forgot-password",
   "/reset-password", "/key-usage", "/model-plaza", "/dashboard", "/keys",
-  "/batch-image", "/usage", "/available-channels",
+  "/usage", "/available-channels",
   "/profile", "/subscriptions", "/monitor", "/setup",
   "/health", "/models", "/responses", "/favicon.ico", "/logo.svg", "/robots.txt",
 ]);

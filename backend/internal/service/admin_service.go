@@ -210,14 +210,11 @@ type CreateGroupInput struct {
 	LongContextPricingEnabled bool
 	ModelPricing              []ChannelModelPricing
 	// 图片生成计费配置（仅 antigravity 平台使用）
-	AllowImageGeneration         bool
-	AllowBatchImageGeneration    bool
-	ImageRateIndependent         bool
-	ImageRateMultiplier          *float64
-	BatchImageDiscountMultiplier *float64
-	BatchImageHoldMultiplier     *float64
-	VideoRateIndependent         bool
-	VideoRateMultiplier          *float64
+	AllowImageGeneration bool
+	ImageRateIndependent bool
+	ImageRateMultiplier  *float64
+	VideoRateIndependent bool
+	VideoRateMultiplier  *float64
 	// 高峰时段倍率配置（PeakRateMultiplier 为 nil 时按 1.0 处理）
 	PeakRateEnabled    bool
 	PeakStart          string
@@ -285,14 +282,11 @@ type UpdateGroupInput struct {
 	LongContextPricingEnabled *bool
 	ModelPricing              *[]ChannelModelPricing
 	// 图片生成计费配置（仅 antigravity 平台使用）
-	AllowImageGeneration         *bool
-	AllowBatchImageGeneration    *bool
-	ImageRateIndependent         *bool
-	ImageRateMultiplier          *float64
-	BatchImageDiscountMultiplier *float64
-	BatchImageHoldMultiplier     *float64
-	VideoRateIndependent         *bool
-	VideoRateMultiplier          *float64
+	AllowImageGeneration *bool
+	ImageRateIndependent *bool
+	ImageRateMultiplier  *float64
+	VideoRateIndependent *bool
+	VideoRateMultiplier  *float64
 	// 高峰时段倍率配置（nil 表示不修改）
 	PeakRateEnabled    *bool
 	PeakStart          *string

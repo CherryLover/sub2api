@@ -252,16 +252,6 @@ func RegisterGatewayRoutes(
 		gateway.POST("/images/generations/async", h.AsyncImage.Submit)
 		gateway.POST("/images/edits/async", h.AsyncImage.Submit)
 		gateway.GET("/images/tasks/:task_id", h.AsyncImage.Get)
-		gateway.POST("/images/batches", h.BatchImage.Submit)
-		gateway.GET("/images/batches", h.BatchImage.List)
-		gateway.GET("/images/batches/models", h.BatchImage.Models)
-		gateway.GET("/images/batches/:id", h.BatchImage.Get)
-		gateway.GET("/images/batches/:id/items", h.BatchImage.Items)
-		gateway.GET("/images/batches/:id/items/:custom_id/content", h.BatchImage.ItemContent)
-		gateway.GET("/images/batches/:id/download", h.BatchImage.Download)
-		gateway.POST("/images/batches/:id/cancel", h.BatchImage.Cancel)
-		gateway.DELETE("/images/batches/:id", h.BatchImage.DeleteRecord)
-		gateway.DELETE("/images/batches/:id/outputs", h.BatchImage.DeleteOutputs)
 		// OpenAI-compatible clients may create through /videos; xAI receives the
 		// canonical /videos/generations route inside the Grok media forwarder.
 		gateway.POST("/videos", videoGenerationHandler)
