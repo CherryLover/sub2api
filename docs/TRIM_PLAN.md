@@ -371,6 +371,17 @@ IsPasswordResetEnabled = email_verify_enabled==true
 
 后续批次凡动到**限流、认证入口、repository 层**，务必留意这条。
 
+### ⚠️ CI 全绿覆盖不到 Docker 镜像构建
+
+`backend-ci.yml` 只跑 `deploy/tests/` 下的 compose/runtime 脚本，**从不实际构建镜像**。
+因此"CI 全绿"无法证明镜像出得来——「删文件后 Dockerfile 构建上下文引用悬空」这类问题
+只有真正出 RC 镜像时才暴露。批次 2 踩中：WP-B 删了 `docs/legal/`，但
+`Dockerfile` / `deploy/Dockerfile` 的 `COPY docs/legal/` 与 `.dockerignore` 的白名单例外
+都没同步清理，而 Docker 的 `COPY <dir>/` 在源缺失时是硬失败，镜像构建从该提交起必然挂。
+
+**后续批次删除任何目录/文件后，务必 grep 构建上下文**：`Dockerfile`、`deploy/Dockerfile`、
+`.dockerignore`、`.goreleaser.yaml`。
+
 ### ⚠️ CI 的 lint 输出不是完整清单
 
 `golangci-lint` 默认 `max-same-issues=3`，同类问题只报前 3 个。批次 2 首轮 CI 报 3 个 gofmt，
