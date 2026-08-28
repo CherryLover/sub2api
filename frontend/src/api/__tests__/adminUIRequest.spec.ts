@@ -51,7 +51,6 @@ describe('User UI request marker', () => {
     '/user',
     '/user/profile',
     '/user/password',
-    '/user/notify-email/send-code',
     '/user/totp/status',
     '/user/platform-quotas',
     '/keys',

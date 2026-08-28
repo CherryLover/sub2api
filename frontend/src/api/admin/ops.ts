@@ -725,31 +725,6 @@ export interface AlertEvent {
   created_at: string
 }
 
-export interface EmailNotificationConfig {
-  alert: {
-    enabled: boolean
-    recipients: string[]
-    min_severity: AlertSeverity | ''
-    rate_limit_per_hour: number
-    batching_window_seconds: number
-    include_resolved_alerts: boolean
-  }
-  report: {
-    enabled: boolean
-    recipients: string[]
-    daily_summary_enabled: boolean
-    daily_summary_schedule: string
-    weekly_summary_enabled: boolean
-    weekly_summary_schedule: string
-    error_digest_enabled: boolean
-    error_digest_schedule: string
-    error_digest_min_count: number
-    account_health_enabled: boolean
-    account_health_schedule: string
-    account_health_error_rate_threshold: number
-  }
-}
-
 export interface OpsMetricThresholds {
   sla_percent_min?: number | null                 // SLA低于此值变红
   ttft_p99_ms_max?: number | null                 // TTFT P99高于此值变红
@@ -1231,17 +1206,6 @@ export async function createAlertSilence(payload: {
   await apiClient.post('/admin/ops/alert-silences', payload)
 }
 
-// Email notification config
-export async function getEmailNotificationConfig(): Promise<EmailNotificationConfig> {
-  const { data } = await apiClient.get<EmailNotificationConfig>('/admin/ops/email-notification/config')
-  return data
-}
-
-export async function updateEmailNotificationConfig(config: EmailNotificationConfig): Promise<EmailNotificationConfig> {
-  const { data } = await apiClient.put<EmailNotificationConfig>('/admin/ops/email-notification/config', config)
-  return data
-}
-
 // Runtime settings (DB-backed)
 export async function getAlertRuntimeSettings(): Promise<OpsAlertRuntimeSettings> {
   const { data } = await apiClient.get<OpsAlertRuntimeSettings>('/admin/ops/runtime/alert')
@@ -1342,8 +1306,6 @@ export const opsAPI = {
   getAlertEvent,
   updateAlertEventStatus,
   createAlertSilence,
-  getEmailNotificationConfig,
-  updateEmailNotificationConfig,
   getAlertRuntimeSettings,
   updateAlertRuntimeSettings,
   getRuntimeLogConfig,

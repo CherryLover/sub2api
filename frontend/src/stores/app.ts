@@ -274,17 +274,12 @@ export const useAppStore = defineStore('app', () => {
         return Promise.resolve({ ...cachedPublicSettings.value })
       }
       return Promise.resolve({
-        email_verify_enabled: false,
         registration_email_suffix_whitelist: [],
-        password_reset_enabled: false,
         doc_url: docUrl.value,
         custom_endpoints: [],
         backend_mode_enabled: false,
         passkey_enabled: false,
         version: siteVersion.value,
-        balance_low_notify_enabled: false,
-        account_quota_notify_enabled: false,
-        balance_low_notify_threshold: 0,
         channel_monitor_enabled: true,
         channel_monitor_default_interval_seconds: 60,
         available_channels_enabled: false,

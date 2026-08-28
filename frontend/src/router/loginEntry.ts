@@ -174,15 +174,15 @@ export function resolveUnauthenticatedTarget(
 /**
  * 隐藏模式下需要跟着登录页一起藏起来的"入口页"路由名。
  *
- * `/register`（自助注册）和 `/forgot-password`（匿名触发重置邮件）都是登录之外的
- * 另一条对外入口：留着它们既让"藏起登录入口"失去意义，页面上的"已有账号？登录"
- * 还会指向一条隐藏模式下不存在的 /login。因此这两个页面只在本标签页已经走过隐藏
- * 登录入口时才可达——从隐藏登录页点过去正常工作，直接开一个新标签页访问则不可达。
+ * 这类页面是登录之外的另一条对外入口：留着它们既让"藏起登录入口"失去意义，
+ * 页面上的"已有账号？登录"还会指向一条隐藏模式下不存在的 /login。因此它们只在
+ * 本标签页已经走过隐藏登录入口时才可达。
  *
- * `/reset-password` 不在此列：它是从邮件里点进来的，没有登录
- * 入口上下文，挡掉会直接把这两条流程做死。OAuth 回调 `/auth/*` 也不在此列。
+ * 当前为空：`/register`（自助注册）随注册体系移除，`/forgot-password`
+ * 随邮件体系移除，本项目已不存在这类页面。判定逻辑保留，将来新增对外入口时
+ * 把路由名加回来即可。
  */
-const HIDDEN_MODE_GATED_ROUTE_NAMES = new Set(['ForgotPassword'])
+const HIDDEN_MODE_GATED_ROUTE_NAMES = new Set<string>()
 
 /** 需要在隐藏模式下做入口判定的路由（静态 /login、被门禁的注册/找回、动态入口）。 */
 export function isEntryRoute(route: {
@@ -201,7 +201,8 @@ export function isEntryRoute(route: {
  *
  * - 动态注册的隐藏入口（meta.loginEntry）：永远放行，它就是登录页本身。
  * - 静态 `/login`：隐藏模式下永远挡掉——"隐藏时 /login 不再可用"。
- * - 注册 / 找回密码：只有本标签页已经知道隐藏入口时才放行。
+ * - HIDDEN_MODE_GATED_ROUTE_NAMES 里的入口页：只有本标签页已经知道隐藏入口时才放行
+ *   （当前集合为空）。
  */
 export function isEntryRouteBlocked(
   route: { name?: string | symbol | null; meta?: { loginEntry?: boolean } },

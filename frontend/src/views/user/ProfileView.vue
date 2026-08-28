@@ -8,15 +8,6 @@
 
       <ProfilePasswordForm />
 
-      <ProfileBalanceNotifyCard
-        v-if="user && balanceLowNotifyEnabled"
-        :enabled="user.balance_notify_enabled ?? true"
-        :threshold="user.balance_notify_threshold"
-        :extra-emails="user.balance_notify_extra_emails ?? []"
-        :system-default-threshold="systemDefaultThreshold"
-        :user-email="user.email"
-      />
-
       <ProfileTotpCard />
       <ProfilePasskeyCard :enabled="passkeyEnabled" />
     </div>
@@ -26,7 +17,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import ProfileBalanceNotifyCard from '@/components/user/profile/ProfileBalanceNotifyCard.vue'
 import ProfileInfoCard from '@/components/user/profile/ProfileInfoCard.vue'
 import ProfilePasswordForm from '@/components/user/profile/ProfilePasswordForm.vue'
 import ProfileTotpCard from '@/components/user/profile/ProfileTotpCard.vue'
@@ -38,8 +28,6 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const user = computed(() => authStore.user)
 
-const balanceLowNotifyEnabled = ref(false)
-const systemDefaultThreshold = ref(0)
 const passkeyEnabled = ref(false)
 
 onMounted(async () => {
@@ -52,8 +40,6 @@ onMounted(async () => {
       if (!settings) {
         return
       }
-      balanceLowNotifyEnabled.value = settings.balance_low_notify_enabled ?? false
-      systemDefaultThreshold.value = settings.balance_low_notify_threshold ?? 0
       passkeyEnabled.value = settings.passkey_enabled === true
     })
     .catch((error) => {

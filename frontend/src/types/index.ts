@@ -22,16 +22,6 @@ export interface FetchOptions {
   signal?: AbortSignal
 }
 
-// ==================== Notification Types ====================
-
-/** Notification email entry with enable/disable and verification state.
- *  email="" is a placeholder for the primary email (user's registration email or admin email). */
-export interface NotifyEmailEntry {
-  email: string
-  disabled: boolean
-  verified: boolean
-}
-
 // ==================== User & Auth Types ====================
 
 export type UserAuthProvider = 'email'
@@ -88,9 +78,6 @@ export interface User {
   rpm_limit?: number // User-level RPM cap (0 = unlimited); effective as fallback when group has no rpm_limit
   status: 'active' | 'disabled' // Account status
   allowed_groups: number[] | null // Allowed group IDs (null = all non-exclusive groups)
-  balance_notify_enabled: boolean
-  balance_notify_threshold: number | null
-  balance_notify_extra_emails: NotifyEmailEntry[]
   subscriptions?: UserSubscription[] // User's active subscriptions
   last_active_at?: string | null
   created_at: string
@@ -120,10 +107,8 @@ export interface CustomEndpoint {
 }
 
 export interface PublicSettings {
-  email_verify_enabled: boolean
   registration_email_suffix_whitelist: string[]
   registration_email_domain_quota_enabled?: boolean
-  password_reset_enabled: boolean
   passkey_enabled?: boolean
   doc_url: string
   risk_control_enabled: boolean
@@ -142,9 +127,6 @@ export interface PublicSettings {
   // 可选：注入的 __APP_CONFIG__ 旧缓存可能缺失
   server_timezone?: string
   server_utc_offset?: string
-  balance_low_notify_enabled: boolean
-  account_quota_notify_enabled: boolean
-  balance_low_notify_threshold: number
   channel_monitor_enabled: boolean
   /** Exclusive mode: v1 active probes or v2 passive aggregation. Default v2. */
   channel_monitor_mode?: 'v1' | 'v2'
@@ -2068,7 +2050,6 @@ export interface TotpStatus {
 }
 
 export interface TotpSetupRequest {
-  email_code?: string
   password?: string
 }
 
@@ -2089,12 +2070,11 @@ export interface TotpEnableResponse {
 }
 
 export interface TotpDisableRequest {
-  email_code?: string
   password?: string
 }
 
 export interface TotpVerificationMethod {
-  method: 'email' | 'password'
+  method: 'password'
 }
 
 export interface TotpLoginResponse {

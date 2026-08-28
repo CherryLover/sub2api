@@ -60,9 +60,6 @@ function createUser(overrides: Partial<User> = {}): User {
     concurrency: 2,
     status: 'active',
     allowed_groups: null,
-    balance_notify_enabled: true,
-    balance_notify_threshold: null,
-    balance_notify_extra_emails: [],
     created_at: '2026-04-20T00:00:00Z',
     updated_at: '2026-04-20T00:00:00Z',
     ...overrides

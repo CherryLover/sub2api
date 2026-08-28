@@ -19,37 +19,9 @@
           </p>
         </div>
 
-        <!-- Loading verification method -->
-        <div v-if="methodLoading" class="flex items-center justify-center py-8">
-          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
-        </div>
-
-        <form v-else @submit.prevent="handleDisable" class="space-y-4">
-          <!-- Email verification -->
-          <div v-if="verificationMethod === 'email'">
-            <label class="input-label">{{ t('profile.totp.emailCode') }}</label>
-            <div class="flex gap-2">
-              <input
-                v-model="form.emailCode"
-                type="text"
-                maxlength="6"
-                inputmode="numeric"
-                class="input flex-1"
-                :placeholder="t('profile.totp.enterEmailCode')"
-              />
-              <button
-                type="button"
-                class="btn btn-secondary whitespace-nowrap"
-                :disabled="sendingCode || codeCooldown > 0"
-                @click="handleSendCode"
-              >
-                {{ codeCooldown > 0 ? `${codeCooldown}s` : (sendingCode ? t('common.sending') : t('profile.totp.sendCode')) }}
-              </button>
-            </div>
-          </div>
-
+        <form @submit.prevent="handleDisable" class="space-y-4">
           <!-- Password verification -->
-          <div v-else>
+          <div>
             <label for="password" class="input-label">
               {{ t('profile.currentPassword') }}
             </label>
@@ -83,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { totpAPI } from '@/api'
@@ -96,63 +68,12 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const appStore = useAppStore()
 
-const methodLoading = ref(true)
-const verificationMethod = ref<'email' | 'password'>('password')
 const loading = ref(false)
-const sendingCode = ref(false)
-const codeCooldown = ref(0)
-const cooldownTimer = ref<ReturnType<typeof setInterval> | null>(null)
 const form = ref({
-  emailCode: '',
   password: ''
 })
 
-const canSubmit = computed(() => {
-  if (verificationMethod.value === 'email') {
-    return form.value.emailCode.length === 6
-  }
-  return form.value.password.length > 0
-})
-
-const loadVerificationMethod = async () => {
-  methodLoading.value = true
-  try {
-    const method = await totpAPI.getVerificationMethod()
-    verificationMethod.value = method.method
-  } catch (err: any) {
-    appStore.showError(err.response?.data?.message || t('common.error'))
-    emit('close')
-  } finally {
-    methodLoading.value = false
-  }
-}
-
-const handleSendCode = async () => {
-  sendingCode.value = true
-  try {
-    await totpAPI.sendVerifyCode()
-    appStore.showSuccess(t('profile.totp.codeSent'))
-    // Start cooldown
-    codeCooldown.value = 60
-    if (cooldownTimer.value) {
-      clearInterval(cooldownTimer.value)
-      cooldownTimer.value = null
-    }
-    cooldownTimer.value = setInterval(() => {
-      codeCooldown.value--
-      if (codeCooldown.value <= 0) {
-        if (cooldownTimer.value) {
-          clearInterval(cooldownTimer.value)
-          cooldownTimer.value = null
-        }
-      }
-    }, 1000)
-  } catch (err: any) {
-    appStore.showError(err.response?.data?.message || t('profile.totp.sendCodeFailed'))
-  } finally {
-    sendingCode.value = false
-  }
-}
+const canSubmit = computed(() => form.value.password.length > 0)
 
 const handleDisable = async () => {
   if (!canSubmit.value) return
@@ -160,11 +81,7 @@ const handleDisable = async () => {
   loading.value = true
 
   try {
-    const request = verificationMethod.value === 'email'
-      ? { email_code: form.value.emailCode }
-      : { password: form.value.password }
-
-    await totpAPI.disable(request)
+    await totpAPI.disable({ password: form.value.password })
     appStore.showSuccess(t('profile.totp.disableSuccess'))
     emit('success')
   } catch (err: any) {
@@ -173,15 +90,4 @@ const handleDisable = async () => {
     loading.value = false
   }
 }
-
-onMounted(() => {
-  loadVerificationMethod()
-})
-
-onUnmounted(() => {
-  if (cooldownTimer.value) {
-    clearInterval(cooldownTimer.value)
-    cooldownTimer.value = null
-  }
-})
 </script>

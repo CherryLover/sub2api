@@ -7,7 +7,6 @@ import { apiClient } from './client'
 import type {
   User,
   ChangePasswordRequest,
-  NotifyEmailEntry,
   PlatformQuotasResponse,
 } from '@/types'
 
@@ -28,9 +27,6 @@ export async function getProfile(): Promise<User> {
 export async function updateProfile(profile: {
   username?: string
   avatar_url?: string | null
-  balance_notify_enabled?: boolean
-  balance_notify_threshold?: number | null
-  balance_notify_extra_emails?: NotifyEmailEntry[]
 }): Promise<User> {
   const { data } = await apiClient.put<User>('/user', profile)
   return data
@@ -55,54 +51,6 @@ export async function changePassword(
 }
 
 /**
- * Send verification code for adding a notify email
- * @param email - Email address to verify
- */
-export async function sendNotifyEmailCode(email: string): Promise<void> {
-  await apiClient.post('/user/notify-email/send-code', { email })
-}
-
-/**
- * Verify and add a notify email
- * @param email - Email address to add
- * @param code - Verification code
- */
-export async function verifyNotifyEmail(email: string, code: string): Promise<void> {
-  await apiClient.post('/user/notify-email/verify', { email, code })
-}
-
-/**
- * Remove a notify email
- * @param email - Email address to remove
- */
-export async function removeNotifyEmail(email: string): Promise<void> {
-  await apiClient.delete('/user/notify-email', { data: { email } })
-}
-
-/**
- * Toggle a notify email's disabled state
- * @param email - Email address (empty string for primary email placeholder)
- * @param disabled - Whether to disable the email
- */
-export async function toggleNotifyEmail(email: string, disabled: boolean): Promise<User> {
-  const { data } = await apiClient.put<User>('/user/notify-email/toggle', { email, disabled })
-  return data
-}
-
-export async function sendEmailBindingCode(email: string): Promise<void> {
-  await apiClient.post('/user/account-bindings/email/send-code', { email })
-}
-
-export async function bindEmailIdentity(payload: {
-  email: string
-  verify_code: string
-  password: string
-}): Promise<User> {
-  const { data } = await apiClient.post<User>('/user/account-bindings/email', payload)
-  return data
-}
-
-/**
  * 获取当前用户的平台限额 + 用量。
  */
 export async function getMyPlatformQuotas(): Promise<PlatformQuotasResponse> {
@@ -114,12 +62,6 @@ export const userAPI = {
   getProfile,
   updateProfile,
   changePassword,
-  sendNotifyEmailCode,
-  verifyNotifyEmail,
-  removeNotifyEmail,
-  toggleNotifyEmail,
-  sendEmailBindingCode,
-  bindEmailIdentity,
   getMyPlatformQuotas,
 }
 

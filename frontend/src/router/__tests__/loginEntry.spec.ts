@@ -57,11 +57,9 @@ describe('loginEntry', () => {
       expect(resolveLoginHref(s)).toBe('/login')
     })
 
-    it('/login、/register、/forgot-password 都不会被挡', () => {
+    it('/login 不会被挡', () => {
       const s = settings({ login_entry_public: true })
       expect(isEntryRouteBlocked({ name: 'Login' }, s)).toBe(false)
-      expect(isEntryRouteBlocked({ name: 'Register' }, s)).toBe(false)
-      expect(isEntryRouteBlocked({ name: 'ForgotPassword' }, s)).toBe(false)
     })
   })
 
@@ -106,19 +104,15 @@ describe('loginEntry', () => {
       expect(resolveLoginHref(hidden)).toBe('/key-usage')
     })
 
-    it('/login 被挡；注册与找回密码也被挡', () => {
+    it('/login 被挡', () => {
       landOn('/home')
       expect(isEntryRouteBlocked({ name: 'Login' }, hidden)).toBe(true)
-      expect(isEntryRouteBlocked({ name: 'ForgotPassword' }, hidden)).toBe(true)
     })
 
-    it('邮件入口（重置密码）与 OAuth 回调不受影响', () => {
+    it('普通页面与 OAuth 回调不受影响', () => {
       landOn('/home')
-      expect(isEntryRoute({ name: 'ResetPassword' })).toBe(false)
       expect(isEntryRoute({ name: 'OAuthCallback' })).toBe(false)
-      expect(isEntryRouteBlocked({ name: 'ResetPassword' }, hidden)).toBe(false)
       expect(isEntryRouteBlocked({ name: 'KeyUsage' }, hidden)).toBe(false)
-      expect(isEntryRouteBlocked({ name: 'PaymentResult' }, hidden)).toBe(false)
       expect(isEntryRouteBlocked({ name: 'LegalDocument' }, hidden)).toBe(false)
       expect(isEntryRouteBlocked({ name: 'Setup' }, hidden)).toBe(false)
     })
@@ -158,12 +152,6 @@ describe('loginEntry', () => {
       expect(isEntryRoute({ name: 'LoginEntry', meta: { loginEntry: true } })).toBe(true)
       expect(isEntryRouteBlocked({ name: 'LoginEntry', meta: { loginEntry: true } }, hidden)).toBe(false)
       expect(isEntryRouteBlocked({ name: 'Login' }, hidden)).toBe(true)
-    })
-
-    it('走过入口之后，同一标签页里的注册 / 找回密码可达', () => {
-      landOn(HIDDEN_PATH, 1)
-      expect(isEntryRouteBlocked({ name: 'Register' }, hidden)).toBe(false)
-      expect(isEntryRouteBlocked({ name: 'ForgotPassword' }, hidden)).toBe(false)
     })
 
     it('OAuth 往返（离开页面再回来、标记已消失）后仍能找回入口', () => {
