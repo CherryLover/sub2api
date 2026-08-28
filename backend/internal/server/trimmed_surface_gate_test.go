@@ -546,4 +546,9 @@ func TestPublicSettingsHasNoPaymentKey(t *testing.T) {
 	} {
 		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含模型广场键 %s", key)
 	}
+	// 注册体系遗留键：注册删除后已无消费者，随批次 3 一并清理。
+	// 兄弟键 registration_email_suffix_whitelist 是保留面（默认设置种子探测键），
+	// 仍应出现在公开设置里。
+	require.NotContains(t, resp.Data, "registration_email_domain_quota_enabled")
+	require.Contains(t, resp.Data, "registration_email_suffix_whitelist")
 }

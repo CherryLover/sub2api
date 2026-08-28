@@ -196,7 +196,6 @@ export function appendAuthSourceDefaultsToUpdateRequest(
 export interface SystemSettings {
   // Registration email policy settings
   registration_email_suffix_whitelist: string[];
-  registration_email_domain_quota_enabled: boolean;
   totp_enabled: boolean; // TOTP 双因素认证
   totp_encryption_key_configured: boolean; // TOTP 加密密钥是否已配置
   passkey_enabled: boolean;
@@ -340,7 +339,6 @@ export interface SystemSettings {
 
 export interface UpdateSettingsRequest {
   registration_email_suffix_whitelist?: string[];
-  registration_email_domain_quota_enabled?: boolean;
   totp_enabled?: boolean; // TOTP 双因素认证
   passkey_enabled?: boolean;
   session_binding_enabled?: boolean; // 会话 IP/UA 绑定

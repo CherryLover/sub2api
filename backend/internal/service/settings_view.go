@@ -12,13 +12,12 @@ func firstNonEmpty(values ...string) string {
 }
 
 type SystemSettings struct {
-	RegistrationEmailSuffixWhitelist    []string
-	RegistrationEmailDomainQuotaEnabled bool // 白名单非空时放行非白名单域名限量注册（默认关闭）
-	TotpEnabled                         bool // TOTP 双因素认证
-	PasskeyEnabled                      bool // Passkey 登录
-	SessionBindingEnabled               bool // 会话 IP/UA 绑定（变更即失效）
-	StepUpEnabled                       bool // 敏感操作 step-up 2FA 门控
-	AuditLogRetentionDays               int  // 审计日志保留天数（<=0 永久保留）
+	RegistrationEmailSuffixWhitelist []string
+	TotpEnabled                      bool // TOTP 双因素认证
+	PasskeyEnabled                   bool // Passkey 登录
+	SessionBindingEnabled            bool // 会话 IP/UA 绑定（变更即失效）
+	StepUpEnabled                    bool // 敏感操作 step-up 2FA 门控
+	AuditLogRetentionDays            int  // 审计日志保留天数（<=0 永久保留）
 
 	// 登录入口 / 默认首页（数据库层的值，未与本地配置文件合并）。
 	// LoginEntryPath 是自定义登录路径，只允许流向管理端（管理员鉴权）响应。
@@ -149,11 +148,10 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
-	RegistrationEmailSuffixWhitelist    []string
-	RegistrationEmailDomainQuotaEnabled bool
-	TotpEnabled                         bool // TOTP 双因素认证
-	PasskeyEnabled                      bool
-	DocURL                              string
+	RegistrationEmailSuffixWhitelist []string
+	TotpEnabled                      bool // TOTP 双因素认证
+	PasskeyEnabled                   bool
+	DocURL                           string
 
 	CustomEndpoints string // JSON array of custom endpoints
 

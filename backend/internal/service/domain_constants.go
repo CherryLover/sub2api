@@ -181,13 +181,14 @@ const DingTalkConnectSyntheticEmailDomain = "@dingtalk-connect.invalid"
 // Setting keys
 const (
 	// 邮箱验证与邮箱策略设置
+	//
+	// 注册体系已整体删除，这个键只剩两个作用：给邮箱策略工具函数提供数据源，
+	// 以及充当 InitializeDefaultSettings 的"是否已种过默认设置"探测键，故保留。
 	SettingKeyRegistrationEmailSuffixWhitelist = "registration_email_suffix_whitelist" // 邮箱后缀白名单（JSON 数组）
-	// 白名单非空时，是否放行非白名单域名按主域名限量占用（每域名 1 个账户）。
-	// 默认 false：非白名单域名直接拒绝（白名单严格模式）。
-	SettingKeyRegistrationEmailDomainQuotaEnabled = "registration_email_domain_quota_enabled"
-	SettingKeyRiskControlEnabled                  = "risk_control_enabled"            // 安全审计总开关：管理端入口与提示词审计链路
-	SettingKeyCyberSessionBlockEnabled            = "cyber_session_block_enabled"     // cyber 命中后会话级自动屏蔽总开关(默认关)
-	SettingKeyCyberSessionBlockTTLSeconds         = "cyber_session_block_ttl_seconds" // 会话屏蔽 TTL 秒数(默认 3600)
+
+	SettingKeyRiskControlEnabled          = "risk_control_enabled"            // 安全审计总开关：管理端入口与提示词审计链路
+	SettingKeyCyberSessionBlockEnabled    = "cyber_session_block_enabled"     // cyber 命中后会话级自动屏蔽总开关(默认关)
+	SettingKeyCyberSessionBlockTTLSeconds = "cyber_session_block_ttl_seconds" // 会话屏蔽 TTL 秒数(默认 3600)
 
 	// API Key IP 访问控制设置
 	SettingKeyAPIKeyACLTrustForwardedIP = "api_key_acl_trust_forwarded_ip" // API Key IP 白/黑名单是否信任转发 IP

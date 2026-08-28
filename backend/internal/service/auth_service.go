@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -307,32 +306,6 @@ func (s *AuthService) ensureEmailAuthIdentity(ctx context.Context, user *User, s
 	}
 
 	return identity, !existed
-}
-
-func (s *AuthService) validateRegistrationEmailPolicy(ctx context.Context, email string) error {
-	if s.settingService == nil {
-		return nil
-	}
-	whitelist := s.settingService.GetRegistrationEmailSuffixWhitelist(ctx)
-	if !IsRegistrationEmailSuffixAllowed(email, whitelist) {
-		return buildEmailSuffixNotAllowedError(whitelist)
-	}
-	return nil
-}
-
-func buildEmailSuffixNotAllowedError(whitelist []string) error {
-	if len(whitelist) == 0 {
-		return ErrEmailSuffixNotAllowed
-	}
-
-	allowed := strings.Join(whitelist, ", ")
-	return infraerrors.BadRequest(
-		"EMAIL_SUFFIX_NOT_ALLOWED",
-		fmt.Sprintf("email suffix is not allowed, allowed suffixes: %s", allowed),
-	).WithMetadata(map[string]string{
-		"allowed_suffixes":     strings.Join(whitelist, ","),
-		"allowed_suffix_count": strconv.Itoa(len(whitelist)),
-	})
 }
 
 // ValidateToken 验证JWT token并返回用户声明

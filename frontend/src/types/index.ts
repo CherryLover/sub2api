@@ -108,7 +108,6 @@ export interface CustomEndpoint {
 
 export interface PublicSettings {
   registration_email_suffix_whitelist: string[]
-  registration_email_domain_quota_enabled?: boolean
   passkey_enabled?: boolean
   doc_url: string
   risk_control_enabled: boolean

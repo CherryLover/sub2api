@@ -41,7 +41,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	// 初始化默认设置
 	defaults := map[string]string{
 		SettingKeyRegistrationEmailSuffixWhitelist:       "[]",
-		SettingKeyRegistrationEmailDomainQuotaEnabled:    "false",
 		SettingKeyAPIKeyACLTrustForwardedIP:              "true",
 		SettingKeyForwardedClientIPHeaders:               string(forwardedClientIPHeadersJSON),
 		settingKeyForwardedClientIPModeV2:                "true",
@@ -173,21 +172,20 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		}
 	}
 	result := &SystemSettings{
-		RegistrationEmailSuffixWhitelist:    ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
-		RegistrationEmailDomainQuotaEnabled: settings[SettingKeyRegistrationEmailDomainQuotaEnabled] == "true",
-		TotpEnabled:                         settings[SettingKeyTotpEnabled] == "true",
-		PasskeyEnabled:                      s.passkeySettingEnabled(settings),
-		SessionBindingEnabled:               settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
-		StepUpEnabled:                       settings[SettingKeyStepUpEnabled] == "true",         // 默认关闭
-		AuditLogRetentionDays:               parseAuditLogRetentionDays(settings[SettingKeyAuditLogRetentionDays]),
-		LoginEntryPublic:                    strings.TrimSpace(settings[SettingKeyWebLoginEntryPublic]) != "false", // 缺失=公开
-		LoginEntryPath:                      config.NormalizeEntryPath(settings[SettingKeyWebLoginEntryPath]),
-		DefaultHomePath:                     config.NormalizeEntryPath(settings[SettingKeyWebDefaultHomePath]),
-		APIKeyACLTrustForwardedIP:           apiKeyACLTrustForwardedIP,
-		ForwardedClientIPHeaders:            forwardedClientIPHeaders,
-		DocURL:                              settings[SettingKeyDocURL],
-		CustomEndpoints:                     settings[SettingKeyCustomEndpoints],
-		BackendModeEnabled:                  settings[SettingKeyBackendModeEnabled] == "true",
+		RegistrationEmailSuffixWhitelist: ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
+		TotpEnabled:                      settings[SettingKeyTotpEnabled] == "true",
+		PasskeyEnabled:                   s.passkeySettingEnabled(settings),
+		SessionBindingEnabled:            settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
+		StepUpEnabled:                    settings[SettingKeyStepUpEnabled] == "true",         // 默认关闭
+		AuditLogRetentionDays:            parseAuditLogRetentionDays(settings[SettingKeyAuditLogRetentionDays]),
+		LoginEntryPublic:                 strings.TrimSpace(settings[SettingKeyWebLoginEntryPublic]) != "false", // 缺失=公开
+		LoginEntryPath:                   config.NormalizeEntryPath(settings[SettingKeyWebLoginEntryPath]),
+		DefaultHomePath:                  config.NormalizeEntryPath(settings[SettingKeyWebDefaultHomePath]),
+		APIKeyACLTrustForwardedIP:        apiKeyACLTrustForwardedIP,
+		ForwardedClientIPHeaders:         forwardedClientIPHeaders,
+		DocURL:                           settings[SettingKeyDocURL],
+		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
+		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 	}
 
 	// 解析整数类型

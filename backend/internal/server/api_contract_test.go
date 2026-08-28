@@ -521,7 +521,6 @@ func TestAPIContracts(t *testing.T) {
 				"message": "success",
 				"data": {
 					"registration_email_suffix_whitelist": [],
-					"registration_email_domain_quota_enabled": false,
 						"totp_enabled": false,
 						"totp_encryption_key_configured": false,
 						"passkey_enabled": false,

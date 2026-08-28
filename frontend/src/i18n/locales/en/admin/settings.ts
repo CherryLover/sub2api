@@ -47,9 +47,6 @@ export default {
           "Only email addresses from the specified domains can register; leave empty for no restriction (for example, {'@'}qq.com, {'@'}gmail.com, *.edu.cn)",
         emailSuffixWhitelistPlaceholder: "{'@'}example.com, *.edu.cn",
         emailSuffixWhitelistInputHint: 'Leave empty for no restriction. Use *.edu.cn to match edu.cn and its subdomains.',
-        emailDomainQuota: 'Non-allowlist Domain Quota',
-        emailDomainQuotaHint:
-          'When enabled and the allowlist is not empty, every other registrable domain can register one account. When disabled, non-allowlist domains are rejected. Has no effect while the allowlist is empty',
         promoCode: 'Promo Code',
         promoCodeHint: 'Allow users to use promo codes during registration',
         invitationCode: 'Invitation Code Registration',

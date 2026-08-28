@@ -2,9 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h } from "vue";
 import { flushPromises, mount } from "@vue/test-utils";
 
-import enCommon from "@/i18n/locales/en/common";
 import enSettings from "@/i18n/locales/en/admin/settings";
-import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
 
@@ -551,25 +549,13 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
-describe("admin SettingsView email domain quota copy", () => {
-  it("documents the email domain quota and empty-whitelist behavior in both locales", () => {
-    expect(zhCommon.auth.emailDomainRegistrationLimit).toContain("主流邮箱");
-    expect(zhCommon.auth.emailDomainRegistrationLimit).toContain("联系客服");
-    expect(enCommon.auth.emailDomainRegistrationLimit).toContain("mainstream email");
-    expect(enCommon.auth.emailDomainRegistrationLimit).toContain("contact support");
-
-    // 白名单 hint 描述严格默认语义；额度语义移入独立开关的 hint。
+describe("admin SettingsView email suffix whitelist copy", () => {
+  it("documents the empty-whitelist behavior in both locales", () => {
+    // 白名单 hint 描述严格默认语义（非白名单域名限量注册开关已随注册体系删除）。
     const zhWhitelistHint = zhSettings.settings.registration.emailSuffixWhitelistHint;
     const enWhitelistHint = enSettings.settings.registration.emailSuffixWhitelistHint;
     expect(zhWhitelistHint).toContain("留空则不限制");
     expect(enWhitelistHint).toContain("leave empty for no restriction");
-
-    const zhQuotaHint = zhSettings.settings.registration.emailDomainQuotaHint;
-    const enQuotaHint = enSettings.settings.registration.emailDomainQuotaHint;
-    expect(zhQuotaHint).toContain("其他可注册主域名各限注册一个账户");
-    expect(zhQuotaHint).toContain("关闭时非白名单域名直接拒绝");
-    expect(enQuotaHint).toContain("one account");
-    expect(enQuotaHint).toContain("When disabled");
   });
 });
 

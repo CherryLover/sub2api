@@ -71,7 +71,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 	payload := dto.SystemSettings{
 		RegistrationEmailSuffixWhitelist:                       settings.RegistrationEmailSuffixWhitelist,
-		RegistrationEmailDomainQuotaEnabled:                    settings.RegistrationEmailDomainQuotaEnabled,
 		TotpEnabled:                                            settings.TotpEnabled,
 		TotpEncryptionKeyConfigured:                            h.settingService.IsTotpEncryptionKeyConfigured(),
 		PasskeyEnabled:                                         settings.PasskeyEnabled,

@@ -1504,23 +1504,6 @@
                 </p>
               </div>
 
-              <!-- Email Domain Quota -->
-              <div
-                class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
-              >
-                <div>
-                  <label class="font-medium text-gray-900 dark:text-white">{{
-                    t("admin.settings.registration.emailDomainQuota")
-                  }}</label>
-                  <p class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.registration.emailDomainQuotaHint") }}
-                  </p>
-                </div>
-                <Toggle
-                  v-model="form.registration_email_domain_quota_enabled"
-                />
-              </div>
-
               <!-- TOTP 2FA -->
               <div
                 class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
@@ -5522,7 +5505,6 @@ const schedulingThresholdPlatforms = SCHEDULING_THRESHOLD_PLATFORMS;
 
 const form = reactive<SettingsForm>({
   registration_email_suffix_whitelist: [],
-  registration_email_domain_quota_enabled: false,
   totp_enabled: false,
   totp_encryption_key_configured: false,
   passkey_enabled: false,
@@ -6690,8 +6672,6 @@ async function saveSettings() {
         registrationEmailSuffixWhitelistTags.value.map((suffix) =>
           suffix.startsWith("*.") ? suffix : `@${suffix}`,
         ),
-      registration_email_domain_quota_enabled:
-        form.registration_email_domain_quota_enabled,
       totp_enabled: form.totp_enabled,
       passkey_enabled: form.passkey_enabled,
       session_binding_enabled: form.session_binding_enabled,
