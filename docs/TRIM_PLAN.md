@@ -1491,6 +1491,108 @@ docker compose up -d sub2api
 
 ---
 
+### internal-498f780（2026-08-29，第五轮：批次 3+4+5 验收）**通过**
+
+镜像 `ghcr.io/cherrylover/sub2api:internal-rc` = `:internal-498f780`（双架构）。
+CI 四个 job（golangci-lint / shell / frontend / test）与 Security Scan **一次全绿**；
+后端单测（51 包）与集成测试（45 包，真 Docker）在实施阶段本地实跑亦全绿。
+
+**way-rc 升级（已永久变为升级后状态）**：
+
+- [x] 迁移 269 → 277，230~237 八条全部落表，0.24 秒内跑完，日志零 error/panic
+- [x] 表 98 → 77，删除清单与迁移 235 声明**精确匹配**（差集比对，不多不少），新增表 0
+- [x] 数据完整：users/api_keys/accounts/groups 行数与升级前一致
+- [x] **转发链路完好**（本轮最硬证据）：临时放开假账号调度后发请求，拿回 Anthropic
+      官方格式的 401 应答体（`API key is invalid.`）——该响应本地无法伪造，
+      证明请求真实抵达 `api.anthropic.com`。鉴权 / 分组授权 / 额度校验 / 账号选择 /
+      并发槽 / 实际转发全链路通过
+- [x] **渠道监控 V2 存活且在工作**：03:14 打的 3 个请求两分钟后精确出现在 V2 分钟级
+      指标表的 03:14 桶内，水位线从 03:13 推进到 03:15。V1 五张表已删，
+      V2 十张表（含复数的 `channel_monitor_v2_watermarks`）全部健在
+- [x] **adminpass 实测通过**：改密 → 新密码可登录 / 旧 token 失效 → 改回原值 → 原密码恢复
+- [x] 45 个已删接口双通道全 404；后台 19 条路由零白屏、90+ 接口调用零 4xx/5xx
+
+**生产备份升级演练（隔离临时栈，验完已彻底销毁）**：
+
+- [x] 演练基线取自生产 `pg_dump`（22MB，98 个 COPY 块）；先用 `:0.1.182` 起一次确认
+      演练环境忠实复现升级前状态
+- [x] **数据零损失**：升级后 users=3 / api_keys=9 / accounts=7 / groups=8 / usage_logs=4031
+      与生产基线逐项一致；**`usage_logs` 全量 id 集合的 md5 升级前后完全相同**
+      （不只是条数对上，是每条记录都在原位）；`api_keys` 与 `users` 全字段逐行 diff 均 IDENTICAL；
+      admin `password_hash` 指纹未变；`users.balance` 列与 `usage_logs.subscription_id` 列均保留
+- [x] **迁移 234 的专属分组回填在生产是空操作**——不是没执行，而是两个专属分组
+      （demo3、Antigravity）上**一把 Key 都没绑**，回填条件匹配 0 行。
+      另注：Antigravity 已于 2026-08-27 软删，真正活着的专属分组只剩 demo3。
+      执行 Agent 另做**正向对照实验**（人为造 4 把 Key + 1 条已存在授权），
+      确认回填逻辑正确：该补的补、软删的 Key 与软删的分组正确跳过、已有授权不被覆盖；
+      并确认该授权行"扛事"——删掉后立即 403 `GROUP_NOT_ALLOWED`
+- [x] 迁移 234 另两段（关高峰倍率、分组类型归一）在生产同为空操作，`groups` 表逐行 diff IDENTICAL
+
+**⚠️ 本轮必须记录的三件事**
+
+**一、额度语义的真实变化（此前判断有误，此处更正）**
+
+> 早先曾判断"升级后 9 把 Key 会变成无限额"。**该判断错误。**
+> 实测对照（每次清 Redis + 重启应用，排除鉴权缓存干扰）：
+
+| 场景 | 旧版 0.1.182 | 新版 internal-rc |
+|---|---|---|
+| quota=0，余额 719（生产原样） | 放行 | 放行 |
+| quota=0，**余额 0** | **403 INSUFFICIENT_BALANCE** | **放行** |
+| quota=0，余额 −100 | 未测 | 放行 |
+| quota=1 已用 5（超额） | 429 QUOTA_EXHAUSTED | 429 QUOTA_EXHAUSTED |
+
+> **`quota=0` 表示不限额，在 0.1.182 上就已如此，不是本轮引入。**
+> 真正被拿掉的是**用户余额这道兜底闸门**：旧版余额扣到 0 会 403 断流，
+> 新版余额完全不参与判断、扣成负数照样放行；`/api/v1/user/profile` 也不再返回 balance。
+> 生产 9 把 Key 的 quota 全是 0 → **升级后没有任何机制会自动叫停消费**。
+> 非零 quota 在新版仍严格执行（超额 429），是升级后唯一有效的刹车。
+
+**二、回滚已不可行，且健康检查会骗人（实测，非推断）**
+
+只换镜像回滚到 `:0.1.182`（数据库保持已迁移状态）：
+
+- 容器**照常 `healthy`**、`/health` 返回 **200**、`RestartCount=0` —— 监控一片绿
+- 但 `/api/v1/keys`、`/api/v1/groups/available`、`/api/v1/admin/users`、
+  `/api/v1/subscriptions` 等**全部 500**（根因：`relation "user_subscriptions" does not exist` 7 次、
+  `announcements` 1 次）
+- **最致命**：`POST /v1/chat/completions` → **500 `Failed to validate API key`**，
+  旧版 Key 校验会读已被删的 `user_subscriptions`。**这是全站转发 100% 中断，
+  而健康检查不会告诉你。**
+
+正确回滚 = **恢复数据库备份 + 换回旧镜像，两件事必须一起做**（已实测验证：
+恢复后表数回到 98、迁移回到 269，所有接口回到 200，网关恢复正常）。
+代价是升级后新增的调用记录与用量数据一并回退丢失，**升级窗口越长回滚代价越大**。
+
+**三、`settings` 表会掉 143 条配置**
+
+275 → 132 行。不只迁移 234 删的 8 个键，230/232/233/237 合起来清掉了
+`auth_source_*` 42 条、SMTP 6 条、affiliate 6 条、payment 5 条、model_plaza 3 条、
+微信/OIDC 接入、各家验证码、订阅相关等。对应功能代码早已删除、配置无人读取，
+但**同样不可逆**，升级前建议单独导出 `settings` 表存档。
+
+**升级后的一处行为变化（会实际碰到）**：给专属分组 demo3 新建 Key 时，
+**必须先在后台把用户加进该分组的允许名单**，否则新建的 Key 一用就 403。
+旧版靠订阅旁路能绕过，新版这条路没了。
+
+**生产上线清单（基于实测）**
+
+1. 升级前 `pg_dump`（`--clean --if-exists --no-owner --no-privileges`）并确认可恢复——唯一退路
+2. 升级前单独导出 `settings` 表，以及 3 张有数据的待删表
+   （`channel_monitor_request_templates` 5 行、`channel_monitor_aggregation_watermark` 1 行、
+   `redeem_codes` 1 行；其余 18 张为空）
+3. 给对外的 Key 设非零 `quota` —— 升级后唯一还有效的刹车。尤其
+   `xuzhangyao` / `shengyuliang` / `gork` / `grok` 四把 demo 用户的 Key，
+   虽然用户当前 disabled，一旦启用就完全不设防
+4. 钉住旧镜像 tag，别让它被覆盖或清理
+5. **升级后第一件事：直接打一发真实 `/v1/chat/completions` 验证转发**，
+   不要只看 `/health` —— 本轮最重要的教训就是健康检查在这个场景下完全不可信
+6. 划定回滚决策窗口（建议 30 分钟），过点即视为不可回滚、只能向前修
+
+**仍未验证的一环**：真正"扣钱"的执行路径。way-rc 与演练环境的上游都是假账号 /
+已禁用账号，所有请求成本为 0，而代码要求成本 > 0 才累加额度与限速用量 ——
+**批次 4 改动最深的那段代码本轮一次都没被执行**。只能在生产升级后立即补验。
+
 ### internal-1e49744（2026-08-28，第四轮：批次 2 验收——**已通过**）
 
 镜像 `ghcr.io/cherrylover/sub2api:internal-rc` = `:internal-1e49744`，
