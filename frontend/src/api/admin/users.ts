@@ -73,7 +73,6 @@ export async function list(
     group_name?: string         // fuzzy filter by allowed group name
     api_key_group_id?: number   // filter users by the group their API keys are bound to
     attributes?: Record<number, string>  // attributeId -> value
-    include_subscriptions?: boolean
     sort_by?: string
     sort_order?: 'asc' | 'desc'
   },
@@ -90,7 +89,6 @@ export async function list(
     search: filters?.search,
     group_name: filters?.group_name,
     api_key_group_id: filters?.api_key_group_id,
-    include_subscriptions: filters?.include_subscriptions,
     sort_by: filters?.sort_by,
     sort_order: filters?.sort_order
   }
@@ -133,7 +131,6 @@ export async function create(userData: {
   username?: string
   notes?: string
   role?: 'admin' | 'user'
-  balance?: number
   concurrency?: number
   rpm_limit?: number
   allowed_groups?: number[] | null
@@ -160,28 +157,6 @@ export async function update(id: number, updates: UpdateUserRequest): Promise<Ad
  */
 export async function deleteUser(id: number): Promise<{ message: string }> {
   const { data } = await apiClient.delete<{ message: string }>(`/admin/users/${id}`)
-  return data
-}
-
-/**
- * Update user balance
- * @param id - User ID
- * @param balance - New balance
- * @param operation - Operation type ('set', 'add', 'subtract')
- * @param notes - Optional notes for the balance adjustment
- * @returns Updated user
- */
-export async function updateBalance(
-  id: number,
-  balance: number,
-  operation: 'set' | 'add' | 'subtract' = 'set',
-  notes?: string
-): Promise<AdminUser> {
-  const { data } = await apiClient.post<AdminUser>(`/admin/users/${id}/balance`, {
-    balance,
-    operation,
-    notes: notes || ''
-  })
   return data
 }
 
@@ -358,7 +333,6 @@ export const usersAPI = {
   create,
   update,
   delete: deleteUser,
-  updateBalance,
   updateConcurrency,
   batchUpdateLimits,
   toggleStatus,

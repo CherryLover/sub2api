@@ -166,7 +166,6 @@ describe('admin UsersView', () => {
           UserPlatformQuotaModal: true,
           UserApiKeysModal: true,
           UserAllowedGroupsModal: true,
-          UserBalanceModal: true,
           GroupReplaceModal: true,
           Icon: true,
           Teleport: true
@@ -203,7 +202,6 @@ describe('admin UsersView', () => {
       JSON.stringify([
         'notes',
         'groups',
-        'subscriptions',
         'concurrency',
         'usage_anthropic',
         'usage_openai',
@@ -251,7 +249,6 @@ describe('admin UsersView', () => {
           UserPlatformQuotaModal: true,
           UserApiKeysModal: true,
           UserAllowedGroupsModal: true,
-          UserBalanceModal: true,
           GroupReplaceModal: true,
           Icon: true,
           Teleport: true
@@ -328,7 +325,6 @@ describe('admin UsersView', () => {
           UserPlatformQuotaModal: true,
           UserApiKeysModal: true,
           UserAllowedGroupsModal: true,
-          UserBalanceModal: true,
           GroupReplaceModal: true,
           Icon: true,
           Teleport: true

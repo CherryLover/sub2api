@@ -10,7 +10,6 @@ import accountsAPI from './accounts'
 import proxiesAPI from './proxies'
 import settingsAPI from './settings'
 import systemAPI from './system'
-import subscriptionsAPI from './subscriptions'
 import usageAPI from './usage'
 import geminiAPI from './gemini'
 import antigravityAPI from './antigravity'
@@ -38,7 +37,6 @@ export const adminAPI = {
   proxies: proxiesAPI,
   settings: settingsAPI,
   system: systemAPI,
-  subscriptions: subscriptionsAPI,
   usage: usageAPI,
   gemini: geminiAPI,
   antigravity: antigravityAPI,
@@ -64,7 +62,6 @@ export {
   proxiesAPI,
   settingsAPI,
   systemAPI,
-  subscriptionsAPI,
   usageAPI,
   geminiAPI,
   antigravityAPI,

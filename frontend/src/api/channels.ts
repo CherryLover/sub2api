@@ -10,8 +10,8 @@ export interface UserAvailableGroup {
   id: number
   name: string
   platform: string
-  /** 'standard' | 'subscription' — 订阅分组视觉加深，和 API 密钥页保持一致。 */
-  subscription_type: string
+  /** @deprecated 订阅体系已拆除（A4），后端不再返回。 */
+  subscription_type?: string
   /** 分组默认倍率。用户专属倍率（若有）通过 /groups/rates 获取后在前端 join。 */
   rate_multiplier: number
   peak_rate_enabled: boolean

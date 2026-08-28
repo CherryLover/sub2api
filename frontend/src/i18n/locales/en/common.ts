@@ -120,7 +120,6 @@ export default {
     groups: 'Groups',
     channels: 'Channels',
     availableChannels: 'Available Channels',
-    subscriptions: 'Subscriptions',
     accounts: 'Accounts',
     proxies: 'Proxies',
     ops: 'Ops',

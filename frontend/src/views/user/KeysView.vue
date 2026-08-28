@@ -1162,7 +1162,7 @@ interface GroupOption {
   peakStart: string
   peakEnd: string
   peakRateMultiplier: number
-  subscriptionType: SubscriptionType
+  subscriptionType?: SubscriptionType
   platform: GroupPlatform
 }
 

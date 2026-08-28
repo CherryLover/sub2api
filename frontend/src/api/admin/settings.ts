@@ -6,11 +6,6 @@
 import { apiClient } from "../client";
 import type { CustomEndpoint } from "@/types";
 
-export interface DefaultSubscriptionSetting {
-  group_id: number;
-  validity_days: number;
-}
-
 // ── 平台限额类型 ──────────────────────────────────────────────────
 export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok"
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
@@ -90,106 +85,6 @@ export function sanitizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | nul
   return result
 }
 
-// 单管理员内部部署：注册来源默认授予只保留 email 渠道（第三方 OAuth 登录已删除）。
-export type AuthSourceType = "email";
-
-export interface AuthSourceDefaultsValue {
-  balance: number;
-  concurrency: number;
-  subscriptions: DefaultSubscriptionSetting[];
-  grant_on_signup: boolean;
-  grant_on_first_bind: boolean;
-  // ★ 新增：平台限额覆盖（key = PlatformType）
-  platform_quotas: DefaultPlatformQuotasMap;
-}
-
-export type AuthSourceDefaultsState = Record<
-  AuthSourceType,
-  AuthSourceDefaultsValue
->;
-
-const AUTH_SOURCE_TYPES: AuthSourceType[] = ["email"];
-const AUTH_SOURCE_DEFAULT_BALANCE = 0;
-const AUTH_SOURCE_DEFAULT_CONCURRENCY = 5;
-
-export function normalizeDefaultSubscriptionSettings(
-  subscriptions: DefaultSubscriptionSetting[] | null | undefined,
-): DefaultSubscriptionSetting[] {
-  if (!Array.isArray(subscriptions)) return [];
-
-  return subscriptions
-    .filter((item) => item.group_id > 0 && item.validity_days > 0)
-    .map((item) => ({
-      group_id: Math.floor(item.group_id),
-      validity_days: Math.min(
-        36500,
-        Math.max(1, Math.floor(item.validity_days)),
-      ),
-    }));
-}
-
-export function buildAuthSourceDefaultsState(
-  settings: Partial<SystemSettings>,
-): AuthSourceDefaultsState {
-  const raw = settings as Record<string, unknown>;
-
-  return AUTH_SOURCE_TYPES.reduce((acc, source) => {
-    const subscriptions = raw[`auth_source_default_${source}_subscriptions`];
-    acc[source] = {
-      balance: Number(
-        raw[`auth_source_default_${source}_balance`] ??
-          AUTH_SOURCE_DEFAULT_BALANCE,
-      ),
-      concurrency: Math.max(
-        1,
-        Number(
-          raw[`auth_source_default_${source}_concurrency`] ??
-            AUTH_SOURCE_DEFAULT_CONCURRENCY,
-        ),
-      ),
-      subscriptions: normalizeDefaultSubscriptionSettings(
-        Array.isArray(subscriptions)
-          ? (subscriptions as DefaultSubscriptionSetting[])
-          : [],
-      ),
-      grant_on_signup:
-        raw[`auth_source_default_${source}_grant_on_signup`] === true,
-      grant_on_first_bind:
-        raw[`auth_source_default_${source}_grant_on_first_bind`] === true,
-      platform_quotas: normalizePlatformQuotasMap(raw[`auth_source_default_${source}_platform_quotas`] as DefaultPlatformQuotasMap | undefined),
-    };
-    return acc;
-  }, {} as AuthSourceDefaultsState);
-}
-
-export function appendAuthSourceDefaultsToUpdateRequest(
-  payload: UpdateSettingsRequest,
-  authSourceDefaults: AuthSourceDefaultsState,
-): UpdateSettingsRequest {
-  const target = payload as Record<string, unknown>;
-
-  for (const source of AUTH_SOURCE_TYPES) {
-    const current = authSourceDefaults[source];
-    target[`auth_source_default_${source}_balance`] =
-      Number(current.balance) || 0;
-    target[`auth_source_default_${source}_concurrency`] = Math.max(
-      1,
-      Math.floor(
-        Number(current.concurrency) || AUTH_SOURCE_DEFAULT_CONCURRENCY,
-      ),
-    );
-    target[`auth_source_default_${source}_subscriptions`] =
-      normalizeDefaultSubscriptionSettings(current.subscriptions);
-    target[`auth_source_default_${source}_grant_on_signup`] =
-      current.grant_on_signup;
-    target[`auth_source_default_${source}_grant_on_first_bind`] =
-      current.grant_on_first_bind;
-    target[`auth_source_default_${source}_platform_quotas`] = sanitizePlatformQuotasMap(current.platform_quotas)
-  }
-
-  return payload;
-}
-
 /**
  * System settings interface
  */
@@ -215,18 +110,10 @@ export interface SystemSettings {
   default_home_path_locked_by_config: boolean;
   audit_log_retention_days: number; // 审计日志保留天数
   // Default settings
-  default_balance: number;
   default_concurrency: number;
   default_user_rpm_limit: number;
-  default_subscriptions: DefaultSubscriptionSetting[];
-  auth_source_default_email_balance?: number;
-  auth_source_default_email_concurrency?: number;
-  auth_source_default_email_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_email_grant_on_signup?: boolean;
-  auth_source_default_email_grant_on_first_bind?: boolean;
-  // ── 平台限额（嵌套 JSON，系统层 + email auth-source 层）────────────────────────────────
+  // ── 平台限额（嵌套 JSON）────────────────────────────────
   default_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_email_platform_quotas?: DefaultPlatformQuotasMap;
   // OEM settings
   doc_url: string;
   backend_mode_enabled: boolean;
@@ -348,18 +235,10 @@ export interface UpdateSettingsRequest {
   login_entry_path?: string;
   default_home_path?: string;
   audit_log_retention_days?: number; // 审计日志保留天数
-  default_balance?: number;
   default_concurrency?: number;
   default_user_rpm_limit?: number;
-  default_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_email_balance?: number;
-  auth_source_default_email_concurrency?: number;
-  auth_source_default_email_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_email_grant_on_signup?: boolean;
-  auth_source_default_email_grant_on_first_bind?: boolean;
-  // ── 平台限额（嵌套 JSON，系统层 + email auth-source 层）────────────────────────────────
+  // ── 平台限额（嵌套 JSON）────────────────────────────────
   default_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_email_platform_quotas?: DefaultPlatformQuotasMap;
   doc_url?: string;
   backend_mode_enabled?: boolean;
   custom_endpoints?: CustomEndpoint[];
