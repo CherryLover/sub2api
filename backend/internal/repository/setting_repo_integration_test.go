@@ -122,12 +122,12 @@ func (s *SettingRepoSuite) TestSet_EmptyValue() {
 func (s *SettingRepoSuite) TestSetMultiple_WithEmptyValues() {
 	// 模拟保存系统设置，部分字段有值，部分字段为空
 	settings := map[string]string{
-		"grok_default_text_model":  "grok-4.6",
+		"grok_default_text_model":    "grok-4.6",
 		"grok_default_base_url_mode": "cli",
-		"identity_patch_prompt":    "", // 用户未设置身份补丁提示词
-		"min_codex_version":        "", // 用户未设置最低 Codex 版本
-		"doc_url":                  "", // 用户未设置文档链接
-		"custom_endpoints":         "", // 用户未添加自定义端点
+		"identity_patch_prompt":      "", // 用户未设置身份补丁提示词
+		"min_codex_version":          "", // 用户未设置最低 Codex 版本
+		"doc_url":                    "", // 用户未设置文档链接
+		"custom_endpoints":           "", // 用户未添加自定义端点
 	}
 
 	s.Require().NoError(s.repo.SetMultiple(s.ctx, settings), "SetMultiple with empty values should succeed")

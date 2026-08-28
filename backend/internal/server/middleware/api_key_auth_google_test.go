@@ -609,4 +609,3 @@ func TestAPIKeyAuthGoogle_TouchesLastUsedInStandardMode(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, 1, touchCalls)
 }
-

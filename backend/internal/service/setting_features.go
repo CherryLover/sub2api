@@ -762,4 +762,3 @@ func (s *SettingService) GetAccountSchedulingThresholds(ctx context.Context) map
 	}
 	return defaultAccountSchedulingThresholds()
 }
-

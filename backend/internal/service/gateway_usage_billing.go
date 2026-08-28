@@ -1131,4 +1131,3 @@ func resolveBillingMode(result *ForwardResult, cost *CostBreakdown) *string {
 	}
 	return &mode
 }
-

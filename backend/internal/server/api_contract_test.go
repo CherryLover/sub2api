@@ -438,12 +438,12 @@ func TestAPIContracts(t *testing.T) {
 
 					service.SettingKeyDefaultConcurrency: "5",
 
-					service.SettingKeyOpsMonitoringEnabled:                 "false",
-					service.SettingKeyOpsRealtimeMonitoringEnabled:         "true",
-					service.SettingKeyOpsQueryModeDefault:                  "auto",
-					service.SettingKeyOpsMetricsIntervalSeconds:            "60",
-					service.SettingKeyOpenAILowUpstreamRatePriorityEnabled: "true",
-					service.SettingKeyOpenAIOAuthSchedulingRateMultiplier:  "0.05",
+					service.SettingKeyOpsMonitoringEnabled:                               "false",
+					service.SettingKeyOpsRealtimeMonitoringEnabled:                       "true",
+					service.SettingKeyOpsQueryModeDefault:                                "auto",
+					service.SettingKeyOpsMetricsIntervalSeconds:                          "60",
+					service.SettingKeyOpenAILowUpstreamRatePriorityEnabled:               "true",
+					service.SettingKeyOpenAIOAuthSchedulingRateMultiplier:                "0.05",
 					"openai_advanced_scheduler_enabled":                                  "true",
 					service.SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled:       "false",
 					service.SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled: "false",
@@ -616,12 +616,12 @@ func newContractDeps(t *testing.T) *contractDeps {
 	userRepo := &stubUserRepo{
 		users: map[int64]*service.User{
 			1: {
-				ID:       1,
-				Email:    "alice@example.com",
-				Username: "alice",
-				Notes:    "hello",
-				Role:     service.RoleUser,
-						Concurrency: 5,
+				ID:            1,
+				Email:         "alice@example.com",
+				Username:      "alice",
+				Notes:         "hello",
+				Role:          service.RoleUser,
+				Concurrency:   5,
 				Status:        service.StatusActive,
 				AllowedGroups: nil,
 				CreatedAt:     now,
@@ -1917,10 +1917,10 @@ func paginationResult(total int64, params pagination.PaginationParams) *paginati
 
 // Ensure compile-time interface compliance.
 var (
-	_ service.UserRepository             = (*stubUserRepo)(nil)
-	_ service.APIKeyRepository           = (*stubApiKeyRepo)(nil)
-	_ service.APIKeyCache                = (*stubApiKeyCache)(nil)
-	_ service.GroupRepository            = (*stubGroupRepo)(nil)
-	_ service.UsageLogRepository         = (*stubUsageLogRepo)(nil)
-	_ service.SettingRepository          = (*stubSettingRepo)(nil)
+	_ service.UserRepository     = (*stubUserRepo)(nil)
+	_ service.APIKeyRepository   = (*stubApiKeyRepo)(nil)
+	_ service.APIKeyCache        = (*stubApiKeyCache)(nil)
+	_ service.GroupRepository    = (*stubGroupRepo)(nil)
+	_ service.UsageLogRepository = (*stubUsageLogRepo)(nil)
+	_ service.SettingRepository  = (*stubSettingRepo)(nil)
 )

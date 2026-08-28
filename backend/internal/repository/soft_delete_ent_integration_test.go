@@ -111,4 +111,3 @@ func TestEntSoftDelete_ApiKey_HardDeleteViaSkipSoftDelete(t *testing.T) {
 		Only(mixins.SkipSoftDelete(ctx))
 	require.True(t, dbent.IsNotFound(err), "expected row to be hard deleted")
 }
-

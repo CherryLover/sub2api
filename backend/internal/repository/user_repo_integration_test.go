@@ -557,4 +557,3 @@ func (s *UserRepoSuite) TestUpdateConcurrency_NotFound() {
 	s.Require().Error(err, "expected error for non-existent user")
 	s.Require().ErrorIs(err, service.ErrUserNotFound)
 }
-

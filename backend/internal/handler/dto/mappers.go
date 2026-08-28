@@ -702,4 +702,3 @@ func SettingFromService(s *service.Setting) *Setting {
 		UpdatedAt: s.UpdatedAt,
 	}
 }
-

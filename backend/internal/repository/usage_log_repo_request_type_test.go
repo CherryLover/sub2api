@@ -862,31 +862,31 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			int64(20), // api_key_id
 			int64(30), // account_id
 			sql.NullString{Valid: true, String: "req-1"},
-			"gpt-5",                                      // model
+			"gpt-5", // model
 			sql.NullString{Valid: true, String: "gpt-5"}, // requested_model
-			sql.NullString{},                             // upstream_model
-			sql.NullString{},                             // upstream_response_model
-			sql.NullBool{},                               // upstream_model_mismatch
-			sql.NullInt64{},                              // group_id
-			sql.NullInt64{},                              // subscription_id
-			1,                                            // input_tokens
-			2,                                            // output_tokens
-			3,                                            // cache_creation_tokens
-			4,                                            // cache_read_tokens
-			5,                                            // cache_creation_5m_tokens
-			6,                                            // cache_creation_1h_tokens
-			0,                                            // image_output_tokens
-			0.0,                                          // image_output_cost
-			0,                                            // image_input_tokens
-			0.0,                                          // image_input_cost
-			0.1,                                          // input_cost
-			0.2,                                          // output_cost
-			0.3,                                          // cache_creation_cost
-			0.4,                                          // cache_read_cost
-			1.0,                                          // total_cost
-			0.9,                                          // actual_cost
-			1.0,                                          // rate_multiplier
-			sql.NullFloat64{},                            // account_rate_multiplier
+			sql.NullString{},  // upstream_model
+			sql.NullString{},  // upstream_response_model
+			sql.NullBool{},    // upstream_model_mismatch
+			sql.NullInt64{},   // group_id
+			sql.NullInt64{},   // subscription_id
+			1,                 // input_tokens
+			2,                 // output_tokens
+			3,                 // cache_creation_tokens
+			4,                 // cache_read_tokens
+			5,                 // cache_creation_5m_tokens
+			6,                 // cache_creation_1h_tokens
+			0,                 // image_output_tokens
+			0.0,               // image_output_cost
+			0,                 // image_input_tokens
+			0.0,               // image_input_cost
+			0.1,               // input_cost
+			0.2,               // output_cost
+			0.3,               // cache_creation_cost
+			0.4,               // cache_read_cost
+			1.0,               // total_cost
+			0.9,               // actual_cost
+			1.0,               // rate_multiplier
+			sql.NullFloat64{}, // account_rate_multiplier
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeWSV2),
 			false, // legacy stream

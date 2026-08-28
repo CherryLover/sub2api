@@ -1070,7 +1070,7 @@ func TestOpenAIGatewayService_Forward_WSv2_CodexFingerprintHandshakeBodyParityAn
 		openaiWSPool:     pool,
 	}
 	account := newTestOAuthAccount(4405, map[string]any{
-		codexFingerprintModeExtraKey: "session",
+		codexFingerprintModeExtraKey:      "session",
 		"responses_websockets_v2_enabled": true,
 	})
 	account.Name = "oauth-ws-fingerprint"

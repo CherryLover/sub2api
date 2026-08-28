@@ -96,4 +96,3 @@ func (s *UserRepoSuite) TestUpdate_DoesNotRevertConcurrentAllowedGroupGrant() {
 	s.Require().NoError(err, "GetByID after update")
 	s.Require().Equal([]int64{group.ID}, got.AllowedGroups, "granted group must not be reverted")
 }
-

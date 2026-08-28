@@ -514,4 +514,3 @@ func normalizeOptionalNonNegativeFloatString(raw string) (string, error) {
 	}
 	return strconv.FormatFloat(value, 'f', -1, 64), nil
 }
-

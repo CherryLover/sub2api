@@ -90,4 +90,3 @@ func TestEqualPlatformQuotaSettings_DetectsPerWindowChange(t *testing.T) {
 		t.Error("expected unequal")
 	}
 }
-
