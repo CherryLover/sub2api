@@ -63,6 +63,10 @@ func (s *userHandlerRefreshTokenCacheStub) GetFamilyTokenHashes(context.Context,
 	return nil, nil
 }
 
+func (s *userHandlerRefreshTokenCacheStub) IsTokenInFamily(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+
 func TestAuthHandlerRevokeAllSessionsInvalidatesAccessTokens(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
