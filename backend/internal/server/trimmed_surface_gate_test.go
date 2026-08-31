@@ -194,6 +194,8 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		// 前端零调用，写入口整体移除。
 		// 读取面（auth_identities 查询、个人资料的绑定摘要）刻意保留。
 		"/api/v1/user/account-bindings/:provider",
+		// 管理端手工绑定第三方身份（P0 收尾）：后台界面上从来没有这个入口。
+		"/api/v1/admin/users/:id/auth-identities",
 		// 注册体系（B3）：注册入口与注册邮箱验证码发送整体移除
 		"/api/v1/auth/register",
 		"/api/v1/auth/send-verify-code",
@@ -346,6 +348,7 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodPost, "/api/v1/user/notify-email/send-code"},
 		{http.MethodPost, "/api/v1/user/account-bindings/email/send-code"},
 		{http.MethodDelete, "/api/v1/user/account-bindings/linuxdo"},
+		{http.MethodPost, "/api/v1/admin/users/1/auth-identities"},
 		{http.MethodPost, "/api/v1/user/totp/send-code"},
 		{http.MethodGet, "/api/v1/admin/system/check-updates"},
 		{http.MethodPost, "/api/v1/admin/system/update"},
