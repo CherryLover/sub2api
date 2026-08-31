@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -22,7 +21,6 @@ import (
 type userHandlerRepoStub struct {
 	user       *service.User
 	identities []service.UserAuthIdentityRecord
-	unbound    []string
 }
 
 func (s *userHandlerRepoStub) Create(context.Context, *service.User) error { return nil }
@@ -89,54 +87,6 @@ func (s *userHandlerRepoStub) ListWithFilters(context.Context, pagination.Pagina
 }
 func (s *userHandlerRepoStub) UpdateConcurrency(context.Context, int64, int) error { return nil }
 
-// userHandlerRefreshTokenCacheStub 是 AuthService 的最小 refresh token 缓存桩。
-// 它原本住在本文件里，被「整删邮件体系」那次提交连带删掉，但两处用例还在引用，
-// 导致 unit tag 下的 handler 包编译不过；这里按原样补回。
-type userHandlerRefreshTokenCacheStub struct {
-	revokedUserIDs []int64
-}
-
-func (s *userHandlerRefreshTokenCacheStub) StoreRefreshToken(context.Context, string, *service.RefreshTokenData, time.Duration) error {
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) GetRefreshToken(context.Context, string) (*service.RefreshTokenData, error) {
-	return nil, service.ErrRefreshTokenNotFound
-}
-
-func (s *userHandlerRefreshTokenCacheStub) DeleteRefreshToken(context.Context, string) error {
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) DeleteUserRefreshTokens(_ context.Context, userID int64) error {
-	s.revokedUserIDs = append(s.revokedUserIDs, userID)
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) DeleteTokenFamily(context.Context, string) error {
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) AddToUserTokenSet(context.Context, int64, string, time.Duration) error {
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) AddToFamilyTokenSet(context.Context, string, string, time.Duration) error {
-	return nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) GetUserTokenHashes(context.Context, int64) ([]string, error) {
-	return nil, nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) GetFamilyTokenHashes(context.Context, string) ([]string, error) {
-	return nil, nil
-}
-
-func (s *userHandlerRefreshTokenCacheStub) IsTokenInFamily(context.Context, string, string) (bool, error) {
-	return false, nil
-}
-
 func (s *userHandlerRepoStub) BatchSetConcurrency(context.Context, []int64, int) (int, error) {
 	return 0, nil
 }
@@ -182,19 +132,6 @@ func (s *userHandlerRepoStub) ListUserAuthIdentities(context.Context, int64) ([]
 	copy(out, s.identities)
 	return out, nil
 }
-func (s *userHandlerRepoStub) UnbindUserAuthProvider(_ context.Context, _ int64, provider string) error {
-	s.unbound = append(s.unbound, provider)
-	filtered := s.identities[:0]
-	for _, identity := range s.identities {
-		if identity.ProviderType == provider {
-			continue
-		}
-		filtered = append(filtered, identity)
-	}
-	s.identities = append([]service.UserAuthIdentityRecord(nil), filtered...)
-	return nil
-}
-
 func TestUserHandlerUpdateProfileReturnsAvatarURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -231,154 +168,4 @@ func TestUserHandlerUpdateProfileReturnsAvatarURL(t *testing.T) {
 	require.Equal(t, 0, resp.Code)
 	require.Equal(t, "https://cdn.example.com/avatar.png", resp.Data.AvatarURL)
 	require.Equal(t, "handler-avatar", resp.Data.Username)
-}
-
-func TestUserHandlerUnbindIdentityReturnsUpdatedProfile(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	repo := &userHandlerRepoStub{
-		user: &service.User{
-			ID:       21,
-			Email:    "identity@example.com",
-			Username: "identity-user",
-			Role:     service.RoleUser,
-			Status:   service.StatusActive,
-		},
-		identities: []service.UserAuthIdentityRecord{
-			{
-				ProviderType:    "email",
-				ProviderKey:     "email",
-				ProviderSubject: "identity@example.com",
-			},
-			{
-				ProviderType:    "linuxdo",
-				ProviderKey:     "linuxdo",
-				ProviderSubject: "linuxdo-subject-21",
-				Metadata: map[string]any{
-					"username": "linuxdo-handle",
-				},
-			},
-		},
-	}
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil), nil, nil)
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/api/v1/user/account-bindings/linuxdo", nil)
-	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 21})
-	c.Params = gin.Params{{Key: "provider", Value: "linuxdo"}}
-
-	handler.UnbindIdentity(c)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Equal(t, []string{"linuxdo"}, repo.unbound)
-
-	var resp struct {
-		Code int            `json:"code"`
-		Data map[string]any `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
-	require.Equal(t, 0, resp.Code)
-
-	// 绑定摘要已收敛为只含 email：解绑成功后响应中不再出现第三方 provider 条目。
-	authBindings, ok := resp.Data["auth_bindings"].(map[string]any)
-	require.True(t, ok)
-	require.Contains(t, authBindings, "email")
-	require.NotContains(t, authBindings, "linuxdo")
-}
-
-func TestUserHandlerUnbindIdentityRevokesAllUserSessionsWhenAuthServiceConfigured(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	repo := &userHandlerRepoStub{
-		user: &service.User{
-			ID:           23,
-			Email:        "identity@example.com",
-			Username:     "identity-user",
-			Role:         service.RoleUser,
-			Status:       service.StatusActive,
-			TokenVersion: 4,
-		},
-		identities: []service.UserAuthIdentityRecord{
-			{
-				ProviderType:    "email",
-				ProviderKey:     "email",
-				ProviderSubject: "identity@example.com",
-			},
-			{
-				ProviderType:    "linuxdo",
-				ProviderKey:     "linuxdo",
-				ProviderSubject: "linuxdo-subject-23",
-			},
-		},
-	}
-	refreshTokenCache := &userHandlerRefreshTokenCacheStub{}
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			Secret:     "test-secret",
-			ExpireHour: 1,
-		},
-	}
-	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil), authService, nil)
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/api/v1/user/account-bindings/linuxdo", nil)
-	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 23})
-	c.Params = gin.Params{{Key: "provider", Value: "linuxdo"}}
-
-	handler.UnbindIdentity(c)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Equal(t, []int64{23}, refreshTokenCache.revokedUserIDs)
-	// 撤销依赖的是 refresh session 清理，而不是 token_version：users 表没有这一列
-	// （见 resolvedTokenVersion，实际值由 email+password_hash 指纹推导），
-	// 所以此前"自增 TokenVersion 再整行写回"不持久化任何东西，
-	// 却会用旧快照覆盖并发写入的列。这里断言用户行未被改写。
-	require.Equal(t, int64(4), repo.user.TokenVersion)
-}
-
-func TestUserHandlerUnbindIdentityDoesNotRevokeSessionsWhenNothingWasUnbound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	repo := &userHandlerRepoStub{
-		user: &service.User{
-			ID:           24,
-			Email:        "identity@example.com",
-			Username:     "identity-user",
-			Role:         service.RoleUser,
-			Status:       service.StatusActive,
-			TokenVersion: 4,
-		},
-		identities: []service.UserAuthIdentityRecord{
-			{
-				ProviderType:    "email",
-				ProviderKey:     "email",
-				ProviderSubject: "identity@example.com",
-			},
-		},
-	}
-	refreshTokenCache := &userHandlerRefreshTokenCacheStub{}
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			Secret:     "test-secret",
-			ExpireHour: 1,
-		},
-	}
-	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil)
-	handler := NewUserHandler(service.NewUserService(repo, nil, nil), authService, nil)
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/api/v1/user/account-bindings/linuxdo", nil)
-	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 24})
-	c.Params = gin.Params{{Key: "provider", Value: "linuxdo"}}
-
-	handler.UnbindIdentity(c)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Empty(t, repo.unbound)
-	require.Empty(t, refreshTokenCache.revokedUserIDs)
-	require.Equal(t, int64(4), repo.user.TokenVersion)
 }

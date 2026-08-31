@@ -25,8 +25,6 @@ type mockUserRepo struct {
 	getByIDUser             *User
 	getByIDErr              error
 	identities              []UserAuthIdentityRecord
-	unbindIdentityErr       error
-	unboundProviders        []string
 	updateLastActiveErr     error
 	updateLastActiveUserIDs []int64
 	updateLastActiveAt      []time.Time
@@ -219,22 +217,6 @@ func (m *mockUserRepo) DisableTotp(context.Context, int64) error               {
 func (m *mockUserRepo) RemoveGroupFromUserAllowedGroups(context.Context, int64, int64) error {
 	return nil
 }
-func (m *mockUserRepo) UnbindUserAuthProvider(_ context.Context, _ int64, provider string) error {
-	if m.unbindIdentityErr != nil {
-		return m.unbindIdentityErr
-	}
-	m.unboundProviders = append(m.unboundProviders, provider)
-	filtered := m.identities[:0]
-	for _, identity := range m.identities {
-		if identity.ProviderType == provider {
-			continue
-		}
-		filtered = append(filtered, identity)
-	}
-	m.identities = append([]UserAuthIdentityRecord(nil), filtered...)
-	return nil
-}
-
 func (m *mockUserRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*User, error) {
 	return m.GetByID(ctx, id)
 }
@@ -276,50 +258,6 @@ func (m *mockAuthCacheInvalidator) InvalidateAuthCacheByUserID(_ context.Context
 
 // --- 测试 ---
 
-func TestUnbindUserAuthProviderRejectsLastRemainingLoginMethod(t *testing.T) {
-	repo := &mockUserRepo{
-		getByIDUser: &User{
-			ID:    9,
-			Email: "only-user@linuxdo-connect.invalid",
-		},
-		identities: []UserAuthIdentityRecord{
-			{
-				ProviderType:    "linuxdo",
-				ProviderKey:     "linuxdo",
-				ProviderSubject: "linuxdo-only-subject",
-			},
-		},
-	}
-	svc := NewUserService(repo, nil, nil)
-
-	_, err := svc.UnbindUserAuthProvider(context.Background(), 9, "linuxdo")
-
-	require.ErrorIs(t, err, ErrIdentityUnbindLastMethod)
-	require.Empty(t, repo.unboundProviders)
-}
-
-func TestGetProfileIdentitySummaries_DoesNotTreatOAuthOnlyCompatEmailAsAlternativeLoginMethod(t *testing.T) {
-	repo := &mockUserRepo{
-		getByIDUser: &User{
-			ID:           10,
-			Email:        "oauth-only@example.com",
-			SignupSource: "oidc",
-		},
-		identities: []UserAuthIdentityRecord{
-			{
-				ProviderType:    "oidc",
-				ProviderKey:     "https://issuer.example.com",
-				ProviderSubject: "oidc-only-subject",
-			},
-		},
-	}
-	svc := NewUserService(repo, nil, nil)
-
-	_, err := svc.UnbindUserAuthProvider(context.Background(), 10, "oidc")
-	require.ErrorIs(t, err, ErrIdentityUnbindLastMethod)
-	require.Empty(t, repo.unboundProviders)
-}
-
 func TestGetProfileIdentitySummaries_DoesNotTreatCompatBackfilledEmailIdentityAsAlternativeLoginMethod(t *testing.T) {
 	repo := &mockUserRepo{
 		getByIDUser: &User{
@@ -348,44 +286,6 @@ func TestGetProfileIdentitySummaries_DoesNotTreatCompatBackfilledEmailIdentityAs
 
 	summaries, err := svc.GetProfileIdentitySummaries(context.Background(), 11, repo.getByIDUser)
 
-	require.NoError(t, err)
-	require.True(t, summaries.Email.Bound)
-
-	_, err = svc.UnbindUserAuthProvider(context.Background(), 11, "wechat")
-	require.ErrorIs(t, err, ErrIdentityUnbindLastMethod)
-	require.Empty(t, repo.unboundProviders)
-}
-
-func TestUnbindUserAuthProviderRemovesProviderAndReturnsUpdatedProfile(t *testing.T) {
-	repo := &mockUserRepo{
-		getByIDUser: &User{
-			ID:    12,
-			Email: "alice@example.com",
-		},
-		identities: []UserAuthIdentityRecord{
-			{
-				ProviderType:    "email",
-				ProviderKey:     "email",
-				ProviderSubject: "alice@example.com",
-			},
-			{
-				ProviderType:    "linuxdo",
-				ProviderKey:     "linuxdo",
-				ProviderSubject: "linuxdo-subject-12",
-			},
-		},
-	}
-	invalidator := &mockAuthCacheInvalidator{}
-	svc := NewUserService(repo, nil, invalidator)
-
-	user, err := svc.UnbindUserAuthProvider(context.Background(), 12, "linuxdo")
-
-	require.NoError(t, err)
-	require.Equal(t, []string{"linuxdo"}, repo.unboundProviders)
-	require.Equal(t, int64(12), user.ID)
-	require.Equal(t, []int64{12}, invalidator.invalidatedUserIDs)
-
-	summaries, err := svc.GetProfileIdentitySummaries(context.Background(), 12, user)
 	require.NoError(t, err)
 	require.True(t, summaries.Email.Bound)
 }

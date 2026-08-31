@@ -190,6 +190,10 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/auth/oauth/pending/exchange",
 		// 第三方绑定启动（OAuth 登录删除后已成死胡同端点，随 WP4 一并移除）
 		"/api/v1/user/auth-identities/bind/start",
+		// 解绑第三方登录（P0 收尾）：成功后会连带撤销该用户的全部令牌，
+		// 前端零调用，写入口整体移除。
+		// 读取面（auth_identities 查询、个人资料的绑定摘要）刻意保留。
+		"/api/v1/user/account-bindings/:provider",
 		// 注册体系（B3）：注册入口与注册邮箱验证码发送整体移除
 		"/api/v1/auth/register",
 		"/api/v1/auth/send-verify-code",
@@ -341,6 +345,7 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/settings/email-templates"},
 		{http.MethodPost, "/api/v1/user/notify-email/send-code"},
 		{http.MethodPost, "/api/v1/user/account-bindings/email/send-code"},
+		{http.MethodDelete, "/api/v1/user/account-bindings/linuxdo"},
 		{http.MethodPost, "/api/v1/user/totp/send-code"},
 		{http.MethodGet, "/api/v1/admin/system/check-updates"},
 		{http.MethodPost, "/api/v1/admin/system/update"},

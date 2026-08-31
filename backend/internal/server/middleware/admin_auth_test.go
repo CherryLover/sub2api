@@ -224,10 +224,6 @@ func (s *stubUserRepo) ListUserAuthIdentities(ctx context.Context, userID int64)
 	panic("unexpected ListUserAuthIdentities call")
 }
 
-func (s *stubUserRepo) UnbindUserAuthProvider(context.Context, int64, string) error {
-	panic("unexpected UnbindUserAuthProvider call")
-}
-
 func (s *stubUserRepo) UpdateTotpSecret(ctx context.Context, userID int64, encryptedSecret *string) error {
 	panic("unexpected UpdateTotpSecret call")
 }

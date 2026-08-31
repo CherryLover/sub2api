@@ -28,17 +28,12 @@ import (
 )
 
 var (
-	ErrUserNotFound             = infraerrors.NotFound("USER_NOT_FOUND", "user not found")
-	ErrPasswordIncorrect        = infraerrors.BadRequest("PASSWORD_INCORRECT", "current password is incorrect")
-	ErrInsufficientPerms        = infraerrors.Forbidden("INSUFFICIENT_PERMISSIONS", "insufficient permissions")
-	ErrAvatarInvalid            = infraerrors.BadRequest("AVATAR_INVALID", "avatar must be a valid image data URL or http(s) URL")
-	ErrAvatarTooLarge           = infraerrors.BadRequest("AVATAR_TOO_LARGE", "avatar image must be 100KB or smaller")
-	ErrAvatarNotImage           = infraerrors.BadRequest("AVATAR_NOT_IMAGE", "avatar content must be an image")
-	ErrIdentityProviderInvalid  = infraerrors.BadRequest("IDENTITY_PROVIDER_INVALID", "identity provider is invalid")
-	ErrIdentityUnbindLastMethod = infraerrors.Conflict(
-		"IDENTITY_UNBIND_LAST_METHOD",
-		"bind another sign-in method before unbinding this provider",
-	)
+	ErrUserNotFound      = infraerrors.NotFound("USER_NOT_FOUND", "user not found")
+	ErrPasswordIncorrect = infraerrors.BadRequest("PASSWORD_INCORRECT", "current password is incorrect")
+	ErrInsufficientPerms = infraerrors.Forbidden("INSUFFICIENT_PERMISSIONS", "insufficient permissions")
+	ErrAvatarInvalid     = infraerrors.BadRequest("AVATAR_INVALID", "avatar must be a valid image data URL or http(s) URL")
+	ErrAvatarTooLarge    = infraerrors.BadRequest("AVATAR_TOO_LARGE", "avatar image must be 100KB or smaller")
+	ErrAvatarNotImage    = infraerrors.BadRequest("AVATAR_NOT_IMAGE", "avatar content must be an image")
 )
 
 const (
@@ -137,7 +132,6 @@ type UserRepository interface {
 	// RemoveGroupFromUserAllowedGroups 移除单个用户的指定分组权限
 	RemoveGroupFromUserAllowedGroups(ctx context.Context, userID int64, groupID int64) error
 	ListUserAuthIdentities(ctx context.Context, userID int64) ([]UserAuthIdentityRecord, error)
-	UnbindUserAuthProvider(ctx context.Context, userID int64, provider string) error
 
 	// TOTP 双因素认证
 	UpdateTotpSecret(ctx context.Context, userID int64, encryptedSecret *string) error
@@ -179,7 +173,8 @@ type UserIdentitySummary struct {
 }
 
 // UserIdentitySummarySet 只保留 email 绑定摘要：第三方 OAuth 登录已删除，
-// 历史第三方身份行仍可通过 DELETE /user/account-bindings/:provider 解绑。
+// 手工解绑入口（DELETE /user/account-bindings/:provider）也已删除，
+// 历史第三方身份行只读不写。
 type UserIdentitySummarySet struct {
 	Email UserIdentitySummary `json:"email"`
 }
@@ -279,47 +274,6 @@ func (s *UserService) GetProfileIdentitySummaries(ctx context.Context, userID in
 	return UserIdentitySummarySet{
 		Email: s.buildEmailIdentitySummary(user, records),
 	}, nil
-}
-
-func (s *UserService) UnbindUserAuthProvider(ctx context.Context, userID int64, provider string) (*User, error) {
-	user, _, err := s.UnbindUserAuthProviderWithResult(ctx, userID, provider)
-	return user, err
-}
-
-func (s *UserService) UnbindUserAuthProviderWithResult(ctx context.Context, userID int64, provider string) (*User, bool, error) {
-	provider = normalizeUserIdentityProvider(provider)
-	if provider == "" || provider == "email" {
-		return nil, false, ErrIdentityProviderInvalid
-	}
-
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return nil, false, fmt.Errorf("get user: %w", err)
-	}
-
-	records, err := s.listUserAuthIdentities(ctx, userID)
-	if err != nil {
-		return nil, false, err
-	}
-	if len(filterUserAuthIdentities(records, provider)) == 0 {
-		return user, false, nil
-	}
-	if !s.canUnbindProvider(provider, user, records) {
-		return nil, false, ErrIdentityUnbindLastMethod
-	}
-
-	if err := s.userRepo.UnbindUserAuthProvider(ctx, userID, provider); err != nil {
-		return nil, false, err
-	}
-	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
-	}
-
-	updatedUser, err := s.GetProfile(ctx, userID)
-	if err != nil {
-		return nil, false, err
-	}
-	return updatedUser, true, nil
 }
 
 // UpdateProfile 更新用户资料
@@ -597,87 +551,11 @@ func (s *UserService) buildEmailIdentitySummary(user *User, records []UserAuthId
 	return summary
 }
 
-func (s *UserService) canUnbindProvider(provider string, user *User, records []UserAuthIdentityRecord) bool {
-	if provider == "" || provider == "email" || len(filterUserAuthIdentities(records, provider)) == 0 {
-		return false
-	}
-
-	if s.canUseEmailAsSignInMethod(user, records) {
-		return true
-	}
-
-	for _, candidate := range []string{"linuxdo", "oidc", "wechat", "dingtalk"} {
-		if candidate == provider {
-			continue
-		}
-		if len(filterUserAuthIdentities(records, candidate)) > 0 {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (s *UserService) canUseEmailAsSignInMethod(user *User, records []UserAuthIdentityRecord) bool {
-	if user == nil {
-		return false
-	}
-
-	email := strings.ToLower(strings.TrimSpace(user.Email))
-	if email == "" || isReservedEmail(email) {
-		return false
-	}
-
-	if emailSignupSourceAllowsLogin(user.SignupSource) {
-		return true
-	}
-
-	for _, record := range filterUserAuthIdentities(records, "email") {
-		if emailIdentitySupportsSignIn(record) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func emailSignupSourceAllowsLogin(signupSource string) bool {
-	signupSource = strings.ToLower(strings.TrimSpace(signupSource))
-	return signupSource == "" || signupSource == "email"
-}
-
-func emailIdentitySupportsSignIn(record UserAuthIdentityRecord) bool {
-	source := strings.TrimSpace(firstStringIdentityValue(record.Metadata, "source"))
-	switch source {
-	case "auth_service_email_bind", "auth_service_login_backfill", "auth_service_dual_write":
-		return true
-	default:
-		return false
-	}
-}
-
 func (s *UserService) listUserAuthIdentities(ctx context.Context, userID int64) ([]UserAuthIdentityRecord, error) {
 	if userID <= 0 || s == nil || s.userRepo == nil {
 		return nil, nil
 	}
 	return s.userRepo.ListUserAuthIdentities(ctx, userID)
-}
-
-func normalizeUserIdentityProvider(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "linuxdo":
-		return "linuxdo"
-	case "oidc":
-		return "oidc"
-	case "wechat":
-		return "wechat"
-	case "dingtalk":
-		return "dingtalk"
-	case "email":
-		return "email"
-	default:
-		return ""
-	}
 }
 
 func filterUserAuthIdentities(records []UserAuthIdentityRecord, provider string) []UserAuthIdentityRecord {
