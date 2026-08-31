@@ -195,9 +195,9 @@
 
 | ✓ | 残留 | 位置 | 为什么危险 | 建议 |
 |---|---|---|---|---|
-| [ ] | **「注册设置」卡片还能填能存，但邮箱域名白名单零生效** | `views/admin/SettingsView.vue:1425-1503`；`service/setting_features.go`；`service/registration_email_policy.go:49-74` | 自助注册已整体删除。`IsRegistrationEmailSuffixAllowed` 只被同文件的 `IsRegistrationEmailSuffixLimited` 调用，而后者**在生产代码里零调用点**（已实测确认，只有单元测试引用）。站长照着这个输入框限制域名，会以为生效了——实际上后台建用户时填任何邮箱都能建成功，**这是一种完全虚假的安全感** | 删掉整张卡片（只留下面的 2FA/Passkey/二次验证三个开关），或者把白名单改成在「后台建用户」时真正生效 |
-| [ ] | 解绑第三方登录接口仍然活着 | `DELETE /api/v1/user/account-bindings/:provider`；`handler/user_handler.go:171`；`routes/user.go:32` | 第三方登录整套已删，前端零调用，但这个接口不但活着，**成功后还会撤销该用户的全部令牌**。等于留了一个没人看守、副作用不小的入口 | 连同路由一起删掉 |
-| [ ] | 管理员手工绑定第三方身份接口 + 前端封装都还在 | `POST /api/v1/admin/users/:id/auth-identities`（`routes/admin.go:250`）；`api/admin/users.ts:247` 的 `bindUserAuthIdentity` | 后端活着、前端封装活着，但后台界面上根本没有这个入口。属于「随时可能被误调用」的悬空能力 | 后端路由 + 前端封装一起删 |
+| [x] | ~~**「注册设置」卡片还能填能存，但邮箱域名白名单零生效**~~ **已清理** | — | 站长照着这个输入框限制域名，会以为生效了——实际上后台建用户时填任何邮箱都能建成功，是完全虚假的安全感 | **已删**：卡片改名为「账号安全」并只保留 2FA / Passkey / 敏感操作二次验证 / 会话绑定 / 日志保留天数；后端删掉白名单读写、设置键 `registration_email_suffix_whitelist` 与 `IsRegistrationEmailSuffixAllowed` / `IsRegistrationEmailSuffixLimited`；迁移 `238` 清库。**顺带**：`InitializeDefaultSettings` 的种子探测键从被删的白名单键改挂 `allow_ungrouped_key_scheduling` |
+| [x] | ~~解绑第三方登录接口仍然活着~~ **已清理** | — | 第三方登录整套已删、前端零调用，但接口活着且成功后会撤销该用户的全部令牌 | **已删**：路由 + handler `UnbindIdentity` + `UserService.UnbindUserAuthProvider(WithResult)` + 仓储写方法一并删除。**读取面刻意保留**：`auth_identities` 的查询与个人资料的绑定摘要不动 |
+| [x] | ~~管理员手工绑定第三方身份接口 + 前端封装都还在~~ **已清理** | — | 后端活着、前端封装活着，但后台界面上根本没有这个入口 | **已删**：路由 + `admin.UserHandler.BindAuthIdentity` + `AdminService.BindUserAuthIdentity` 及其全部私有辅助函数 + 前端 `bindUserAuthIdentity` 与四个类型定义。两条写入口现由 `trimmed_surface_gate_test.go` 锁住不许回流 |
 
 ### P1 · 有能力没入口 / 有入口没能力（功能上白写了）
 

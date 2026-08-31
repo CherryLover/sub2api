@@ -602,6 +602,13 @@ IsPasswordResetEnabled = email_verify_enabled==true
   **该结论仅对批次 1 成立，批次 5 之后已失效**，回滚语义见下方「⛔ 回滚不再是无损操作」
 - 4 个基线遗留的未格式化 unit 测试文件：**已随批次 5 的 `269098f60` 用真 gofmt 修掉**，
   当前 `gofmt -l ./...` 全仓无输出
+- ⚠️ **本文档中所有「`registration_email_suffix_whitelist` 必须保留」的结论均已作废**
+  （涉及第 4.x 节的两段验证命令与批次 3 的副作用说明）。P0 收尾把邮箱域名白名单整条链路
+  （前端卡片 + 后端读写 + 设置键）删了，`InitializeDefaultSettings` 的种子探测键改挂
+  **`allow_ungrouped_key_scheduling`**，迁移 **238** 清库。
+  选它的三个理由：属于分组隔离/调度的核心保留面、没有任何迁移会 `INSERT` 它
+  （全新库不会被迁移预写的行误判成"已种过"）、默认值 `false` 是 fail-closed。
+  发版核对时**不要**再去 `/api/v1/settings/public` 或 `settings` 表里找这个键。
 
 ---
 
