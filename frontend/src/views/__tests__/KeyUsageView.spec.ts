@@ -53,13 +53,11 @@ const messages: Record<string, string> = {
   'keyUsage.cost': 'Cost',
   'keyUsage.quotaMode': 'Key Quota Mode',
   'keyUsage.walletBalance': 'Wallet Balance',
-  'keyUsage.totalQuota': 'Total Quota',
   'keyUsage.limit5h': '5-Hour Limit',
   'keyUsage.limitDaily': 'Daily Limit',
   'keyUsage.limit7d': '7-Day Limit',
   'keyUsage.limitWeekly': 'Weekly Limit',
   'keyUsage.limitMonthly': 'Monthly Limit',
-  'keyUsage.remainingQuota': 'Remaining Quota',
   'keyUsage.usedQuota': 'Used Quota',
   'keyUsage.subscriptionType': 'Subscription Type',
   'keyUsage.todayRequests': 'Today Requests',
@@ -173,7 +171,6 @@ const usagePayload = {
   mode: 'quota_limited',
   isValid: true,
   status: 'active',
-  quota: { limit: 10, used: 1, remaining: 9, unit: 'USD' },
   usage: {
     today: {
       requests: 1,

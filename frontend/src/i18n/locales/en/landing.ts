@@ -75,14 +75,12 @@ export default {
     quotaMode: 'Key Quota Mode',
     walletBalance: 'Wallet Balance',
     // Ring card titles
-    totalQuota: 'Total Quota',
     limit5h: '5-Hour Limit',
     limitDaily: 'Daily Limit',
     limit7d: '7-Day Limit',
     limitWeekly: 'Weekly Limit',
     limitMonthly: 'Monthly Limit',
     // Detail rows
-    remainingQuota: 'Remaining Quota',
     expiresAt: 'Expires At',
     todayExpires: '(expires today)',
     daysLeft: '({days} days)',

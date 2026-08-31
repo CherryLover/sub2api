@@ -119,7 +119,7 @@ export default {
     usage: '用量',
     today: '今日',
     total: '近30天',
-    quota: '额度',
+    spent: '累计消费',
     lastUsedAt: '上次使用时间',
     lastUsedIP: '最近使用 IP',
     useKey: '使用密钥',
@@ -218,18 +218,8 @@ export default {
       geminiCli: 'Gemini CLI',
       geminiCliDesc: '导入为 Gemini CLI 配置'
     },
-    // 配额和有效期
-    quotaLimit: '额度限制',
-    quotaAmount: '额度金额 (USD)',
-    quotaAmountPlaceholder: '输入 USD 额度限制',
-    quotaAmountHint: '设置此密钥可消费的最大金额。0 = 无限制。',
-    quotaUsed: '已用额度',
+    // 重置按钮与限速
     reset: '重置',
-    resetQuotaUsed: '将已用额度重置为 0',
-    resetQuotaTitle: '确认重置额度',
-    resetQuotaConfirmMessage: '确定要将密钥 "{name}" 的已用额度（${used}）重置为 0 吗？此操作不可撤销。',
-    quotaResetSuccess: '额度重置成功',
-    failedToResetQuota: '重置额度失败',
     rateLimitColumn: '速率限制',
     rateLimitSection: '速率限制',
     resetUsage: '重置',
