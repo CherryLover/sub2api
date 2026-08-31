@@ -71,26 +71,12 @@ func TestUserHandlerEndpoints(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	bindBody := map[string]any{
-		"provider_type":    "wechat",
-		"provider_key":     "wechat-main",
-		"provider_subject": "union-123",
-		"metadata":         map[string]any{"source": "admin-repair"},
-		"channel": map[string]any{
-			"channel":         "open",
-			"channel_app_id":  "wx-open",
-			"channel_subject": "openid-123",
-		},
-	}
-	body, _ := json.Marshal(bindBody)
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/1/auth-identities", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
+	// 管理员手工绑定第三方身份的接口已随第三方登录整体删除（P0 残留清理），
+	// 这里原本断言 POST /admin/users/:id/auth-identities 返回 200，已一并移除。
+	// 该路由的「必须 404」断言由裁剪面门禁测试负责。
 
 	createBody := map[string]any{"email": "new@example.com", "password": "pass123", "concurrency": 2}
-	body, _ = json.Marshal(createBody)
+	body, _ := json.Marshal(createBody)
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/admin/users", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
