@@ -85,7 +85,7 @@ func TestNoMigrationRecreatesDeadFeatureTables(t *testing.T) {
 	}
 }
 
-// TestMigration237KeepsDeliberatelyRetainedSettingKeys 锁住三个「看着像残留、
+// TestMigration237KeepsDeliberatelyRetainedSettingKeys 锁住两个「看着像残留、
 // 但必须保留」的设置键，避免后续清理误删。
 func TestMigration237KeepsDeliberatelyRetainedSettingKeys(t *testing.T) {
 	content, err := FS.ReadFile("237_drop_orphan_feature_settings.sql")
@@ -97,10 +97,36 @@ func TestMigration237KeepsDeliberatelyRetainedSettingKeys(t *testing.T) {
 		"registration_enabled",
 		// migration 231 靠它兜底「回滚后旧代码直接走 V2 被动聚合」
 		"channel_monitor_mode",
-		// InitializeDefaultSettings 用它判断是否已种过默认设置
-		"registration_email_suffix_whitelist",
 	} {
 		require.NotContainsf(t, sql, "'"+key+"'",
 			"237 不应删除刻意保留的设置键 %s", key)
+	}
+}
+
+// TestMigration238DropsRegistrationEmailSuffixWhitelist 锁住白名单键的清理：
+// 237 曾把它列为「刻意保留」（当时是 InitializeDefaultSettings 的种子探测键），
+// 238 把探测改挂 allow_ungrouped_key_scheduling 之后，这一行才终于可以删。
+func TestMigration238DropsRegistrationEmailSuffixWhitelist(t *testing.T) {
+	content, err := FS.ReadFile("238_drop_registration_email_suffix_whitelist_setting.sql")
+	require.NoError(t, err)
+	require.Contains(t, string(content),
+		"DELETE FROM settings WHERE key = 'registration_email_suffix_whitelist';")
+}
+
+// TestNoMigrationSeedsRegistrationEmailSuffixWhitelist 保证 238 之后不会有
+// 迁移再把这个键写回来。
+func TestNoMigrationSeedsRegistrationEmailSuffixWhitelist(t *testing.T) {
+	names, err := fs.Glob(FS, "*.sql")
+	require.NoError(t, err)
+	sort.Strings(names)
+
+	for _, name := range names {
+		if name <= "238_drop_registration_email_suffix_whitelist_setting.sql" {
+			continue
+		}
+		content, err := FS.ReadFile(name)
+		require.NoError(t, err)
+		require.NotContainsf(t, strings.ToLower(string(content)), "registration_email_suffix_whitelist",
+			"迁移 %s 不应再写回已删除的设置键 registration_email_suffix_whitelist", name)
 	}
 }

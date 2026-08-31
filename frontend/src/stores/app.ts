@@ -274,7 +274,6 @@ export const useAppStore = defineStore('app', () => {
         return Promise.resolve({ ...cachedPublicSettings.value })
       }
       return Promise.resolve({
-        registration_email_suffix_whitelist: [],
         doc_url: docUrl.value,
         custom_endpoints: [],
         backend_mode_enabled: false,

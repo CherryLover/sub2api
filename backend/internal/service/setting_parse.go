@@ -17,10 +17,24 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
+// settingKeyDefaultsSeedProbe 是"默认设置是否已经种过"的探测键。
+//
+// 这个探测键历史上换过两次，两次都是因为原探测键随功能裁剪被删掉了
+// （email_verify_enabled → registration_email_suffix_whitelist → 现在这个）。
+// 探测键一旦消失，每次启动都会把整套默认值重新 SetMultiple 一遍，
+// 把站长改过的设置覆盖回出厂值。所以这次选键的标准是"不会再被裁掉"：
+//
+//   - allow_ungrouped_key_scheduling 属于分组隔离/调度的核心保留面，
+//     不在任何裁剪计划里；
+//   - 没有任何 SQL 迁移会 INSERT 这个键，全新库不会因为迁移预写了它
+//     而误判成"已经种过"，从而整套默认值一条都不写；
+//   - 默认值 "false" 是 fail-closed 语义，万一读到脏值也不会放开权限。
+const settingKeyDefaultsSeedProbe = SettingKeyAllowUngroupedKeyScheduling
+
 // InitializeDefaultSettings 初始化默认设置
 func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	// 检查是否已有设置
-	_, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEmailSuffixWhitelist)
+	_, err := s.settingRepo.GetValue(ctx, settingKeyDefaultsSeedProbe)
 	if err == nil {
 		// 已有设置，不需要初始化
 		return nil
@@ -40,13 +54,12 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 	// 初始化默认设置
 	defaults := map[string]string{
-		SettingKeyRegistrationEmailSuffixWhitelist: "[]",
-		SettingKeyAPIKeyACLTrustForwardedIP:        "true",
-		SettingKeyForwardedClientIPHeaders:         string(forwardedClientIPHeadersJSON),
-		settingKeyForwardedClientIPModeV2:          "true",
-		SettingKeyCustomEndpoints:                  "[]",
-		SettingKeyDefaultConcurrency:               strconv.Itoa(s.cfg.Default.UserConcurrency),
-		SettingKeyDefaultUserRPMLimit:              "0",
+		SettingKeyAPIKeyACLTrustForwardedIP: "true",
+		SettingKeyForwardedClientIPHeaders:  string(forwardedClientIPHeadersJSON),
+		settingKeyForwardedClientIPModeV2:   "true",
+		SettingKeyCustomEndpoints:           "[]",
+		SettingKeyDefaultConcurrency:        strconv.Itoa(s.cfg.Default.UserConcurrency),
+		SettingKeyDefaultUserRPMLimit:       "0",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",
@@ -165,20 +178,19 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		}
 	}
 	result := &SystemSettings{
-		RegistrationEmailSuffixWhitelist: ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
-		TotpEnabled:                      settings[SettingKeyTotpEnabled] == "true",
-		PasskeyEnabled:                   s.passkeySettingEnabled(settings),
-		SessionBindingEnabled:            settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
-		StepUpEnabled:                    settings[SettingKeyStepUpEnabled] == "true",         // 默认关闭
-		AuditLogRetentionDays:            parseAuditLogRetentionDays(settings[SettingKeyAuditLogRetentionDays]),
-		LoginEntryPublic:                 strings.TrimSpace(settings[SettingKeyWebLoginEntryPublic]) != "false", // 缺失=公开
-		LoginEntryPath:                   config.NormalizeEntryPath(settings[SettingKeyWebLoginEntryPath]),
-		DefaultHomePath:                  config.NormalizeEntryPath(settings[SettingKeyWebDefaultHomePath]),
-		APIKeyACLTrustForwardedIP:        apiKeyACLTrustForwardedIP,
-		ForwardedClientIPHeaders:         forwardedClientIPHeaders,
-		DocURL:                           settings[SettingKeyDocURL],
-		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
-		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
+		TotpEnabled:               settings[SettingKeyTotpEnabled] == "true",
+		PasskeyEnabled:            s.passkeySettingEnabled(settings),
+		SessionBindingEnabled:     settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
+		StepUpEnabled:             settings[SettingKeyStepUpEnabled] == "true",         // 默认关闭
+		AuditLogRetentionDays:     parseAuditLogRetentionDays(settings[SettingKeyAuditLogRetentionDays]),
+		LoginEntryPublic:          strings.TrimSpace(settings[SettingKeyWebLoginEntryPublic]) != "false", // 缺失=公开
+		LoginEntryPath:            config.NormalizeEntryPath(settings[SettingKeyWebLoginEntryPath]),
+		DefaultHomePath:           config.NormalizeEntryPath(settings[SettingKeyWebDefaultHomePath]),
+		APIKeyACLTrustForwardedIP: apiKeyACLTrustForwardedIP,
+		ForwardedClientIPHeaders:  forwardedClientIPHeaders,
+		DocURL:                    settings[SettingKeyDocURL],
+		CustomEndpoints:           settings[SettingKeyCustomEndpoints],
+		BackendModeEnabled:        settings[SettingKeyBackendModeEnabled] == "true",
 	}
 
 	// 解析整数类型

@@ -432,8 +432,6 @@ func TestAPIContracts(t *testing.T) {
 			setup: func(t *testing.T, deps *contractDeps) {
 				t.Helper()
 				deps.settingRepo.SetAll(map[string]string{
-					service.SettingKeyRegistrationEmailSuffixWhitelist: "[]",
-
 					service.SettingKeyDocURL: "https://docs.example.com",
 
 					service.SettingKeyDefaultConcurrency: "5",
@@ -456,7 +454,6 @@ func TestAPIContracts(t *testing.T) {
 				"code": 0,
 				"message": "success",
 				"data": {
-					"registration_email_suffix_whitelist": [],
 						"totp_enabled": false,
 						"totp_encryption_key_configured": false,
 						"passkey_enabled": false,

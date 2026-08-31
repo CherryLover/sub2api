@@ -33,17 +33,16 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 	}
 
 	response.Success(c, dto.PublicSettings{
-		RegistrationEmailSuffixWhitelist: settings.RegistrationEmailSuffixWhitelist,
-		TotpEnabled:                      settings.TotpEnabled,
-		PasskeyEnabled:                   settings.PasskeyEnabled,
-		DocURL:                           settings.DocURL,
-		CustomEndpoints:                  dto.ParseCustomEndpoints(settings.CustomEndpoints),
-		BackendModeEnabled:               settings.BackendModeEnabled,
-		LoginEntryPublic:                 settings.LoginEntryPublic,
-		DefaultHomePath:                  settings.DefaultHomePath,
-		Version:                          h.version,
-		ServerTimezone:                   timezone.Name(),
-		ServerUTCOffset:                  timezone.UTCOffset(),
+		TotpEnabled:        settings.TotpEnabled,
+		PasskeyEnabled:     settings.PasskeyEnabled,
+		DocURL:             settings.DocURL,
+		CustomEndpoints:    dto.ParseCustomEndpoints(settings.CustomEndpoints),
+		BackendModeEnabled: settings.BackendModeEnabled,
+		LoginEntryPublic:   settings.LoginEntryPublic,
+		DefaultHomePath:    settings.DefaultHomePath,
+		Version:            h.version,
+		ServerTimezone:     timezone.Name(),
+		ServerUTCOffset:    timezone.UTCOffset(),
 
 		ChannelMonitorEnabled:        settings.ChannelMonitorEnabled,
 		ChannelMonitorHideThroughput: settings.ChannelMonitorHideThroughput,

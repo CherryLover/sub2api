@@ -13,15 +13,6 @@ import (
 	"time"
 )
 
-// GetRegistrationEmailSuffixWhitelist returns normalized registration email suffix whitelist.
-func (s *SettingService) GetRegistrationEmailSuffixWhitelist(ctx context.Context) []string {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEmailSuffixWhitelist)
-	if err != nil {
-		return []string{}
-	}
-	return ParseRegistrationEmailSuffixWhitelist(value)
-}
-
 // IsTotpEnabled 检查是否启用 TOTP 双因素认证功能
 func (s *SettingService) IsTotpEnabled(ctx context.Context) bool {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyTotpEnabled)

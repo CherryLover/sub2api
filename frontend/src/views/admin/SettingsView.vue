@@ -1420,107 +1420,38 @@
         </div>
         <!-- /Tab: Gateway -->
 
-        <!-- Tab: Security — 邮箱验证 / 会话安全 / 2FA -->
+        <!-- Tab: Security — 2FA / Passkey / 会话安全 / 登录入口 -->
         <div v-show="activeTab === 'security'" class="space-y-6">
-          <!-- Registration Settings -->
+          <!-- Account Security -->
           <div class="card">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
               <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-                {{ t("admin.settings.registration.title") }}
+                {{ t("admin.settings.security.title") }}
               </h2>
               <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                {{ t("admin.settings.registration.description") }}
+                {{ t("admin.settings.security.description") }}
               </p>
             </div>
             <div class="space-y-5 p-6">
-              <!-- Email Suffix Whitelist -->
-              <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
-                <label class="font-medium text-gray-900 dark:text-white">{{
-                  t("admin.settings.registration.emailSuffixWhitelist")
-                }}</label>
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  {{
-                    t("admin.settings.registration.emailSuffixWhitelistHint")
-                  }}
-                </p>
-                <div
-                  class="mt-3 rounded-lg border border-gray-300 bg-white p-2 dark:border-dark-500 dark:bg-dark-700"
-                >
-                  <div class="flex flex-wrap items-center gap-2">
-                    <span
-                      v-for="suffix in registrationEmailSuffixWhitelistTags"
-                      :key="suffix"
-                      class="inline-flex items-center gap-1 rounded bg-gray-100 px-2 py-1 text-xs font-mono text-gray-700 dark:bg-dark-600 dark:text-gray-200"
-                    >
-                      <span>{{ suffix }}</span>
-                      <button
-                        type="button"
-                        class="rounded-full text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-dark-500 dark:hover:text-white"
-                        @click="
-                          removeRegistrationEmailSuffixWhitelistTag(suffix)
-                        "
-                      >
-                        <Icon
-                          name="x"
-                          size="xs"
-                          class="h-3.5 w-3.5"
-                          :stroke-width="2"
-                        />
-                      </button>
-                    </span>
-
-                    <div
-                      class="flex min-w-[220px] flex-1 items-center gap-1 rounded border border-transparent px-2 py-1 focus-within:border-primary-300 dark:focus-within:border-primary-700"
-                    >
-                      <input
-                        v-model="registrationEmailSuffixWhitelistDraft"
-                        type="text"
-                        class="w-full bg-transparent text-sm font-mono text-gray-900 outline-none placeholder:text-gray-400 dark:text-white dark:placeholder:text-gray-500"
-                        :placeholder="
-                          t(
-                            'admin.settings.registration.emailSuffixWhitelistPlaceholder',
-                          )
-                        "
-                        @input="
-                          handleRegistrationEmailSuffixWhitelistDraftInput
-                        "
-                        @keydown="
-                          handleRegistrationEmailSuffixWhitelistDraftKeydown
-                        "
-                        @blur="commitRegistrationEmailSuffixWhitelistDraft"
-                        @paste="handleRegistrationEmailSuffixWhitelistPaste"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                  {{
-                    t(
-                      "admin.settings.registration.emailSuffixWhitelistInputHint",
-                    )
-                  }}
-                </p>
-              </div>
-
               <!-- TOTP 2FA -->
               <div
                 class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
               >
                 <div>
                   <label class="font-medium text-gray-900 dark:text-white">{{
-                    t("admin.settings.registration.totp")
+                    t("admin.settings.security.totp")
                   }}</label>
                   <p class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.registration.totpHint") }}
+                    {{ t("admin.settings.security.totpHint") }}
                   </p>
                   <!-- Warning when encryption key not configured -->
                   <p
                     v-if="!form.totp_encryption_key_configured"
                     class="mt-2 text-sm text-amber-600 dark:text-amber-400"
                   >
-                    {{ t("admin.settings.registration.totpKeyNotConfigured") }}
+                    {{ t("admin.settings.security.totpKeyNotConfigured") }}
                   </p>
                 </div>
                 <Toggle
@@ -4419,12 +4350,6 @@ import { extractApiErrorMessage } from "@/utils/apiError";
 import { useAppStore } from "@/stores";
 import { useAdminSettingsStore } from "@/stores/adminSettings";
 import {
-  isRegistrationEmailSuffixDomainValid,
-  normalizeRegistrationEmailSuffixDomain,
-  normalizeRegistrationEmailSuffixDomains,
-  parseRegistrationEmailSuffixWhitelistInput,
-} from "@/utils/registrationEmailPolicy";
-import {
   parseFingerprintSignalsToRows,
   serializeFingerprintRowsToJSON,
   defaultFingerprintSignalRows,
@@ -4506,8 +4431,6 @@ function handleSettingsTabKeydown(event: KeyboardEvent, tab: SettingsTab): void 
 const loading = ref(true);
 const loadFailed = ref(false);
 const saving = ref(false);
-const registrationEmailSuffixWhitelistTags = ref<string[]>([]);
-const registrationEmailSuffixWhitelistDraft = ref("");
 const forwardedClientIpHeaderDraft = ref("");
 
 // Admin API Key 状态
@@ -5004,7 +4927,6 @@ type SettingsForm = SystemSettings & {
 const schedulingThresholdPlatforms = SCHEDULING_THRESHOLD_PLATFORMS;
 
 const form = reactive<SettingsForm>({
-  registration_email_suffix_whitelist: [],
   totp_enabled: false,
   totp_encryption_key_configured: false,
   passkey_enabled: false,
@@ -5388,86 +5310,6 @@ async function saveWebSearchConfig(): Promise<boolean> {
   }
 }
 
-const registrationEmailSuffixWhitelistSeparatorKeys = new Set([
-  " ",
-  ",",
-  "，",
-  "Enter",
-  "Tab",
-]);
-
-function removeRegistrationEmailSuffixWhitelistTag(suffix: string) {
-  registrationEmailSuffixWhitelistTags.value =
-    registrationEmailSuffixWhitelistTags.value.filter(
-      (item) => item !== suffix,
-    );
-}
-
-function addRegistrationEmailSuffixWhitelistTag(raw: string) {
-  const suffix = normalizeRegistrationEmailSuffixDomain(raw);
-  if (
-    !isRegistrationEmailSuffixDomainValid(suffix) ||
-    registrationEmailSuffixWhitelistTags.value.includes(suffix)
-  ) {
-    return;
-  }
-  registrationEmailSuffixWhitelistTags.value = [
-    ...registrationEmailSuffixWhitelistTags.value,
-    suffix,
-  ];
-}
-
-function commitRegistrationEmailSuffixWhitelistDraft() {
-  if (!registrationEmailSuffixWhitelistDraft.value) {
-    return;
-  }
-  addRegistrationEmailSuffixWhitelistTag(
-    registrationEmailSuffixWhitelistDraft.value,
-  );
-  registrationEmailSuffixWhitelistDraft.value = "";
-}
-
-function handleRegistrationEmailSuffixWhitelistDraftInput() {
-  registrationEmailSuffixWhitelistDraft.value =
-    normalizeRegistrationEmailSuffixDomain(
-      registrationEmailSuffixWhitelistDraft.value,
-    );
-}
-
-function handleRegistrationEmailSuffixWhitelistDraftKeydown(
-  event: KeyboardEvent,
-) {
-  if (event.isComposing) {
-    return;
-  }
-
-  if (registrationEmailSuffixWhitelistSeparatorKeys.has(event.key)) {
-    event.preventDefault();
-    commitRegistrationEmailSuffixWhitelistDraft();
-    return;
-  }
-
-  if (
-    event.key === "Backspace" &&
-    !registrationEmailSuffixWhitelistDraft.value &&
-    registrationEmailSuffixWhitelistTags.value.length > 0
-  ) {
-    registrationEmailSuffixWhitelistTags.value.pop();
-  }
-}
-
-function handleRegistrationEmailSuffixWhitelistPaste(event: ClipboardEvent) {
-  const text = event.clipboardData?.getData("text") || "";
-  if (!text.trim()) {
-    return;
-  }
-  event.preventDefault();
-  const tokens = parseRegistrationEmailSuffixWhitelistInput(text);
-  for (const token of tokens) {
-    addRegistrationEmailSuffixWhitelistTag(token);
-  }
-}
-
 const forwardedClientIpHeaderSeparatorKeys = new Set([
   " ",
   ",",
@@ -5739,16 +5581,11 @@ async function loadSettings() {
       settings.account_scheduling_thresholds,
     );
     form.backend_mode_enabled = settings.backend_mode_enabled;
-    registrationEmailSuffixWhitelistTags.value =
-      normalizeRegistrationEmailSuffixDomains(
-        settings.registration_email_suffix_whitelist,
-      );
     form.forwarded_client_ip_headers = normalizeForwardedClientIpHeaders(
       settings.forwarded_client_ip_headers,
     );
     forwardedClientIpHeaderDraft.value = "";
     snapshotWebEntry();
-    registrationEmailSuffixWhitelistDraft.value = "";
 
     // Load OpenAI fast/flex policy rules from bulk settings.
     // 仅当 payload 真的包含该字段时填充并标记为已加载；否则保持表单空值，
@@ -6034,10 +5871,6 @@ async function saveSettings() {
       claudeOAuthSystemPromptBlocksJSON;
 
     const payload: UpdateSettingsRequest = {
-      registration_email_suffix_whitelist:
-        registrationEmailSuffixWhitelistTags.value.map((suffix) =>
-          suffix.startsWith("*.") ? suffix : `@${suffix}`,
-        ),
       totp_enabled: form.totp_enabled,
       passkey_enabled: form.passkey_enabled,
       session_binding_enabled: form.session_binding_enabled,
@@ -6199,16 +6032,11 @@ async function saveSettings() {
     form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
       updated.account_scheduling_thresholds,
     );
-    registrationEmailSuffixWhitelistTags.value =
-      normalizeRegistrationEmailSuffixDomains(
-        updated.registration_email_suffix_whitelist,
-      );
     form.forwarded_client_ip_headers = normalizeForwardedClientIpHeaders(
       updated.forwarded_client_ip_headers,
     );
     forwardedClientIpHeaderDraft.value = "";
     snapshotWebEntry();
-    registrationEmailSuffixWhitelistDraft.value = "";
     // Refresh OpenAI fast/flex policy from server response
     if (
       updated.openai_fast_policy_settings &&

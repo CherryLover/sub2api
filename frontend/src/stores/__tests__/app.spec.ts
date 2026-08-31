@@ -18,7 +18,6 @@ function createDeferred<T>() {
 function createPublicSettings(overrides: Partial<PublicSettings> = {}): PublicSettings {
   return {
     registration_enabled: false,
-    registration_email_suffix_whitelist: [],
     turnstile_enabled: false,
     turnstile_site_key: '',
     doc_url: '',

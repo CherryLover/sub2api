@@ -19,13 +19,11 @@ import (
 
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
-	// 注册设置
-	RegistrationEmailSuffixWhitelist []string `json:"registration_email_suffix_whitelist"`
-	TotpEnabled                      bool     `json:"totp_enabled"`             // TOTP 双因素认证
-	PasskeyEnabled                   *bool    `json:"passkey_enabled"`          // Passkey 登录（省略=保持现值）
-	SessionBindingEnabled            *bool    `json:"session_binding_enabled"`  // 会话 IP/UA 绑定（省略=保持现值）
-	StepUpEnabled                    *bool    `json:"step_up_enabled"`          // 敏感操作 step-up 2FA（省略=保持现值）
-	AuditLogRetentionDays            int      `json:"audit_log_retention_days"` // 审计日志保留天数
+	TotpEnabled           bool  `json:"totp_enabled"`             // TOTP 双因素认证
+	PasskeyEnabled        *bool `json:"passkey_enabled"`          // Passkey 登录（省略=保持现值）
+	SessionBindingEnabled *bool `json:"session_binding_enabled"`  // 会话 IP/UA 绑定（省略=保持现值）
+	StepUpEnabled         *bool `json:"step_up_enabled"`          // 敏感操作 step-up 2FA（省略=保持现值）
+	AuditLogRetentionDays int   `json:"audit_log_retention_days"` // 审计日志保留天数
 
 	// 登录入口 / 默认首页（省略=保持现值）。
 	// 指针类型是刻意的：不带这几个字段的旧客户端/脚本做一次全量保存时，绝不能把
@@ -469,15 +467,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		DefaultPlatformQuotas:       req.DefaultPlatformQuotas,
 		AccountSchedulingThresholds: req.AccountSchedulingThresholds,
 
-		RegistrationEmailSuffixWhitelist: req.RegistrationEmailSuffixWhitelist,
-		TotpEnabled:                      req.TotpEnabled,
-		PasskeyEnabled:                   passkeyEnabled,
-		SessionBindingEnabled:            sessionBindingEnabled,
-		StepUpEnabled:                    stepUpEnabled,
-		LoginEntryPublic:                 webEntryPlan.LoginEntryPublic,
-		LoginEntryPath:                   webEntryPlan.LoginEntryPath,
-		DefaultHomePath:                  webEntryPlan.DefaultHomePath,
-		AuditLogRetentionDays:            req.AuditLogRetentionDays,
+		TotpEnabled:           req.TotpEnabled,
+		PasskeyEnabled:        passkeyEnabled,
+		SessionBindingEnabled: sessionBindingEnabled,
+		StepUpEnabled:         stepUpEnabled,
+		LoginEntryPublic:      webEntryPlan.LoginEntryPublic,
+		LoginEntryPath:        webEntryPlan.LoginEntryPath,
+		DefaultHomePath:       webEntryPlan.DefaultHomePath,
+		AuditLogRetentionDays: req.AuditLogRetentionDays,
 		APIKeyACLTrustForwardedIP: func() bool {
 			if req.APIKeyACLTrustForwardedIP != nil {
 				return *req.APIKeyACLTrustForwardedIP
@@ -745,7 +742,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	passkeyConfigured, passkeyRPID, passkeyRPOrigins := h.settingService.PasskeyConfiguration()
 
 	payload := dto.SystemSettings{
-		RegistrationEmailSuffixWhitelist:                       updatedSettings.RegistrationEmailSuffixWhitelist,
 		TotpEnabled:                                            updatedSettings.TotpEnabled,
 		TotpEncryptionKeyConfigured:                            h.settingService.IsTotpEncryptionKeyConfigured(),
 		PasskeyEnabled:                                         updatedSettings.PasskeyEnabled,

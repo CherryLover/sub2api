@@ -1,7 +1,7 @@
 export default {
     settings: {
       title: '系统设置',
-      description: '管理注册、默认值和网关设置',
+      description: '管理默认值、安全与网关设置',
       tabs: {
         general: '通用设置',
         features: '功能开关',
@@ -39,20 +39,13 @@ export default {
           cyberSessionBlockTTL: '屏蔽时长(秒)',
         },
       },
-      registration: {
-        title: '注册设置',
-        description: '控制用户注册和验证',
-        emailSuffixWhitelist: '邮箱域名白名单',
-        emailSuffixWhitelistHint:
-          "仅允许使用指定域名的邮箱注册账号；留空则不限制（例如 {'@'}qq.com, {'@'}gmail.com, *.edu.cn）",
-        emailSuffixWhitelistPlaceholder: "{'@'}example.com, *.edu.cn",
-        emailSuffixWhitelistInputHint: '留空则不限制。使用 *.edu.cn 可匹配 edu.cn 及其子域名。',
+      security: {
+        title: '账号安全',
+        description: '双因素认证、Passkey、会话安全与操作日志保留',
         totp: '双因素认证 (2FA)',
         totpHint: '允许用户使用 Google Authenticator 等应用进行二次验证',
         totpKeyNotConfigured:
-          '请先在环境变量中配置 TOTP_ENCRYPTION_KEY。使用命令 openssl rand -hex 32 生成密钥。'
-      },
-      security: {
+          '请先在环境变量中配置 TOTP_ENCRYPTION_KEY。使用命令 openssl rand -hex 32 生成密钥。',
         passkey: 'Passkey 登录',
         passkeyHint: '当依赖方配置有效时，允许无密码登录及用户自行管理 Passkey。',
         passkeyConfigured: 'WebAuthn 依赖方配置有效。',

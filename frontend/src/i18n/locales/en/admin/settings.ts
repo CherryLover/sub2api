@@ -1,7 +1,7 @@
 export default {
     settings: {
       title: 'System Settings',
-      description: 'Manage registration, default values, and gateway settings',
+      description: 'Manage default values, security, and gateway settings',
       tabs: {
         general: 'General',
         features: 'Feature Switches',
@@ -39,20 +39,13 @@ export default {
           cyberSessionBlockTTL: 'Block TTL (seconds)',
         },
       },
-      registration: {
-        title: 'Registration Settings',
-        description: 'Control user registration and verification',
-        emailSuffixWhitelist: 'Email Domain Whitelist',
-        emailSuffixWhitelistHint:
-          "Only email addresses from the specified domains can register; leave empty for no restriction (for example, {'@'}qq.com, {'@'}gmail.com, *.edu.cn)",
-        emailSuffixWhitelistPlaceholder: "{'@'}example.com, *.edu.cn",
-        emailSuffixWhitelistInputHint: 'Leave empty for no restriction. Use *.edu.cn to match edu.cn and its subdomains.',
+      security: {
+        title: 'Account Security',
+        description: 'Two-factor authentication, passkeys, session security and audit log retention',
         totp: 'Two-Factor Authentication (2FA)',
         totpHint: 'Allow users to use authenticator apps like Google Authenticator',
         totpKeyNotConfigured:
-          'Please configure TOTP_ENCRYPTION_KEY in environment variables first. Generate a key with: openssl rand -hex 32'
-      },
-      security: {
+          'Please configure TOTP_ENCRYPTION_KEY in environment variables first. Generate a key with: openssl rand -hex 32',
         passkey: 'Passkey Sign-in',
         passkeyHint: 'Allow passwordless sign-in and user-managed passkeys when the relying party configuration is valid.',
         passkeyConfigured: 'WebAuthn relying party configuration is valid.',

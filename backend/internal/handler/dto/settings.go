@@ -16,16 +16,15 @@ type CustomEndpoint struct {
 
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
-	RegistrationEmailSuffixWhitelist []string `json:"registration_email_suffix_whitelist"`
-	TotpEnabled                      bool     `json:"totp_enabled"`                   // TOTP 双因素认证
-	TotpEncryptionKeyConfigured      bool     `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
-	PasskeyEnabled                   bool     `json:"passkey_enabled"`
-	PasskeyConfigured                bool     `json:"passkey_configured"`
-	PasskeyRPID                      string   `json:"passkey_rp_id"`
-	PasskeyRPOrigins                 []string `json:"passkey_rp_origins"`
-	SessionBindingEnabled            bool     `json:"session_binding_enabled"`  // 会话 IP/UA 绑定
-	StepUpEnabled                    bool     `json:"step_up_enabled"`          // 敏感操作 step-up 2FA
-	AuditLogRetentionDays            int      `json:"audit_log_retention_days"` // 审计日志保留天数
+	TotpEnabled                 bool     `json:"totp_enabled"`                   // TOTP 双因素认证
+	TotpEncryptionKeyConfigured bool     `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
+	PasskeyEnabled              bool     `json:"passkey_enabled"`
+	PasskeyConfigured           bool     `json:"passkey_configured"`
+	PasskeyRPID                 string   `json:"passkey_rp_id"`
+	PasskeyRPOrigins            []string `json:"passkey_rp_origins"`
+	SessionBindingEnabled       bool     `json:"session_binding_enabled"`  // 会话 IP/UA 绑定
+	StepUpEnabled               bool     `json:"step_up_enabled"`          // 敏感操作 step-up 2FA
+	AuditLogRetentionDays       int      `json:"audit_log_retention_days"` // 审计日志保留天数
 
 	// 登录入口 / 默认首页（三层合并后的**生效值**）。
 	//
@@ -162,13 +161,12 @@ type SystemSettings struct {
 }
 
 type PublicSettings struct {
-	RegistrationEmailSuffixWhitelist []string         `json:"registration_email_suffix_whitelist"`
-	TotpEnabled                      bool             `json:"totp_enabled"` // TOTP 双因素认证
-	PasskeyEnabled                   bool             `json:"passkey_enabled"`
-	DocURL                           string           `json:"doc_url"`
-	CustomEndpoints                  []CustomEndpoint `json:"custom_endpoints"`
-	BackendModeEnabled               bool             `json:"backend_mode_enabled"`
-	Version                          string           `json:"version"`
+	TotpEnabled        bool             `json:"totp_enabled"` // TOTP 双因素认证
+	PasskeyEnabled     bool             `json:"passkey_enabled"`
+	DocURL             string           `json:"doc_url"`
+	CustomEndpoints    []CustomEndpoint `json:"custom_endpoints"`
+	BackendModeEnabled bool             `json:"backend_mode_enabled"`
+	Version            string           `json:"version"`
 	// 服务器全局时区（IANA 名称与当前 UTC 偏移，如 "Asia/Shanghai" / "+08:00"）。
 	// 高峰时段等按服务器本地时间判定的窗口，前端展示时据此标注，避免用户按浏览器本地时间误读。
 	ServerTimezone  string `json:"server_timezone"`

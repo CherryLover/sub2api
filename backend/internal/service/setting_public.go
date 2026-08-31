@@ -13,7 +13,6 @@ import (
 // GetPublicSettings 获取公开设置（无需登录）
 func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings, error) {
 	keys := []string{
-		SettingKeyRegistrationEmailSuffixWhitelist,
 		SettingKeyTotpEnabled,
 		SettingKeyPasskeyEnabled,
 		SettingKeyAPIKeyACLTrustForwardedIP,
@@ -37,17 +36,12 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	// 少一次共处一室就少一次"哪天被顺手 range 出来"的机会。
 	webEntry := s.ResolveWebEntry(ctx)
 
-	registrationEmailSuffixWhitelist := ParseRegistrationEmailSuffixWhitelist(
-		settings[SettingKeyRegistrationEmailSuffixWhitelist],
-	)
-
 	return &PublicSettings{
-		RegistrationEmailSuffixWhitelist: registrationEmailSuffixWhitelist,
-		TotpEnabled:                      settings[SettingKeyTotpEnabled] == "true",
-		PasskeyEnabled:                   s.passkeyConfigured() && s.passkeySettingEnabled(settings),
-		DocURL:                           settings[SettingKeyDocURL],
-		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
-		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
+		TotpEnabled:        settings[SettingKeyTotpEnabled] == "true",
+		PasskeyEnabled:     s.passkeyConfigured() && s.passkeySettingEnabled(settings),
+		DocURL:             settings[SettingKeyDocURL],
+		CustomEndpoints:    settings[SettingKeyCustomEndpoints],
+		BackendModeEnabled: settings[SettingKeyBackendModeEnabled] == "true",
 
 		ChannelMonitorEnabled:        !isFalseSettingValue(settings[SettingKeyChannelMonitorEnabled]),
 		ChannelMonitorHideThroughput: !isFalseSettingValue(settings[SettingKeyChannelMonitorHideThroughput]),
@@ -142,13 +136,12 @@ func (s *SettingService) IsUserErrorViewAllowed(ctx context.Context) bool {
 // A unit test diffs this struct's JSON keys against dto.PublicSettings to catch
 // drift automatically (see setting_service_injection_test.go).
 type PublicSettingsInjectionPayload struct {
-	RegistrationEmailSuffixWhitelist []string        `json:"registration_email_suffix_whitelist"`
-	TotpEnabled                      bool            `json:"totp_enabled"`
-	PasskeyEnabled                   bool            `json:"passkey_enabled"`
-	DocURL                           string          `json:"doc_url"`
-	CustomEndpoints                  json.RawMessage `json:"custom_endpoints"`
-	BackendModeEnabled               bool            `json:"backend_mode_enabled"`
-	Version                          string          `json:"version"`
+	TotpEnabled        bool            `json:"totp_enabled"`
+	PasskeyEnabled     bool            `json:"passkey_enabled"`
+	DocURL             string          `json:"doc_url"`
+	CustomEndpoints    json.RawMessage `json:"custom_endpoints"`
+	BackendModeEnabled bool            `json:"backend_mode_enabled"`
+	Version            string          `json:"version"`
 	// 服务器全局时区（IANA 名称与当前 UTC 偏移），高峰时段等服务端本地时间窗口的展示标注用
 	ServerTimezone  string `json:"server_timezone"`
 	ServerUTCOffset string `json:"server_utc_offset"`
@@ -182,15 +175,14 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 	}
 
 	return &PublicSettingsInjectionPayload{
-		RegistrationEmailSuffixWhitelist: settings.RegistrationEmailSuffixWhitelist,
-		TotpEnabled:                      settings.TotpEnabled,
-		PasskeyEnabled:                   settings.PasskeyEnabled,
-		DocURL:                           settings.DocURL,
-		CustomEndpoints:                  safeRawJSONArray(settings.CustomEndpoints),
-		BackendModeEnabled:               settings.BackendModeEnabled,
-		Version:                          s.version,
-		ServerTimezone:                   timezone.Name(),
-		ServerUTCOffset:                  timezone.UTCOffset(),
+		TotpEnabled:        settings.TotpEnabled,
+		PasskeyEnabled:     settings.PasskeyEnabled,
+		DocURL:             settings.DocURL,
+		CustomEndpoints:    safeRawJSONArray(settings.CustomEndpoints),
+		BackendModeEnabled: settings.BackendModeEnabled,
+		Version:            s.version,
+		ServerTimezone:     timezone.Name(),
+		ServerUTCOffset:    timezone.UTCOffset(),
 
 		ChannelMonitorEnabled:        settings.ChannelMonitorEnabled,
 		ChannelMonitorHideThroughput: settings.ChannelMonitorHideThroughput,

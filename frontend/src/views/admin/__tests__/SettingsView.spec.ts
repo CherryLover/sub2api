@@ -364,7 +364,6 @@ const ImageUploadStub = defineComponent({
 
 const baseSettingsResponse = {
   registration_enabled: true,
-  registration_email_suffix_whitelist: [],
   promo_code_enabled: true,
   invitation_code_enabled: false,
   totp_enabled: false,
@@ -526,16 +525,6 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
   await usersTabButton?.trigger("click");
   await flushPromises();
 }
-
-describe("admin SettingsView email suffix whitelist copy", () => {
-  it("documents the empty-whitelist behavior in both locales", () => {
-    // 白名单 hint 描述严格默认语义（非白名单域名限量注册开关已随注册体系删除）。
-    const zhWhitelistHint = zhSettings.settings.registration.emailSuffixWhitelistHint;
-    const enWhitelistHint = enSettings.settings.registration.emailSuffixWhitelistHint;
-    expect(zhWhitelistHint).toContain("留空则不限制");
-    expect(enWhitelistHint).toContain("leave empty for no restriction");
-  });
-});
 
 describe("admin SettingsView platform quota matrix", () => {
   beforeEach(() => {
