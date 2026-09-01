@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,6 +17,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// getAdminIDFromContext 从鉴权上下文里取出当前管理员 ID，取不到时返回 0。
+// 原先定义在 subscription_handler.go，订阅体系拆除后迁到这里，唯一调用方就是本文件。
+func getAdminIDFromContext(c *gin.Context) int64 {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		return 0
+	}
+	return subject.UserID
+}
 
 // UserWithConcurrency wraps AdminUser with current concurrency info
 type UserWithConcurrency struct {
@@ -59,15 +68,14 @@ func NewUserHandler(
 
 // CreateUserRequest represents admin create user request
 type CreateUserRequest struct {
-	Email         string   `json:"email" binding:"required,email"`
-	Password      string   `json:"password" binding:"required,min=6"`
-	Username      string   `json:"username"`
-	Notes         string   `json:"notes"`
-	Role          string   `json:"role" binding:"omitempty,oneof=admin user"`
-	Balance       *float64 `json:"balance"`
-	Concurrency   int      `json:"concurrency"`
-	RPMLimit      int      `json:"rpm_limit"`
-	AllowedGroups []int64  `json:"allowed_groups"`
+	Email         string  `json:"email" binding:"required,email"`
+	Password      string  `json:"password" binding:"required,min=6"`
+	Username      string  `json:"username"`
+	Notes         string  `json:"notes"`
+	Role          string  `json:"role" binding:"omitempty,oneof=admin user"`
+	Concurrency   int     `json:"concurrency"`
+	RPMLimit      int     `json:"rpm_limit"`
+	AllowedGroups []int64 `json:"allowed_groups"`
 }
 
 // UpdateUserRequest represents admin update user request
@@ -78,7 +86,6 @@ type UpdateUserRequest struct {
 	Username      *string  `json:"username"`
 	Notes         *string  `json:"notes"`
 	Role          string   `json:"role" binding:"omitempty,oneof=admin user"`
-	Balance       *float64 `json:"balance"`
 	Concurrency   *int     `json:"concurrency"`
 	RPMLimit      *int     `json:"rpm_limit"`
 	Status        string   `json:"status" binding:"omitempty,oneof=active disabled"`
@@ -86,29 +93,6 @@ type UpdateUserRequest struct {
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
 	GroupRates map[int64]*float64 `json:"group_rates"`
-}
-
-// UpdateBalanceRequest represents balance update request
-type UpdateBalanceRequest struct {
-	Balance   float64 `json:"balance" binding:"required,gt=0"`
-	Operation string  `json:"operation" binding:"required,oneof=set add subtract"`
-	Notes     string  `json:"notes"`
-}
-
-type BindUserAuthIdentityRequest struct {
-	ProviderType    string                              `json:"provider_type"`
-	ProviderKey     string                              `json:"provider_key"`
-	ProviderSubject string                              `json:"provider_subject"`
-	Issuer          *string                             `json:"issuer"`
-	Metadata        map[string]any                      `json:"metadata"`
-	Channel         *BindUserAuthIdentityChannelRequest `json:"channel"`
-}
-
-type BindUserAuthIdentityChannelRequest struct {
-	Channel        string         `json:"channel"`
-	ChannelAppID   string         `json:"channel_app_id"`
-	ChannelSubject string         `json:"channel_subject"`
-	Metadata       map[string]any `json:"metadata"`
 }
 
 // List handles listing all users with pagination
@@ -144,11 +128,6 @@ func (h *UserHandler) List(c *gin.Context) {
 	}
 	sortBy := c.DefaultQuery("sort_by", "created_at")
 	sortOrder := c.DefaultQuery("sort_order", "desc")
-	if raw, ok := c.GetQuery("include_subscriptions"); ok {
-		includeSubscriptions := parseBoolQueryWithDefault(raw, true)
-		filters.IncludeSubscriptions = &includeSubscriptions
-	}
-
 	users, total, err := h.adminService.ListUsers(c.Request.Context(), page, pageSize, filters, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -228,45 +207,6 @@ func (h *UserHandler) GetByID(c *gin.Context) {
 	response.Success(c, dto.UserFromServiceAdmin(user))
 }
 
-// BindAuthIdentity manually binds a canonical auth identity to a user.
-// POST /api/v1/admin/users/:id/auth-identities
-func (h *UserHandler) BindAuthIdentity(c *gin.Context) {
-	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		response.BadRequest(c, "Invalid user ID")
-		return
-	}
-
-	var req BindUserAuthIdentityRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	input := service.AdminBindAuthIdentityInput{
-		ProviderType:    req.ProviderType,
-		ProviderKey:     req.ProviderKey,
-		ProviderSubject: req.ProviderSubject,
-		Issuer:          req.Issuer,
-		Metadata:        req.Metadata,
-	}
-	if req.Channel != nil {
-		input.Channel = &service.AdminBindAuthIdentityChannelInput{
-			Channel:        req.Channel.Channel,
-			ChannelAppID:   req.Channel.ChannelAppID,
-			ChannelSubject: req.Channel.ChannelSubject,
-			Metadata:       req.Channel.Metadata,
-		}
-	}
-
-	result, err := h.adminService.BindUserAuthIdentity(c.Request.Context(), userID, input)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, result)
-}
-
 // Create handles creating a new user
 // POST /api/v1/admin/users
 func (h *UserHandler) Create(c *gin.Context) {
@@ -289,7 +229,6 @@ func (h *UserHandler) Create(c *gin.Context) {
 		Username:      req.Username,
 		Notes:         req.Notes,
 		Role:          req.Role,
-		Balance:       req.Balance,
 		Concurrency:   req.Concurrency,
 		RPMLimit:      req.RPMLimit,
 		AllowedGroups: req.AllowedGroups,
@@ -347,7 +286,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 		Username:      req.Username,
 		Notes:         req.Notes,
 		Role:          req.Role,
-		Balance:       req.Balance,
 		Concurrency:   req.Concurrency,
 		RPMLimit:      req.RPMLimit,
 		Status:        req.Status,
@@ -379,37 +317,6 @@ func (h *UserHandler) Delete(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"message": "User deleted successfully"})
-}
-
-// UpdateBalance handles updating user balance
-// POST /api/v1/admin/users/:id/balance
-func (h *UserHandler) UpdateBalance(c *gin.Context) {
-	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		response.BadRequest(c, "Invalid user ID")
-		return
-	}
-
-	var req UpdateBalanceRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	idempotencyPayload := struct {
-		UserID int64                `json:"user_id"`
-		Body   UpdateBalanceRequest `json:"body"`
-	}{
-		UserID: userID,
-		Body:   req,
-	}
-	executeAdminIdempotentJSON(c, "admin.users.balance.update", idempotencyPayload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		user, execErr := h.adminService.UpdateUserBalance(ctx, userID, req.Balance, req.Operation, req.Notes)
-		if execErr != nil {
-			return nil, execErr
-		}
-		return dto.UserFromServiceAdmin(user), nil
-	})
 }
 
 // GetUserAPIKeys handles getting user's API keys

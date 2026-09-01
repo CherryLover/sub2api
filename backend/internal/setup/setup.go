@@ -30,17 +30,6 @@ const (
 	defaultUserConcurrency     = 5
 	simpleModeAdminConcurrency = 30
 	defaultMigrationTimeout    = 60 * time.Second
-
-	// bootstrapAdminBalance 是全新部署时自动创建的管理员的初始余额。
-	//
-	// 内部单管理员部署没有自助充值入口，管理员初始余额为 0 时首条转发请求会直接被
-	// INSUFFICIENT_BALANCE（403）拒绝，必须先在用户管理里给自己充值才能使用，体验上是死锁。
-	// 这里预置一个极大初始值绕开该限制。
-	//
-	// 这是订阅/余额体系彻底拆除（见 docs/TRIM_PLAN.md A4）落地前的过渡方案，A4 完成后应随之移除。
-	// users.balance 列类型为 NUMERIC(20,8)，整数位最多 12 位，1e9 远在精度范围内。
-	// 该常量只作用于 bootstrap 新建管理员，不改动存量数据，也不影响计费/结算链路。
-	bootstrapAdminBalance = 1_000_000_000
 )
 
 func setupDefaultAdminConcurrency() int {
@@ -441,7 +430,6 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 		Email:       cfg.Admin.Email,
 		Role:        service.RoleAdmin,
 		Status:      service.StatusActive,
-		Balance:     bootstrapAdminBalance,
 		Concurrency: setupDefaultAdminConcurrency(),
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -453,12 +441,11 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 
 	_, err = db.ExecContext(
 		ctx,
-		`INSERT INTO users (email, password_hash, role, balance, concurrency, status, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		`INSERT INTO users (email, password_hash, role, concurrency, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		admin.Email,
 		admin.PasswordHash,
 		admin.Role,
-		admin.Balance,
 		admin.Concurrency,
 		admin.Status,
 		admin.CreatedAt,
@@ -488,7 +475,6 @@ func writeConfigFile(cfg *SetupConfig) error {
 		} `yaml:"jwt"`
 		Default struct {
 			UserConcurrency int     `yaml:"user_concurrency"`
-			UserBalance     float64 `yaml:"user_balance"`
 			APIKeyPrefix    string  `yaml:"api_key_prefix"`
 			RateMultiplier  float64 `yaml:"rate_multiplier"`
 		} `yaml:"default"`
@@ -510,12 +496,10 @@ func writeConfigFile(cfg *SetupConfig) error {
 		},
 		Default: struct {
 			UserConcurrency int     `yaml:"user_concurrency"`
-			UserBalance     float64 `yaml:"user_balance"`
 			APIKeyPrefix    string  `yaml:"api_key_prefix"`
 			RateMultiplier  float64 `yaml:"rate_multiplier"`
 		}{
 			UserConcurrency: defaultUserConcurrency,
-			UserBalance:     0,
 			APIKeyPrefix:    "sk-",
 			RateMultiplier:  1.0,
 		},
@@ -664,7 +648,11 @@ func AutoSetupFromEnv() error {
 		case adminBootstrapReasonAdminExists:
 			logger.LegacyPrintf("setup", "%s", "Admin user already exists, skipping admin bootstrap")
 		case adminBootstrapReasonUsersExistWithoutAdmin:
-			logger.LegacyPrintf("setup", "%s", "Database already has user data; skipping auto admin bootstrap to avoid password overwrite")
+			// WARN 而不是 INFO：这条分支意味着库里有用户但一个管理员都没有，
+			// 自动引导为了不覆盖既有密码而什么都没做，实例会照常 healthy——
+			// 结果是一个谁都登不进后台的实例。只用 INFO 打印等于把它藏起来。
+			// "Warning:" 前缀是 logger.inferStdLogLevel 判定 WARN 的依据，别删。
+			logger.LegacyPrintf("setup", "%s", "Warning: database already has user data but no admin account; skipped auto admin bootstrap to avoid overwriting an existing password. Nobody can sign in to the admin panel until an admin exists - promote an existing user to admin, or set a password with `docker exec <container> /app/adminpass -email you@example.com -stdin`")
 		default:
 			logger.LegacyPrintf("setup", "%s", "Admin bootstrap skipped")
 		}

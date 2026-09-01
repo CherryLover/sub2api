@@ -54,7 +54,6 @@ func TestEnsureSimpleModeDefaultGroups_BackfillsOnlyAutoCreatedGrokDefault(t *te
 		SetDescription("Auto-created default group").
 		SetPlatform(service.PlatformGrok).
 		SetStatus(service.StatusActive).
-		SetSubscriptionType(service.SubscriptionTypeStandard).
 		SetRateMultiplier(1.0).
 		SetIsExclusive(false).
 		SetAllowImageGeneration(false).
@@ -66,7 +65,6 @@ func TestEnsureSimpleModeDefaultGroups_BackfillsOnlyAutoCreatedGrokDefault(t *te
 		SetDescription("Operator-managed group").
 		SetPlatform(service.PlatformGrok).
 		SetStatus(service.StatusActive).
-		SetSubscriptionType(service.SubscriptionTypeStandard).
 		SetRateMultiplier(1.0).
 		SetIsExclusive(false).
 		SetAllowImageGeneration(false).
@@ -113,7 +111,6 @@ func TestEnsureSimpleModeDefaultGroups_PreservesExplicitFalse(t *testing.T) {
 				SetDescription(tt.description).
 				SetPlatform(service.PlatformGrok).
 				SetStatus(tt.status).
-				SetSubscriptionType(service.SubscriptionTypeStandard).
 				SetRateMultiplier(1.0).
 				SetIsExclusive(false).
 				SetAllowImageGeneration(false).
@@ -142,7 +139,6 @@ func TestEnsureSimpleModeDefaultGroups_IgnoresSoftDeletedGroups(t *testing.T) {
 		SetName(service.PlatformAnthropic + "-default").
 		SetPlatform(service.PlatformAnthropic).
 		SetStatus(service.StatusActive).
-		SetSubscriptionType(service.SubscriptionTypeStandard).
 		SetRateMultiplier(1.0).
 		SetIsExclusive(false).
 		Save(seedCtx)

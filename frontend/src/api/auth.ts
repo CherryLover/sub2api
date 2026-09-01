@@ -1,6 +1,6 @@
 /**
  * Authentication API endpoints
- * Handles user login, registration, and logout operations
+ * Handles user login and logout operations
  */
 
 import { apiClient } from './client'
@@ -8,11 +8,8 @@ import { refreshAuthTokens, type RefreshTokenResponse } from './tokenRefresh'
 export type { RefreshTokenResponse } from './tokenRefresh'
 import type {
   LoginRequest,
-  RegisterRequest,
   AuthResponse,
   CurrentUserResponse,
-  SendVerifyCodeRequest,
-  SendVerifyCodeResponse,
   PublicSettings,
   TotpLoginResponse,
   TotpLogin2FARequest
@@ -130,27 +127,6 @@ export async function login2FA(request: TotpLogin2FARequest): Promise<AuthRespon
 }
 
 /**
- * User registration
- * @param userData - Registration data (username, email, password)
- * @returns Authentication response with token and user data
- */
-export async function register(userData: RegisterRequest): Promise<AuthResponse> {
-  const { data } = await apiClient.post<AuthResponse>('/auth/register', userData)
-
-  // Store token and user data
-  setAuthToken(data.access_token)
-  if (data.refresh_token) {
-    setRefreshToken(data.refresh_token)
-  }
-  if (data.expires_in) {
-    setTokenExpiresAt(data.expires_in)
-  }
-  localStorage.setItem('auth_user', JSON.stringify(data.user))
-
-  return data
-}
-
-/**
  * Get current authenticated user
  * @returns User profile data
  */
@@ -205,75 +181,9 @@ export function isAuthenticated(): boolean {
 
 /**
  * Get public settings (no auth required)
- * @returns Public settings including registration and Turnstile config
  */
 export async function getPublicSettings(): Promise<PublicSettings> {
   const { data } = await apiClient.get<PublicSettings>('/settings/public')
-  return data
-}
-
-/**
- * Send verification code to email
- * @param request - Email and optional Turnstile token
- * @returns Response with countdown seconds
- */
-export async function sendVerifyCode(
-  request: SendVerifyCodeRequest
-): Promise<SendVerifyCodeResponse> {
-  const { data } = await apiClient.post<SendVerifyCodeResponse>('/auth/send-verify-code', request)
-  return data
-}
-
-/**
- * Forgot password request
- */
-export interface ForgotPasswordRequest {
-  email: string
-  turnstile_token?: string
-  tencent_captcha_ticket?: string
-  tencent_captcha_randstr?: string
-}
-
-/**
- * Forgot password response
- */
-export interface ForgotPasswordResponse {
-  message: string
-}
-
-/**
- * Request password reset link
- * @param request - Email and optional Turnstile token
- * @returns Response with message
- */
-export async function forgotPassword(request: ForgotPasswordRequest): Promise<ForgotPasswordResponse> {
-  const { data } = await apiClient.post<ForgotPasswordResponse>('/auth/forgot-password', request)
-  return data
-}
-
-/**
- * Reset password request
- */
-export interface ResetPasswordRequest {
-  email: string
-  token: string
-  new_password: string
-}
-
-/**
- * Reset password response
- */
-export interface ResetPasswordResponse {
-  message: string
-}
-
-/**
- * Reset password with token
- * @param request - Email, token, and new password
- * @returns Response with message
- */
-export async function resetPassword(request: ResetPasswordRequest): Promise<ResetPasswordResponse> {
-  const { data } = await apiClient.post<ResetPasswordResponse>('/auth/reset-password', request)
   return data
 }
 
@@ -281,7 +191,6 @@ export const authAPI = {
   login,
   login2FA,
   isTotp2FARequired,
-  register,
   getCurrentUser,
   logout,
   isAuthenticated,
@@ -293,9 +202,6 @@ export const authAPI = {
   getTokenExpiresAt,
   clearAuthToken,
   getPublicSettings,
-  sendVerifyCode,
-  forgotPassword,
-  resetPassword,
   refreshToken,
   revokeAllSessions
 }

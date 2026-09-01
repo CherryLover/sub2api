@@ -1,5 +1,4 @@
 import { reactive, ref } from 'vue'
-import { adminAPI } from '@/api/admin'
 import { QUOTA_THRESHOLD_TYPE_FIXED, type QuotaThresholdType } from '@/constants/account'
 
 export const QUOTA_NOTIFY_DIMS = ['daily', 'weekly', 'total'] as const
@@ -12,23 +11,14 @@ interface DimState {
 }
 
 export function useQuotaNotifyState() {
+  // 邮件体系已整体移除，账号额度提醒没有任何推送通道，全局开关恒为关闭；
+  // QuotaDimensionRow 据此把每个维度的"提醒阈值"控件整体隐藏。
   const globalEnabled = ref(false)
   const state = reactive<Record<QuotaNotifyDim, DimState>>({
     daily: { enabled: null, threshold: null, thresholdType: null },
     weekly: { enabled: null, threshold: null, thresholdType: null },
     total: { enabled: null, threshold: null, thresholdType: null },
   })
-
-  function loadGlobalState() {
-    adminAPI.settings
-      .getSettings()
-      .then((settings) => {
-        globalEnabled.value = settings.account_quota_notify_enabled === true
-      })
-      .catch(() => {
-        globalEnabled.value = false
-      })
-  }
 
   function loadFromExtra(extra: Record<string, unknown> | null | undefined) {
     for (const d of QUOTA_NOTIFY_DIMS) {
@@ -65,5 +55,5 @@ export function useQuotaNotifyState() {
     }
   }
 
-  return { globalEnabled, state, loadGlobalState, loadFromExtra, writeToExtra, reset }
+  return { globalEnabled, state, loadFromExtra, writeToExtra, reset }
 }

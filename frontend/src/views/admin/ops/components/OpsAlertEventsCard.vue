@@ -72,13 +72,6 @@ const statusOptions = computed(() => [
   { value: 'manual_resolved', label: t('admin.ops.alertEvents.status.manualResolved') }
 ])
 
-const emailSent = ref<string>('')
-const emailSentOptions = computed(() => [
-  { value: '', label: t('common.all') },
-  { value: 'true', label: t('admin.ops.alertEvents.table.emailSent') },
-  { value: 'false', label: t('admin.ops.alertEvents.table.emailIgnored') }
-])
-
 function buildQuery(overrides: Partial<AlertEventsQuery> = {}): AlertEventsQuery {
   const q: AlertEventsQuery = {
     limit: PAGE_SIZE,
@@ -86,8 +79,6 @@ function buildQuery(overrides: Partial<AlertEventsQuery> = {}): AlertEventsQuery
   }
   if (severity.value) q.severity = severity.value
   if (status.value) q.status = status.value
-  if (emailSent.value === 'true') q.email_sent = true
-  if (emailSent.value === 'false') q.email_sent = false
   return { ...q, ...overrides }
 }
 
@@ -319,7 +310,7 @@ onMounted(() => {
   loadFirstPage()
 })
 
-watch([timeRange, severity, status, emailSent], () => {
+watch([timeRange, severity, status], () => {
   events.value = []
   hasMore.value = true
   loadFirstPage()
@@ -370,7 +361,6 @@ const empty = computed(() => events.value.length === 0 && !loading.value)
         <Select :model-value="timeRange" :options="timeRangeOptions" class="w-[120px]" @change="timeRange = String($event || '24h')" />
         <Select :model-value="severity" :options="severityOptions" class="w-[88px]" @change="severity = String($event || '')" />
         <Select :model-value="status" :options="statusOptions" class="w-[110px]" @change="status = String($event || '')" />
-        <Select :model-value="emailSent" :options="emailSentOptions" class="w-[110px]" @change="emailSent = String($event || '')" />
         <button
           class="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-dark-700 dark:text-gray-300 dark:hover:bg-dark-600"
           :disabled="loading"
@@ -422,21 +412,6 @@ const empty = computed(() => events.value.length === 0 && !loading.value)
             </div>
             <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500 dark:text-gray-400">
               <span><span class="font-mono">#{{ row.rule_id }}</span> · {{ formatDurationLabel(row) }}</span>
-              <span class="inline-flex items-center gap-1">
-                <Icon
-                  v-if="row.email_sent"
-                  name="checkCircle"
-                  size="xs"
-                  class="text-green-600 dark:text-green-400"
-                />
-                <Icon
-                  v-else
-                  name="ban"
-                  size="xs"
-                  class="text-gray-400 dark:text-gray-500"
-                />
-                {{ row.email_sent ? t('admin.ops.alertEvents.table.emailSent') : t('admin.ops.alertEvents.table.emailIgnored') }}
-              </span>
             </div>
             <div class="text-[11px] text-gray-400 dark:text-gray-500">{{ formatDimensionsSummary(row) }}</div>
           </div>
@@ -464,9 +439,6 @@ const empty = computed(() => events.value.length === 0 && !loading.value)
               </th>
               <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 {{ t('admin.ops.alertEvents.table.dimensions') }}
-              </th>
-              <th class="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                {{ t('admin.ops.alertEvents.table.email') }}
               </th>
             </tr>
           </thead>
@@ -508,28 +480,6 @@ const empty = computed(() => events.value.length === 0 && !loading.value)
               </td>
               <td class="whitespace-nowrap px-4 py-3 text-[11px] text-gray-500 dark:text-gray-400">
                 {{ formatDimensionsSummary(row) }}
-              </td>
-              <td class="whitespace-nowrap px-4 py-3 text-right text-xs">
-                <span
-                  class="inline-flex items-center justify-end gap-1.5"
-                  :title="row.email_sent ? t('admin.ops.alertEvents.table.emailSent') : t('admin.ops.alertEvents.table.emailIgnored')"
-                >
-                  <Icon
-                    v-if="row.email_sent"
-                    name="checkCircle"
-                    size="sm"
-                    class="text-green-600 dark:text-green-400"
-                  />
-                  <Icon
-                    v-else
-                    name="ban"
-                    size="sm"
-                    class="text-gray-400 dark:text-gray-500"
-                  />
-                  <span class="text-[11px] font-bold text-gray-600 dark:text-gray-300">
-                    {{ row.email_sent ? t('admin.ops.alertEvents.table.emailSent') : t('admin.ops.alertEvents.table.emailIgnored') }}
-                  </span>
-                </span>
               </td>
             </tr>
           </tbody>

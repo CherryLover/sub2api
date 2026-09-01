@@ -16,7 +16,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -1154,207 +1153,6 @@ func TestOpenAIResponsesWebSocket_PreviousResponseIDKindLoggedBeforeAcquireFailu
 	require.Contains(t, strings.ToLower(closeErr.Reason), "failed to acquire user concurrency slot")
 }
 
-type contentModerationHandlerSettingRepo struct {
-	values map[string]string
-}
-
-func (r *contentModerationHandlerSettingRepo) Get(ctx context.Context, key string) (*service.Setting, error) {
-	if value, ok := r.values[key]; ok {
-		return &service.Setting{Key: key, Value: value}, nil
-	}
-	return nil, service.ErrSettingNotFound
-}
-
-func (r *contentModerationHandlerSettingRepo) GetValue(ctx context.Context, key string) (string, error) {
-	if value, ok := r.values[key]; ok {
-		return value, nil
-	}
-	return "", service.ErrSettingNotFound
-}
-
-func (r *contentModerationHandlerSettingRepo) Set(ctx context.Context, key, value string) error {
-	if r.values == nil {
-		r.values = map[string]string{}
-	}
-	r.values[key] = value
-	return nil
-}
-
-func (r *contentModerationHandlerSettingRepo) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
-	out := map[string]string{}
-	for _, key := range keys {
-		if value, ok := r.values[key]; ok {
-			out[key] = value
-		}
-	}
-	return out, nil
-}
-
-func (r *contentModerationHandlerSettingRepo) SetMultiple(ctx context.Context, settings map[string]string) error {
-	if r.values == nil {
-		r.values = map[string]string{}
-	}
-	for key, value := range settings {
-		r.values[key] = value
-	}
-	return nil
-}
-
-func (r *contentModerationHandlerSettingRepo) GetAll(ctx context.Context) (map[string]string, error) {
-	out := make(map[string]string, len(r.values))
-	for key, value := range r.values {
-		out[key] = value
-	}
-	return out, nil
-}
-
-func (r *contentModerationHandlerSettingRepo) Delete(ctx context.Context, key string) error {
-	delete(r.values, key)
-	return nil
-}
-
-type contentModerationHandlerTestRepo struct {
-	mu   sync.Mutex
-	logs []service.ContentModerationLog
-}
-
-func (r *contentModerationHandlerTestRepo) CreateLog(ctx context.Context, log *service.ContentModerationLog) error {
-	if log != nil {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		r.logs = append(r.logs, *log)
-	}
-	return nil
-}
-
-func (r *contentModerationHandlerTestRepo) resetLogs() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.logs = nil
-}
-
-func (r *contentModerationHandlerTestRepo) logSnapshot() []service.ContentModerationLog {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]service.ContentModerationLog(nil), r.logs...)
-}
-
-func (r *contentModerationHandlerTestRepo) ListLogs(ctx context.Context, filter service.ContentModerationLogFilter) ([]service.ContentModerationLog, *pagination.PaginationResult, error) {
-	return nil, nil, nil
-}
-
-func (r *contentModerationHandlerTestRepo) CountFlaggedByUserSince(ctx context.Context, userID int64, since time.Time, excludeCyberPolicy bool) (int, error) {
-	return 0, nil
-}
-
-func (r *contentModerationHandlerTestRepo) CleanupExpiredLogs(ctx context.Context, hitBefore time.Time, nonHitBefore time.Time) (*service.ContentModerationCleanupResult, error) {
-	return &service.ContentModerationCleanupResult{}, nil
-}
-
-func (r *contentModerationHandlerTestRepo) UpdateLogEmailSent(ctx context.Context, id int64, sent bool) error {
-	return nil
-}
-
-func TestOpenAIResponsesWebSocket_ContentModerationBlocksFirstFrame(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	moderationServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/v1/moderations", r.URL.Path)
-		_, _ = w.Write([]byte(`{"results":[{"category_scores":{"sexual":0.9}}]}`))
-	}))
-	defer moderationServer.Close()
-
-	cfg := &service.ContentModerationConfig{
-		Enabled:      true,
-		Mode:         service.ContentModerationModePreBlock,
-		BaseURL:      moderationServer.URL,
-		Model:        "omni-moderation-latest",
-		APIKeys:      []string{"sk-test"},
-		SampleRate:   100,
-		AllGroups:    true,
-		BlockMessage: "内容审计测试阻断",
-	}
-	rawCfg, err := json.Marshal(cfg)
-	require.NoError(t, err)
-
-	repo := &contentModerationHandlerTestRepo{}
-	settingRepo := &contentModerationHandlerSettingRepo{values: map[string]string{
-		service.SettingKeyRiskControlEnabled:      "true",
-		service.SettingKeyContentModerationConfig: string(rawCfg),
-	}}
-	moderationSvc := service.NewContentModerationService(
-		settingRepo,
-		repo,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-	)
-	decision, err := moderationSvc.Check(context.Background(), service.ContentModerationCheckInput{
-		UserID:   1,
-		Endpoint: "/v1/responses",
-		Provider: "openai",
-		Model:    "gpt-5.5",
-		Protocol: service.ContentModerationProtocolOpenAIResponses,
-		Body:     []byte(`{"model":"gpt-5.5","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"bad prompt"}]}]}`),
-	})
-	require.NoError(t, err)
-	require.True(t, decision.Blocked)
-	require.Eventually(t, func() bool {
-		return len(repo.logSnapshot()) == 1
-	}, time.Second, 10*time.Millisecond)
-	repo.resetLogs()
-	h := &OpenAIGatewayHandler{
-		gatewayService:           &service.OpenAIGatewayService{},
-		billingCacheService:      &service.BillingCacheService{},
-		apiKeyService:            &service.APIKeyService{},
-		contentModerationService: moderationSvc,
-		concurrencyHelper:        NewConcurrencyHelper(service.NewConcurrencyService(&concurrencyCacheMock{}), SSEPingFormatNone, time.Second),
-	}
-	wsServer := newOpenAIWSHandlerTestServer(t, h, middleware.AuthSubject{UserID: 1, Concurrency: 1})
-	defer wsServer.Close()
-
-	dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
-	clientConn, _, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(wsServer.URL, "http")+"/openai/v1/responses", nil)
-	cancelDial()
-	require.NoError(t, err)
-	defer func() {
-		_ = clientConn.CloseNow()
-	}()
-
-	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
-	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{
-		"type":"response.create",
-		"model":"gpt-5.5",
-		"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"bad prompt"}]}]
-	}`))
-	cancelWrite()
-	require.NoError(t, err)
-
-	readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
-	_, payload, readErr := clientConn.Read(readCtx)
-	cancelRead()
-	if readErr == nil {
-		require.Contains(t, string(payload), "content_policy_violation")
-		require.Contains(t, string(payload), "内容审计测试阻断")
-	} else {
-		var closeErr coderws.CloseError
-		require.ErrorAs(t, readErr, &closeErr)
-		require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
-		require.Contains(t, closeErr.Reason, "内容审计测试阻断")
-	}
-	var logs []service.ContentModerationLog
-	require.Eventually(t, func() bool {
-		logs = repo.logSnapshot()
-		return len(logs) == 1
-	}, time.Second, 10*time.Millisecond)
-	require.True(t, logs[0].Flagged)
-	require.Equal(t, service.ContentModerationActionBlock, logs[0].Action)
-	require.Equal(t, "bad prompt", logs[0].InputExcerpt)
-}
-
 func TestOpenAIResponsesWebSocket_PassthroughUsageLogPersistsUserAgentAndReasoningEffort(t *testing.T) {
 	got := runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
 		firstPayload: `{"type":"response.create","model":"gpt-5.4","stream":false,"reasoning":{"effort":"HIGH"}}`,
@@ -2044,12 +1842,10 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 	upstream := &openAIHTTPPassthroughFailoverUpstream{}
-	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingCacheSvc.Stop)
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo,
-		nil,
-		nil,
 		nil,
 		nil,
 		nil,
@@ -2068,14 +1864,12 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 	h := NewOpenAIGatewayHandler(
 		gatewaySvc,
 		service.NewConcurrencyService(nil),
 		billingCacheSvc,
-		service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg),
-		nil,
+		service.NewAPIKeyService(nil, nil, nil, nil, nil, cfg),
 		nil,
 		nil,
 		nil,
@@ -2145,12 +1939,10 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 			accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 			upstream := &openAIHTTPPassthroughAuthFailoverUpstream{statusCode: tt.statusCode}
 			rateLimitSvc := service.NewRateLimitService(accountRepo, nil, cfg, nil, nil)
-			billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+			billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, cfg, nil)
 			t.Cleanup(billingCacheSvc.Stop)
 			gatewaySvc := service.NewOpenAIGatewayService(
 				accountRepo,
-				nil,
-				nil,
 				nil,
 				nil,
 				nil,
@@ -2169,14 +1961,12 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 				nil,
 				nil,
 				nil,
-				nil,
 			)
 			h := NewOpenAIGatewayHandler(
 				gatewaySvc,
 				service.NewConcurrencyService(nil),
 				billingCacheSvc,
-				service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg),
-				nil,
+				service.NewAPIKeyService(nil, nil, nil, nil, nil, cfg),
 				nil,
 				nil,
 				nil,
@@ -2227,12 +2017,10 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 	upstream := &openAIHTTPPassthroughSSERateLimitUpstream{}
-	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingCacheSvc.Stop)
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo,
-		nil,
-		nil,
 		nil,
 		nil,
 		nil,
@@ -2251,14 +2039,12 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 	h := NewOpenAIGatewayHandler(
 		gatewaySvc,
 		service.NewConcurrencyService(nil),
 		billingCacheSvc,
-		service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg),
-		nil,
+		service.NewAPIKeyService(nil, nil, nil, nil, nil, cfg),
 		nil,
 		nil,
 		nil,
@@ -2388,11 +2174,9 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 	rateLimitSvc := service.NewRateLimitService(accountRepo, nil, cfg, nil, nil)
-	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, cfg, nil)
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo,
-		nil,
-		nil,
 		nil,
 		nil,
 		nil,
@@ -2405,7 +2189,6 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 		billingCacheSvc,
 		nil,
 		&service.DeferredService{},
-		nil,
 		nil,
 		nil,
 		nil,
@@ -2596,11 +2379,11 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 	rateLimitSvc := service.NewRateLimitService(accountRepo, nil, cfg, nil, nil)
-	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, cfg, nil)
 	gatewaySvc := service.NewOpenAIGatewayService(
-		accountRepo, nil, nil, nil, nil, nil, nil, cfg, nil, nil,
+		accountRepo, nil, nil, nil, nil, cfg, nil, nil,
 		service.NewBillingService(cfg, nil), rateLimitSvc, billingCacheSvc,
-		nil, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil,
+		nil, &service.DeferredService{}, nil, nil, nil, nil, nil, nil,
 	)
 	cache := &concurrencyCacheMock{
 		acquireUserSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },
@@ -2800,12 +2583,10 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		}, nil, nil, nil)
 	}
 
-	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, cfg, nil)
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo,
 		usageRepo,
-		nil,
-		nil,
 		nil,
 		nil,
 		nil,
@@ -2821,7 +2602,6 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		nil,
 		nil,
 		channelSvc,
-		nil,
 		nil,
 		nil, // userPlatformQuotaRepo
 	)

@@ -6,13 +6,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
 import { authAPI, isTotp2FARequired, passkeyAPI, type LoginResponse } from '@/api'
-import type {
-  User,
-  LoginRequest,
-  RegisterRequest,
-  AuthResponse,
-  ActionCaptchaRequestProof
-} from '@/types'
+import type { User, LoginRequest, AuthResponse } from '@/types'
 
 const AUTH_TOKEN_KEY = 'auth_token'
 const AUTH_USER_KEY = 'auth_user'
@@ -225,9 +219,9 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function loginWithPasskey(proof?: ActionCaptchaRequestProof): Promise<User> {
+  async function loginWithPasskey(): Promise<User> {
     try {
-      const response = await passkeyAPI.login(proof)
+      const response = await passkeyAPI.login()
       setAuthFromResponse(response)
       return user.value!
     } catch (error) {
@@ -268,27 +262,6 @@ export const useAuthStore = defineStore('auth', () => {
     // scheduleTokenRefresh will also store the expiry timestamp
     if (response.refresh_token && response.expires_in) {
       scheduleTokenRefresh(response.expires_in)
-    }
-  }
-
-  /**
-   * User registration
-   * @param userData - Registration data (username, email, password)
-   * @returns Promise resolving to the newly registered and authenticated user
-   * @throws Error if registration fails
-   */
-  async function register(userData: RegisterRequest): Promise<User> {
-    try {
-      const response = await authAPI.register(userData)
-
-      // Use the common helper to set auth state
-      setAuthFromResponse(response)
-
-      return user.value!
-    } catch (error) {
-      // Clear any partial state on error
-      clearAuth()
-      throw error
     }
   }
 
@@ -378,7 +351,6 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     loginWithPasskey,
     login2FA,
-    register,
     logout,
     checkAuth,
     refreshUser

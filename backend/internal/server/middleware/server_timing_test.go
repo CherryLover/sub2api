@@ -66,7 +66,7 @@ func TestServerTimingScopesAndRoleGate(t *testing.T) {
 		{name: "invalid admin marker on non-scoped path", enabled: true, path: "/api/v1/settings/public", adminMarker: "true", role: "admin"},
 		{name: "admin prefix boundary", enabled: true, path: "/api/v1/administrator", role: "admin"},
 		{name: "auth me path", enabled: true, path: "/api/v1/auth/me", role: "user", wantHeader: true},
-		{name: "channel monitors path", enabled: true, path: "/api/v1/channel-monitors/1/status", role: "user", wantHeader: true},
+		{name: "channel monitor v2 path", enabled: true, path: "/api/v1/channel-monitor-v2/snapshot", role: "user", wantHeader: true},
 	}
 
 	for _, tt := range tests {
@@ -107,10 +107,10 @@ func TestIsUserTimingPath(t *testing.T) {
 		{"/api/v1/channels/available", true},
 		{"/api/v1/channels", false},
 		{"/api/v1/usage/stats", true},
-		{"/api/v1/announcements", true},
+		{"/api/v1/announcements", false},
 		{"/api/v1/redeem/history", false},
 		{"/api/v1/subscriptions/active", true},
-		{"/api/v1/channel-monitors", true},
+		{"/api/v1/channel-monitor-v2", true},
 		{"/api/v1/payment/config", false},
 		{"/api/v1/payment/orders/my", false},
 		{"/api/v1/admin/users", false},

@@ -96,7 +96,7 @@ func TestResolveWebEntry_ConfigFileOverridesDatabase(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Web.LoginEntryPublic = true
 	cfg.Web.LoginEntryConfigured = true
-	cfg.Web.DefaultHomePath = "/model-plaza"
+	cfg.Web.DefaultHomePath = "/key-usage"
 	cfg.Web.DefaultHomePathConfigured = true
 
 	svc := NewSettingService(&webEntryRepoStub{values: map[string]string{
@@ -108,7 +108,7 @@ func TestResolveWebEntry_ConfigFileOverridesDatabase(t *testing.T) {
 	entry := svc.ResolveWebEntry(context.Background())
 	require.True(t, entry.LoginEntryPublic, "the config file must win over the stored hidden entry")
 	require.Empty(t, entry.LoginEntryPath)
-	require.Equal(t, "/model-plaza", entry.DefaultHomePath)
+	require.Equal(t, "/key-usage", entry.DefaultHomePath)
 	require.True(t, entry.LoginEntryLockedByConfig)
 	require.True(t, entry.DefaultHomeLockedByConfig)
 }
@@ -147,7 +147,7 @@ func TestResolveWebEntry_LocksAreIndependent(t *testing.T) {
 	svc := NewSettingService(&webEntryRepoStub{values: map[string]string{
 		SettingKeyWebLoginEntryPublic: "false",
 		SettingKeyWebLoginEntryPath:   testWebEntryHiddenPath,
-		SettingKeyWebDefaultHomePath:  "/model-plaza",
+		SettingKeyWebDefaultHomePath:  "/key-usage",
 	}}, cfg)
 
 	entry := svc.ResolveWebEntry(context.Background())

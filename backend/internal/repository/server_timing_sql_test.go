@@ -137,7 +137,7 @@ func (t *timingFakeTx) Rollback() error {
 
 func metricDuration(t *testing.T, header, metric string) float64 {
 	t.Helper()
-	re := regexp.MustCompile(`(?:^|, )` + regexp.QuoteMeta(metric) + `;dur=([0-9]+(?:\.[0-9]+)?)`)
+	re := regexp.MustCompile(`(?:^|)` + regexp.QuoteMeta(metric) + `;dur=([0-9]+(?:\.[0-9]+)?)`)
 	match := re.FindStringSubmatch(header)
 	if len(match) != 2 {
 		t.Fatalf("metric %q missing from header %q", metric, header)

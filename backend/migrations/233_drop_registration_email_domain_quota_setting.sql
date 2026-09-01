@@ -1,0 +1,11 @@
+-- 233_drop_registration_email_domain_quota_setting.sql
+--
+-- 单管理员内部部署裁剪：注册体系已在批次 1/2 整体移除，
+-- registration_email_domain_quota_enabled（白名单非空时是否放行非白名单域名
+-- 按主域名限量注册）在新版本里已无任何消费者，只剩后台设置页读写往返。
+-- 一次性清理，幂等：重复执行只是再删一次不存在的行。
+--
+-- 注意：兄弟键 registration_email_suffix_whitelist 刻意保留——
+-- 它仍是 InitializeDefaultSettings 判断"是否已种过默认设置"的探测键，
+-- 删掉会导致每次启动都重跑一遍种子写入。
+DELETE FROM settings WHERE key = 'registration_email_domain_quota_enabled';

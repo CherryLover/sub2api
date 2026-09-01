@@ -26,11 +26,7 @@ func RegisterAdminRoutes(
 	admin.Use(panelRateLimiter.Global())
 	// 审计中间件挂在认证之后：所有管理面变更类操作 + 敏感读取入审计日志
 	admin.Use(gin.HandlerFunc(auditLog))
-	admin.Use(middleware.AdminComplianceGuard(settingService))
 	{
-		// 部署与运营合规确认
-		registerAdminComplianceRoutes(admin, h)
-
 		// 仪表盘
 		registerDashboardRoutes(admin, h)
 
@@ -42,9 +38,6 @@ func RegisterAdminRoutes(
 
 		// 账号管理
 		registerAccountRoutes(admin, h, stepUpAuth)
-
-		// 公告管理
-		registerAnnouncementRoutes(admin, h)
 
 		// OpenAI OAuth
 		registerOpenAIOAuthRoutes(admin, h)
@@ -79,9 +72,6 @@ func RegisterAdminRoutes(
 		// 系统管理
 		registerSystemRoutes(admin, h)
 
-		// 订阅管理
-		registerSubscriptionRoutes(admin, h)
-
 		// 使用记录管理
 		registerUsageRoutes(admin, h)
 
@@ -104,13 +94,9 @@ func RegisterAdminRoutes(
 		registerChannelRoutes(admin, h)
 
 		// 渠道监控
-		registerChannelMonitorRoutes(admin, h, settingService)
 		registerChannelMonitorV2Routes(admin, h, settingService)
 
-		// 风控中心
-		registerContentModerationRoutes(admin, h)
-
-		// 独立提示词输入审计
+		// 提示词输入审计
 		registerPromptAuditRoutes(admin, h)
 
 		// 操作审计日志
@@ -144,28 +130,6 @@ func registerAuditLogRoutes(admin *gin.RouterGroup, h *handler.Handlers, _ middl
 	}
 }
 
-func registerAdminComplianceRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	compliance := admin.Group("/compliance")
-	{
-		compliance.GET("", h.Admin.Compliance.GetStatus)
-		compliance.POST("/accept", h.Admin.Compliance.Accept)
-	}
-}
-
-func registerContentModerationRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	risk := admin.Group("/risk-control")
-	{
-		risk.GET("/config", h.Admin.ContentModeration.GetConfig)
-		risk.PUT("/config", h.Admin.ContentModeration.UpdateConfig)
-		risk.POST("/api-keys/test", h.Admin.ContentModeration.TestAPIKeys)
-		risk.GET("/status", h.Admin.ContentModeration.GetStatus)
-		risk.GET("/logs", h.Admin.ContentModeration.ListLogs)
-		risk.POST("/users/:user_id/unban", h.Admin.ContentModeration.UnbanUser)
-		risk.DELETE("/hashes", h.Admin.ContentModeration.DeleteFlaggedHash)
-		risk.DELETE("/hashes/all", h.Admin.ContentModeration.ClearFlaggedHashes)
-	}
-}
-
 func registerAdminAPIKeyRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	apiKeys := admin.Group("/api-keys")
 	{
@@ -191,10 +155,6 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.GET("/alert-events/:id", h.Admin.Ops.GetAlertEvent)
 		ops.PUT("/alert-events/:id/status", h.Admin.Ops.UpdateAlertEventStatus)
 		ops.POST("/alert-silences", h.Admin.Ops.CreateAlertSilence)
-
-		// Email notification config (DB-backed)
-		ops.GET("/email-notification/config", h.Admin.Ops.GetEmailNotificationConfig)
-		ops.PUT("/email-notification/config", h.Admin.Ops.UpdateEmailNotificationConfig)
 
 		// Runtime settings (DB-backed)
 		runtime := ops.Group("/runtime")
@@ -287,11 +247,9 @@ func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		users.GET("", h.Admin.User.List)
 		users.GET("/:id", h.Admin.User.GetByID)
-		users.POST("/:id/auth-identities", h.Admin.User.BindAuthIdentity)
 		users.POST("", h.Admin.User.Create)
 		users.PUT("/:id", h.Admin.User.Update)
 		users.DELETE("/:id", h.Admin.User.Delete)
-		users.POST("/:id/balance", h.Admin.User.UpdateBalance)
 		users.GET("/:id/api-keys", h.Admin.User.GetUserAPIKeys)
 		users.GET("/:id/usage", h.Admin.User.GetUserUsage)
 		users.POST("/:id/replace-group", h.Admin.User.ReplaceGroup)
@@ -411,18 +369,6 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 	}
 }
 
-func registerAnnouncementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	announcements := admin.Group("/announcements")
-	{
-		announcements.GET("", h.Admin.Announcement.List)
-		announcements.POST("", h.Admin.Announcement.Create)
-		announcements.GET("/:id", h.Admin.Announcement.GetByID)
-		announcements.PUT("/:id", h.Admin.Announcement.Update)
-		announcements.DELETE("/:id", h.Admin.Announcement.Delete)
-		announcements.GET("/:id/read-status", h.Admin.Announcement.ListReadStatus)
-	}
-}
-
 func registerOpenAIOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	openai := admin.Group("/openai")
 	{
@@ -512,13 +458,6 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		adminSettings.GET("", h.Admin.Setting.GetSettings)
 		adminSettings.PUT("", h.Admin.Setting.UpdateSettings)
-		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSMTPConnection)
-		adminSettings.POST("/send-test-email", h.Admin.Setting.SendTestEmail)
-		adminSettings.GET("/email-templates", h.Admin.Setting.ListEmailTemplates)
-		adminSettings.POST("/email-template-preview", h.Admin.Setting.PreviewEmailTemplate)
-		adminSettings.GET("/email-templates/:event/:locale", h.Admin.Setting.GetEmailTemplate)
-		adminSettings.PUT("/email-templates/:event/:locale", h.Admin.Setting.UpdateEmailTemplate)
-		adminSettings.POST("/email-templates/:event/:locale/restore-official", h.Admin.Setting.RestoreOfficialEmailTemplate)
 		// Admin API Key 管理
 		adminSettings.GET("/admin-api-key", h.Admin.Setting.GetAdminAPIKey)
 		adminSettings.POST("/admin-api-key/regenerate", h.Admin.Setting.RegenerateAdminAPIKey)
@@ -615,28 +554,6 @@ func registerSystemRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
-func registerSubscriptionRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	subscriptions := admin.Group("/subscriptions")
-	{
-		subscriptions.GET("", h.Admin.Subscription.List)
-		subscriptions.GET("/:id", h.Admin.Subscription.GetByID)
-		subscriptions.GET("/:id/progress", h.Admin.Subscription.GetProgress)
-		subscriptions.POST("/assign", h.Admin.Subscription.Assign)
-		subscriptions.POST("/bulk-assign", h.Admin.Subscription.BulkAssign)
-		subscriptions.POST("/:id/extend", h.Admin.Subscription.Extend)
-		subscriptions.POST("/:id/reset-quota", h.Admin.Subscription.ResetQuota)
-		subscriptions.POST("/:id/revoke", h.Admin.Subscription.Revoke)
-		subscriptions.POST("/:id/restore", h.Admin.Subscription.Restore)
-		subscriptions.DELETE("/:id", h.Admin.Subscription.Revoke)
-	}
-
-	// 分组下的订阅列表
-	admin.GET("/groups/:id/subscriptions", h.Admin.Subscription.ListByGroup)
-
-	// 用户下的订阅列表
-	admin.GET("/users/:id/subscriptions", h.Admin.Subscription.ListByUser)
-}
-
 func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	usage := admin.Group("/usage")
 	{
@@ -709,62 +626,27 @@ func registerChannelRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
-func registerChannelMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers, settingService *service.SettingService) {
-	guard := channelMonitorAdminFeatureGuard(settingService)
-	monitors := admin.Group("/channel-monitors")
-	monitors.Use(guard)
-	{
-		monitors.GET("", h.Admin.ChannelMonitor.List)
-		monitors.POST("", h.Admin.ChannelMonitor.Create)
-		monitors.GET("/:id", h.Admin.ChannelMonitor.Get)
-		monitors.POST("/:id/duplicate", h.Admin.ChannelMonitor.Duplicate)
-		monitors.PUT("/:id", h.Admin.ChannelMonitor.Update)
-		monitors.DELETE("/:id", h.Admin.ChannelMonitor.Delete)
-		monitors.POST("/:id/run", h.Admin.ChannelMonitor.Run)
-		monitors.GET("/:id/history", h.Admin.ChannelMonitor.History)
-	}
-
-	templates := admin.Group("/channel-monitor-templates")
-	templates.Use(guard)
-	{
-		templates.GET("", h.Admin.ChannelMonitorTemplate.List)
-		templates.POST("", h.Admin.ChannelMonitorTemplate.Create)
-		templates.GET("/:id", h.Admin.ChannelMonitorTemplate.Get)
-		templates.PUT("/:id", h.Admin.ChannelMonitorTemplate.Update)
-		templates.DELETE("/:id", h.Admin.ChannelMonitorTemplate.Delete)
-		templates.GET("/:id/monitors", h.Admin.ChannelMonitorTemplate.AssociatedMonitors)
-		templates.POST("/:id/apply", h.Admin.ChannelMonitorTemplate.Apply)
-	}
-}
-
 func registerChannelMonitorV2Routes(admin *gin.RouterGroup, h *handler.Handlers, settingService *service.SettingService) {
-	// Config GET/PUT: feature enabled only (operators can prepare V2 before flipping mode).
-	// Read/matrix endpoints: require mode=v2 so V1 deployments do not serve passive data.
-	featureGuard := channelMonitorAdminFeatureGuard(settingService)
-	modeV2Guard := channelMonitorModeV2Guard(settingService)
+	// Config and read endpoints share one gate: the channel_monitor_enabled switch.
+	guard := channelMonitorFeatureGuard(settingService)
 
 	monitor := admin.Group("/channel-monitor-v2")
+	monitor.Use(guard)
 	{
-		config := monitor.Group("")
-		config.Use(featureGuard)
-		{
-			config.GET("/config", h.ChannelMonitorV2.GetConfig)
-			config.PUT("/config", h.ChannelMonitorV2.UpdateConfig)
-		}
-		reads := monitor.Group("")
-		reads.Use(modeV2Guard)
-		{
-			reads.GET("/dimensions", h.ChannelMonitorV2.Dimensions)
-			reads.GET("/snapshot", h.ChannelMonitorV2.AdminSnapshot)
-			reads.GET("/models", h.ChannelMonitorV2.AdminModels)
-			reads.GET("/matrix", h.ChannelMonitorV2.AdminMatrix)
-			reads.GET("/errors", h.ChannelMonitorV2.Errors)
-			reads.GET("/users", h.ChannelMonitorV2.AdminUsers)
-		}
+		monitor.GET("/config", h.ChannelMonitorV2.GetConfig)
+		monitor.PUT("/config", h.ChannelMonitorV2.UpdateConfig)
+		monitor.GET("/dimensions", h.ChannelMonitorV2.Dimensions)
+		monitor.GET("/snapshot", h.ChannelMonitorV2.AdminSnapshot)
+		monitor.GET("/models", h.ChannelMonitorV2.AdminModels)
+		monitor.GET("/matrix", h.ChannelMonitorV2.AdminMatrix)
+		monitor.GET("/errors", h.ChannelMonitorV2.Errors)
+		monitor.GET("/users", h.ChannelMonitorV2.AdminUsers)
 	}
 }
 
-func channelMonitorAdminFeatureGuard(settingService *service.SettingService) gin.HandlerFunc {
+// channelMonitorFeatureGuard requires the channel_monitor_enabled switch to be on.
+// A nil settingService fails closed so the passive views are never served blind.
+func channelMonitorFeatureGuard(settingService *service.SettingService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if settingService != nil && settingService.GetChannelMonitorRuntime(c.Request.Context()).Enabled {
 			c.Next()
@@ -772,28 +654,5 @@ func channelMonitorAdminFeatureGuard(settingService *service.SettingService) gin
 		}
 		response.ErrorFrom(c, service.ErrChannelMonitorDisabled)
 		c.Abort()
-	}
-}
-
-// channelMonitorModeV2Guard requires feature enabled and channel_monitor_mode=v2.
-func channelMonitorModeV2Guard(settingService *service.SettingService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if settingService == nil {
-			response.ErrorFrom(c, service.ErrChannelMonitorDisabled)
-			c.Abort()
-			return
-		}
-		rt := settingService.GetChannelMonitorRuntime(c.Request.Context())
-		if !rt.Enabled {
-			response.ErrorFrom(c, service.ErrChannelMonitorDisabled)
-			c.Abort()
-			return
-		}
-		if !rt.PassiveAggregationAllowed() {
-			response.ErrorFrom(c, service.ErrChannelMonitorModeMismatch)
-			c.Abort()
-			return
-		}
-		c.Next()
 	}
 }

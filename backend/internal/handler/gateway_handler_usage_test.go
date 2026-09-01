@@ -1,12 +1,10 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -20,7 +18,7 @@ import (
 //
 // 只用私有方法（usageUnrestricted 等）做单测会丢掉状态码与响应形状这两个契约，
 // 而 /v1/usage 是 CC Switch 等外部客户端直接消费的接口，必须有端到端断言兜底。
-func newUsageEndpointRouter(h *GatewayHandler, apiKey *service.APIKey, subject *middleware.AuthSubject, subscription *service.UserSubscription) *gin.Engine {
+func newUsageEndpointRouter(h *GatewayHandler, apiKey *service.APIKey, subject *middleware.AuthSubject) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/v1/usage", func(c *gin.Context) {
@@ -29,9 +27,6 @@ func newUsageEndpointRouter(h *GatewayHandler, apiKey *service.APIKey, subject *
 		}
 		if subject != nil {
 			c.Set(string(middleware.ContextKeyUser), *subject)
-		}
-		if subscription != nil {
-			c.Set(string(middleware.ContextKeySubscription), subscription)
 		}
 		c.Next()
 	}, h.Usage)
@@ -53,7 +48,7 @@ func TestUsageEndpointQuotaLimitedContract(t *testing.T) {
 		Quota:     100,
 		QuotaUsed: 40,
 	}
-	router := newUsageEndpointRouter(&GatewayHandler{}, apiKey, &middleware.AuthSubject{UserID: 7}, nil)
+	router := newUsageEndpointRouter(&GatewayHandler{}, apiKey, &middleware.AuthSubject{UserID: 7})
 
 	recorder := doUsageRequest(router, "/v1/usage")
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -84,51 +79,46 @@ func TestUsageEndpointQuotaLimitedContract(t *testing.T) {
 	require.Equal(t, "USD", body.Unit)
 }
 
-// 订阅模式（unrestricted）的端到端契约，含 weekly_window_start 透传。
-func TestUsageEndpointUnrestrictedSubscriptionContract(t *testing.T) {
-	weeklyWindowStart := time.Date(2026, time.July, 13, 0, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+// unrestricted 模式的端到端契约：Key 未配额度与速率限制时按"不限额度"返回。
+func TestUsageEndpointUnrestrictedContract(t *testing.T) {
 	apiKey := &service.APIKey{
 		ID:     4,
 		UserID: 7,
 		Status: service.StatusAPIKeyActive,
 		Group: &service.Group{
-			Name:             "Weekly plan",
-			SubscriptionType: service.SubscriptionTypeSubscription,
+			Name: "Default group",
 		},
 	}
 	router := newUsageEndpointRouter(
 		&GatewayHandler{},
 		apiKey,
 		&middleware.AuthSubject{UserID: 7},
-		&service.UserSubscription{WeeklyWindowStart: &weeklyWindowStart},
 	)
 
 	recorder := doUsageRequest(router, "/v1/usage")
 	require.Equal(t, http.StatusOK, recorder.Code)
 
 	var response struct {
-		Mode         string `json:"mode"`
-		PlanName     string `json:"planName"`
-		Unit         string `json:"unit"`
-		Subscription struct {
-			WeeklyWindowStart *time.Time `json:"weekly_window_start"`
-		} `json:"subscription"`
+		Mode      string   `json:"mode"`
+		PlanName  string   `json:"planName"`
+		Unit      string   `json:"unit"`
+		Remaining *float64 `json:"remaining"`
 	}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 	require.Equal(t, "unrestricted", response.Mode)
-	require.Equal(t, "Weekly plan", response.PlanName)
+	require.Equal(t, "Default group", response.PlanName)
 	require.Equal(t, "USD", response.Unit)
-	require.NotNil(t, response.Subscription.WeeklyWindowStart)
-	require.True(t, weeklyWindowStart.Equal(*response.Subscription.WeeklyWindowStart))
+	require.NotNil(t, response.Remaining)
+	require.Equal(t, float64(-1), *response.Remaining)
 }
 
 // 缺鉴权上下文时必须是 401，而不是空 200。
 func TestUsageEndpointRequiresAuthenticatedContext(t *testing.T) {
-	router := newUsageEndpointRouter(&GatewayHandler{}, nil, nil, nil)
+	router := newUsageEndpointRouter(&GatewayHandler{}, nil, nil)
 	require.Equal(t, http.StatusUnauthorized, doUsageRequest(router, "/v1/usage").Code)
 
 	// 有 API Key 但没有 AuthSubject 同样是 401。
-	router = newUsageEndpointRouter(&GatewayHandler{}, &service.APIKey{ID: 1, Quota: 10}, nil, nil)
+	router = newUsageEndpointRouter(&GatewayHandler{}, &service.APIKey{ID: 1, Quota: 10}, nil)
 	require.Equal(t, http.StatusUnauthorized, doUsageRequest(router, "/v1/usage").Code)
 }
 
@@ -138,7 +128,6 @@ func TestUsageEndpointRejectsOutOfRangeDays(t *testing.T) {
 		&GatewayHandler{},
 		&service.APIKey{ID: 3, UserID: 7, Status: service.StatusAPIKeyActive, Quota: 100},
 		&middleware.AuthSubject{UserID: 7},
-		nil,
 	)
 
 	recorder := doUsageRequest(router, "/v1/usage?days=999")
@@ -147,33 +136,25 @@ func TestUsageEndpointRejectsOutOfRangeDays(t *testing.T) {
 }
 
 // 保留一层直接调用，锁住 payload 组装本身（不经过 HTTP 层）。
-func TestUsageUnrestrictedIncludesWeeklyWindowStart(t *testing.T) {
-	weeklyWindowStart := time.Date(2026, time.July, 13, 0, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
-
+func TestUsageUnrestrictedUsesGroupNameAndUnlimitedRemaining(t *testing.T) {
 	handler := &GatewayHandler{}
-	payload, err := handler.usageUnrestricted(
-		context.Background(),
-		&service.APIKey{Group: &service.Group{
-			Name:             "Weekly plan",
-			SubscriptionType: service.SubscriptionTypeSubscription,
-		}},
-		middleware.AuthSubject{},
-		&service.UserSubscription{WeeklyWindowStart: &weeklyWindowStart},
+	payload := handler.usageUnrestricted(
+		&service.APIKey{Group: &service.Group{Name: "Default group"}},
 		nil,
 		nil,
 		nil,
 	)
-	require.NoError(t, err)
 
 	encoded, err := json.Marshal(payload)
 	require.NoError(t, err)
 
 	var response struct {
-		Subscription struct {
-			WeeklyWindowStart *time.Time `json:"weekly_window_start"`
-		} `json:"subscription"`
+		Mode      string  `json:"mode"`
+		PlanName  string  `json:"planName"`
+		Remaining float64 `json:"remaining"`
 	}
 	require.NoError(t, json.Unmarshal(encoded, &response))
-	require.NotNil(t, response.Subscription.WeeklyWindowStart)
-	require.True(t, weeklyWindowStart.Equal(*response.Subscription.WeeklyWindowStart))
+	require.Equal(t, "unrestricted", response.Mode)
+	require.Equal(t, "Default group", response.PlanName)
+	require.Equal(t, float64(-1), response.Remaining)
 }

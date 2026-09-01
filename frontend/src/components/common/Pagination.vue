@@ -122,7 +122,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import Select from './Select.vue'
-import { getConfiguredTablePageSizeOptions, normalizeTablePageSize } from '@/utils/tablePreferences'
+import { DEFAULT_TABLE_PAGE_SIZE_OPTIONS, normalizeTablePageSize } from '@/utils/tablePreferences'
 import { setPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
@@ -142,7 +142,7 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  pageSizeOptions: () => getConfiguredTablePageSizeOptions(),
+  pageSizeOptions: () => [...DEFAULT_TABLE_PAGE_SIZE_OPTIONS],
   showPageSizeSelector: true,
   showJump: false
 })
@@ -164,7 +164,7 @@ const toItem = computed(() => {
 const pageSizeSelectOptions = computed(() => {
   const options = Array.from(
     new Set([
-      ...getConfiguredTablePageSizeOptions(),
+      ...DEFAULT_TABLE_PAGE_SIZE_OPTIONS,
       normalizeTablePageSize(props.pageSize)
     ])
   ).sort((a, b) => a - b)

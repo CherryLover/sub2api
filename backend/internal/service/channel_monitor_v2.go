@@ -7,7 +7,22 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
+
+// ErrChannelMonitorDisabled is returned when the channel monitor feature switch
+// (channel_monitor_enabled) is off.
+var ErrChannelMonitorDisabled = infraerrors.Forbidden(
+	"CHANNEL_MONITOR_DISABLED",
+	"channel monitor feature is disabled",
+)
+
+// channelMonitorRuntimeReader is the settings view used to gate passive
+// aggregation and user-facing privacy flags.
+type channelMonitorRuntimeReader interface {
+	GetChannelMonitorRuntime(ctx context.Context) ChannelMonitorRuntime
+}
 
 const (
 	ChannelMonitorV2OtherModel      = "__other__"

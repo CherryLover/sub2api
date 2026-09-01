@@ -4,7 +4,7 @@
 # Copy this file to /etc/sub2api/config.yaml and modify as needed
 # 复制此文件到 /etc/sub2api/config.yaml 并根据需要修改
 #
-# Documentation / 文档: https://github.com/Wei-Shaw/sub2api
+# Documentation / 文档: https://github.com/CherryLover/sub2api
 
 # =============================================================================
 # Server Configuration
@@ -181,7 +181,7 @@ security:
     # 默认 CSP 策略（如果静态资源托管在其他域名，请自行覆盖）
     # Note: __CSP_NONCE__ will be replaced with 'nonce-xxx' at request time for inline script security
     # 注意：__CSP_NONCE__ 会在请求时被替换为 'nonce-xxx'，用于内联脚本安全
-    policy: "default-src 'self'; worker-src 'self' blob:; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://*.alicdn.com https://static.cloudflareinsights.com https://turing.captcha.qcloud.com https://turing.captcha.gtimg.com https://ca.turing.captcha.qcloud.com https://global.turing.captcha.gtimg.com https://www.tycaptcha.com https://cloudcache.tencentcs.com https://*.stripe.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; style-src 'self' 'unsafe-inline' https://*.captcha.gtimg.com https://fonts.googleapis.com https://*.alicdn.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://turing.captcha.qcloud.com https://www.tycaptcha.com https://rce.tencentrio.com https:; frame-src https://challenges.cloudflare.com https://turing.captcha.qcloud.com https://ca.turing.captcha.qcloud.com https://www.tycaptcha.com https://*.stripe.com https://checkout.airwallex.com https://checkout-demo.airwallex.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    policy: "default-src 'self'; worker-src 'self' blob:; script-src 'self' __CSP_NONCE__ https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https:; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
   proxy_probe:
     # Allow skipping TLS verification for proxy probe (debug only)
     # 允许代理探测时跳过 TLS 证书验证（仅用于调试）
@@ -197,9 +197,10 @@ security:
     #   - url: "https://api64.ipify.org?format=json"
     #     parser: "ipify"
   proxy_fallback:
-    # Allow auxiliary services (update check, pricing data) to fallback to direct
-    # connection when proxy initialization fails. Does NOT affect AI gateway connections.
-    # 辅助服务（更新检查、定价数据拉取）代理初始化失败时是否允许回退直连。
+    # Allow auxiliary services (pricing data, Codex client version sync) to fallback
+    # to direct connection when proxy initialization fails. Does NOT affect AI gateway
+    # connections.
+    # 辅助服务（定价表拉取、Codex 客户端版本同步）代理初始化失败时是否允许回退直连。
     # 不影响 AI 账号网关连接。默认 false：fail-fast 防止 IP 泄露。
     allow_direct_on_error: false
 
@@ -807,10 +808,10 @@ web:
   # Example / 示例: "/j7q2m9x4vk3p"
   # login_entry_path: ""
 
-  # Landing page for "/". Allowed: /home, /key-usage, /model-plaza
+  # Landing page for "/". Allowed: /home, /key-usage
   # (and /login only while login_entry_public is true).
   # Default /key-usage is the login-free usage lookup page.
-  # 访问 "/" 时落到的页面。允许：/home、/key-usage、/model-plaza
+  # 访问 "/" 时落到的页面。允许：/home、/key-usage
   # （login_entry_public 为 true 时还允许 /login）。
   # 默认 /key-usage，即免登录的用量查询页。
   #
@@ -887,7 +888,7 @@ idempotency:
   observe_only: true
   # 关键写接口幂等记录 TTL（秒）
   default_ttl_seconds: 86400
-  # 系统操作接口（update/rollback/restart）幂等记录 TTL（秒）
+  # 系统操作接口（restart）幂等记录 TTL（秒）
   system_operation_ttl_seconds: 3600
   # processing 锁超时（秒）
   processing_timeout_seconds: 30
@@ -1102,9 +1103,6 @@ default:
   # Max concurrent requests per user
   # 每用户最大并发请求数
   user_concurrency: 5
-  # Initial balance for new users
-  # 新用户初始余额
-  user_balance: 0
 
   # API key settings
   # API 密钥设置
@@ -1167,22 +1165,9 @@ billing:
     # Number of requests to allow in half-open state
     # 半开状态允许通过的请求数
     half_open_requests: 3
-  # Conservative minimum balance required before forwarding balance-billed requests.
-  # Set to 0 to only require balance > 0.
-  # 余额计费请求转发前要求的保守最小余额；设为 0 则仅要求余额 > 0。
-  minimum_balance_reserve: 0.000001
   # Cache TTL (seconds) for per-user × per-platform quota records
   # 用户 × 平台 quota 缓存 TTL（秒），默认 86400=1天，覆盖典型 daily 窗口
   user_platform_quota_cache_ttl_seconds: 86400
-
-# =============================================================================
-# Turnstile Configuration
-# Turnstile 人机验证配置
-# =============================================================================
-turnstile:
-  # Require Turnstile in release mode (when enabled, login/register will fail if not configured)
-  # 在 release 模式下要求 Turnstile 验证（启用后，若未配置则登录/注册会失败）
-  required: false
 
 # =============================================================================
 # Gemini OAuth (Required for Gemini accounts)

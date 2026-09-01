@@ -414,7 +414,7 @@ export default {
       },
       alertEvents: {
         title: 'Alert Events',
-        description: 'Recent alert firing/resolution records (email-only)',
+        description: 'Recent alert firing/resolution records',
         loading: 'Loading...',
         empty: 'No alert events',
         loadFailed: 'Failed to load alert events',
@@ -454,15 +454,12 @@ export default {
           title: 'Title',
           duration: 'Duration',
           metric: 'Metric / Threshold',
-          dimensions: 'Dimensions',
-          email: 'Email Sent',
-          emailSent: 'Sent',
-          emailIgnored: 'Ignored'
+          dimensions: 'Dimensions'
         }
       },
       alertRules: {
         title: 'Alert Rules',
-        description: 'Create and manage threshold-based system alerts (email-only)',
+        description: 'Create and manage threshold-based system alerts',
         loading: 'Loading...',
         empty: 'No alert rules',
         loadFailed: 'Failed to load alert rules',
@@ -542,8 +539,7 @@ export default {
           window: 'Window (minutes)',
           sustained: 'Sustained (samples)',
           cooldown: 'Cooldown (minutes)',
-          enabled: 'Enabled',
-          notifyEmail: 'Send email notifications'
+          enabled: 'Enabled'
         },
         validation: {
           title: 'Please fix the following issues',
@@ -619,45 +615,6 @@ export default {
           upstreamErrorRateMaxRange: 'Upstream error rate maximum must be between 0 and 100'
         }
       },
-      email: {
-        title: 'Email Notification',
-        description: 'Configure alert/report email notifications (stored in database).',
-        loading: 'Loading...',
-        noData: 'No email notification config',
-        loadFailed: 'Failed to load email notification config',
-        saveSuccess: 'Email notification config saved',
-        saveFailed: 'Failed to save email notification config',
-        alertTitle: 'Alert Emails',
-        reportTitle: 'Report Emails',
-        recipients: 'Recipients',
-        recipientsHint: 'If empty, the system may fallback to the first admin email.',
-        minSeverity: 'Min Severity',
-        minSeverityAll: 'All severities',
-        rateLimitPerHour: 'Rate limit per hour',
-        batchWindowSeconds: 'Batch window (seconds)',
-        includeResolved: 'Include resolved alerts',
-        dailySummary: 'Daily summary',
-        weeklySummary: 'Weekly summary',
-        errorDigest: 'Error digest',
-        errorDigestMinCount: 'Min errors for digest',
-        accountHealth: 'Account health',
-        accountHealthThreshold: 'Error rate threshold (%)',
-        cronPlaceholder: 'Cron expression',
-        reportHint: 'Schedules use cron syntax; leave empty to use defaults.',
-        validation: {
-          title: 'Please fix the following issues',
-          invalid: 'Invalid email notification config',
-          alertRecipientsRequired: 'Alert emails are enabled but no recipients are configured',
-          reportRecipientsRequired: 'Report emails are enabled but no recipients are configured',
-          invalidRecipients: 'One or more recipient emails are invalid',
-          rateLimitRange: 'Rate limit per hour must be a number ≥ 0',
-          batchWindowRange: 'Batch window must be between 0 and 86400 seconds',
-          cronRequired: 'A cron expression is required when schedule is enabled',
-          cronFormat: 'Cron expression format looks invalid (expected at least 5 parts)',
-          digestMinCountRange: 'Min errors for digest must be a number ≥ 0',
-          accountHealthThresholdRange: 'Account health threshold must be between 0 and 100'
-        }
-      },
       settings: {
         title: 'Ops Monitoring Settings',
         loadFailed: 'Failed to load settings',
@@ -666,17 +623,6 @@ export default {
         dataCollection: 'Data Collection',
         evaluationInterval: 'Evaluation Interval (seconds)',
         evaluationIntervalHint: 'Frequency of detection tasks, recommended to keep default',
-        alertConfig: 'Alert Configuration',
-        enableAlert: 'Enable Alerts',
-        alertRecipients: 'Alert Recipient Emails',
-        emailPlaceholder: 'Enter email address',
-        recipientsHint: 'If empty, the system will use the first admin email as default recipient',
-        minSeverity: 'Minimum Severity',
-        reportConfig: 'Report Configuration',
-        enableReport: 'Enable Reports',
-        reportRecipients: 'Report Recipient Emails',
-        dailySummary: 'Daily Summary',
-        weeklySummary: 'Weekly Summary',
         metricThresholds: 'Metric Thresholds',
         metricThresholdsHint: 'Configure alert thresholds for metrics, values exceeding thresholds will be displayed in red',
         slaMinPercent: 'SLA Minimum Percentage',

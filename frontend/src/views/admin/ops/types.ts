@@ -11,7 +11,6 @@ export type {
   ThresholdMode,
   MetricType,
   Operator,
-  EmailNotificationConfig,
   OpsDistributedLockSettings,
   OpsAlertRuntimeSettings,
   OpsMetricThresholds,

@@ -32,7 +32,7 @@ func TestNormalizeAndValidateWeb_Defaults(t *testing.T) {
 }
 
 func TestNormalizeAndValidateWeb_DefaultHomePath(t *testing.T) {
-	for _, path := range []string{"/home", "/key-usage", "/model-plaza"} {
+	for _, path := range []string{"/home", "/key-usage"} {
 		cfg := webCfg(true, "", path)
 		if err := cfg.normalizeAndValidateWeb(); err != nil {
 			t.Fatalf("%s should be allowed: %v", path, err)

@@ -63,18 +63,6 @@ func TestJitteredTTL_AverageNearCenter(t *testing.T) {
 		"平均 TTL 应接近抖动范围中心 %v", expectedCenter)
 }
 
-func TestBillingKeyGeneration(t *testing.T) {
-	t.Run("balance_key", func(t *testing.T) {
-		key := billingBalanceKey(12345)
-		assert.Equal(t, "billing:balance:12345", key)
-	})
-
-	t.Run("sub_key", func(t *testing.T) {
-		key := billingSubKey(100, 200)
-		assert.Equal(t, "billing:sub:100:200", key)
-	})
-}
-
 func BenchmarkJitteredTTL(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = jitteredTTL()

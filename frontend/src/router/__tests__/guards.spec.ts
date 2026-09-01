@@ -79,7 +79,7 @@ function simulateGuard(
       return authState.isAdmin ? '/admin/dashboard' : '/dashboard'
     }
     if (authState.backendModeEnabled && !authState.isAuthenticated) {
-      const allowed = ['/login', '/key-usage', '/setup', '/legal']
+      const allowed = ['/login', '/key-usage', '/setup']
       const isAllowed = allowed.some((path) => toPath === path || toPath.startsWith(path))
       if (!isAllowed) {
         return '/login'
@@ -100,11 +100,7 @@ function simulateGuard(
 
   // 简易模式限制
   if (authState.isSimpleMode) {
-    const restrictedPaths = [
-      '/admin/groups',
-      '/admin/subscriptions',
-      '/subscriptions',
-    ]
+    const restrictedPaths = ['/admin/groups']
     if (restrictedPaths.some((path) => toPath.startsWith(path))) {
       return authState.isAdmin ? '/admin/dashboard' : '/dashboard'
     }
@@ -115,7 +111,7 @@ function simulateGuard(
     if (authState.isAuthenticated && authState.isAdmin) {
       return null
     }
-    const allowed = ['/login', '/key-usage', '/setup', '/legal']
+    const allowed = ['/login', '/key-usage', '/setup']
     const isAllowed = allowed.some((path) => toPath === path || toPath.startsWith(path))
     if (!isAllowed) {
       return '/login'
@@ -226,17 +222,6 @@ describe('路由守卫逻辑', () => {
   // --- 简易模式 ---
 
   describe('简易模式受限路由', () => {
-    it('普通用户简易模式访问 /subscriptions 重定向到 /dashboard', () => {
-      const authState: MockAuthState = {
-        isAuthenticated: true,
-        isAdmin: false,
-        isSimpleMode: true,
-        backendModeEnabled: false,
-      }
-      const redirect = simulateGuard('/subscriptions', {}, authState)
-      expect(redirect).toBe('/dashboard')
-    })
-
     it('管理员简易模式访问 /admin/groups 重定向到 /admin/dashboard', () => {
       const authState: MockAuthState = {
         isAuthenticated: true,
@@ -245,21 +230,6 @@ describe('路由守卫逻辑', () => {
         backendModeEnabled: false,
       }
       const redirect = simulateGuard('/admin/groups', { requiresAdmin: true }, authState)
-      expect(redirect).toBe('/admin/dashboard')
-    })
-
-    it('管理员简易模式访问 /admin/subscriptions 重定向', () => {
-      const authState: MockAuthState = {
-        isAuthenticated: true,
-        isAdmin: true,
-        isSimpleMode: true,
-        backendModeEnabled: false,
-      }
-      const redirect = simulateGuard(
-        '/admin/subscriptions',
-        { requiresAdmin: true },
-        authState
-      )
       expect(redirect).toBe('/admin/dashboard')
     })
 

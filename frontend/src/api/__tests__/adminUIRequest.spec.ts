@@ -23,7 +23,7 @@ describe('Admin UI request marker', () => {
     expect(shouldMarkAdminUIRequest(requestURL, '/login')).toBe(true)
   })
 
-  it.each(['/keys', '/groups/available', '/auth/me', '/announcements'])(
+  it.each(['/keys', '/groups/available', '/auth/me', '/usage/stats'])(
     'marks shared request %s while an Admin page is active',
     (requestURL) => {
       expect(shouldMarkAdminUIRequest(requestURL, '/admin/dashboard')).toBe(true)
@@ -51,7 +51,6 @@ describe('User UI request marker', () => {
     '/user',
     '/user/profile',
     '/user/password',
-    '/user/notify-email/send-code',
     '/user/totp/status',
     '/user/platform-quotas',
     '/keys',
@@ -62,12 +61,8 @@ describe('User UI request marker', () => {
     '/usage',
     '/usage/stats',
     '/usage/dashboard/snapshot-v2',
-    '/announcements',
-    '/announcements/3/read',
-    '/subscriptions',
-    '/subscriptions/active',
-    '/channel-monitors',
-    '/channel-monitors/9/status',
+    '/channel-monitor-v2',
+    '/channel-monitor-v2/snapshot',
     '/api/v1/auth/me',
     '/api/v1/keys?page=1',
   ])('marks user timing API %s', (requestURL) => {
@@ -85,6 +80,10 @@ describe('User UI request marker', () => {
     '/redeem/history',
     '/payment/config',
     '/payment/orders',
+    '/subscriptions',
+    '/subscriptions/active',
+    '/announcements',
+    '/announcements/3/read',
     '/auth/oauth/bind-token',
     '',
   ])('does not mark non-user timing API %s', (requestURL) => {

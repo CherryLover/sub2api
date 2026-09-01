@@ -105,7 +105,6 @@ const createApiKey = (): ApiKey => ({
   ip_blacklist: [],
   last_used_at: null,
   last_used_ip: null,
-  quota: 0,
   quota_used: 0,
   expires_at: null,
   created_at: '2026-06-27T00:00:00Z',

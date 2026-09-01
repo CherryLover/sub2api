@@ -61,10 +61,6 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	// api_keys: key length should be 128
 	requireColumn(t, tx, "api_keys", "key", "character varying", 128, false)
 
-	// redeem_codes: subscription fields
-	requireColumn(t, tx, "redeem_codes", "group_id", "bigint", 0, true)
-	requireColumn(t, tx, "redeem_codes", "validity_days", "integer", 0, false)
-
 	// usage_logs: billing_type used by filters/stats
 	requireColumn(t, tx, "usage_logs", "billing_type", "smallint", 0, false)
 	requireColumn(t, tx, "usage_logs", "request_type", "smallint", 0, false)
@@ -165,9 +161,6 @@ WHERE ns.nspname = 'public'
 	require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT to_regclass('public.user_allowed_groups')").Scan(&uagRegclass))
 	require.True(t, uagRegclass.Valid, "expected user_allowed_groups table to exist")
 
-	// user_subscriptions: deleted_at for soft delete support (migration 012)
-	requireColumn(t, tx, "user_subscriptions", "deleted_at", "timestamp with time zone", 0, true)
-
 	// orphan_allowed_groups_audit table should exist (migration 013)
 	var orphanAuditRegclass sql.NullString
 	require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT to_regclass('public.orphan_allowed_groups_audit')").Scan(&orphanAuditRegclass))
@@ -203,10 +196,6 @@ func TestMigrationsRunner_AuthIdentityAndPaymentSchemaStayAligned(t *testing.T) 
 	requireForeignKeyOnDelete(t, tx, "pending_auth_sessions", "target_user_id", "users", "SET NULL")
 	requireForeignKeyOnDelete(t, tx, "identity_adoption_decisions", "pending_auth_session_id", "pending_auth_sessions", "CASCADE")
 	requireForeignKeyOnDelete(t, tx, "identity_adoption_decisions", "identity_id", "auth_identities", "SET NULL")
-
-	requireIndex(t, tx, "payment_orders", "paymentorder_out_trade_no")
-	requirePartialUniqueIndexDefinition(t, tx, "payment_orders", "paymentorder_out_trade_no", "out_trade_no", "WHERE")
-	requireIndexAbsent(t, tx, "payment_orders", "paymentorder_out_trade_no_unique")
 }
 
 func requireIndex(t *testing.T, tx *sql.Tx, table, index string) {
@@ -224,51 +213,6 @@ SELECT EXISTS (
 `, table, index).Scan(&exists)
 	require.NoError(t, err, "query pg_indexes for %s.%s", table, index)
 	require.True(t, exists, "expected index %s on %s", index, table)
-}
-
-func requireIndexAbsent(t *testing.T, tx *sql.Tx, table, index string) {
-	t.Helper()
-
-	var exists bool
-	err := tx.QueryRowContext(context.Background(), `
-SELECT EXISTS (
-	SELECT 1
-	FROM pg_indexes
-	WHERE schemaname = 'public'
-	  AND tablename = $1
-	  AND indexname = $2
-)
-`, table, index).Scan(&exists)
-	require.NoError(t, err, "query pg_indexes for %s.%s", table, index)
-	require.False(t, exists, "expected index %s on %s to be absent", index, table)
-}
-
-func requirePartialUniqueIndexDefinition(t *testing.T, tx *sql.Tx, table, index string, fragments ...string) {
-	t.Helper()
-
-	var (
-		unique bool
-		def    string
-	)
-
-	err := tx.QueryRowContext(context.Background(), `
-SELECT
-	i.indisunique,
-	pg_get_indexdef(i.indexrelid)
-FROM pg_class idx
-JOIN pg_index i ON i.indexrelid = idx.oid
-JOIN pg_class tbl ON tbl.oid = i.indrelid
-JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-WHERE ns.nspname = 'public'
-  AND tbl.relname = $1
-  AND idx.relname = $2
-`, table, index).Scan(&unique, &def)
-	require.NoError(t, err, "query index definition for %s.%s", table, index)
-	require.True(t, unique, "expected index %s on %s to be unique", index, table)
-
-	for _, fragment := range fragments {
-		require.Contains(t, def, fragment, "expected index definition for %s.%s to contain %q", table, index, fragment)
-	}
 }
 
 func requireForeignKeyOnDelete(t *testing.T, tx *sql.Tx, table, column, refTable, expected string) {

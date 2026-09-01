@@ -51,12 +51,8 @@ export default {
     quickActions: 'Quick Actions',
     createApiKey: 'Create API Key',
     generateNewKey: 'Generate a new API key',
-    batchImageAgent: 'Batch Image Assistant',
-    batchImageAgentDesc: 'Copy instructions for an agent',
     viewUsage: 'View Usage',
     checkDetailedLogs: 'Check detailed usage logs',
-    redeemCode: 'Redeem Code',
-    addBalanceWithCode: 'Add balance with a code'
   },
 
   // Groups (shared)
@@ -123,7 +119,7 @@ export default {
     usage: 'Usage',
     today: 'Today',
     total: 'Last 30d',
-    quota: 'Quota',
+    spent: 'Total Spent',
     lastUsedAt: 'Last Used',
     lastUsedIP: 'Last Used IP',
     useKey: 'Use Key',
@@ -217,18 +213,8 @@ export default {
       geminiCli: 'Gemini CLI',
       geminiCliDesc: 'Import as Gemini CLI configuration',
     },
-    // Quota and expiration
-    quotaLimit: 'Quota Limit',
-    quotaAmount: 'Quota Amount (USD)',
-    quotaAmountPlaceholder: 'Enter quota limit in USD',
-    quotaAmountHint: 'Set the maximum amount this key can spend. 0 = unlimited.',
-    quotaUsed: 'Quota Used',
+    // Reset button & rate limit
     reset: 'Reset',
-    resetQuotaUsed: 'Reset used quota to 0',
-    resetQuotaTitle: 'Confirm Reset Quota',
-    resetQuotaConfirmMessage: 'Are you sure you want to reset the used quota (${used}) for key "{name}" to 0? This action cannot be undone.',
-    quotaResetSuccess: 'Quota reset successfully',
-    failedToResetQuota: 'Failed to reset quota',
     rateLimitColumn: 'Rate Limit',
     rateLimitSection: 'Rate Limit',
     resetUsage: 'Reset',
@@ -417,116 +403,6 @@ export default {
     },
   },
 
-  // Shared keys for channel monitor (admin + user views)
-  monitorCommon: {
-    status: {
-      operational: 'Operational',
-      degraded: 'Degraded',
-      failed: 'Failed',
-      error: 'Error',
-      unknown: '-'
-    },
-    providers: {
-      openai: 'OpenAI',
-      anthropic: 'Anthropic',
-      gemini: 'Gemini',
-      grok: 'Grok',
-      antigravity: 'Antigravity',
-      kimi: 'Kimi',
-      zhipu: 'Zhipu GLM',
-      deepseek: 'DeepSeek'
-    },
-    // Check modes (how a monitor performs its checks)
-    checkMode: {
-      probe: 'Probe',
-      quota: 'Quota',
-      quota_probe: 'Probe + Quota'
-    },
-    // Quota snapshot rendering (MonitorQuotaView, shared by admin + user views)
-    quota: {
-      unavailable: 'Quota unavailable',
-      resetSoon: 'resetting',
-      windows: {
-        '5h': '5h',
-        '7d': '7d',
-        '7dSonnet': '7d Sonnet',
-        '7dFable': '7d Fable',
-        weekly: 'Weekly',
-        daily: 'Daily',
-        '30d': '30d',
-        total: 'Total'
-      },
-      labels: {
-        requests: 'Requests',
-        tokens: 'Tokens',
-        shared: 'Shared',
-        pro: 'Pro',
-        flash: 'Flash'
-      }
-    },
-    extraModelsHeader: 'Extra Models',
-    extraModelsEmpty: 'No extra models',
-    latencyEmpty: '-',
-    availabilityPrefix: 'Availability',
-    dialogLatency: 'Dialog Latency',
-    endpointPing: 'Endpoint PING',
-    history60pts: 'HISTORY ({n} PTS)',
-    nextUpdateIn: 'NEXT UPDATE IN {n}s',
-    past: 'PAST',
-    now: 'NOW',
-    maintenancePaused: 'Maintenance · timeline paused',
-    extraModelsCount: '+ {n} models',
-    pollEvery: '{n}s polling',
-    updatedAt: 'Updated {time}',
-    relativeSecondsAgo: '{n}s ago',
-    relativeMinutesAgo: '{n}m ago',
-    relativeHoursAgo: '{n}h ago',
-    relativeDaysAgo: '{n}d ago'
-  },
-
-  // Channel Status (user-facing read-only view)
-  channelStatus: {
-    title: 'Channel Status',
-    description: 'Inspect channel availability, latency and recent status',
-    searchPlaceholder: 'Search channels...',
-    allProviders: 'All Providers',
-    loadError: 'Failed to load channel status',
-    detailLoadError: 'Failed to load channel detail',
-    detailTitle: 'Channel Detail',
-    closeDetail: 'Close',
-    windowTab: {
-      '7d': '7 days',
-      '15d': '15 days',
-      '30d': '30 days'
-    },
-    overall: {
-      operational: 'OPERATIONAL',
-      degraded: 'DEGRADED',
-      unavailable: 'UNAVAILABLE'
-    },
-    columns: {
-      name: 'Name',
-      provider: 'Provider',
-      groupName: 'Group',
-      primaryModel: 'Primary Model',
-      availability7d: '7d Availability',
-      latency: 'Latency (ms)'
-    },
-    detailColumns: {
-      model: 'Model',
-      latestStatus: 'Latest Status',
-      latestLatency: 'Latest Latency (ms)',
-      availability7d: '7d Availability',
-      availability15d: '15d Availability',
-      availability30d: '30d Availability',
-      avgLatency7d: '7d Avg Latency (ms)'
-    },
-    empty: {
-      title: 'No channels available',
-      description: 'No monitored channels have been configured yet.'
-    }
-  },
-
   // Available Channels (user-facing)
   availableChannels: {
     title: 'Available Channels',
@@ -565,54 +441,6 @@ export default {
     }
   },
 
-  // Model Plaza (public group/model pricing showcase)
-  modelPlaza: {
-    title: 'Model Plaza',
-    description: 'Browse available models and pricing by group',
-    loading: 'Loading...',
-    empty: 'No groups to display',
-    loadFailed: 'Failed to load model plaza',
-    noSearchResult: 'No matching models',
-    anonymousHint: 'Sign in to see your exclusive groups and personal rates',
-    filters: {
-      platformLabel: 'Platform',
-      groupLabel: 'Group',
-      rateLabel: 'Rate',
-      modelLabel: 'Model',
-      searchPlaceholder: 'Search models',
-      all: 'All'
-    },
-    badges: {
-      exclusive: 'Exclusive',
-      subscription: 'Subscription'
-    },
-    detail: {
-      noModels: 'No models configured for this group',
-      noPricing: 'Pricing not configured',
-      peakNote: 'Peak hours {window}: billing rate ×{multiplier}'
-    },
-    table: {
-      model: 'Model',
-      input: 'Input',
-      output: 'Output',
-      cache: 'Cache',
-      cacheWrite: 'Write',
-      cacheRead: 'Read',
-      paidPrice: 'Your Price (Discounted)',
-      officialPrice: 'Official Price',
-      rate: 'Rate',
-      unitPerMillion: '$ / 1M tokens',
-      perUnitRequest: '/ request',
-      perUnitImage: '/ image',
-      perRequest: 'Per request',
-      perImage: 'Per image'
-    },
-    nav: {
-      login: 'Sign In',
-      backToDashboard: 'Back to Console'
-    }
-  },
-
   // Profile
   profile: {
     title: 'Profile Settings',
@@ -626,8 +454,6 @@ export default {
     overviewDescription: 'Check account status, profile sources, and common actions at a glance.',
     basicsTitle: 'Profile & Avatar',
     basicsDescription: 'Keep your public profile details and avatar aligned.',
-    linkedProfileSources: 'Profile Sources',
-    linkedProfileSourcesDescription: 'Some profile details may stay synced from third-party sign-in methods.',
     securityTitle: 'Security Settings',
     securityDescription: 'Password, two-factor authentication, and alerts live in the right rail.',
     administrator: 'Administrator',
@@ -684,14 +510,7 @@ export default {
       loginTitle: 'Two-Factor Authentication',
       loginHint: 'Enter the 6-digit code from your authenticator app',
       loginFailed: 'Verification failed, please try again',
-      // New translations for email verification
-      verifyEmailFirst: 'Please verify your email first',
-      verifyPasswordFirst: 'Please verify your identity first',
-      emailCode: 'Email Verification Code',
-      enterEmailCode: 'Enter 6-digit code',
-      sendCode: 'Send Code',
-      codeSent: 'Verification code sent to your email',
-      sendCodeFailed: 'Failed to send verification code'
+      verifyPasswordFirst: 'Please verify your identity first'
     },
     passkey: {
       title: 'Passkeys',
@@ -718,38 +537,6 @@ export default {
       deleted: 'Passkey deleted.',
       deleteFailed: 'Failed to delete passkey.'
     },
-    balanceNotify: {
-      title: 'Balance Low Notification',
-      description: 'Send email alert when account balance falls below threshold',
-      enabled: 'Enable Balance Low Notification',
-      threshold: 'Custom Threshold',
-      thresholdHint: 'Leave empty to use system default',
-      thresholdPlaceholder: 'Enter amount',
-      systemDefault: 'System Default',
-      extraEmails: 'Notification Emails',
-      extraEmailsHint: 'You must add and verify an email address to receive low balance alerts',
-      primaryEmail: 'Primary',
-      noExtraEmails: 'No extra notification emails',
-      enterEmail: 'Enter email address',
-      addEmail: 'Add Email',
-      emailPlaceholder: 'Enter email address',
-      sendCode: 'Send Code',
-      resend: 'Resend',
-      codeSent: 'Verification code sent',
-      codeSentTo: 'Code sent to {email}',
-      enterCode: 'Enter verification code',
-      codePlaceholder: '6-digit code',
-      verify: 'Verify',
-      emailAdded: 'Email added',
-      emailRemoved: 'Email removed',
-      verifySuccess: 'Email added successfully',
-      removeEmail: 'Remove',
-      removeSuccess: 'Email removed',
-      emailDuplicate: 'This email already exists',
-      maxEmailsReached: 'Maximum number of notification emails reached',
-      unverified: 'Unverified',
-      verified: 'Verified',
-    },
     avatar: {
       title: 'Profile Avatar',
       description: 'Upload an avatar image. Static uploads are compressed to 20KB before saving.',
@@ -767,22 +554,8 @@ export default {
     },
     authBindings: {
       title: 'Connected Sign-In Methods',
-      description: 'Email is the only sign-in method for this account. Review its binding status and manage the primary email here.',
-      bindAction: 'Bind {providerName}',
-      bindSuccess: 'Account linked successfully',
-      emailPlaceholder: 'Enter email address',
-      codePlaceholder: 'Enter verification code',
-      passwordPlaceholder: 'Set a login password',
-      replaceEmailPasswordPlaceholder: 'Enter current password',
-      sendCodeAction: 'Send code',
-      manageEmailAction: 'Manage email',
-      hideEmailFormAction: 'Hide email form',
-      confirmEmailBindAction: 'Bind email',
-      confirmEmailReplaceAction: 'Replace primary email',
-      codeSentTo: 'Code sent to {email}',
-      replaceSuccess: 'Primary email updated',
-      unbindAction: 'Unbind',
-      unbindSuccess: '{providerName} unbound',
+      description: 'Email is the only sign-in method for this account.',
+      readOnlyHint: 'The sign-in email is managed by the administrator; contact them to change it.',
       boundCount: '{count} linked records',
       status: {
         bound: 'Bound',

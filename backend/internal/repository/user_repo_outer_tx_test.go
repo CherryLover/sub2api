@@ -45,7 +45,6 @@ func TestCreateWithEmailAliasGuardJoinsOuterTransaction(t *testing.T) {
 			PasswordHash: "test-password-hash",
 			Role:         service.RoleUser,
 			Status:       service.StatusActive,
-			Balance:      0,
 			Concurrency:  1,
 		}
 		require.NoError(t, userRepo.CreateWithEmailAliasGuard(txCtx, u))
@@ -67,7 +66,6 @@ func TestCreateWithEmailAliasGuardJoinsOuterTransaction(t *testing.T) {
 			PasswordHash: "test-password-hash",
 			Role:         service.RoleUser,
 			Status:       service.StatusActive,
-			Balance:      0,
 			Concurrency:  1,
 		}
 		require.NoError(t, userRepo.CreateWithEmailAliasGuard(txCtx, u))

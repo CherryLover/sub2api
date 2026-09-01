@@ -3,19 +3,18 @@ package admin
 import (
 	"log/slog"
 
-	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.SystemSettings, after *service.SystemSettings, beforeAuthSourceDefaults *service.AuthSourceDefaultSettings, afterAuthSourceDefaults *service.AuthSourceDefaultSettings, req UpdateSettingsRequest) {
+func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.SystemSettings, after *service.SystemSettings, req UpdateSettingsRequest) {
 	if before == nil || after == nil {
 		return
 	}
 
-	changed := diffSettings(before, after, beforeAuthSourceDefaults, afterAuthSourceDefaults, req)
+	changed := diffSettings(before, after, req)
 	if len(changed) == 0 {
 		return
 	}
@@ -30,26 +29,8 @@ func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.Sys
 	)
 }
 
-func diffSettings(before *service.SystemSettings, after *service.SystemSettings, beforeAuthSourceDefaults *service.AuthSourceDefaultSettings, afterAuthSourceDefaults *service.AuthSourceDefaultSettings, req UpdateSettingsRequest) []string {
+func diffSettings(before *service.SystemSettings, after *service.SystemSettings, req UpdateSettingsRequest) []string {
 	changed := make([]string, 0, 20)
-	if before.RegistrationEnabled != after.RegistrationEnabled {
-		changed = append(changed, "registration_enabled")
-	}
-	if before.EmailVerifyEnabled != after.EmailVerifyEnabled {
-		changed = append(changed, "email_verify_enabled")
-	}
-	if !equalStringSlice(before.RegistrationEmailSuffixWhitelist, after.RegistrationEmailSuffixWhitelist) {
-		changed = append(changed, "registration_email_suffix_whitelist")
-	}
-	if before.RegistrationEmailDomainQuotaEnabled != after.RegistrationEmailDomainQuotaEnabled {
-		changed = append(changed, "registration_email_domain_quota_enabled")
-	}
-	if before.PasswordResetEnabled != after.PasswordResetEnabled {
-		changed = append(changed, "password_reset_enabled")
-	}
-	if before.FrontendURL != after.FrontendURL {
-		changed = append(changed, "frontend_url")
-	}
 	if before.TotpEnabled != after.TotpEnabled {
 		changed = append(changed, "totp_enabled")
 	}
@@ -73,125 +54,17 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.StepUpEnabled != after.StepUpEnabled {
 		changed = append(changed, "step_up_enabled")
 	}
-	if before.LoginAgreementEnabled != after.LoginAgreementEnabled {
-		changed = append(changed, "login_agreement_enabled")
-	}
-	if before.LoginAgreementMode != after.LoginAgreementMode {
-		changed = append(changed, "login_agreement_mode")
-	}
-	if before.LoginAgreementUpdatedAt != after.LoginAgreementUpdatedAt {
-		changed = append(changed, "login_agreement_updated_at")
-	}
-	if !equalLoginAgreementDocuments(before.LoginAgreementDocuments, after.LoginAgreementDocuments) {
-		changed = append(changed, "login_agreement_documents")
-	}
-	if before.SMTPHost != after.SMTPHost {
-		changed = append(changed, "smtp_host")
-	}
-	if before.SMTPPort != after.SMTPPort {
-		changed = append(changed, "smtp_port")
-	}
-	if before.SMTPUsername != after.SMTPUsername {
-		changed = append(changed, "smtp_username")
-	}
-	if req.SMTPPassword != "" {
-		changed = append(changed, "smtp_password")
-	}
-	if before.SMTPFrom != after.SMTPFrom {
-		changed = append(changed, "smtp_from_email")
-	}
-	if before.SMTPFromName != after.SMTPFromName {
-		changed = append(changed, "smtp_from_name")
-	}
-	if before.SMTPUseTLS != after.SMTPUseTLS {
-		changed = append(changed, "smtp_use_tls")
-	}
-	if before.TurnstileEnabled != after.TurnstileEnabled {
-		changed = append(changed, "turnstile_enabled")
-	}
-	if before.TurnstileSiteKey != after.TurnstileSiteKey {
-		changed = append(changed, "turnstile_site_key")
-	}
-	if req.TurnstileSecretKey != "" {
-		changed = append(changed, "turnstile_secret_key")
-	}
-	if before.TencentCaptchaEnabled != after.TencentCaptchaEnabled {
-		changed = append(changed, "tencent_captcha_enabled")
-	}
-	if before.TencentCaptchaAppID != after.TencentCaptchaAppID {
-		changed = append(changed, "tencent_captcha_app_id")
-	}
-	if req.TencentCaptchaAppSecretKey != "" {
-		changed = append(changed, "tencent_captcha_app_secret_key")
-	}
-	if req.TencentCaptchaCloudSecretID != "" {
-		changed = append(changed, "tencent_captcha_cloud_secret_id")
-	}
-	if req.TencentCaptchaCloudSecretKey != "" {
-		changed = append(changed, "tencent_captcha_cloud_secret_key")
-	}
-	if before.TencentCaptchaRegion != after.TencentCaptchaRegion {
-		changed = append(changed, "tencent_captcha_region")
-	}
-	if before.AliyunCaptchaEnabled != after.AliyunCaptchaEnabled {
-		changed = append(changed, "aliyun_captcha_enabled")
-	}
-	if before.AliyunCaptchaAccessKeyID != after.AliyunCaptchaAccessKeyID {
-		changed = append(changed, "aliyun_captcha_access_key_id")
-	}
-	if req.AliyunCaptchaAccessKeySecret != "" {
-		changed = append(changed, "aliyun_captcha_access_key_secret")
-	}
-	if before.AliyunCaptchaSceneID != after.AliyunCaptchaSceneID {
-		changed = append(changed, "aliyun_captcha_scene_id")
-	}
-	if before.AliyunCaptchaPrefix != after.AliyunCaptchaPrefix {
-		changed = append(changed, "aliyun_captcha_prefix")
-	}
-	if before.AliyunCaptchaRegion != after.AliyunCaptchaRegion {
-		changed = append(changed, "aliyun_captcha_region")
-	}
 	if before.APIKeyACLTrustForwardedIP != after.APIKeyACLTrustForwardedIP {
 		changed = append(changed, "api_key_acl_trust_forwarded_ip")
 	}
 	if !equalStringSlice(before.ForwardedClientIPHeaders, after.ForwardedClientIPHeaders) {
 		changed = append(changed, "forwarded_client_ip_headers")
 	}
-	if before.SiteName != after.SiteName {
-		changed = append(changed, "site_name")
-	}
-	if before.SiteLogo != after.SiteLogo {
-		changed = append(changed, "site_logo")
-	}
-	if before.SiteSubtitle != after.SiteSubtitle {
-		changed = append(changed, "site_subtitle")
-	}
-	if before.APIBaseURL != after.APIBaseURL {
-		changed = append(changed, "api_base_url")
-	}
-	if before.ContactInfo != after.ContactInfo {
-		changed = append(changed, "contact_info")
-	}
 	if before.DocURL != after.DocURL {
 		changed = append(changed, "doc_url")
 	}
-	if before.HomeContent != after.HomeContent {
-		changed = append(changed, "home_content")
-	}
-	if before.CompactHomeEnabled != after.CompactHomeEnabled {
-		changed = append(changed, "compact_home_enabled")
-	}
-	if before.HideCcsImportButton != after.HideCcsImportButton {
-		changed = append(changed, "hide_ccs_import_button")
-	}
 	if before.DefaultConcurrency != after.DefaultConcurrency {
 		changed = append(changed, "default_concurrency")
-	}
-	if before.DefaultBalance != after.DefaultBalance {
-		changed = append(changed, "default_balance")
-	}
-	if !equalDefaultSubscriptions(before.DefaultSubscriptions, after.DefaultSubscriptions) {
-		changed = append(changed, "default_subscriptions")
 	}
 	if before.EnableModelFallback != after.EnableModelFallback {
 		changed = append(changed, "enable_model_fallback")
@@ -255,15 +128,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.BackendModeEnabled != after.BackendModeEnabled {
 		changed = append(changed, "backend_mode_enabled")
-	}
-	if before.TableDefaultPageSize != after.TableDefaultPageSize {
-		changed = append(changed, "table_default_page_size")
-	}
-	if !equalIntSlice(before.TablePageSizeOptions, after.TablePageSizeOptions) {
-		changed = append(changed, "table_page_size_options")
-	}
-	if before.CustomMenuItems != after.CustomMenuItems {
-		changed = append(changed, "custom_menu_items")
 	}
 	if before.CustomEndpoints != after.CustomEndpoints {
 		changed = append(changed, "custom_endpoints")
@@ -355,42 +219,14 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAIAdvancedSchedulerWeightSessionSticky != after.OpenAIAdvancedSchedulerWeightSessionSticky {
 		changed = append(changed, "openai_advanced_scheduler_weight_session_sticky")
 	}
-	// 余额、订阅到期与账号限额通知
-	if before.BalanceLowNotifyEnabled != after.BalanceLowNotifyEnabled {
-		changed = append(changed, "balance_low_notify_enabled")
-	}
-	if before.BalanceLowNotifyThreshold != after.BalanceLowNotifyThreshold {
-		changed = append(changed, "balance_low_notify_threshold")
-	}
-	if before.BalanceLowNotifyRechargeURL != after.BalanceLowNotifyRechargeURL {
-		changed = append(changed, "balance_low_notify_recharge_url")
-	}
-	if before.SubscriptionExpiryNotifyEnabled != after.SubscriptionExpiryNotifyEnabled {
-		changed = append(changed, "subscription_expiry_notify_enabled")
-	}
-	if before.AccountQuotaNotifyEnabled != after.AccountQuotaNotifyEnabled {
-		changed = append(changed, "account_quota_notify_enabled")
-	}
-	if !equalNotifyEmailEntries(before.AccountQuotaNotifyEmails, after.AccountQuotaNotifyEmails) {
-		changed = append(changed, "account_quota_notify_emails")
-	}
 	if before.ChannelMonitorEnabled != after.ChannelMonitorEnabled {
 		changed = append(changed, "channel_monitor_enabled")
 	}
-	if before.ChannelMonitorDefaultIntervalSeconds != after.ChannelMonitorDefaultIntervalSeconds {
-		changed = append(changed, "channel_monitor_default_interval_seconds")
+	if before.ChannelMonitorHideThroughput != after.ChannelMonitorHideThroughput {
+		changed = append(changed, "channel_monitor_hide_throughput")
 	}
 	if before.AvailableChannelsEnabled != after.AvailableChannelsEnabled {
 		changed = append(changed, "available_channels_enabled")
-	}
-	if before.ModelPlazaEnabled != after.ModelPlazaEnabled {
-		changed = append(changed, "model_plaza_enabled")
-	}
-	if before.ModelPlazaRequireAuth != after.ModelPlazaRequireAuth {
-		changed = append(changed, "model_plaza_require_auth")
-	}
-	if before.ModelPlazaDescription != after.ModelPlazaDescription {
-		changed = append(changed, "model_plaza_description")
 	}
 	if before.RiskControlEnabled != after.RiskControlEnabled {
 		changed = append(changed, "risk_control_enabled")
@@ -408,74 +244,7 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if !equalAccountSchedulingThresholds(before.AccountSchedulingThresholds, after.AccountSchedulingThresholds) {
 		changed = append(changed, service.SettingKeyAccountSchedulingThresholds)
 	}
-	changed = appendAuthSourceDefaultChanges(changed, beforeAuthSourceDefaults, afterAuthSourceDefaults)
 	return changed
-}
-
-func appendAuthSourceDefaultChanges(changed []string, before *service.AuthSourceDefaultSettings, after *service.AuthSourceDefaultSettings) []string {
-	if before == nil {
-		before = &service.AuthSourceDefaultSettings{}
-	}
-	if after == nil {
-		after = &service.AuthSourceDefaultSettings{}
-	}
-
-	type providerDefaultGrantField struct {
-		name   string
-		before service.ProviderDefaultGrantSettings
-		after  service.ProviderDefaultGrantSettings
-	}
-
-	fields := []providerDefaultGrantField{
-		{name: "email", before: before.Email, after: after.Email},
-	}
-	for _, field := range fields {
-		if field.before.Balance != field.after.Balance {
-			changed = append(changed, "auth_source_default_"+field.name+"_balance")
-		}
-		if field.before.Concurrency != field.after.Concurrency {
-			changed = append(changed, "auth_source_default_"+field.name+"_concurrency")
-		}
-		if !equalDefaultSubscriptions(field.before.Subscriptions, field.after.Subscriptions) {
-			changed = append(changed, "auth_source_default_"+field.name+"_subscriptions")
-		}
-		if field.before.GrantOnSignup != field.after.GrantOnSignup {
-			changed = append(changed, "auth_source_default_"+field.name+"_grant_on_signup")
-		}
-		if field.before.GrantOnFirstBind != field.after.GrantOnFirstBind {
-			changed = append(changed, "auth_source_default_"+field.name+"_grant_on_first_bind")
-		}
-		// Platform quotas diff：整体替换语义，发单个 JSON key。
-		if !equalPlatformQuotaSettings(field.before.PlatformQuotas, field.after.PlatformQuotas) {
-			changed = append(changed, service.SettingKeyAuthSourcePlatformQuotas(field.name))
-		}
-	}
-	return changed
-}
-
-func normalizeDefaultSubscriptions(input []dto.DefaultSubscriptionSetting) []dto.DefaultSubscriptionSetting {
-	if len(input) == 0 {
-		return nil
-	}
-	normalized := make([]dto.DefaultSubscriptionSetting, 0, len(input))
-	for _, item := range input {
-		if item.GroupID <= 0 || item.ValidityDays <= 0 {
-			continue
-		}
-		if item.ValidityDays > service.MaxValidityDays {
-			item.ValidityDays = service.MaxValidityDays
-		}
-		normalized = append(normalized, item)
-	}
-	return normalized
-}
-
-func normalizeOptionalDefaultSubscriptions(input *[]dto.DefaultSubscriptionSetting) *[]dto.DefaultSubscriptionSetting {
-	if input == nil {
-		return nil
-	}
-	normalized := normalizeDefaultSubscriptions(*input)
-	return &normalized
 }
 
 func float64ValueOrDefault(value *float64, fallback float64) float64 {
@@ -485,99 +254,12 @@ func float64ValueOrDefault(value *float64, fallback float64) float64 {
 	return *value
 }
 
-func intValueOrDefault(value *int, fallback int) int {
-	if value == nil {
-		return fallback
-	}
-	return *value
-}
-
-func boolValueOrDefault(value *bool, fallback bool) bool {
-	if value == nil {
-		return fallback
-	}
-	return *value
-}
-
-func defaultSubscriptionsValueOrDefault(input *[]dto.DefaultSubscriptionSetting, fallback []service.DefaultSubscriptionSetting) []service.DefaultSubscriptionSetting {
-	if input == nil {
-		return fallback
-	}
-	result := make([]service.DefaultSubscriptionSetting, 0, len(*input))
-	for _, item := range *input {
-		result = append(result, service.DefaultSubscriptionSetting{
-			GroupID:      item.GroupID,
-			ValidityDays: item.ValidityDays,
-		})
-	}
-	return result
-}
-
-// platformQuotasValueOrDefault 处理 auth-source platform quota 的 nil 语义：
-// nil = 请求未包含该字段（保留 fallback），non-nil（含 empty map）= 整体覆盖。
-// 注意：JSON null 与字段省略等价——两者均反序列化为 nil map，因此都保留旧值；
-// 若要清空某 source 的所有 quota 配置，须显式发空对象 {}。
-func platformQuotasValueOrDefault(value, fallback map[string]*service.DefaultPlatformQuotaSetting) map[string]*service.DefaultPlatformQuotaSetting {
-	if value == nil {
-		return fallback
-	}
-	return value
-}
-
 func equalStringSlice(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
 		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func equalDefaultSubscriptions(a, b []service.DefaultSubscriptionSetting) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].GroupID != b[i].GroupID || a[i].ValidityDays != b[i].ValidityDays {
-			return false
-		}
-	}
-	return true
-}
-
-func equalLoginAgreementDocuments(a, b []service.LoginAgreementDocument) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].ID != b[i].ID || a[i].Title != b[i].Title || a[i].ContentMD != b[i].ContentMD {
-			return false
-		}
-	}
-	return true
-}
-
-func equalIntSlice(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func equalNotifyEmailEntries(a, b []service.NotifyEmailEntry) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].Email != b[i].Email || a[i].Verified != b[i].Verified || a[i].Disabled != b[i].Disabled {
 			return false
 		}
 	}

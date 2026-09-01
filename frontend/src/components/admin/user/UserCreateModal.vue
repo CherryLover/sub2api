@@ -32,15 +32,9 @@
           <option value="admin">{{ t('admin.users.roles.admin') }}</option>
         </select>
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label class="input-label">{{ t('admin.users.columns.balance') }}</label>
-          <input v-model="form.balance" type="number" step="any" class="input" />
-        </div>
-        <div>
-          <label class="input-label">{{ t('admin.users.columns.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" class="input" />
-        </div>
+      <div>
+        <label class="input-label">{{ t('admin.users.columns.concurrency') }}</label>
+        <input v-model.number="form.concurrency" type="number" class="input" />
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.form.rpmLimit') }}</label>
@@ -82,7 +76,7 @@ const props = defineProps<{ show: boolean }>()
 const emit = defineEmits(['close', 'success']); const { t } = useI18n()
 const appStore = useAppStore()
 
-const form = reactive({ email: '', password: '', username: '', notes: '', role: 'user' as 'user' | 'admin', balance: '', concurrency: 1, rpm_limit: 0 })
+const form = reactive({ email: '', password: '', username: '', notes: '', role: 'user' as 'user' | 'admin', concurrency: 1, rpm_limit: 0 })
 
 const stepUp = useStepUp()
 const loading = ref(false)
@@ -91,12 +85,7 @@ const submit = async () => {
   if (loading.value) return
   loading.value = true
   try {
-    const { balance: rawBalance, ...rest } = { ...form }
-    const balance = String(rawBalance).trim()
-    const payload: typeof rest & { balance?: number } = { ...rest }
-    if (balance !== '') {
-      payload.balance = Number(balance)
-    }
+    const payload = { ...form }
     // 创建管理员属敏感操作：后端返回 STEP_UP_REQUIRED 时弹 TOTP 验证并重试
     await stepUp.run(() => adminAPI.users.create(payload))
     appStore.showSuccess(t('admin.users.userCreated'))
@@ -116,7 +105,7 @@ const submit = async () => {
   } finally { loading.value = false }
 }
 
-watch(() => props.show, (v) => { if(v) Object.assign(form, { email: '', password: '', username: '', notes: '', role: 'user', balance: '', concurrency: 1, rpm_limit: 0 }) })
+watch(() => props.show, (v) => { if(v) Object.assign(form, { email: '', password: '', username: '', notes: '', role: 'user', concurrency: 1, rpm_limit: 0 }) })
 
 const generateRandomPassword = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*'

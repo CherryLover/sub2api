@@ -25,7 +25,7 @@ func newStepUpSwitchTestHandler(t *testing.T, stored map[string]string) (*Settin
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{values: stored}
 	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	return NewSettingHandler(svc, nil, nil, nil, nil), repo
+	return NewSettingHandler(svc, nil, nil), repo
 }
 
 func doUpdateSettings(t *testing.T, h *SettingHandler, body map[string]any, prepare func(c *gin.Context)) *httptest.ResponseRecorder {
@@ -139,7 +139,7 @@ func TestUpdateSettingsOmittedSecuritySwitchesKeepStoredValues(t *testing.T) {
 		service.SettingKeySessionBindingEnabled: "true",
 	})
 
-	rec := doUpdateSettings(t, h, map[string]any{"registration_enabled": true}, nil)
+	rec := doUpdateSettings(t, h, map[string]any{"risk_control_enabled": true}, nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "true", repo.values[service.SettingKeyStepUpEnabled])
@@ -150,7 +150,7 @@ func TestUpdateSettingsOmittedSecuritySwitchesKeepStoredValues(t *testing.T) {
 func TestUpdateSettingsOmittedSecuritySwitchesKeepDisabled(t *testing.T) {
 	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
 
-	rec := doUpdateSettings(t, h, map[string]any{"registration_enabled": true}, nil)
+	rec := doUpdateSettings(t, h, map[string]any{"risk_control_enabled": true}, nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "false", repo.values[service.SettingKeyStepUpEnabled])
@@ -162,7 +162,7 @@ func TestUpdateSettingsForwardedClientIPHeadersOmittedPreservesAndEmptyClears(t 
 		service.SettingKeyForwardedClientIPHeaders: `["X-Cdn-Ip","True-Client-Ip"]`,
 	})
 
-	preserved := doUpdateSettings(t, h, map[string]any{"registration_enabled": true}, nil)
+	preserved := doUpdateSettings(t, h, map[string]any{"risk_control_enabled": true}, nil)
 	require.Equal(t, http.StatusOK, preserved.Code)
 	require.JSONEq(t, `["X-Cdn-Ip","True-Client-Ip"]`, repo.values[service.SettingKeyForwardedClientIPHeaders])
 	require.Contains(t, preserved.Body.String(), `"forwarded_client_ip_headers":["X-Cdn-Ip","True-Client-Ip"]`)
@@ -182,9 +182,9 @@ func TestUpdateSettingsMalformedForwardedClientIPHeadersRemainFailClosedWhenOmit
 	svc := service.NewSettingService(repo, cfg)
 	require.ErrorContains(t, svc.LoadForwardedClientIPSettings(context.Background()), "load forwarded client ip headers")
 	require.False(t, cfg.ForwardedClientIPSettings().TrustForwardedIP)
-	h := NewSettingHandler(svc, nil, nil, nil, nil)
+	h := NewSettingHandler(svc, nil, nil)
 
-	rec := doUpdateSettings(t, h, map[string]any{"registration_enabled": true}, nil)
+	rec := doUpdateSettings(t, h, map[string]any{"risk_control_enabled": true}, nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "false", repo.values[service.SettingKeyAPIKeyACLTrustForwardedIP])

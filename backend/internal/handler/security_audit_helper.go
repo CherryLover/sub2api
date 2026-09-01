@@ -48,24 +48,24 @@ func (h *GatewayHandler) checkSecurityAudit(c *gin.Context, reqLog *zap.Logger, 
 	if h == nil {
 		return nil
 	}
-	return runSecurityAudit(c, reqLog, h.securityAuditCoordinator, h.contentModerationService, apiKey, subject, protocol, model, body, "http")
+	return runSecurityAudit(c, reqLog, h.securityAuditCoordinator, apiKey, subject, protocol, model, body, "http")
 }
 
 func (h *OpenAIGatewayHandler) checkSecurityAudit(c *gin.Context, reqLog *zap.Logger, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol, model string, body []byte) *securityaudit.Decision {
 	if h == nil {
 		return nil
 	}
-	return runSecurityAudit(c, reqLog, h.securityAuditCoordinator, h.contentModerationService, apiKey, subject, protocol, model, body, "http")
+	return runSecurityAudit(c, reqLog, h.securityAuditCoordinator, apiKey, subject, protocol, model, body, "http")
 }
 
 func (h *OpenAIGatewayHandler) checkSecurityAuditStage(c *gin.Context, reqLog *zap.Logger, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol, model string, body []byte, stage string) *securityaudit.Decision {
 	if h == nil {
 		return nil
 	}
-	return runSecurityAudit(c, reqLog, h.securityAuditCoordinator, h.contentModerationService, apiKey, subject, protocol, model, body, stage)
+	return runSecurityAudit(c, reqLog, h.securityAuditCoordinator, apiKey, subject, protocol, model, body, stage)
 }
 
-func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securityaudit.Coordinator, legacy *service.ContentModerationService, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol, model string, body []byte, stage string) *securityaudit.Decision {
+func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securityaudit.Coordinator, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol, model string, body []byte, stage string) *securityaudit.Decision {
 	if c == nil || c.Request == nil {
 		return nil
 	}
@@ -76,23 +76,7 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 		}
 	}
 	if coordinator == nil {
-		legacyDecision := runContentModeration(c, reqLog, legacy, apiKey, subject, protocol, model, body)
-		if legacyDecision == nil {
-			return nil
-		}
-		decision := securityaudit.Decision{Kind: securityaudit.DecisionAllow, HTTPStatus: http.StatusOK, AllowNextStage: true}
-		decision.Legacy = &securityaudit.LegacyDecision{
-			Allowed: legacyDecision.Allowed, Blocked: legacyDecision.Blocked, Flagged: legacyDecision.Flagged,
-			Message: legacyDecision.Message, StatusCode: legacyDecision.StatusCode,
-			ErrorCode: "content_policy_violation", Action: legacyDecision.Action,
-		}
-		if legacyDecision.Blocked {
-			decision.Kind, decision.HTTPStatus, decision.ErrorCode, decision.ClientMessage, decision.AllowNextStage = securityaudit.DecisionBlock, contentModerationStatus(legacyDecision), "content_policy_violation", legacyDecision.Message, false
-		}
-		if decision.AllowNextStage && cacheCompletion {
-			c.Set(securityAuditCompletedContextKey, true)
-		}
-		return &decision
+		return nil
 	}
 	request := buildSecurityAuditRequest(c, apiKey, subject, protocol, model, body, stage)
 	if isSecurityAuditWebSocketStage(request.Stage) {
@@ -158,18 +142,38 @@ func securityAuditWSTurn(c *gin.Context) (int, bool) {
 }
 
 func buildSecurityAuditRequest(c *gin.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol, model string, body []byte, stage string) securityaudit.Request {
-	legacy := buildContentModerationInput(c, apiKey, subject, protocol, model, body)
 	request := securityaudit.Request{
-		RequestID: legacy.RequestID, UserID: legacy.UserID, UserEmail: legacy.UserEmail,
-		APIKeyID: legacy.APIKeyID, APIKeyName: legacy.APIKeyName, GroupID: cloneSecurityAuditGroupID(legacy.GroupID),
-		GroupName: legacy.GroupName, Provider: legacy.Provider, Endpoint: legacy.Endpoint,
-		Protocol: legacy.Protocol, Model: legacy.Model, Body: body, Stage: strings.TrimSpace(stage),
+		RequestID: gatewayRequestID(c.Request.Context()),
+		UserID:    subject.UserID,
+		Endpoint:  GetInboundEndpoint(c),
+		Provider:  gatewayRequestPlatform(apiKey),
+		Model:     clientRequestedModel(c, model),
+		Protocol:  protocol,
+		Body:      body,
+		Stage:     strings.TrimSpace(stage),
 	}
-	if apiKey != nil && apiKey.User != nil {
-		request.Username = apiKey.User.Username
-		if request.UserEmail == "" {
+	if resolvedPlatform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok {
+		request.Provider = resolvedPlatform
+	}
+	if forcedPlatform, ok := middleware2.GetForcePlatformFromContext(c); ok {
+		request.Provider = strings.TrimSpace(forcedPlatform)
+	}
+	if apiKey != nil {
+		request.APIKeyID = apiKey.ID
+		request.APIKeyName = apiKey.Name
+		if apiKey.GroupID != nil {
+			request.GroupID = cloneSecurityAuditGroupID(apiKey.GroupID)
+		}
+		if apiKey.Group != nil {
+			request.GroupName = apiKey.Group.Name
+		}
+		if apiKey.User != nil {
+			request.Username = apiKey.User.Username
 			request.UserEmail = apiKey.User.Email
 		}
+	}
+	if request.Endpoint == "" && c.Request != nil && c.Request.URL != nil {
+		request.Endpoint = c.Request.URL.Path
 	}
 	if request.Stage == "" {
 		request.Stage = "http"
@@ -194,9 +198,6 @@ func securityAuditErrorCode(decision *securityaudit.Decision) string {
 func securityAuditMessage(decision *securityaudit.Decision) string {
 	if decision == nil {
 		return "Request blocked by content policy"
-	}
-	if decision.Legacy != nil && decision.Legacy.Blocked && strings.TrimSpace(decision.Legacy.Message) != "" {
-		return decision.Legacy.Message
 	}
 	if strings.TrimSpace(decision.ClientMessage) != "" {
 		return decision.ClientMessage

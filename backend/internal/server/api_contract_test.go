@@ -53,19 +53,12 @@ func TestAPIContracts(t *testing.T) {
 					"email_bound": true,
 					"username": "alice",
 						"role": "user",
-						"balance": 12.5,
-						"frozen_balance": 0,
 						"concurrency": 5,
 					"rpm_limit": 0,
 					"status": "active",
 					"allowed_groups": null,
 					"created_at": "2025-01-02T03:04:05Z",
 					"updated_at": "2025-01-02T03:04:05Z",
-					"balance_notify_enabled": false,
-					"balance_notify_threshold_type": "",
-					"balance_notify_threshold": null,
-					"balance_notify_extra_emails": null,
-					"total_recharged": 0,
 					"identities": {
 						"email": {
 							"provider": "email",
@@ -226,7 +219,6 @@ func TestAPIContracts(t *testing.T) {
 						PeakRateMultiplier:   1.0,
 						IsExclusive:          false,
 						Status:               service.StatusActive,
-						SubscriptionType:     service.SubscriptionTypeStandard,
 						ProfitControlEnabled: true,
 						ProfitMinMargin:      0.3,
 						ProfitSafetyBuffer:   0.05,
@@ -239,7 +231,6 @@ func TestAPIContracts(t *testing.T) {
 						UpdatedAt:    deps.now,
 					},
 				})
-				deps.userSubRepo.SetActiveByUserID(1, nil)
 			},
 			method:     http.MethodGet,
 			path:       "/api/v1/groups/available",
@@ -260,10 +251,6 @@ func TestAPIContracts(t *testing.T) {
 						"peak_rate_multiplier": 1,
 						"is_exclusive": false,
 						"status": "active",
-						"subscription_type": "standard",
-						"daily_limit_usd": null,
-						"weekly_limit_usd": null,
-						"monthly_limit_usd": null,
 						"long_context_pricing_enabled": false,
 						"image_price_1k": null,
 						"image_price_2k": null,
@@ -277,9 +264,6 @@ func TestAPIContracts(t *testing.T) {
 						"audio_stt_price_per_hour": null,
 						"audio_realtime_price_per_min": null,
 						"allow_image_generation": false,
-						"allow_batch_image_generation": false,
-						"batch_image_discount_multiplier": 0,
-						"batch_image_hold_multiplier": 0,
 						"image_rate_independent": false,
 						"image_rate_multiplier": 0,
 						"video_rate_independent": false,
@@ -294,56 +278,6 @@ func TestAPIContracts(t *testing.T) {
 						"max_reasoning_effort": "",
 						"reasoning_effort_mappings": null,
 						"rpm_limit": 0,
-						"created_at": "2025-01-02T03:04:05Z",
-						"updated_at": "2025-01-02T03:04:05Z"
-					}
-				]
-			}`,
-		},
-		{
-			name: "GET /api/v1/subscriptions",
-			setup: func(t *testing.T, deps *contractDeps) {
-				t.Helper()
-				// 普通用户订阅接口不应包含 assigned_* / notes 等管理员字段。
-				deps.userSubRepo.SetByUserID(1, []service.UserSubscription{
-					{
-						ID:              501,
-						UserID:          1,
-						GroupID:         10,
-						StartsAt:        deps.now,
-						ExpiresAt:       time.Date(2099, 1, 2, 3, 4, 5, 0, time.UTC), // 使用未来日期避免 normalizeSubscriptionStatus 标记为过期
-						Status:          service.SubscriptionStatusActive,
-						DailyUsageUSD:   1.23,
-						WeeklyUsageUSD:  2.34,
-						MonthlyUsageUSD: 3.45,
-						AssignedBy:      ptr(int64(999)),
-						AssignedAt:      deps.now,
-						Notes:           "admin-note",
-						CreatedAt:       deps.now,
-						UpdatedAt:       deps.now,
-					},
-				})
-			},
-			method:     http.MethodGet,
-			path:       "/api/v1/subscriptions",
-			wantStatus: http.StatusOK,
-			wantJSON: `{
-				"code": 0,
-				"message": "success",
-				"data": [
-					{
-						"id": 501,
-						"user_id": 1,
-						"group_id": 10,
-						"starts_at": "2025-01-02T03:04:05Z",
-						"expires_at": "2099-01-02T03:04:05Z",
-						"status": "active",
-						"daily_window_start": null,
-						"weekly_window_start": null,
-						"monthly_window_start": null,
-						"daily_usage_usd": 1.23,
-						"weekly_usage_usd": 2.34,
-						"monthly_usage_usd": 3.45,
 						"created_at": "2025-01-02T03:04:05Z",
 						"updated_at": "2025-01-02T03:04:05Z"
 					}
@@ -498,33 +432,9 @@ func TestAPIContracts(t *testing.T) {
 			setup: func(t *testing.T, deps *contractDeps) {
 				t.Helper()
 				deps.settingRepo.SetAll(map[string]string{
-					service.SettingKeyRegistrationEnabled:              "true",
-					service.SettingKeyEmailVerifyEnabled:               "false",
-					service.SettingKeyRegistrationEmailSuffixWhitelist: "[]",
+					service.SettingKeyDocURL: "https://docs.example.com",
 
-					service.SettingKeySMTPHost:     "smtp.example.com",
-					service.SettingKeySMTPPort:     "587",
-					service.SettingKeySMTPUsername: "user",
-					service.SettingKeySMTPPassword: "secret",
-					service.SettingKeySMTPFrom:     "no-reply@example.com",
-					service.SettingKeySMTPFromName: "Sub2API",
-					service.SettingKeySMTPUseTLS:   "true",
-
-					service.SettingKeyTurnstileEnabled:   "true",
-					service.SettingKeyTurnstileSiteKey:   "site-key",
-					service.SettingKeyTurnstileSecretKey: "secret-key",
-
-					service.SettingKeySiteName:     "Sub2API",
-					service.SettingKeySiteLogo:     "",
-					service.SettingKeySiteSubtitle: "Subtitle",
-					service.SettingKeyAPIBaseURL:   "https://api.example.com",
-					service.SettingKeyContactInfo:  "support",
-					service.SettingKeyDocURL:       "https://docs.example.com",
-
-					service.SettingKeyDefaultConcurrency:   "5",
-					service.SettingKeyDefaultBalance:       "1.25",
-					service.SettingKeyTableDefaultPageSize: "20",
-					service.SettingKeyTablePageSizeOptions: "[10,20,50,100]",
+					service.SettingKeyDefaultConcurrency: "5",
 
 					service.SettingKeyOpsMonitoringEnabled:                               "false",
 					service.SettingKeyOpsRealtimeMonitoringEnabled:                       "true",
@@ -544,12 +454,6 @@ func TestAPIContracts(t *testing.T) {
 				"code": 0,
 				"message": "success",
 				"data": {
-					"registration_enabled": true,
-					"email_verify_enabled": false,
-					"registration_email_suffix_whitelist": [],
-					"registration_email_domain_quota_enabled": false,
-					"password_reset_enabled": false,
-						"frontend_url": "",
 						"totp_enabled": false,
 						"totp_encryption_key_configured": false,
 						"passkey_enabled": false,
@@ -559,60 +463,16 @@ func TestAPIContracts(t *testing.T) {
 						"session_binding_enabled": false,
 						"step_up_enabled": false,
 						"audit_log_retention_days": 180,
-						"login_agreement_enabled": false,
-						"login_agreement_mode": "modal",
-						"login_agreement_updated_at": "2026-03-31",
-						"login_agreement_documents": [
-							{"id": "terms", "title": "服务条款", "content_md": ""},
-							{"id": "usage-policy", "title": "使用政策", "content_md": ""},
-							{"id": "supported-regions", "title": "支持的国家和地区", "content_md": ""},
-							{"id": "service-specific-terms", "title": "服务特定条款", "content_md": ""}
-						],
-						"smtp_host": "smtp.example.com",
-						"smtp_port": 587,
-						"smtp_username": "user",
-					"smtp_password_configured": true,
-					"smtp_from_email": "no-reply@example.com",
-					"smtp_from_name": "Sub2API",
-					"smtp_use_tls": true,
-					"turnstile_enabled": true,
-					"turnstile_site_key": "site-key",
-					"turnstile_secret_key_configured": true,
-					"tencent_captcha_enabled": false,
-					"tencent_captcha_app_id": "",
-					"tencent_captcha_app_secret_key_configured": false,
-					"tencent_captcha_cloud_secret_id_configured": false,
-					"tencent_captcha_cloud_secret_key_configured": false,
-					"tencent_captcha_region": "cn",
-					"aliyun_captcha_enabled": false,
-					"aliyun_captcha_access_key_id": "",
-					"aliyun_captcha_access_key_secret_configured": false,
-					"aliyun_captcha_scene_id": "",
-					"aliyun_captcha_prefix": "",
-					"aliyun_captcha_region": "cn",
 						"ops_monitoring_enabled": false,
 						"ops_realtime_monitoring_enabled": true,
 						"ops_query_mode_default": "auto",
 						"ops_metrics_interval_seconds": 60,
-						"site_name": "Sub2API",
-						"site_logo": "",
-						"site_subtitle": "Subtitle",
-						"api_base_url": "https://api.example.com",
 						"api_key_acl_trust_forwarded_ip": false,
 					"forwarded_client_ip_headers": [],
-					"contact_info": "support",
 					"doc_url": "https://docs.example.com",
-					"auth_source_default_email_balance": 0,
-					"auth_source_default_email_concurrency": 5,
-					"auth_source_default_email_subscriptions": [],
-					"auth_source_default_email_grant_on_signup": false,
-					"auth_source_default_email_grant_on_first_bind": false,
 					"default_concurrency": 5,
-					"default_balance": 1.25,
 					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"deepseek":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"grok":{"daily":null,"weekly":null,"monthly":null},"kimi":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"zhipu":{"daily":null,"weekly":null,"monthly":null}},
-					"auth_source_default_email_platform_quotas": null,
 					"default_user_rpm_limit": 0,
-					"default_subscriptions": [],
 					"enable_model_fallback": false,
 					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
 					"fallback_model_antigravity": "gemini-2.5-pro",
@@ -620,20 +480,15 @@ func TestAPIContracts(t *testing.T) {
 						"fallback_model_openai": "gpt-4o",
 						"enable_identity_patch": true,
 						"identity_patch_prompt": "",
-						"home_content": "",
-					"hide_ccs_import_button": false,
 					"grok_default_text_model": "grok-4.6",
 					"grok_default_base_url_mode": "cli",
 					"grok_cross_client_model_map_enabled": true,
-					"table_default_page_size": 20,
-						"table_page_size_options": [10, 20, 50, 100],
 					"min_claude_code_version": "",
 					"max_claude_code_version": "",
 					"min_codex_version": "",
 					"max_codex_version": "",
 					"codex_cli_only_blacklist": "",
 					"codex_cli_only_whitelist": "",
-					"compact_home_enabled": false,
 					"login_entry_public": true,
 					"login_entry_path": "",
 					"login_entry_locked_by_config": false,
@@ -688,24 +543,11 @@ func TestAPIContracts(t *testing.T) {
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
-					"custom_menu_items": [],
 					"custom_endpoints": [],
-					"balance_low_notify_enabled": false,
-					"account_quota_notify_enabled": false,
 					"account_scheduling_thresholds": {"anthropic":100,"grok":100,"openai":100},
-					"subscription_expiry_notify_enabled": true,
-					"balance_low_notify_threshold": 0,
-					"balance_low_notify_recharge_url": "",
-					"account_quota_notify_emails": [],
 					"channel_monitor_enabled": true,
-					"channel_monitor_mode": "v1",
 					"channel_monitor_hide_throughput": true,
-					"channel_monitor_show_quota": false,
-					"channel_monitor_default_interval_seconds": 60,
 					"available_channels_enabled": false,
-					"model_plaza_enabled": false,
-					"model_plaza_require_auth": false,
-					"model_plaza_description": "",
 					"risk_control_enabled": false,
 					"cyber_session_block_enabled": false,
 					"cyber_session_block_ttl_seconds": 3600,
@@ -759,7 +601,6 @@ type contractDeps struct {
 	cfg         *config.Config
 	apiKeyRepo  *stubApiKeyRepo
 	groupRepo   *stubGroupRepo
-	userSubRepo *stubUserSubscriptionRepo
 	usageRepo   *stubUsageLogRepo
 	settingRepo *stubSettingRepo
 }
@@ -777,7 +618,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 				Username:      "alice",
 				Notes:         "hello",
 				Role:          service.RoleUser,
-				Balance:       12.5,
 				Concurrency:   5,
 				Status:        service.StatusActive,
 				AllowedGroups: nil,
@@ -790,7 +630,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 	apiKeyRepo := newStubApiKeyRepo(now)
 	apiKeyCache := stubApiKeyCache{}
 	groupRepo := &stubGroupRepo{}
-	userSubRepo := &stubUserSubscriptionRepo{}
 	accountRepo := stubAccountRepo{}
 	proxyRepo := stubProxyRepo{}
 
@@ -801,23 +640,20 @@ func newContractDeps(t *testing.T) *contractDeps {
 		RunMode: config.RunModeStandard,
 	}
 
-	userService := service.NewUserService(userRepo, nil, nil, nil)
-	apiKeyService := service.NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, nil, apiKeyCache, cfg)
+	userService := service.NewUserService(userRepo, nil, nil)
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, nil, apiKeyCache, cfg)
 
 	usageRepo := newStubUsageLogRepo()
 	usageService := service.NewUsageService(usageRepo, userRepo, nil, nil)
 
-	subscriptionService := service.NewSubscriptionService(groupRepo, userSubRepo, nil, nil, cfg)
-	subscriptionHandler := handler.NewSubscriptionHandler(subscriptionService)
-
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
-	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil)
+	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil)
 	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {
@@ -856,10 +692,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 	v1Usage.GET("/usage", usageHandler.List)
 	v1Usage.GET("/usage/stats", usageHandler.Stats)
 
-	v1Subs := v1.Group("")
-	v1Subs.Use(jwtAuth)
-	v1Subs.GET("/subscriptions", subscriptionHandler.List)
-
 	v1Admin := v1.Group("/admin")
 	v1Admin.Use(adminAuth)
 	v1Admin.GET("/settings", adminSettingHandler.GetSettings)
@@ -871,7 +703,6 @@ func newContractDeps(t *testing.T) *contractDeps {
 		cfg:         cfg,
 		apiKeyRepo:  apiKeyRepo,
 		groupRepo:   groupRepo,
-		userSubRepo: userSubRepo,
 		usageRepo:   usageRepo,
 		settingRepo: settingRepo,
 	}
@@ -965,22 +796,6 @@ func (r *stubUserRepo) ListWithFilters(ctx context.Context, params pagination.Pa
 	return nil, nil, errors.New("not implemented")
 }
 
-func (r *stubUserRepo) UpdateBalance(ctx context.Context, id int64, amount float64) error {
-	return errors.New("not implemented")
-}
-
-func (r *stubUserRepo) DeductBalance(ctx context.Context, id int64, amount float64) error {
-	return errors.New("not implemented")
-}
-
-func (r *stubUserRepo) AdjustBalance(ctx context.Context, id int64, delta float64) (service.BalanceChange, error) {
-	return service.BalanceChange{}, errors.New("not implemented")
-}
-
-func (r *stubUserRepo) SetBalance(ctx context.Context, id int64, value float64) (service.BalanceChange, error) {
-	return service.BalanceChange{}, errors.New("not implemented")
-}
-
 func (r *stubUserRepo) UpdateConcurrency(ctx context.Context, id int64, amount int) error {
 	return errors.New("not implemented")
 }
@@ -1013,10 +828,6 @@ func (r *stubUserRepo) AddGroupToAllowedGroups(ctx context.Context, userID int64
 
 func (r *stubUserRepo) ListUserAuthIdentities(ctx context.Context, userID int64) ([]service.UserAuthIdentityRecord, error) {
 	return nil, nil
-}
-
-func (r *stubUserRepo) UnbindUserAuthProvider(context.Context, int64, string) error {
-	return errors.New("not implemented")
 }
 
 func (r *stubUserRepo) GetLatestUsedAtByUserIDs(ctx context.Context, userIDs []int64) (map[int64]*time.Time, error) {
@@ -1455,107 +1266,6 @@ func (stubProxyRepo) CountExpired(ctx context.Context) (int64, error) {
 
 func (stubProxyRepo) CountExpiringSoon(ctx context.Context, now time.Time) (int64, error) {
 	return 0, nil
-}
-
-type stubUserSubscriptionRepo struct {
-	byUser       map[int64][]service.UserSubscription
-	activeByUser map[int64][]service.UserSubscription
-}
-
-func (r *stubUserSubscriptionRepo) SetByUserID(userID int64, subs []service.UserSubscription) {
-	if r.byUser == nil {
-		r.byUser = make(map[int64][]service.UserSubscription)
-	}
-	r.byUser[userID] = append([]service.UserSubscription(nil), subs...)
-}
-
-func (r *stubUserSubscriptionRepo) SetActiveByUserID(userID int64, subs []service.UserSubscription) {
-	if r.activeByUser == nil {
-		r.activeByUser = make(map[int64][]service.UserSubscription)
-	}
-	r.activeByUser[userID] = append([]service.UserSubscription(nil), subs...)
-}
-
-func (stubUserSubscriptionRepo) Create(ctx context.Context, sub *service.UserSubscription) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) GetByID(ctx context.Context, id int64) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) GetByIDForUpdate(ctx context.Context, id int64) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) GetByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) GetActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) Update(ctx context.Context, sub *service.UserSubscription) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) Delete(ctx context.Context, id int64) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) Restore(ctx context.Context, subscriptionID int64, restoredStatus string) (*service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
-}
-func (r *stubUserSubscriptionRepo) ListByUserID(ctx context.Context, userID int64) ([]service.UserSubscription, error) {
-	if r.byUser == nil {
-		return nil, nil
-	}
-	return append([]service.UserSubscription(nil), r.byUser[userID]...), nil
-}
-func (r *stubUserSubscriptionRepo) ListActiveByUserID(ctx context.Context, userID int64) ([]service.UserSubscription, error) {
-	if r.activeByUser == nil {
-		return nil, nil
-	}
-	return append([]service.UserSubscription(nil), r.activeByUser[userID]...), nil
-}
-func (stubUserSubscriptionRepo) ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
-	return nil, nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) List(ctx context.Context, params pagination.PaginationParams, userID, groupID *int64, status, platform, sortBy, sortOrder string) ([]service.UserSubscription, *pagination.PaginationResult, error) {
-	return nil, nil, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ExistsByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error) {
-	return false, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ExistsActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error) {
-	return false, errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ExtendExpiry(ctx context.Context, subscriptionID int64, newExpiresAt time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) UpdateStatus(ctx context.Context, subscriptionID int64, status string) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) UpdateNotes(ctx context.Context, subscriptionID int64, notes string) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ActivateWindows(ctx context.Context, id int64, dailyStart, periodicStart time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ResetUsageWindows(ctx context.Context, id int64, resetDaily, resetWeekly, resetMonthly bool, dailyStart, periodicStart time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ResetDailyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ResetWeeklyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) ResetMonthlyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) IncrementUsage(ctx context.Context, id int64, costUSD float64) error {
-	return errors.New("not implemented")
-}
-func (stubUserSubscriptionRepo) BatchUpdateExpiredStatus(ctx context.Context) (int64, error) {
-	return 0, errors.New("not implemented")
 }
 
 type stubApiKeyRepo struct {
@@ -2200,11 +1910,10 @@ func paginationResult(total int64, params pagination.PaginationParams) *paginati
 
 // Ensure compile-time interface compliance.
 var (
-	_ service.UserRepository             = (*stubUserRepo)(nil)
-	_ service.APIKeyRepository           = (*stubApiKeyRepo)(nil)
-	_ service.APIKeyCache                = (*stubApiKeyCache)(nil)
-	_ service.GroupRepository            = (*stubGroupRepo)(nil)
-	_ service.UserSubscriptionRepository = (*stubUserSubscriptionRepo)(nil)
-	_ service.UsageLogRepository         = (*stubUsageLogRepo)(nil)
-	_ service.SettingRepository          = (*stubSettingRepo)(nil)
+	_ service.UserRepository     = (*stubUserRepo)(nil)
+	_ service.APIKeyRepository   = (*stubApiKeyRepo)(nil)
+	_ service.APIKeyCache        = (*stubApiKeyCache)(nil)
+	_ service.GroupRepository    = (*stubGroupRepo)(nil)
+	_ service.UsageLogRepository = (*stubUsageLogRepo)(nil)
+	_ service.SettingRepository  = (*stubSettingRepo)(nil)
 )

@@ -49,9 +49,8 @@ vi.mock('@/components/common/BaseDialog.vue', () => ({
 }))
 
 import UserPlatformQuotaModal from '../UserPlatformQuotaModal.vue'
-import type { UserSubscription } from '@/types'
 
-function makeUser(overrides: { subscriptions?: UserSubscription[] } = {}) {
+function makeUser(overrides: Record<string, unknown> = {}) {
   return { id: 99, email: 'u@example.com', ...overrides } as any
 }
 
@@ -189,58 +188,4 @@ describe('UserPlatformQuotaModal', () => {
     confirmSpy.mockRestore()
   })
 
-  describe('subscription warning banner', () => {
-    it('displays subscription warning when user has active subscription', async () => {
-      const w = mount(UserPlatformQuotaModal, {
-        props: {
-          show: true,
-          user: makeUser({
-            subscriptions: [
-              {
-                id: 1, user_id: 99, group_id: 1, status: 'active',
-                starts_at: '2026-01-01T00:00:00Z', expires_at: null,
-                daily_usage_usd: 0, weekly_usage_usd: 0, monthly_usage_usd: 0,
-                daily_window_start: null, weekly_window_start: null, monthly_window_start: null,
-                created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
-              } as UserSubscription,
-            ],
-          }),
-        },
-      })
-      await flushPromises()
-      expect(w.html()).toContain('admin.users.platformQuota.subscriptionWarning')
-    })
-
-    it('hides subscription warning when user has only expired subscriptions', async () => {
-      const w = mount(UserPlatformQuotaModal, {
-        props: {
-          show: true,
-          user: makeUser({
-            subscriptions: [
-              {
-                id: 2, user_id: 99, group_id: 1, status: 'expired',
-                starts_at: '2025-01-01T00:00:00Z', expires_at: '2025-12-31T00:00:00Z',
-                daily_usage_usd: 0, weekly_usage_usd: 0, monthly_usage_usd: 0,
-                daily_window_start: null, weekly_window_start: null, monthly_window_start: null,
-                created_at: '2025-01-01T00:00:00Z', updated_at: '2025-12-31T00:00:00Z',
-              } as UserSubscription,
-            ],
-          }),
-        },
-      })
-      await flushPromises()
-      expect(w.html()).not.toContain('admin.users.platformQuota.subscriptionWarning')
-    })
-
-    it('hides subscription warning when subscriptions is empty array', async () => {
-      const w = mount(UserPlatformQuotaModal, {
-        props: {
-          show: true,
-          user: makeUser({ subscriptions: [] }),
-        },
-      })
-      await flushPromises()
-      expect(w.html()).not.toContain('admin.users.platformQuota.subscriptionWarning')
-    })
-  })
 })

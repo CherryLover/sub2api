@@ -80,7 +80,6 @@ func TestProfitControl_PricingAtFixesDownstreamPeakFactor(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	groupID := int64(64)
 	group := profitControlTestGroup(groupID, 0, 0)
-	group.SubscriptionType = SubscriptionTypeSubscription
 	group.PeakRateEnabled = true
 	group.PeakRateMultiplier = 3.0
 

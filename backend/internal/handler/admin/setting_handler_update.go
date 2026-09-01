@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
-	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -20,22 +19,11 @@ import (
 
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
-	// 注册设置
-	RegistrationEnabled                 bool                         `json:"registration_enabled"`
-	EmailVerifyEnabled                  bool                         `json:"email_verify_enabled"`
-	RegistrationEmailSuffixWhitelist    []string                     `json:"registration_email_suffix_whitelist"`
-	RegistrationEmailDomainQuotaEnabled *bool                        `json:"registration_email_domain_quota_enabled"` // 非白名单域名限量注册开关（省略=保持现值）
-	PasswordResetEnabled                bool                         `json:"password_reset_enabled"`
-	FrontendURL                         string                       `json:"frontend_url"`
-	TotpEnabled                         bool                         `json:"totp_enabled"`             // TOTP 双因素认证
-	PasskeyEnabled                      *bool                        `json:"passkey_enabled"`          // Passkey 登录（省略=保持现值）
-	SessionBindingEnabled               *bool                        `json:"session_binding_enabled"`  // 会话 IP/UA 绑定（省略=保持现值）
-	StepUpEnabled                       *bool                        `json:"step_up_enabled"`          // 敏感操作 step-up 2FA（省略=保持现值）
-	AuditLogRetentionDays               int                          `json:"audit_log_retention_days"` // 审计日志保留天数
-	LoginAgreementEnabled               bool                         `json:"login_agreement_enabled"`
-	LoginAgreementMode                  string                       `json:"login_agreement_mode"`
-	LoginAgreementUpdatedAt             string                       `json:"login_agreement_updated_at"`
-	LoginAgreementDocuments             []dto.LoginAgreementDocument `json:"login_agreement_documents"`
+	TotpEnabled           bool  `json:"totp_enabled"`             // TOTP 双因素认证
+	PasskeyEnabled        *bool `json:"passkey_enabled"`          // Passkey 登录（省略=保持现值）
+	SessionBindingEnabled *bool `json:"session_binding_enabled"`  // 会话 IP/UA 绑定（省略=保持现值）
+	StepUpEnabled         *bool `json:"step_up_enabled"`          // 敏感操作 step-up 2FA（省略=保持现值）
+	AuditLogRetentionDays int   `json:"audit_log_retention_days"` // 审计日志保留天数
 
 	// 登录入口 / 默认首页（省略=保持现值）。
 	// 指针类型是刻意的：不带这几个字段的旧客户端/脚本做一次全量保存时，绝不能把
@@ -44,65 +32,17 @@ type UpdateSettingsRequest struct {
 	LoginEntryPath   *string `json:"login_entry_path"`
 	DefaultHomePath  *string `json:"default_home_path"`
 
-	// 邮件服务设置
-	SMTPHost     string `json:"smtp_host"`
-	SMTPPort     int    `json:"smtp_port"`
-	SMTPUsername string `json:"smtp_username"`
-	SMTPPassword string `json:"smtp_password"`
-	SMTPFrom     string `json:"smtp_from_email"`
-	SMTPFromName string `json:"smtp_from_name"`
-	SMTPUseTLS   bool   `json:"smtp_use_tls"`
-
-	// Cloudflare Turnstile 设置
-	TurnstileEnabled   bool   `json:"turnstile_enabled"`
-	TurnstileSiteKey   string `json:"turnstile_site_key"`
-	TurnstileSecretKey string `json:"turnstile_secret_key"`
-
-	// 腾讯天御验证码设置
-	TencentCaptchaEnabled        bool   `json:"tencent_captcha_enabled"`
-	TencentCaptchaAppID          string `json:"tencent_captcha_app_id"`
-	TencentCaptchaAppSecretKey   string `json:"tencent_captcha_app_secret_key"`
-	TencentCaptchaCloudSecretID  string `json:"tencent_captcha_cloud_secret_id"`
-	TencentCaptchaCloudSecretKey string `json:"tencent_captcha_cloud_secret_key"`
-	TencentCaptchaRegion         string `json:"tencent_captcha_region"`
-
-	// 阿里云验证码 2.0 设置
-	AliyunCaptchaEnabled         bool   `json:"aliyun_captcha_enabled"`
-	AliyunCaptchaAccessKeyID     string `json:"aliyun_captcha_access_key_id"`
-	AliyunCaptchaAccessKeySecret string `json:"aliyun_captcha_access_key_secret"`
-	AliyunCaptchaSceneID         string `json:"aliyun_captcha_scene_id"`
-	AliyunCaptchaPrefix          string `json:"aliyun_captcha_prefix"`
-	AliyunCaptchaRegion          string `json:"aliyun_captcha_region"`
-
 	// API Key IP 访问控制设置
 	APIKeyACLTrustForwardedIP *bool     `json:"api_key_acl_trust_forwarded_ip"`
 	ForwardedClientIPHeaders  *[]string `json:"forwarded_client_ip_headers"`
 
 	// OEM设置
-	SiteName             string                `json:"site_name"`
-	SiteLogo             string                `json:"site_logo"`
-	SiteSubtitle         string                `json:"site_subtitle"`
-	APIBaseURL           string                `json:"api_base_url"`
-	ContactInfo          string                `json:"contact_info"`
-	DocURL               string                `json:"doc_url"`
-	HomeContent          string                `json:"home_content"`
-	CompactHomeEnabled   bool                  `json:"compact_home_enabled"`
-	HideCcsImportButton  bool                  `json:"hide_ccs_import_button"`
-	TableDefaultPageSize int                   `json:"table_default_page_size"`
-	TablePageSizeOptions []int                 `json:"table_page_size_options"`
-	CustomMenuItems      *[]dto.CustomMenuItem `json:"custom_menu_items"`
-	CustomEndpoints      *[]dto.CustomEndpoint `json:"custom_endpoints"`
+	DocURL          string                `json:"doc_url"`
+	CustomEndpoints *[]dto.CustomEndpoint `json:"custom_endpoints"`
 
 	// 默认配置
-	DefaultConcurrency                     int                               `json:"default_concurrency"`
-	DefaultBalance                         float64                           `json:"default_balance"`
-	DefaultUserRPMLimit                    int                               `json:"default_user_rpm_limit"`
-	DefaultSubscriptions                   []dto.DefaultSubscriptionSetting  `json:"default_subscriptions"`
-	AuthSourceDefaultEmailBalance          *float64                          `json:"auth_source_default_email_balance"`
-	AuthSourceDefaultEmailConcurrency      *int                              `json:"auth_source_default_email_concurrency"`
-	AuthSourceDefaultEmailSubscriptions    *[]dto.DefaultSubscriptionSetting `json:"auth_source_default_email_subscriptions"`
-	AuthSourceDefaultEmailGrantOnSignup    *bool                             `json:"auth_source_default_email_grant_on_signup"`
-	AuthSourceDefaultEmailGrantOnFirstBind *bool                             `json:"auth_source_default_email_grant_on_first_bind"`
+	DefaultConcurrency  int `json:"default_concurrency"`
+	DefaultUserRPMLimit int `json:"default_user_rpm_limit"`
 
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`
@@ -171,24 +111,9 @@ type UpdateSettingsRequest struct {
 	OpenAIAdvancedSchedulerWeightPreviousResponse      *string  `json:"openai_advanced_scheduler_weight_previous_response"`
 	OpenAIAdvancedSchedulerWeightSessionSticky         *string  `json:"openai_advanced_scheduler_weight_session_sticky"`
 
-	// 余额不足提醒
-	BalanceLowNotifyEnabled         *bool                   `json:"balance_low_notify_enabled"`
-	BalanceLowNotifyThreshold       *float64                `json:"balance_low_notify_threshold"`
-	BalanceLowNotifyRechargeURL     *string                 `json:"balance_low_notify_recharge_url"`
-	SubscriptionExpiryNotifyEnabled *bool                   `json:"subscription_expiry_notify_enabled"`
-	AccountQuotaNotifyEnabled       *bool                   `json:"account_quota_notify_enabled"`
-	AccountQuotaNotifyEmails        *[]dto.NotifyEmailEntry `json:"account_quota_notify_emails"`
-
-	// Cancel rate limit
-
-	// Use Alipay face-to-face precreate and an app deep link on mobile clients.
-
 	// Channel Monitor feature switch
-	ChannelMonitorEnabled                *bool   `json:"channel_monitor_enabled"`
-	ChannelMonitorMode                   *string `json:"channel_monitor_mode"`
-	ChannelMonitorDefaultIntervalSeconds *int    `json:"channel_monitor_default_interval_seconds"`
-	ChannelMonitorHideThroughput         *bool   `json:"channel_monitor_hide_throughput"`
-	ChannelMonitorShowQuota              *bool   `json:"channel_monitor_show_quota"`
+	ChannelMonitorEnabled        *bool `json:"channel_monitor_enabled"`
+	ChannelMonitorHideThroughput *bool `json:"channel_monitor_hide_throughput"`
 
 	// Grok model mapping policy
 	GrokDefaultTextModel           *string `json:"grok_default_text_model"`
@@ -197,11 +122,6 @@ type UpdateSettingsRequest struct {
 
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
-
-	// Model Plaza feature switches + description
-	ModelPlazaEnabled     *bool   `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth *bool   `json:"model_plaza_require_auth"`
-	ModelPlazaDescription *string `json:"model_plaza_description"`
 
 	// 风控中心功能开关
 	RiskControlEnabled *bool `json:"risk_control_enabled"`
@@ -220,7 +140,6 @@ type UpdateSettingsRequest struct {
 	AccountSchedulingThresholds map[string]int `json:"account_scheduling_thresholds"`
 
 	// auth-source 层 platform quota 覆盖（override 语义：nil = 不修改，non-nil = 整体覆盖该 source 的 quota 配置）。
-	AuthSourceEmailPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_email_platform_quotas"`
 
 	AllowUserViewErrorRequests *bool `json:"allow_user_view_error_requests"`
 }
@@ -265,9 +184,7 @@ func (h *SettingHandler) ensureActorTotpForStepUp(c *gin.Context) bool {
 // settingKeyJSONAliases covers the request fields whose JSON name differs from
 // the setting key they persist to. Every other field of UpdateSettingsRequest
 // is named after its setting key.
-var settingKeyJSONAliases = map[string]string{
-	"smtp_from_email": service.SettingKeySMTPFrom,
-}
+var settingKeyJSONAliases = map[string]string{}
 
 // settingKeyByJSONName maps the value-typed top-level JSON fields of
 // UpdateSettingsRequest to the setting key each one writes. Resolved once from
@@ -315,10 +232,6 @@ func omittedSettingKeys(sentFields map[string]json.RawMessage) service.OmittedSe
 }
 
 func settingsAuditRequest(req UpdateSettingsRequest) UpdateSettingsRequest {
-	req.TencentCaptchaAppSecretKey = strings.TrimSpace(req.TencentCaptchaAppSecretKey)
-	req.TencentCaptchaCloudSecretID = strings.TrimSpace(req.TencentCaptchaCloudSecretID)
-	req.TencentCaptchaCloudSecretKey = strings.TrimSpace(req.TencentCaptchaCloudSecretKey)
-	req.AliyunCaptchaAccessKeySecret = strings.TrimSpace(req.AliyunCaptchaAccessKeySecret)
 	return req
 }
 
@@ -341,12 +254,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	previousAuthSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
 	// 登录入口 / 默认首页：先合并 + 校验，非法值（含"隐藏但路径为空"）在这里就被拒掉，
 	// 绝不允许落库——落库了就是登录页再也打不开、服务却照常运行。
 	webEntryPlan, ok := h.planWebEntryUpdate(c, req, previousSettings, omitted)
@@ -367,10 +274,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	passkeyEnabled := previousSettings.PasskeyEnabled
 	if req.PasskeyEnabled != nil {
 		passkeyEnabled = *req.PasskeyEnabled
-	}
-	registrationEmailDomainQuotaEnabled := previousSettings.RegistrationEmailDomainQuotaEnabled
-	if req.RegistrationEmailDomainQuotaEnabled != nil {
-		registrationEmailDomainQuotaEnabled = *req.RegistrationEmailDomainQuotaEnabled
 	}
 	if passkeyEnabled {
 		configured, _, _ := h.settingService.PasskeyConfiguration()
@@ -405,182 +308,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if req.DefaultConcurrency < 1 {
 		req.DefaultConcurrency = 1
 	}
-	if req.DefaultBalance < 0 {
-		req.DefaultBalance = 0
-	}
-	// 通用表格配置：兼容旧客户端未传字段时保留当前值。
-	if req.TableDefaultPageSize <= 0 {
-		req.TableDefaultPageSize = previousSettings.TableDefaultPageSize
-	}
-	if req.TablePageSizeOptions == nil {
-		req.TablePageSizeOptions = previousSettings.TablePageSizeOptions
-	}
-	req.SMTPHost = strings.TrimSpace(req.SMTPHost)
-	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
-	req.SMTPPassword = strings.TrimSpace(req.SMTPPassword)
-	req.SMTPFrom = strings.TrimSpace(req.SMTPFrom)
-	req.SMTPFromName = strings.TrimSpace(req.SMTPFromName)
-	req.TencentCaptchaAppID = strings.TrimSpace(req.TencentCaptchaAppID)
-	req.TencentCaptchaAppSecretKey = strings.TrimSpace(req.TencentCaptchaAppSecretKey)
-	req.TencentCaptchaCloudSecretID = strings.TrimSpace(req.TencentCaptchaCloudSecretID)
-	req.TencentCaptchaCloudSecretKey = strings.TrimSpace(req.TencentCaptchaCloudSecretKey)
-	if req.SMTPPort <= 0 {
-		req.SMTPPort = 587
-	}
-	req.DefaultSubscriptions = normalizeDefaultSubscriptions(req.DefaultSubscriptions)
-	req.AuthSourceDefaultEmailSubscriptions = normalizeOptionalDefaultSubscriptions(req.AuthSourceDefaultEmailSubscriptions)
-
-	// SMTP 配置保护：如果请求中 smtp_host 为空但数据库中已有配置，则保留已有 SMTP 配置
-	// 防止前端加载设置失败时空表单覆盖已保存的 SMTP 配置
-	if req.SMTPHost == "" && previousSettings.SMTPHost != "" {
-		req.SMTPHost = previousSettings.SMTPHost
-		req.SMTPPort = previousSettings.SMTPPort
-		req.SMTPUsername = previousSettings.SMTPUsername
-		req.SMTPFrom = previousSettings.SMTPFrom
-		req.SMTPFromName = previousSettings.SMTPFromName
-		req.SMTPUseTLS = previousSettings.SMTPUseTLS
-	}
-
-	turnstileEnabled := req.TurnstileEnabled
-	if _, sent := sentFields["turnstile_enabled"]; !sent {
-		turnstileEnabled = previousSettings.TurnstileEnabled
-	}
-	tencentCaptchaEnabled := req.TencentCaptchaEnabled
-	if _, sent := sentFields["tencent_captcha_enabled"]; !sent {
-		tencentCaptchaEnabled = previousSettings.TencentCaptchaEnabled
-	}
-	aliyunCaptchaEnabled := req.AliyunCaptchaEnabled
-	if _, sent := sentFields["aliyun_captcha_enabled"]; !sent {
-		aliyunCaptchaEnabled = previousSettings.AliyunCaptchaEnabled
-	}
-	enabledCaptchaProviders := 0
-	for _, enabled := range []bool{turnstileEnabled, tencentCaptchaEnabled, aliyunCaptchaEnabled} {
-		if enabled {
-			enabledCaptchaProviders++
-		}
-	}
-	if enabledCaptchaProviders > 1 {
-		response.BadRequest(c, "Multiple captcha providers (Cloudflare Turnstile / Tencent Captcha / Aliyun Captcha) cannot be enabled at the same time")
-		return
-	}
-	// 阿里云地域 normalize：未发送保留已存值，非法值一律按中国内地落库
-	if _, sent := sentFields["aliyun_captcha_region"]; !sent {
-		req.AliyunCaptchaRegion = previousSettings.AliyunCaptchaRegion
-	}
-	if req.AliyunCaptchaRegion != service.AliyunCaptchaRegionSGP {
-		req.AliyunCaptchaRegion = service.AliyunCaptchaRegionCN
-	}
-	// 天御站点 normalize：未发送保留已存值，非法值一律按中国站落库
-	if _, sent := sentFields["tencent_captcha_region"]; !sent {
-		req.TencentCaptchaRegion = previousSettings.TencentCaptchaRegion
-	}
-	if req.TencentCaptchaRegion != service.TencentCaptchaRegionINTL {
-		req.TencentCaptchaRegion = service.TencentCaptchaRegionCN
-	}
-
-	// Turnstile 参数验证
-	if req.TurnstileEnabled {
-		// 检查必填字段
-		if req.TurnstileSiteKey == "" {
-			response.BadRequest(c, "Turnstile Site Key is required when enabled")
-			return
-		}
-		// 如果未提供 secret key，使用已保存的值（留空保留当前值）
-		if req.TurnstileSecretKey == "" {
-			if previousSettings.TurnstileSecretKey == "" {
-				response.BadRequest(c, "Turnstile Secret Key is required when enabled")
-				return
-			}
-			req.TurnstileSecretKey = previousSettings.TurnstileSecretKey
-		}
-
-		// 当 site_key 或 secret_key 任一变化时验证（避免配置错误导致无法登录）
-		siteKeyChanged := previousSettings.TurnstileSiteKey != req.TurnstileSiteKey
-		secretKeyChanged := previousSettings.TurnstileSecretKey != req.TurnstileSecretKey
-		if siteKeyChanged || secretKeyChanged {
-			if err := h.turnstileService.ValidateSecretKey(c.Request.Context(), req.TurnstileSecretKey); err != nil {
-				response.ErrorFrom(c, err)
-				return
-			}
-		}
-	}
-
-	if tencentCaptchaEnabled {
-		if _, sent := sentFields["tencent_captcha_app_id"]; !sent {
-			req.TencentCaptchaAppID = previousSettings.TencentCaptchaAppID
-		}
-		appID, err := strconv.ParseUint(req.TencentCaptchaAppID, 10, 64)
-		if err != nil || appID == 0 {
-			response.BadRequest(c, "Tencent Captcha CaptchaAppId must be a positive integer when enabled")
-			return
-		}
-		if req.TencentCaptchaAppSecretKey == "" {
-			req.TencentCaptchaAppSecretKey = previousSettings.TencentCaptchaAppSecretKey
-		}
-		if req.TencentCaptchaCloudSecretID == "" {
-			req.TencentCaptchaCloudSecretID = previousSettings.TencentCaptchaCloudSecretID
-		}
-		if req.TencentCaptchaCloudSecretKey == "" {
-			req.TencentCaptchaCloudSecretKey = previousSettings.TencentCaptchaCloudSecretKey
-		}
-		if req.TencentCaptchaAppSecretKey == "" {
-			response.BadRequest(c, "Tencent Captcha AppSecretKey is required when enabled")
-			return
-		}
-		if req.TencentCaptchaCloudSecretID == "" {
-			response.BadRequest(c, "Tencent Cloud SecretId is required when Tencent Captcha is enabled")
-			return
-		}
-		if req.TencentCaptchaCloudSecretKey == "" {
-			response.BadRequest(c, "Tencent Cloud SecretKey is required when Tencent Captcha is enabled")
-			return
-		}
-	}
-
-	// 阿里云验证码 2.0 参数验证
-	if aliyunCaptchaEnabled {
-		if _, sent := sentFields["aliyun_captcha_scene_id"]; !sent {
-			req.AliyunCaptchaSceneID = previousSettings.AliyunCaptchaSceneID
-		}
-		if _, sent := sentFields["aliyun_captcha_prefix"]; !sent {
-			req.AliyunCaptchaPrefix = previousSettings.AliyunCaptchaPrefix
-		}
-		if _, sent := sentFields["aliyun_captcha_access_key_id"]; !sent {
-			req.AliyunCaptchaAccessKeyID = previousSettings.AliyunCaptchaAccessKeyID
-		}
-		if req.AliyunCaptchaSceneID == "" {
-			response.BadRequest(c, "Aliyun Captcha Scene ID is required when enabled")
-			return
-		}
-		if req.AliyunCaptchaPrefix == "" {
-			response.BadRequest(c, "Aliyun Captcha Prefix is required when enabled")
-			return
-		}
-		if req.AliyunCaptchaAccessKeyID == "" {
-			response.BadRequest(c, "Aliyun Captcha AccessKey ID is required when enabled")
-			return
-		}
-		// 如果未提供 AccessKey Secret，使用已保存的值（留空保留当前值）
-		if req.AliyunCaptchaAccessKeySecret == "" {
-			if previousSettings.AliyunCaptchaAccessKeySecret == "" {
-				response.BadRequest(c, "Aliyun Captcha AccessKey Secret is required when enabled")
-				return
-			}
-			req.AliyunCaptchaAccessKeySecret = previousSettings.AliyunCaptchaAccessKeySecret
-		}
-
-		// 凭证任一变化时真实调用一次阿里云校验（避免配置错误导致无法登录）
-		credentialsChanged := previousSettings.AliyunCaptchaAccessKeyID != req.AliyunCaptchaAccessKeyID ||
-			previousSettings.AliyunCaptchaAccessKeySecret != req.AliyunCaptchaAccessKeySecret ||
-			previousSettings.AliyunCaptchaSceneID != req.AliyunCaptchaSceneID ||
-			previousSettings.AliyunCaptchaRegion != req.AliyunCaptchaRegion
-		if credentialsChanged {
-			if err := h.aliyunCaptchaService.ValidateCredentials(c.Request.Context(), req.AliyunCaptchaAccessKeyID, req.AliyunCaptchaAccessKeySecret, req.AliyunCaptchaSceneID, req.AliyunCaptchaRegion); err != nil {
-				response.ErrorFrom(c, err)
-				return
-			}
-		}
-	}
 
 	// TOTP 双因素认证参数验证
 	// 只有手动配置了加密密钥才允许启用 TOTP 功能
@@ -591,142 +318,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
-	loginAgreementMode := strings.ToLower(strings.TrimSpace(req.LoginAgreementMode))
-	if loginAgreementMode == "" {
-		loginAgreementMode = strings.ToLower(strings.TrimSpace(previousSettings.LoginAgreementMode))
-	}
-	switch loginAgreementMode {
-	case "", "modal":
-		loginAgreementMode = "modal"
-	case "checkbox":
-	default:
-		response.BadRequest(c, "Login agreement mode must be modal or checkbox")
-		return
-	}
-	loginAgreementUpdatedAt := strings.TrimSpace(req.LoginAgreementUpdatedAt)
-	if loginAgreementUpdatedAt == "" {
-		loginAgreementUpdatedAt = strings.TrimSpace(previousSettings.LoginAgreementUpdatedAt)
-	}
-	loginAgreementDocuments := loginAgreementDocumentsToService(req.LoginAgreementDocuments)
-	if len(loginAgreementDocuments) == 0 {
-		loginAgreementDocuments = previousSettings.LoginAgreementDocuments
-	}
-	for _, doc := range loginAgreementDocuments {
-		if strings.TrimSpace(doc.Title) == "" {
-			response.BadRequest(c, "Login agreement document title is required")
-			return
-		}
-		if len(doc.Title) > 80 {
-			response.BadRequest(c, "Login agreement document title is too long (max 80 characters)")
-			return
-		}
-		if len(doc.ContentMD) > 200*1024 {
-			response.BadRequest(c, "Login agreement document content is too large (max 200KB)")
-			return
-		}
-	}
-	if req.LoginAgreementEnabled && len(loginAgreementDocuments) == 0 {
-		response.BadRequest(c, "Login agreement documents are required when enabled")
-		return
-	}
-
-	// Frontend URL 验证
-	req.FrontendURL = strings.TrimSpace(req.FrontendURL)
-	if req.FrontendURL != "" {
-		if err := config.ValidateAbsoluteHTTPURL(req.FrontendURL); err != nil {
-			response.BadRequest(c, "Frontend URL must be an absolute http(s) URL")
-			return
-		}
-	}
-
-	// 自定义菜单项验证
-	const (
-		maxCustomMenuItems    = 20
-		maxMenuItemLabelLen   = 50
-		maxMenuItemURLLen     = 2048
-		maxMenuItemIconSVGLen = 10 * 1024 // 10KB
-		maxMenuItemIDLen      = 32
-	)
-
-	customMenuJSON := previousSettings.CustomMenuItems
-	if req.CustomMenuItems != nil {
-		items := *req.CustomMenuItems
-		if len(items) > maxCustomMenuItems {
-			response.BadRequest(c, "Too many custom menu items (max 20)")
-			return
-		}
-		for i, item := range items {
-			if strings.TrimSpace(item.Label) == "" {
-				response.BadRequest(c, "Custom menu item label is required")
-				return
-			}
-			if len(item.Label) > maxMenuItemLabelLen {
-				response.BadRequest(c, "Custom menu item label is too long (max 50 characters)")
-				return
-			}
-			urlTrimmed := strings.TrimSpace(item.URL)
-			if strings.HasPrefix(urlTrimmed, "md:") {
-				// Markdown page mode: URL = "md:<slug>"
-				slug := strings.TrimPrefix(urlTrimmed, "md:")
-				if slug == "" {
-					response.BadRequest(c, "Custom menu item markdown slug cannot be empty (use md:slug format)")
-					return
-				}
-			} else {
-				if urlTrimmed == "" {
-					response.BadRequest(c, "Custom menu item URL is required (use md:slug for markdown pages)")
-					return
-				}
-				if len(item.URL) > maxMenuItemURLLen {
-					response.BadRequest(c, "Custom menu item URL is too long (max 2048 characters)")
-					return
-				}
-				if err := config.ValidateAbsoluteHTTPURL(urlTrimmed); err != nil {
-					response.BadRequest(c, "Custom menu item URL must be an absolute http(s) URL or md:<slug>")
-					return
-				}
-			}
-			if item.Visibility != "user" && item.Visibility != "admin" {
-				response.BadRequest(c, "Custom menu item visibility must be 'user' or 'admin'")
-				return
-			}
-			if len(item.IconSVG) > maxMenuItemIconSVGLen {
-				response.BadRequest(c, "Custom menu item icon SVG is too large (max 10KB)")
-				return
-			}
-			// Auto-generate ID if missing
-			if strings.TrimSpace(item.ID) == "" {
-				id, err := generateMenuItemID()
-				if err != nil {
-					response.Error(c, http.StatusInternalServerError, "Failed to generate menu item ID")
-					return
-				}
-				items[i].ID = id
-			} else if len(item.ID) > maxMenuItemIDLen {
-				response.BadRequest(c, "Custom menu item ID is too long (max 32 characters)")
-				return
-			} else if !menuItemIDPattern.MatchString(item.ID) {
-				response.BadRequest(c, "Custom menu item ID contains invalid characters (only a-z, A-Z, 0-9, - and _ are allowed)")
-				return
-			}
-		}
-		// ID uniqueness check
-		seen := make(map[string]struct{}, len(items))
-		for _, item := range items {
-			if _, exists := seen[item.ID]; exists {
-				response.BadRequest(c, "Duplicate custom menu item ID: "+item.ID)
-				return
-			}
-			seen[item.ID] = struct{}{}
-		}
-		menuBytes, err := json.Marshal(items)
-		if err != nil {
-			response.BadRequest(c, "Failed to serialize custom menu items")
-			return
-		}
-		customMenuJSON = string(menuBytes)
-	}
-
 	// 自定义端点验证
 	const (
 		maxCustomEndpoints        = 10
@@ -787,14 +378,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 		req.OpsMetricsIntervalSeconds = &v
 	}
-	defaultSubscriptions := make([]service.DefaultSubscriptionSetting, 0, len(req.DefaultSubscriptions))
-	for _, sub := range req.DefaultSubscriptions {
-		defaultSubscriptions = append(defaultSubscriptions, service.DefaultSubscriptionSetting{
-			GroupID:      sub.GroupID,
-			ValidityDays: sub.ValidityDays,
-		})
-	}
-
 	// 验证最低版本号格式（空字符串=禁用，或合法 semver）
 	if req.MinClaudeCodeVersion != "" {
 		if !semverPattern.MatchString(req.MinClaudeCodeVersion) {
@@ -884,46 +467,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		DefaultPlatformQuotas:       req.DefaultPlatformQuotas,
 		AccountSchedulingThresholds: req.AccountSchedulingThresholds,
 
-		RegistrationEnabled:                 req.RegistrationEnabled,
-		EmailVerifyEnabled:                  req.EmailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist:    req.RegistrationEmailSuffixWhitelist,
-		RegistrationEmailDomainQuotaEnabled: registrationEmailDomainQuotaEnabled,
-		PasswordResetEnabled:                req.PasswordResetEnabled,
-		FrontendURL:                         req.FrontendURL,
-		TotpEnabled:                         req.TotpEnabled,
-		PasskeyEnabled:                      passkeyEnabled,
-		SessionBindingEnabled:               sessionBindingEnabled,
-		StepUpEnabled:                       stepUpEnabled,
-		LoginEntryPublic:                    webEntryPlan.LoginEntryPublic,
-		LoginEntryPath:                      webEntryPlan.LoginEntryPath,
-		DefaultHomePath:                     webEntryPlan.DefaultHomePath,
-		AuditLogRetentionDays:               req.AuditLogRetentionDays,
-		LoginAgreementEnabled:               req.LoginAgreementEnabled,
-		LoginAgreementMode:                  loginAgreementMode,
-		LoginAgreementUpdatedAt:             loginAgreementUpdatedAt,
-		LoginAgreementDocuments:             loginAgreementDocuments,
-		SMTPHost:                            req.SMTPHost,
-		SMTPPort:                            req.SMTPPort,
-		SMTPUsername:                        req.SMTPUsername,
-		SMTPPassword:                        req.SMTPPassword,
-		SMTPFrom:                            req.SMTPFrom,
-		SMTPFromName:                        req.SMTPFromName,
-		SMTPUseTLS:                          req.SMTPUseTLS,
-		TurnstileEnabled:                    req.TurnstileEnabled,
-		TurnstileSiteKey:                    req.TurnstileSiteKey,
-		TurnstileSecretKey:                  req.TurnstileSecretKey,
-		TencentCaptchaEnabled:               req.TencentCaptchaEnabled,
-		TencentCaptchaAppID:                 req.TencentCaptchaAppID,
-		TencentCaptchaAppSecretKey:          req.TencentCaptchaAppSecretKey,
-		TencentCaptchaCloudSecretID:         req.TencentCaptchaCloudSecretID,
-		TencentCaptchaCloudSecretKey:        req.TencentCaptchaCloudSecretKey,
-		TencentCaptchaRegion:                req.TencentCaptchaRegion,
-		AliyunCaptchaEnabled:                req.AliyunCaptchaEnabled,
-		AliyunCaptchaAccessKeyID:            req.AliyunCaptchaAccessKeyID,
-		AliyunCaptchaAccessKeySecret:        req.AliyunCaptchaAccessKeySecret,
-		AliyunCaptchaSceneID:                req.AliyunCaptchaSceneID,
-		AliyunCaptchaPrefix:                 req.AliyunCaptchaPrefix,
-		AliyunCaptchaRegion:                 req.AliyunCaptchaRegion,
+		TotpEnabled:           req.TotpEnabled,
+		PasskeyEnabled:        passkeyEnabled,
+		SessionBindingEnabled: sessionBindingEnabled,
+		StepUpEnabled:         stepUpEnabled,
+		LoginEntryPublic:      webEntryPlan.LoginEntryPublic,
+		LoginEntryPath:        webEntryPlan.LoginEntryPath,
+		DefaultHomePath:       webEntryPlan.DefaultHomePath,
+		AuditLogRetentionDays: req.AuditLogRetentionDays,
 		APIKeyACLTrustForwardedIP: func() bool {
 			if req.APIKeyACLTrustForwardedIP != nil {
 				return *req.APIKeyACLTrustForwardedIP
@@ -931,23 +482,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return previousSettings.APIKeyACLTrustForwardedIP
 		}(),
 		ForwardedClientIPHeaders:    forwardedClientIPHeaders,
-		SiteName:                    req.SiteName,
-		SiteLogo:                    req.SiteLogo,
-		SiteSubtitle:                req.SiteSubtitle,
-		APIBaseURL:                  req.APIBaseURL,
-		ContactInfo:                 req.ContactInfo,
 		DocURL:                      req.DocURL,
-		HomeContent:                 req.HomeContent,
-		CompactHomeEnabled:          req.CompactHomeEnabled,
-		HideCcsImportButton:         req.HideCcsImportButton,
-		TableDefaultPageSize:        req.TableDefaultPageSize,
-		TablePageSizeOptions:        req.TablePageSizeOptions,
-		CustomMenuItems:             customMenuJSON,
 		CustomEndpoints:             customEndpointsJSON,
 		DefaultConcurrency:          req.DefaultConcurrency,
-		DefaultBalance:              req.DefaultBalance,
 		DefaultUserRPMLimit:         req.DefaultUserRPMLimit,
-		DefaultSubscriptions:        defaultSubscriptions,
 		EnableModelFallback:         req.EnableModelFallback,
 		FallbackModelAnthropic:      req.FallbackModelAnthropic,
 		FallbackModelOpenAI:         req.FallbackModelOpenAI,
@@ -1121,71 +659,17 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerWeightUpstreamCost:     stringSetting(req.OpenAIAdvancedSchedulerWeightUpstreamCost, previousSettings.OpenAIAdvancedSchedulerWeightUpstreamCost),
 		OpenAIAdvancedSchedulerWeightPreviousResponse: stringSetting(req.OpenAIAdvancedSchedulerWeightPreviousResponse, previousSettings.OpenAIAdvancedSchedulerWeightPreviousResponse),
 		OpenAIAdvancedSchedulerWeightSessionSticky:    stringSetting(req.OpenAIAdvancedSchedulerWeightSessionSticky, previousSettings.OpenAIAdvancedSchedulerWeightSessionSticky),
-		BalanceLowNotifyEnabled: func() bool {
-			if req.BalanceLowNotifyEnabled != nil {
-				return *req.BalanceLowNotifyEnabled
-			}
-			return previousSettings.BalanceLowNotifyEnabled
-		}(),
-		BalanceLowNotifyThreshold: func() float64 {
-			if req.BalanceLowNotifyThreshold != nil {
-				return *req.BalanceLowNotifyThreshold
-			}
-			return previousSettings.BalanceLowNotifyThreshold
-		}(),
-		BalanceLowNotifyRechargeURL: func() string {
-			if req.BalanceLowNotifyRechargeURL != nil {
-				return *req.BalanceLowNotifyRechargeURL
-			}
-			return previousSettings.BalanceLowNotifyRechargeURL
-		}(),
-		SubscriptionExpiryNotifyEnabled: func() bool {
-			if req.SubscriptionExpiryNotifyEnabled != nil {
-				return *req.SubscriptionExpiryNotifyEnabled
-			}
-			return previousSettings.SubscriptionExpiryNotifyEnabled
-		}(),
-		AccountQuotaNotifyEnabled: func() bool {
-			if req.AccountQuotaNotifyEnabled != nil {
-				return *req.AccountQuotaNotifyEnabled
-			}
-			return previousSettings.AccountQuotaNotifyEnabled
-		}(),
-		AccountQuotaNotifyEmails: func() []service.NotifyEmailEntry {
-			if req.AccountQuotaNotifyEmails != nil {
-				return dto.NotifyEmailEntriesToService(*req.AccountQuotaNotifyEmails)
-			}
-			return previousSettings.AccountQuotaNotifyEmails
-		}(),
 		ChannelMonitorEnabled: func() bool {
 			if req.ChannelMonitorEnabled != nil {
 				return *req.ChannelMonitorEnabled
 			}
 			return previousSettings.ChannelMonitorEnabled
 		}(),
-		ChannelMonitorMode: func() string {
-			if req.ChannelMonitorMode != nil {
-				return *req.ChannelMonitorMode
-			}
-			return previousSettings.ChannelMonitorMode
-		}(),
-		ChannelMonitorDefaultIntervalSeconds: func() int {
-			if req.ChannelMonitorDefaultIntervalSeconds != nil {
-				return *req.ChannelMonitorDefaultIntervalSeconds
-			}
-			return previousSettings.ChannelMonitorDefaultIntervalSeconds
-		}(),
 		ChannelMonitorHideThroughput: func() bool {
 			if req.ChannelMonitorHideThroughput != nil {
 				return *req.ChannelMonitorHideThroughput
 			}
 			return previousSettings.ChannelMonitorHideThroughput
-		}(),
-		ChannelMonitorShowQuota: func() bool {
-			if req.ChannelMonitorShowQuota != nil {
-				return *req.ChannelMonitorShowQuota
-			}
-			return previousSettings.ChannelMonitorShowQuota
 		}(),
 		GrokDefaultTextModel: func() string {
 			if req.GrokDefaultTextModel != nil {
@@ -1211,24 +695,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AvailableChannelsEnabled
 		}(),
-		ModelPlazaEnabled: func() bool {
-			if req.ModelPlazaEnabled != nil {
-				return *req.ModelPlazaEnabled
-			}
-			return previousSettings.ModelPlazaEnabled
-		}(),
-		ModelPlazaRequireAuth: func() bool {
-			if req.ModelPlazaRequireAuth != nil {
-				return *req.ModelPlazaRequireAuth
-			}
-			return previousSettings.ModelPlazaRequireAuth
-		}(),
-		ModelPlazaDescription: func() string {
-			if req.ModelPlazaDescription != nil {
-				return *req.ModelPlazaDescription
-			}
-			return previousSettings.ModelPlazaDescription
-		}(),
 		RiskControlEnabled: func() bool {
 			if req.RiskControlEnabled != nil {
 				return *req.RiskControlEnabled
@@ -1249,19 +715,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}(),
 	}
 
-	// req.AuthSourceXxxPlatformQuotas 为 nil 表示本次请求未包含该 source 的 quota 配置（保留 previousAuthSourceDefaults 中的值）；
-	// non-nil（含 empty map）表示整体覆盖：empty map = 清空该 source 的所有 quota 配置。
-	authSourceDefaults := &service.AuthSourceDefaultSettings{
-		Email: service.ProviderDefaultGrantSettings{
-			Balance:          float64ValueOrDefault(req.AuthSourceDefaultEmailBalance, previousAuthSourceDefaults.Email.Balance),
-			Concurrency:      intValueOrDefault(req.AuthSourceDefaultEmailConcurrency, previousAuthSourceDefaults.Email.Concurrency),
-			Subscriptions:    defaultSubscriptionsValueOrDefault(req.AuthSourceDefaultEmailSubscriptions, previousAuthSourceDefaults.Email.Subscriptions),
-			GrantOnSignup:    boolValueOrDefault(req.AuthSourceDefaultEmailGrantOnSignup, previousAuthSourceDefaults.Email.GrantOnSignup),
-			GrantOnFirstBind: boolValueOrDefault(req.AuthSourceDefaultEmailGrantOnFirstBind, previousAuthSourceDefaults.Email.GrantOnFirstBind),
-			PlatformQuotas:   platformQuotasValueOrDefault(req.AuthSourceEmailPlatformQuotas, previousAuthSourceDefaults.Email.PlatformQuotas),
-		},
-	}
-	if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), settings, authSourceDefaults, omitted); err != nil {
+	if err := h.settingService.UpdateSettingsOmitting(c.Request.Context(), settings, omitted); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -1277,7 +731,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
-	h.auditSettingsUpdate(c, previousSettings, settings, previousAuthSourceDefaults, authSourceDefaults, auditReq)
+	h.auditSettingsUpdate(c, previousSettings, settings, auditReq)
 
 	// 重新获取设置返回
 	updatedSettings, err := h.settingService.GetAllSettings(c.Request.Context())
@@ -1285,121 +739,63 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	updatedAuthSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	updatedDefaultSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(updatedSettings.DefaultSubscriptions))
-	for _, sub := range updatedSettings.DefaultSubscriptions {
-		updatedDefaultSubscriptions = append(updatedDefaultSubscriptions, dto.DefaultSubscriptionSetting{
-			GroupID:      sub.GroupID,
-			ValidityDays: sub.ValidityDays,
-		})
-	}
-
 	passkeyConfigured, passkeyRPID, passkeyRPOrigins := h.settingService.PasskeyConfiguration()
 
 	payload := dto.SystemSettings{
-		RegistrationEnabled:                          updatedSettings.RegistrationEnabled,
-		EmailVerifyEnabled:                           updatedSettings.EmailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist:             updatedSettings.RegistrationEmailSuffixWhitelist,
-		RegistrationEmailDomainQuotaEnabled:          updatedSettings.RegistrationEmailDomainQuotaEnabled,
-		PasswordResetEnabled:                         updatedSettings.PasswordResetEnabled,
-		FrontendURL:                                  updatedSettings.FrontendURL,
-		TotpEnabled:                                  updatedSettings.TotpEnabled,
-		TotpEncryptionKeyConfigured:                  h.settingService.IsTotpEncryptionKeyConfigured(),
-		PasskeyEnabled:                               updatedSettings.PasskeyEnabled,
-		PasskeyConfigured:                            passkeyConfigured,
-		PasskeyRPID:                                  passkeyRPID,
-		PasskeyRPOrigins:                             passkeyRPOrigins,
-		SessionBindingEnabled:                        updatedSettings.SessionBindingEnabled,
-		StepUpEnabled:                                updatedSettings.StepUpEnabled,
-		AuditLogRetentionDays:                        updatedSettings.AuditLogRetentionDays,
-		LoginAgreementEnabled:                        updatedSettings.LoginAgreementEnabled,
-		LoginAgreementMode:                           updatedSettings.LoginAgreementMode,
-		LoginAgreementUpdatedAt:                      updatedSettings.LoginAgreementUpdatedAt,
-		LoginAgreementDocuments:                      loginAgreementDocumentsToDTO(updatedSettings.LoginAgreementDocuments),
-		SMTPHost:                                     updatedSettings.SMTPHost,
-		SMTPPort:                                     updatedSettings.SMTPPort,
-		SMTPUsername:                                 updatedSettings.SMTPUsername,
-		SMTPPasswordConfigured:                       updatedSettings.SMTPPasswordConfigured,
-		SMTPFrom:                                     updatedSettings.SMTPFrom,
-		SMTPFromName:                                 updatedSettings.SMTPFromName,
-		SMTPUseTLS:                                   updatedSettings.SMTPUseTLS,
-		TurnstileEnabled:                             updatedSettings.TurnstileEnabled,
-		TurnstileSiteKey:                             updatedSettings.TurnstileSiteKey,
-		TurnstileSecretKeyConfigured:                 updatedSettings.TurnstileSecretKeyConfigured,
-		TencentCaptchaEnabled:                        updatedSettings.TencentCaptchaEnabled,
-		TencentCaptchaAppID:                          updatedSettings.TencentCaptchaAppID,
-		TencentCaptchaAppSecretKeyConfigured:         updatedSettings.TencentCaptchaAppSecretKeyConfigured,
-		TencentCaptchaCloudSecretIDConfigured:        updatedSettings.TencentCaptchaCloudSecretIDConfigured,
-		TencentCaptchaCloudSecretKeyConfigured:       updatedSettings.TencentCaptchaCloudSecretKeyConfigured,
-		TencentCaptchaRegion:                         updatedSettings.TencentCaptchaRegion,
-		AliyunCaptchaEnabled:                         updatedSettings.AliyunCaptchaEnabled,
-		AliyunCaptchaAccessKeyID:                     updatedSettings.AliyunCaptchaAccessKeyID,
-		AliyunCaptchaAccessKeySecretConfigured:       updatedSettings.AliyunCaptchaAccessKeySecretConfigured,
-		AliyunCaptchaSceneID:                         updatedSettings.AliyunCaptchaSceneID,
-		AliyunCaptchaPrefix:                          updatedSettings.AliyunCaptchaPrefix,
-		AliyunCaptchaRegion:                          updatedSettings.AliyunCaptchaRegion,
-		APIKeyACLTrustForwardedIP:                    updatedSettings.APIKeyACLTrustForwardedIP,
-		ForwardedClientIPHeaders:                     updatedSettings.ForwardedClientIPHeaders,
-		SiteName:                                     updatedSettings.SiteName,
-		SiteLogo:                                     updatedSettings.SiteLogo,
-		SiteSubtitle:                                 updatedSettings.SiteSubtitle,
-		APIBaseURL:                                   updatedSettings.APIBaseURL,
-		ContactInfo:                                  updatedSettings.ContactInfo,
-		DocURL:                                       updatedSettings.DocURL,
-		HomeContent:                                  updatedSettings.HomeContent,
-		CompactHomeEnabled:                           updatedSettings.CompactHomeEnabled,
-		HideCcsImportButton:                          updatedSettings.HideCcsImportButton,
-		TableDefaultPageSize:                         updatedSettings.TableDefaultPageSize,
-		TablePageSizeOptions:                         updatedSettings.TablePageSizeOptions,
-		CustomMenuItems:                              dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
-		CustomEndpoints:                              dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
-		DefaultConcurrency:                           updatedSettings.DefaultConcurrency,
-		DefaultBalance:                               updatedSettings.DefaultBalance,
-		DefaultUserRPMLimit:                          updatedSettings.DefaultUserRPMLimit,
-		DefaultSubscriptions:                         updatedDefaultSubscriptions,
-		EnableModelFallback:                          updatedSettings.EnableModelFallback,
-		FallbackModelAnthropic:                       updatedSettings.FallbackModelAnthropic,
-		FallbackModelOpenAI:                          updatedSettings.FallbackModelOpenAI,
-		FallbackModelGemini:                          updatedSettings.FallbackModelGemini,
-		FallbackModelAntigravity:                     updatedSettings.FallbackModelAntigravity,
-		EnableIdentityPatch:                          updatedSettings.EnableIdentityPatch,
-		IdentityPatchPrompt:                          updatedSettings.IdentityPatchPrompt,
-		OpsMonitoringEnabled:                         updatedSettings.OpsMonitoringEnabled,
-		OpsRealtimeMonitoringEnabled:                 updatedSettings.OpsRealtimeMonitoringEnabled,
-		OpsQueryModeDefault:                          updatedSettings.OpsQueryModeDefault,
-		OpsMetricsIntervalSeconds:                    updatedSettings.OpsMetricsIntervalSeconds,
-		MinClaudeCodeVersion:                         updatedSettings.MinClaudeCodeVersion,
-		MaxClaudeCodeVersion:                         updatedSettings.MaxClaudeCodeVersion,
-		AllowUngroupedKeyScheduling:                  updatedSettings.AllowUngroupedKeyScheduling,
-		BackendModeEnabled:                           updatedSettings.BackendModeEnabled,
-		EnableFingerprintUnification:                 updatedSettings.EnableFingerprintUnification,
-		EnableMetadataPassthrough:                    updatedSettings.EnableMetadataPassthrough,
-		EnableCCHSigning:                             updatedSettings.EnableCCHSigning,
-		EnableClaudeOAuthSystemPromptInjection:       updatedSettings.EnableClaudeOAuthSystemPromptInjection,
-		ClaudeOAuthSystemPrompt:                      updatedSettings.ClaudeOAuthSystemPrompt,
-		ClaudeOAuthSystemPromptBlocks:                updatedSettings.ClaudeOAuthSystemPromptBlocks,
-		EnableAnthropicCacheTTL1hInjection:           updatedSettings.EnableAnthropicCacheTTL1hInjection,
-		RewriteMessageCacheControl:                   updatedSettings.RewriteMessageCacheControl,
-		EnableClientDatelineNormalization:            updatedSettings.EnableClientDatelineNormalization,
-		AntigravityUserAgentVersion:                  updatedSettings.AntigravityUserAgentVersion,
-		OpenAICodexUserAgent:                         updatedSettings.OpenAICodexUserAgent,
-		OpenAICodexClientVersion:                     updatedSettings.OpenAICodexClientVersion,
-		OpenAICodexClientVersionSynced:               updatedSettings.OpenAICodexClientVersionSynced,
-		OpenAICodexVersionAutoSyncEnabled:            updatedSettings.OpenAICodexVersionAutoSyncEnabled,
-		MinCodexVersion:                              updatedSettings.MinCodexVersion,
-		MaxCodexVersion:                              updatedSettings.MaxCodexVersion,
-		CodexCLIOnlyBlacklist:                        updatedSettings.CodexCLIOnlyBlacklist,
-		CodexCLIOnlyWhitelist:                        updatedSettings.CodexCLIOnlyWhitelist,
-		CodexCLIOnlyAllowAppServerClients:            updatedSettings.CodexCLIOnlyAllowAppServerClients,
-		CodexCLIOnlyEngineFingerprintSignals:         updatedSettings.CodexCLIOnlyEngineFingerprintSignals,
-		OpenAILowUpstreamRatePriorityEnabled:         updatedSettings.OpenAILowUpstreamRatePriorityEnabled,
-		OpenAIOAuthSchedulingRateMultiplier:          updatedSettings.OpenAIOAuthSchedulingRateMultiplier,
-		OpenAIAdvancedSchedulerEnabled:               updatedSettings.OpenAIAdvancedSchedulerEnabled,
-		OpenAIAdvancedSchedulerStickyWeightedEnabled: updatedSettings.OpenAIAdvancedSchedulerStickyWeightedEnabled,
+		TotpEnabled:                                            updatedSettings.TotpEnabled,
+		TotpEncryptionKeyConfigured:                            h.settingService.IsTotpEncryptionKeyConfigured(),
+		PasskeyEnabled:                                         updatedSettings.PasskeyEnabled,
+		PasskeyConfigured:                                      passkeyConfigured,
+		PasskeyRPID:                                            passkeyRPID,
+		PasskeyRPOrigins:                                       passkeyRPOrigins,
+		SessionBindingEnabled:                                  updatedSettings.SessionBindingEnabled,
+		StepUpEnabled:                                          updatedSettings.StepUpEnabled,
+		AuditLogRetentionDays:                                  updatedSettings.AuditLogRetentionDays,
+		APIKeyACLTrustForwardedIP:                              updatedSettings.APIKeyACLTrustForwardedIP,
+		ForwardedClientIPHeaders:                               updatedSettings.ForwardedClientIPHeaders,
+		DocURL:                                                 updatedSettings.DocURL,
+		CustomEndpoints:                                        dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
+		DefaultConcurrency:                                     updatedSettings.DefaultConcurrency,
+		DefaultUserRPMLimit:                                    updatedSettings.DefaultUserRPMLimit,
+		EnableModelFallback:                                    updatedSettings.EnableModelFallback,
+		FallbackModelAnthropic:                                 updatedSettings.FallbackModelAnthropic,
+		FallbackModelOpenAI:                                    updatedSettings.FallbackModelOpenAI,
+		FallbackModelGemini:                                    updatedSettings.FallbackModelGemini,
+		FallbackModelAntigravity:                               updatedSettings.FallbackModelAntigravity,
+		EnableIdentityPatch:                                    updatedSettings.EnableIdentityPatch,
+		IdentityPatchPrompt:                                    updatedSettings.IdentityPatchPrompt,
+		OpsMonitoringEnabled:                                   updatedSettings.OpsMonitoringEnabled,
+		OpsRealtimeMonitoringEnabled:                           updatedSettings.OpsRealtimeMonitoringEnabled,
+		OpsQueryModeDefault:                                    updatedSettings.OpsQueryModeDefault,
+		OpsMetricsIntervalSeconds:                              updatedSettings.OpsMetricsIntervalSeconds,
+		MinClaudeCodeVersion:                                   updatedSettings.MinClaudeCodeVersion,
+		MaxClaudeCodeVersion:                                   updatedSettings.MaxClaudeCodeVersion,
+		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
+		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
+		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
+		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
+		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,
+		EnableClaudeOAuthSystemPromptInjection:                 updatedSettings.EnableClaudeOAuthSystemPromptInjection,
+		ClaudeOAuthSystemPrompt:                                updatedSettings.ClaudeOAuthSystemPrompt,
+		ClaudeOAuthSystemPromptBlocks:                          updatedSettings.ClaudeOAuthSystemPromptBlocks,
+		EnableAnthropicCacheTTL1hInjection:                     updatedSettings.EnableAnthropicCacheTTL1hInjection,
+		RewriteMessageCacheControl:                             updatedSettings.RewriteMessageCacheControl,
+		EnableClientDatelineNormalization:                      updatedSettings.EnableClientDatelineNormalization,
+		AntigravityUserAgentVersion:                            updatedSettings.AntigravityUserAgentVersion,
+		OpenAICodexUserAgent:                                   updatedSettings.OpenAICodexUserAgent,
+		OpenAICodexClientVersion:                               updatedSettings.OpenAICodexClientVersion,
+		OpenAICodexClientVersionSynced:                         updatedSettings.OpenAICodexClientVersionSynced,
+		OpenAICodexVersionAutoSyncEnabled:                      updatedSettings.OpenAICodexVersionAutoSyncEnabled,
+		MinCodexVersion:                                        updatedSettings.MinCodexVersion,
+		MaxCodexVersion:                                        updatedSettings.MaxCodexVersion,
+		CodexCLIOnlyBlacklist:                                  updatedSettings.CodexCLIOnlyBlacklist,
+		CodexCLIOnlyWhitelist:                                  updatedSettings.CodexCLIOnlyWhitelist,
+		CodexCLIOnlyAllowAppServerClients:                      updatedSettings.CodexCLIOnlyAllowAppServerClients,
+		CodexCLIOnlyEngineFingerprintSignals:                   updatedSettings.CodexCLIOnlyEngineFingerprintSignals,
+		OpenAILowUpstreamRatePriorityEnabled:                   updatedSettings.OpenAILowUpstreamRatePriorityEnabled,
+		OpenAIOAuthSchedulingRateMultiplier:                    updatedSettings.OpenAIOAuthSchedulingRateMultiplier,
+		OpenAIAdvancedSchedulerEnabled:                         updatedSettings.OpenAIAdvancedSchedulerEnabled,
+		OpenAIAdvancedSchedulerStickyWeightedEnabled:           updatedSettings.OpenAIAdvancedSchedulerStickyWeightedEnabled,
 		OpenAIAdvancedSchedulerSubscriptionPriorityEnabled:     updatedSettings.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled,
 		OpenAIAdvancedSchedulerLBTopK:                          updatedSettings.OpenAIAdvancedSchedulerLBTopK,
 		OpenAIAdvancedSchedulerWeightPriority:                  updatedSettings.OpenAIAdvancedSchedulerWeightPriority,
@@ -1423,28 +819,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost:     updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost,
 		OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse: updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse,
 		OpenAIAdvancedSchedulerEffectiveWeightSessionSticky:    updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky,
-		BalanceLowNotifyEnabled:                                updatedSettings.BalanceLowNotifyEnabled,
-		BalanceLowNotifyThreshold:                              updatedSettings.BalanceLowNotifyThreshold,
-		BalanceLowNotifyRechargeURL:                            updatedSettings.BalanceLowNotifyRechargeURL,
-		SubscriptionExpiryNotifyEnabled:                        updatedSettings.SubscriptionExpiryNotifyEnabled,
-		AccountQuotaNotifyEnabled:                              updatedSettings.AccountQuotaNotifyEnabled,
-		AccountQuotaNotifyEmails:                               dto.NotifyEmailEntriesFromService(updatedSettings.AccountQuotaNotifyEmails),
 
-		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
-		ChannelMonitorMode:                   updatedSettings.ChannelMonitorMode,
-		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
-		ChannelMonitorHideThroughput:         updatedSettings.ChannelMonitorHideThroughput,
-		ChannelMonitorShowQuota:              updatedSettings.ChannelMonitorShowQuota,
+		ChannelMonitorEnabled:        updatedSettings.ChannelMonitorEnabled,
+		ChannelMonitorHideThroughput: updatedSettings.ChannelMonitorHideThroughput,
 
 		GrokDefaultTextModel:           updatedSettings.GrokDefaultTextModel,
 		GrokCrossClientModelMapEnabled: updatedSettings.GrokCrossClientModelMapEnabled,
 		GrokDefaultBaseURLMode:         updatedSettings.GrokDefaultBaseURLMode,
 
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
-
-		ModelPlazaEnabled:     updatedSettings.ModelPlazaEnabled,
-		ModelPlazaRequireAuth: updatedSettings.ModelPlazaRequireAuth,
-		ModelPlazaDescription: updatedSettings.ModelPlazaDescription,
 
 		RiskControlEnabled:          updatedSettings.RiskControlEnabled,
 		CyberSessionBlockEnabled:    updatedSettings.CyberSessionBlockEnabled,
@@ -1467,5 +850,5 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	// 与 GetSettings 一致：回三层合并后的生效值，保存后界面立刻能回显真实的登录入口。
 	webEntrySettingsToDTO(h.settingService.ResolveWebEntry(c.Request.Context()), &payload)
 
-	response.Success(c, systemSettingsResponseData(payload, updatedAuthSourceDefaults))
+	response.Success(c, systemSettingsResponseData(payload))
 }

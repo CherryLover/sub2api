@@ -16,7 +16,7 @@ services:
   # Sub2API Application
   # ===========================================================================
   sub2api:
-    image: weishaw/sub2api:latest
+    image: ${SUB2API_IMAGE:-ghcr.io/cherrylover/sub2api:latest}
     container_name: sub2api
     restart: unless-stopped
     security_opt:
@@ -52,7 +52,6 @@ services:
       - ENABLE_SERVER_TIMING=${ENABLE_SERVER_TIMING:-false}
       - RUN_MODE=${RUN_MODE:-standard}
       - UPDATE_GITHUB_TOKEN=${UPDATE_GITHUB_TOKEN:-}
-      - ALIPAY_MOBILE_PRECREATE_DEEP_LINK=${ALIPAY_MOBILE_PRECREATE_DEEP_LINK:-}
 
       # =======================================================================
       # Database Configuration (PostgreSQL)
@@ -149,9 +148,11 @@ services:
       - SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS=${SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS:-}
 
       # =======================================================================
-      # Update Configuration (在线更新配置)
+      # GitHub Outbound Proxy (访问 GitHub 的出站代理)
       # =======================================================================
-      # Proxy for accessing GitHub (online updates + pricing data)
+      # Proxy for accessing GitHub (pricing data + Codex client version sync)
+      # 访问 GitHub 的代理地址（定价表拉取、Codex 客户端版本同步）
+      # 键名沿用 UPDATE_* 以兼容既有部署
       # Examples: http://host:port, socks5://host:port
       - UPDATE_PROXY_URL=${UPDATE_PROXY_URL:-}
 

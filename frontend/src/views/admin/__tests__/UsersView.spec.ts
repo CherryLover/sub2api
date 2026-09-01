@@ -64,9 +64,6 @@ const createAdminUser = (overrides: Partial<AdminUser> = {}): AdminUser => ({
   concurrency: 1,
   status: 'active',
   allowed_groups: [],
-  balance_notify_enabled: false,
-  balance_notify_threshold: null,
-  balance_notify_extra_emails: [],
   created_at: '2026-04-17T00:00:00Z',
   updated_at: '2026-04-17T00:00:00Z',
   notes: '',
@@ -169,7 +166,6 @@ describe('admin UsersView', () => {
           UserPlatformQuotaModal: true,
           UserApiKeysModal: true,
           UserAllowedGroupsModal: true,
-          UserBalanceModal: true,
           GroupReplaceModal: true,
           Icon: true,
           Teleport: true
@@ -206,7 +202,6 @@ describe('admin UsersView', () => {
       JSON.stringify([
         'notes',
         'groups',
-        'subscriptions',
         'concurrency',
         'usage_anthropic',
         'usage_openai',
@@ -254,7 +249,6 @@ describe('admin UsersView', () => {
           UserPlatformQuotaModal: true,
           UserApiKeysModal: true,
           UserAllowedGroupsModal: true,
-          UserBalanceModal: true,
           GroupReplaceModal: true,
           Icon: true,
           Teleport: true
@@ -331,7 +325,6 @@ describe('admin UsersView', () => {
           UserPlatformQuotaModal: true,
           UserApiKeysModal: true,
           UserAllowedGroupsModal: true,
-          UserBalanceModal: true,
           GroupReplaceModal: true,
           Icon: true,
           Teleport: true

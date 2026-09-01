@@ -24,7 +24,6 @@ type UsageBillingCommand struct {
 
 	UserID              int64
 	AccountID           int64
-	SubscriptionID      *int64
 	AccountType         string
 	Model               string
 	ServiceTier         string
@@ -37,8 +36,6 @@ type UsageBillingCommand struct {
 	ImageCount          int
 	MediaType           string
 
-	BalanceCost         float64
-	SubscriptionCost    float64
 	APIKeyQuotaCost     float64
 	APIKeyRateLimitCost float64
 	AccountQuotaCost    float64
@@ -58,31 +55,18 @@ func (c *UsageBillingCommand) Normalize() {
 }
 
 // UsageBillingMonetaryScale 是所有计费金额的规范小数位数，
-// 对齐 users.balance / api_keys.quota_used 的 NUMERIC(20,8)。
+// 对齐 api_keys.quota_used 的 NUMERIC(20,8)。
 const UsageBillingMonetaryScale = 8
 
 // quantizeMonetaryFields 把命令中的金额统一量化到 NUMERIC(20,8)。
 //
-// 不量化时，同一笔 ActualCost 会在两条方向相反的 SQL 上被 PostgreSQL 分别舍入：
+// 不量化时，同一笔 ActualCost 会在多条 SQL 上被 PostgreSQL 分别舍入（NUMERIC 采用
+// half-away-from-zero），使 api_keys.quota_used、账号额度与用量记录三者之间出现
+// 1e-8 量级的方向不一致偏差，随请求量线性累积后无法精确对账。
 //
-//	balance    = balance - $1      // 存剩余额度，舍入的是「减法结果」
-//	quota_used = quota_used + $1   // 存累计用量，舍入的是「加法结果」
-//
-// PostgreSQL 对 NUMERIC 采用 half-away-from-zero。当金额在第 9 位出现 half 边界
-// （例：10 输入 token × 0.00000125 + 5 输出 token × 0.00001000，再乘分组倍率
-// 1.25 = 0.000078125）时：
-//
-//	balance:    10000 - 0.000078125 = 9999.999921875 → 9999.99992188（delta 0.00007812）
-//	quota_used:     0 + 0.000078125 =     0.000078125 →     0.00007813（delta 0.00007813）
-//
-// 两个 delta 相差 1e-8，且方向相反——余额少扣、Key 配额多记，随请求量线性累积，
-// 使余额、API Key 配额与用量记录无法精确对账（需要 epsilon 比较才能勉强吻合）。
-//
-// 在参数进入 SQL 之前量化一次，两条语句就都拿到已经落在 8 位刻度上的同一个金额，
+// 在参数进入 SQL 之前量化一次，各条语句就都拿到已经落在 8 位刻度上的同一个金额，
 // 存储阶段不再发生任何舍入，delta 精确相等。
 func (c *UsageBillingCommand) quantizeMonetaryFields() {
-	c.BalanceCost = QuantizeUsageBillingAmount(c.BalanceCost)
-	c.SubscriptionCost = QuantizeUsageBillingAmount(c.SubscriptionCost)
 	c.APIKeyQuotaCost = QuantizeUsageBillingAmount(c.APIKeyQuotaCost)
 	c.APIKeyRateLimitCost = QuantizeUsageBillingAmount(c.APIKeyRateLimitCost)
 	c.AccountQuotaCost = QuantizeUsageBillingAmount(c.AccountQuotaCost)
@@ -107,7 +91,7 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 		return ""
 	}
 	raw := fmt.Sprintf(
-		"%d|%d|%d|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%s|%d|%0.10f|%0.10f|%0.10f|%0.10f|%0.10f",
+		"%d|%d|%d|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%s|%0.10f|%0.10f|%0.10f",
 		c.UserID,
 		c.AccountID,
 		c.APIKeyID,
@@ -122,9 +106,6 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 		c.CacheReadTokens,
 		c.ImageCount,
 		strings.TrimSpace(c.MediaType),
-		valueOrZero(c.SubscriptionID),
-		c.BalanceCost,
-		c.SubscriptionCost,
 		c.APIKeyQuotaCost,
 		c.APIKeyRateLimitCost,
 		c.AccountQuotaCost,
@@ -144,13 +125,6 @@ func HashUsageRequestPayload(payload []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func valueOrZero(v *int64) int64 {
-	if v == nil {
-		return 0
-	}
-	return *v
-}
-
 // AccountQuotaState holds the post-increment quota state returned by the DB transaction.
 // All values are post-update (i.e., already include the increment).
 type AccountQuotaState struct {
@@ -165,62 +139,9 @@ type AccountQuotaState struct {
 type UsageBillingApplyResult struct {
 	Applied              bool
 	APIKeyQuotaExhausted bool
-	NewBalance           *float64           // post-deduction balance (nil = no balance deduction)
-	BalanceOverdrafted   bool               // true when the sufficient-balance guard missed and debt was still recorded
 	QuotaState           *AccountQuotaState // post-increment quota state (nil = no quota increment)
-}
-
-// BatchImageBalanceHoldCommand describes an idempotent balance hold operation.
-type BatchImageBalanceHoldCommand struct {
-	RequestID          string
-	APIKeyID           int64
-	RequestFingerprint string
-	RequestPayloadHash string
-	UserID             int64
-	BatchID            string
-	HoldAmount         float64
-	ActualAmount       float64
-}
-
-func (c *BatchImageBalanceHoldCommand) Normalize() {
-	if c == nil {
-		return
-	}
-	c.RequestID = strings.TrimSpace(c.RequestID)
-	c.BatchID = strings.TrimSpace(c.BatchID)
-	if strings.TrimSpace(c.RequestFingerprint) == "" {
-		c.RequestFingerprint = buildBatchImageBalanceHoldFingerprint(c)
-	}
-}
-
-func buildBatchImageBalanceHoldFingerprint(c *BatchImageBalanceHoldCommand) string {
-	if c == nil {
-		return ""
-	}
-	raw := fmt.Sprintf(
-		"%d|%d|%s|%0.10f|%0.10f",
-		c.UserID,
-		c.APIKeyID,
-		strings.TrimSpace(c.BatchID),
-		c.HoldAmount,
-		c.ActualAmount,
-	)
-	if payloadHash := strings.TrimSpace(c.RequestPayloadHash); payloadHash != "" {
-		raw += "|" + payloadHash
-	}
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
-}
-
-type BatchImageBalanceHoldResult struct {
-	Applied       bool
-	NewBalance    *float64
-	FrozenBalance *float64
 }
 
 type UsageBillingRepository interface {
 	Apply(ctx context.Context, cmd *UsageBillingCommand) (*UsageBillingApplyResult, error)
-	ReserveBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
-	CaptureBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
-	ReleaseBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 }

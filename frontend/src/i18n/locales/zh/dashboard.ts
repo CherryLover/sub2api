@@ -51,12 +51,8 @@ export default {
     quickActions: '快捷操作',
     createApiKey: '创建 API 密钥',
     generateNewKey: '生成新的 API 密钥',
-    batchImageAgent: '批量生图助手',
-    batchImageAgentDesc: '复制给 Agent 的任务说明',
     viewUsage: '查看使用记录',
     checkDetailedLogs: '查看详细的使用日志',
-    redeemCode: '兑换码',
-    addBalanceWithCode: '使用兑换码充值'
   },
 
   // Groups (shared)
@@ -123,7 +119,7 @@ export default {
     usage: '用量',
     today: '今日',
     total: '近30天',
-    quota: '额度',
+    spent: '累计消费',
     lastUsedAt: '上次使用时间',
     lastUsedIP: '最近使用 IP',
     useKey: '使用密钥',
@@ -222,18 +218,8 @@ export default {
       geminiCli: 'Gemini CLI',
       geminiCliDesc: '导入为 Gemini CLI 配置'
     },
-    // 配额和有效期
-    quotaLimit: '额度限制',
-    quotaAmount: '额度金额 (USD)',
-    quotaAmountPlaceholder: '输入 USD 额度限制',
-    quotaAmountHint: '设置此密钥可消费的最大金额。0 = 无限制。',
-    quotaUsed: '已用额度',
+    // 重置按钮与限速
     reset: '重置',
-    resetQuotaUsed: '将已用额度重置为 0',
-    resetQuotaTitle: '确认重置额度',
-    resetQuotaConfirmMessage: '确定要将密钥 "{name}" 的已用额度（${used}）重置为 0 吗？此操作不可撤销。',
-    quotaResetSuccess: '额度重置成功',
-    failedToResetQuota: '重置额度失败',
     rateLimitColumn: '速率限制',
     rateLimitSection: '速率限制',
     resetUsage: '重置',
@@ -422,116 +408,6 @@ export default {
     },
   },
 
-  // Shared keys for channel monitor (admin + user views)
-  monitorCommon: {
-    status: {
-      operational: '正常',
-      degraded: '降级',
-      failed: '失败',
-      error: '错误',
-      unknown: '-'
-    },
-    providers: {
-      openai: 'OpenAI',
-      anthropic: 'Anthropic',
-      gemini: 'Gemini',
-      grok: 'Grok',
-      antigravity: 'Antigravity',
-      kimi: 'Kimi',
-      zhipu: '智谱 GLM',
-      deepseek: 'DeepSeek'
-    },
-    // 检查模式（监控条目的工作方式）
-    checkMode: {
-      probe: '探活',
-      quota: '配额',
-      quota_probe: '探活 + 配额'
-    },
-    // 配额快照展示（MonitorQuotaView，管理端与用户端共用）
-    quota: {
-      unavailable: '配额信息不可用',
-      resetSoon: '即将重置',
-      windows: {
-        '5h': '5 小时',
-        '7d': '7 天',
-        '7dSonnet': '7 天 Sonnet',
-        '7dFable': '7 天 Fable',
-        weekly: '周',
-        daily: '日',
-        '30d': '30 天',
-        total: '总量'
-      },
-      labels: {
-        requests: '请求',
-        tokens: 'Token',
-        shared: '共享',
-        pro: 'Pro',
-        flash: 'Flash'
-      }
-    },
-    extraModelsHeader: '附加模型',
-    extraModelsEmpty: '无附加模型',
-    latencyEmpty: '-',
-    availabilityPrefix: '可用性',
-    dialogLatency: '对话延迟',
-    endpointPing: '端点 PING',
-    history60pts: '近 {n} 次记录',
-    nextUpdateIn: '{n}s 后刷新',
-    past: 'PAST',
-    now: 'NOW',
-    maintenancePaused: '维护中 · 已暂停时间线采集',
-    extraModelsCount: '+ {n} 模型',
-    pollEvery: '{n}s 轮询',
-    updatedAt: '更新于 {time}',
-    relativeSecondsAgo: '{n} 秒前',
-    relativeMinutesAgo: '{n} 分钟前',
-    relativeHoursAgo: '{n} 小时前',
-    relativeDaysAgo: '{n} 天前'
-  },
-
-  // Channel Status (user-facing read-only view)
-  channelStatus: {
-    title: '渠道状态',
-    description: '查看渠道可用性、延迟和近期状态',
-    searchPlaceholder: '搜索渠道...',
-    allProviders: '全部供应商',
-    loadError: '加载渠道状态失败',
-    detailLoadError: '加载渠道详情失败',
-    detailTitle: '渠道详情',
-    closeDetail: '关闭',
-    windowTab: {
-      '7d': '7 天',
-      '15d': '15 天',
-      '30d': '30 天'
-    },
-    overall: {
-      operational: 'OPERATIONAL',
-      degraded: 'DEGRADED',
-      unavailable: 'UNAVAILABLE'
-    },
-    columns: {
-      name: '名称',
-      provider: '供应商',
-      groupName: '分组',
-      primaryModel: '主模型',
-      availability7d: '7 天可用率',
-      latency: '延迟 (ms)'
-    },
-    detailColumns: {
-      model: '模型',
-      latestStatus: '最新状态',
-      latestLatency: '最新延迟 (ms)',
-      availability7d: '7 天可用率',
-      availability15d: '15 天可用率',
-      availability30d: '30 天可用率',
-      avgLatency7d: '7 天平均延迟 (ms)'
-    },
-    empty: {
-      title: '暂无可显示的渠道',
-      description: '管理员尚未配置可监控的渠道。'
-    }
-  },
-
   // Available Channels (user-facing)
   availableChannels: {
     title: '可用渠道',
@@ -570,54 +446,6 @@ export default {
     }
   },
 
-  // Model Plaza (public group/model pricing showcase)
-  modelPlaza: {
-    title: '模型广场',
-    description: '按分组浏览可用模型与价格',
-    loading: '加载中...',
-    empty: '暂无可展示的分组',
-    loadFailed: '加载模型广场失败',
-    noSearchResult: '没有匹配的模型',
-    anonymousHint: '登录后可查看你的专属分组与专属倍率',
-    filters: {
-      platformLabel: '平台',
-      groupLabel: '分组',
-      rateLabel: '倍率',
-      modelLabel: '模型',
-      searchPlaceholder: '搜索模型名称',
-      all: '全部'
-    },
-    badges: {
-      exclusive: '专属分组',
-      subscription: '订阅'
-    },
-    detail: {
-      noModels: '该分组暂未配置模型',
-      noPricing: '未配置定价',
-      peakNote: '高峰时段 {window} 计费倍率 ×{multiplier}'
-    },
-    table: {
-      model: '模型',
-      input: '输入',
-      output: '输出',
-      cache: '缓存',
-      cacheWrite: '写入',
-      cacheRead: '读取',
-      paidPrice: '实付价格(折后)',
-      officialPrice: '官方价格',
-      rate: '折扣倍率',
-      unitPerMillion: '$ / 1M token',
-      perUnitRequest: '/ 次',
-      perUnitImage: '/ 张',
-      perRequest: '按次计费',
-      perImage: '按图片计费'
-    },
-    nav: {
-      login: '登录',
-      backToDashboard: '回到后台'
-    }
-  },
-
   // Profile
   profile: {
     title: '个人设置',
@@ -631,8 +459,6 @@ export default {
     overviewDescription: '快速查看账号状态、资料来源与常用设置。',
     basicsTitle: '资料与头像',
     basicsDescription: '维护公开展示信息，并保持头像与昵称风格一致。',
-    linkedProfileSources: '资料来源',
-    linkedProfileSourcesDescription: '部分头像和昵称可能同步自第三方登录方式。',
     securityTitle: '安全设置',
     securityDescription: '密码、双因素认证和通知提醒集中放在右侧。',
     administrator: '管理员',
@@ -689,14 +515,7 @@ export default {
       loginTitle: '双因素认证',
       loginHint: '请输入您认证器应用显示的 6 位验证码',
       loginFailed: '验证失败，请重试',
-      // New translations for email verification
-      verifyEmailFirst: '请先验证您的邮箱',
-      verifyPasswordFirst: '请先验证您的身份',
-      emailCode: '邮箱验证码',
-      enterEmailCode: '请输入 6 位验证码',
-      sendCode: '发送验证码',
-      codeSent: '验证码已发送到您的邮箱',
-      sendCodeFailed: '发送验证码失败'
+      verifyPasswordFirst: '请先验证您的身份'
     },
     passkey: {
       title: 'Passkey',
@@ -723,38 +542,6 @@ export default {
       deleted: 'Passkey 已删除。',
       deleteFailed: '删除 Passkey 失败。'
     },
-    balanceNotify: {
-      title: '余额不足提醒',
-      description: '当账户余额低于阈值时发送邮件提醒',
-      enabled: '启用余额不足提醒',
-      threshold: '自定义提醒阈值',
-      thresholdHint: '留空使用系统默认值',
-      thresholdPlaceholder: '输入金额',
-      systemDefault: '系统默认值',
-      extraEmails: '通知邮箱',
-      extraEmailsHint: '必须添加并验证邮箱后，余额不足时才能收到提醒邮件',
-      primaryEmail: '主邮箱',
-      noExtraEmails: '暂无额外通知邮箱',
-      enterEmail: '输入邮箱地址',
-      addEmail: '添加邮箱',
-      emailPlaceholder: '输入邮箱地址',
-      sendCode: '发送验证码',
-      resend: '重发',
-      codeSent: '验证码已发送',
-      codeSentTo: '验证码已发送到 {email}',
-      enterCode: '输入验证码',
-      codePlaceholder: '6位验证码',
-      verify: '验证',
-      emailAdded: '邮箱已添加',
-      emailRemoved: '邮箱已移除',
-      verifySuccess: '邮箱添加成功',
-      removeEmail: '移除',
-      removeSuccess: '邮箱已移除',
-      emailDuplicate: '该邮箱已存在',
-      maxEmailsReached: '已达到通知邮箱数量上限',
-      unverified: '未验证',
-      verified: '已验证',
-    },
     avatar: {
       title: '资料头像',
       description: '仅支持上传头像图片；静态图片会自动压缩到 20KB 以内后再保存。',
@@ -772,22 +559,8 @@ export default {
     },
     authBindings: {
       title: '登录方式绑定',
-      description: '本账号仅支持邮箱登录，可在此查看邮箱绑定状态并管理主邮箱。',
-      bindAction: '绑定 {providerName}',
-      bindSuccess: '账号绑定成功',
-      emailPlaceholder: '输入邮箱地址',
-      codePlaceholder: '输入验证码',
-      passwordPlaceholder: '设置登录密码',
-      replaceEmailPasswordPlaceholder: '输入当前密码',
-      sendCodeAction: '发送验证码',
-      manageEmailAction: '管理邮箱',
-      hideEmailFormAction: '收起邮箱表单',
-      confirmEmailBindAction: '绑定邮箱',
-      confirmEmailReplaceAction: '更换主邮箱',
-      codeSentTo: '验证码已发送到 {email}',
-      replaceSuccess: '主邮箱已更新',
-      unbindAction: '解绑',
-      unbindSuccess: '{providerName} 已解绑',
+      description: '本账号仅支持邮箱登录。',
+      readOnlyHint: '登录邮箱由管理员维护，需要更换请联系管理员。',
       boundCount: '已关联 {count} 条记录',
       status: {
         bound: '已绑定',

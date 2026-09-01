@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -18,10 +17,24 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
+// settingKeyDefaultsSeedProbe 是"默认设置是否已经种过"的探测键。
+//
+// 这个探测键历史上换过两次，两次都是因为原探测键随功能裁剪被删掉了
+// （email_verify_enabled → registration_email_suffix_whitelist → 现在这个）。
+// 探测键一旦消失，每次启动都会把整套默认值重新 SetMultiple 一遍，
+// 把站长改过的设置覆盖回出厂值。所以这次选键的标准是"不会再被裁掉"：
+//
+//   - allow_ungrouped_key_scheduling 属于分组隔离/调度的核心保留面，
+//     不在任何裁剪计划里；
+//   - 没有任何 SQL 迁移会 INSERT 这个键，全新库不会因为迁移预写了它
+//     而误判成"已经种过"，从而整套默认值一条都不写；
+//   - 默认值 "false" 是 fail-closed 语义，万一读到脏值也不会放开权限。
+const settingKeyDefaultsSeedProbe = SettingKeyAllowUngroupedKeyScheduling
+
 // InitializeDefaultSettings 初始化默认设置
 func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	// 检查是否已有设置
-	_, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEnabled)
+	_, err := s.settingRepo.GetValue(ctx, settingKeyDefaultsSeedProbe)
 	if err == nil {
 		// 已有设置，不需要初始化
 		return nil
@@ -30,10 +43,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		return fmt.Errorf("check existing settings: %w", err)
 	}
 
-	loginAgreementDocumentsJSON, err := marshalLoginAgreementDocuments(defaultLoginAgreementDocuments())
-	if err != nil {
-		return err
-	}
 	forwardedClientIPHeaders := []string{}
 	if s != nil && s.cfg != nil {
 		forwardedClientIPHeaders = s.cfg.ForwardedClientIPSettings().Headers
@@ -45,36 +54,12 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 	// 初始化默认设置
 	defaults := map[string]string{
-		// 单管理员内部部署：注册默认关闭（与 IsRegistrationEnabled 的
-		// fail-closed 语义一致），需要多用户时由管理员在系统设置中显式开启。
-		SettingKeyRegistrationEnabled:                    "false",
-		SettingKeyEmailVerifyEnabled:                     "false",
-		SettingKeyRegistrationEmailSuffixWhitelist:       "[]",
-		SettingKeyRegistrationEmailDomainQuotaEnabled:    "false",
-		SettingKeyLoginAgreementEnabled:                  "false",
-		SettingKeyLoginAgreementMode:                     defaultLoginAgreementMode,
-		SettingKeyLoginAgreementUpdatedAt:                defaultLoginAgreementDate,
-		SettingKeyLoginAgreementDocuments:                loginAgreementDocumentsJSON,
-		SettingKeyAPIKeyACLTrustForwardedIP:              "true",
-		SettingKeyForwardedClientIPHeaders:               string(forwardedClientIPHeadersJSON),
-		settingKeyForwardedClientIPModeV2:                "true",
-		SettingKeySiteName:                               "Sub2API",
-		SettingKeySiteLogo:                               "",
-		SettingKeyTableDefaultPageSize:                   "20",
-		SettingKeyTablePageSizeOptions:                   "[10,20,50,100]",
-		SettingKeyCustomMenuItems:                        "[]",
-		SettingKeyCustomEndpoints:                        "[]",
-		SettingKeyDefaultConcurrency:                     strconv.Itoa(s.cfg.Default.UserConcurrency),
-		SettingKeyDefaultBalance:                         strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
-		SettingKeyDefaultUserRPMLimit:                    "0",
-		SettingKeyDefaultSubscriptions:                   "[]",
-		SettingKeyAuthSourceDefaultEmailBalance:          "0",
-		SettingKeyAuthSourceDefaultEmailConcurrency:      "5",
-		SettingKeyAuthSourceDefaultEmailSubscriptions:    "[]",
-		SettingKeyAuthSourceDefaultEmailGrantOnSignup:    "false",
-		SettingKeyAuthSourceDefaultEmailGrantOnFirstBind: "false",
-		SettingKeySMTPPort:                               "587",
-		SettingKeySMTPUseTLS:                             "false",
+		SettingKeyAPIKeyACLTrustForwardedIP: "true",
+		SettingKeyForwardedClientIPHeaders:  string(forwardedClientIPHeadersJSON),
+		settingKeyForwardedClientIPModeV2:   "true",
+		SettingKeyCustomEndpoints:           "[]",
+		SettingKeyDefaultConcurrency:        strconv.Itoa(s.cfg.Default.UserConcurrency),
+		SettingKeyDefaultUserRPMLimit:       "0",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",
@@ -91,12 +76,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpsQueryModeDefault:          "auto",
 		SettingKeyOpsMetricsIntervalSeconds:    "60",
 
-		// Channel monitor defaults (enabled, 60s)
-		SettingKeyChannelMonitorEnabled:                "true",
-		SettingKeyChannelMonitorMode:                   ChannelMonitorModeV1,
-		SettingKeyChannelMonitorDefaultIntervalSeconds: "60",
-		SettingKeyChannelMonitorHideThroughput:         "true",
-		SettingKeyChannelMonitorShowQuota:              "false",
+		// Channel monitor defaults (passive V2 aggregation on, throughput hidden)
+		SettingKeyChannelMonitorEnabled:        "true",
+		SettingKeyChannelMonitorHideThroughput: "true",
 
 		// Grok: safe defaults — no cross-vendor model rewrite unless operators enable it.
 		SettingKeyGrokDefaultTextModel:           "grok-4.6",
@@ -105,11 +87,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 		// Available channels feature (default disabled; opt-in)
 		SettingKeyAvailableChannelsEnabled: "false",
-
-		// Model plaza feature (default disabled; opt-in, public unless require_auth)
-		SettingKeyModelPlazaEnabled:     "false",
-		SettingKeyModelPlazaRequireAuth: "false",
-		SettingKeyModelPlazaDescription: "",
 
 		// 风控中心功能（默认关闭，显式启用）
 		SettingKeyRiskControlEnabled: "false",
@@ -180,12 +157,6 @@ func parseForwardedClientIPHeadersSetting(value string) ([]string, error) {
 
 // parseSettings 解析设置到结构体
 func (s *SettingService) parseSettings(settings map[string]string) *SystemSettings {
-	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
-	loginAgreementDocuments := parseLoginAgreementDocuments(settings[SettingKeyLoginAgreementDocuments])
-	loginAgreementUpdatedAt := strings.TrimSpace(settings[SettingKeyLoginAgreementUpdatedAt])
-	if loginAgreementUpdatedAt == "" {
-		loginAgreementUpdatedAt = defaultLoginAgreementDate
-	}
 	apiKeyACLTrustForwardedIP := false
 	forwardedClientIPHeaders := []string{}
 	if s != nil && s.cfg != nil {
@@ -207,72 +178,22 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		}
 	}
 	result := &SystemSettings{
-		RegistrationEnabled:                    settings[SettingKeyRegistrationEnabled] == "true",
-		EmailVerifyEnabled:                     emailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist:       ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
-		RegistrationEmailDomainQuotaEnabled:    settings[SettingKeyRegistrationEmailDomainQuotaEnabled] == "true",
-		PasswordResetEnabled:                   emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
-		FrontendURL:                            settings[SettingKeyFrontendURL],
-		TotpEnabled:                            settings[SettingKeyTotpEnabled] == "true",
-		PasskeyEnabled:                         s.passkeySettingEnabled(settings),
-		SessionBindingEnabled:                  settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
-		StepUpEnabled:                          settings[SettingKeyStepUpEnabled] == "true",         // 默认关闭
-		AuditLogRetentionDays:                  parseAuditLogRetentionDays(settings[SettingKeyAuditLogRetentionDays]),
-		LoginAgreementEnabled:                  settings[SettingKeyLoginAgreementEnabled] == "true",
-		LoginAgreementMode:                     normalizeLoginAgreementMode(settings[SettingKeyLoginAgreementMode]),
-		LoginAgreementUpdatedAt:                loginAgreementUpdatedAt,
-		LoginAgreementDocuments:                loginAgreementDocuments,
-		LoginEntryPublic:                       strings.TrimSpace(settings[SettingKeyWebLoginEntryPublic]) != "false", // 缺失=公开
-		LoginEntryPath:                         config.NormalizeEntryPath(settings[SettingKeyWebLoginEntryPath]),
-		DefaultHomePath:                        config.NormalizeEntryPath(settings[SettingKeyWebDefaultHomePath]),
-		SMTPHost:                               settings[SettingKeySMTPHost],
-		SMTPUsername:                           settings[SettingKeySMTPUsername],
-		SMTPFrom:                               settings[SettingKeySMTPFrom],
-		SMTPFromName:                           settings[SettingKeySMTPFromName],
-		SMTPUseTLS:                             settings[SettingKeySMTPUseTLS] == "true",
-		SMTPPasswordConfigured:                 settings[SettingKeySMTPPassword] != "",
-		TurnstileEnabled:                       settings[SettingKeyTurnstileEnabled] == "true",
-		TurnstileSiteKey:                       settings[SettingKeyTurnstileSiteKey],
-		TurnstileSecretKeyConfigured:           settings[SettingKeyTurnstileSecretKey] != "",
-		TencentCaptchaEnabled:                  settings[SettingKeyTencentCaptchaEnabled] == "true",
-		TencentCaptchaAppID:                    settings[SettingKeyTencentCaptchaAppID],
-		TencentCaptchaAppSecretKeyConfigured:   settings[SettingKeyTencentCaptchaAppSecretKey] != "",
-		TencentCaptchaCloudSecretIDConfigured:  settings[SettingKeyTencentCaptchaCloudSecretID] != "",
-		TencentCaptchaCloudSecretKeyConfigured: settings[SettingKeyTencentCaptchaCloudSecretKey] != "",
-		TencentCaptchaRegion:                   normalizeTencentCaptchaRegion(settings[SettingKeyTencentCaptchaRegion]),
-		AliyunCaptchaEnabled:                   settings[SettingKeyAliyunCaptchaEnabled] == "true",
-		AliyunCaptchaAccessKeyID:               settings[SettingKeyAliyunCaptchaAccessKeyID],
-		AliyunCaptchaAccessKeySecretConfigured: settings[SettingKeyAliyunCaptchaAccessKeySecret] != "",
-		AliyunCaptchaSceneID:                   settings[SettingKeyAliyunCaptchaSceneID],
-		AliyunCaptchaPrefix:                    settings[SettingKeyAliyunCaptchaPrefix],
-		AliyunCaptchaRegion:                    normalizeAliyunCaptchaRegion(settings[SettingKeyAliyunCaptchaRegion]),
-		APIKeyACLTrustForwardedIP:              apiKeyACLTrustForwardedIP,
-		ForwardedClientIPHeaders:               forwardedClientIPHeaders,
-		SiteName:                               s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
-		SiteLogo:                               settings[SettingKeySiteLogo],
-		SiteSubtitle:                           s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
-		APIBaseURL:                             settings[SettingKeyAPIBaseURL],
-		ContactInfo:                            settings[SettingKeyContactInfo],
-		DocURL:                                 settings[SettingKeyDocURL],
-		HomeContent:                            settings[SettingKeyHomeContent],
-		CompactHomeEnabled:                     settings[SettingKeyCompactHomeEnabled] == "true",
-		HideCcsImportButton:                    settings[SettingKeyHideCcsImportButton] == "true",
-		CustomMenuItems:                        settings[SettingKeyCustomMenuItems],
-		CustomEndpoints:                        settings[SettingKeyCustomEndpoints],
-		BackendModeEnabled:                     settings[SettingKeyBackendModeEnabled] == "true",
+		TotpEnabled:               settings[SettingKeyTotpEnabled] == "true",
+		PasskeyEnabled:            s.passkeySettingEnabled(settings),
+		SessionBindingEnabled:     settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
+		StepUpEnabled:             settings[SettingKeyStepUpEnabled] == "true",         // 默认关闭
+		AuditLogRetentionDays:     parseAuditLogRetentionDays(settings[SettingKeyAuditLogRetentionDays]),
+		LoginEntryPublic:          strings.TrimSpace(settings[SettingKeyWebLoginEntryPublic]) != "false", // 缺失=公开
+		LoginEntryPath:            config.NormalizeEntryPath(settings[SettingKeyWebLoginEntryPath]),
+		DefaultHomePath:           config.NormalizeEntryPath(settings[SettingKeyWebDefaultHomePath]),
+		APIKeyACLTrustForwardedIP: apiKeyACLTrustForwardedIP,
+		ForwardedClientIPHeaders:  forwardedClientIPHeaders,
+		DocURL:                    settings[SettingKeyDocURL],
+		CustomEndpoints:           settings[SettingKeyCustomEndpoints],
+		BackendModeEnabled:        settings[SettingKeyBackendModeEnabled] == "true",
 	}
-	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
-		settings[SettingKeyTableDefaultPageSize],
-		settings[SettingKeyTablePageSizeOptions],
-	)
 
 	// 解析整数类型
-	if port, err := strconv.Atoi(settings[SettingKeySMTPPort]); err == nil {
-		result.SMTPPort = port
-	} else {
-		result.SMTPPort = 587
-	}
-
 	if concurrency, err := strconv.Atoi(settings[SettingKeyDefaultConcurrency]); err == nil {
 		result.DefaultConcurrency = concurrency
 	} else {
@@ -282,22 +203,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	if rpm, err := strconv.Atoi(settings[SettingKeyDefaultUserRPMLimit]); err == nil && rpm >= 0 {
 		result.DefaultUserRPMLimit = rpm
 	}
-
-	// 解析浮点数类型
-	if balance, err := strconv.ParseFloat(settings[SettingKeyDefaultBalance], 64); err == nil {
-		result.DefaultBalance = balance
-	} else {
-		result.DefaultBalance = s.cfg.Default.UserBalance
-	}
-	result.DefaultSubscriptions = parseDefaultSubscriptions(settings[SettingKeyDefaultSubscriptions])
-
-	// 敏感信息直接返回，方便测试连接时使用
-	result.SMTPPassword = settings[SettingKeySMTPPassword]
-	result.TurnstileSecretKey = settings[SettingKeyTurnstileSecretKey]
-	result.TencentCaptchaAppSecretKey = settings[SettingKeyTencentCaptchaAppSecretKey]
-	result.TencentCaptchaCloudSecretID = settings[SettingKeyTencentCaptchaCloudSecretID]
-	result.TencentCaptchaCloudSecretKey = settings[SettingKeyTencentCaptchaCloudSecretKey]
-	result.AliyunCaptchaAccessKeySecret = settings[SettingKeyAliyunCaptchaAccessKeySecret]
 
 	// Model fallback settings
 	result.FallbackModelAnthropic = s.getStringOrDefault(settings, SettingKeyFallbackModelAnthropic, "claude-3-5-sonnet-20241022")
@@ -330,18 +235,11 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		}
 	}
 
-	// Channel monitor feature (default: enabled, 60s)
+	// Channel monitor feature (default: enabled)
 	result.ChannelMonitorEnabled = !isFalseSettingValue(settings[SettingKeyChannelMonitorEnabled])
-	result.ChannelMonitorMode = normalizeChannelMonitorMode(settings[SettingKeyChannelMonitorMode])
-	result.ChannelMonitorDefaultIntervalSeconds = parseChannelMonitorInterval(
-		settings[SettingKeyChannelMonitorDefaultIntervalSeconds],
-	)
 	// 默认隐藏吞吐（迁移 206 的隐私默认）：未配置时必须与 setting_public.go 的
 	// 公开读取路径给出同一个值，否则管理端看到“未隐藏”而用户端实际已隐藏。
 	result.ChannelMonitorHideThroughput = !isFalseSettingValue(settings[SettingKeyChannelMonitorHideThroughput])
-	// 配额展示默认关闭且 fail-closed：仅字面 "true" 视为开启
-	// （与 setting_public.go 公开读取路径保持一致）。
-	result.ChannelMonitorShowQuota = settings[SettingKeyChannelMonitorShowQuota] == "true"
 
 	// Grok default mapping policy
 	result.GrokDefaultTextModel = strings.TrimSpace(settings[SettingKeyGrokDefaultTextModel])
@@ -355,11 +253,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Available channels feature (default: disabled; strict true)
 	result.AvailableChannelsEnabled = settings[SettingKeyAvailableChannelsEnabled] == "true"
-
-	// Model plaza feature (default: disabled; strict true)
-	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"
-	result.ModelPlazaRequireAuth = settings[SettingKeyModelPlazaRequireAuth] == "true"
-	result.ModelPlazaDescription = settings[SettingKeyModelPlazaDescription]
 
 	// 风控中心功能（默认关闭，严格 true 才启用）
 	result.RiskControlEnabled = settings[SettingKeyRiskControlEnabled] == "true"
@@ -463,23 +356,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.UpstreamCost)
 	result.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.PreviousResponse)
 	result.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.SessionSticky)
-
-	// 余额、订阅到期与账号限额通知
-	result.BalanceLowNotifyEnabled = settings[SettingKeyBalanceLowNotifyEnabled] == "true"
-	if v, err := strconv.ParseFloat(settings[SettingKeyBalanceLowNotifyThreshold], 64); err == nil && v >= 0 {
-		result.BalanceLowNotifyThreshold = v
-	}
-	result.BalanceLowNotifyRechargeURL = settings[SettingKeyBalanceLowNotifyRechargeURL]
-	result.SubscriptionExpiryNotifyEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionExpiryNotifyEnabled])
-
-	// 账号限额通知
-	result.AccountQuotaNotifyEnabled = settings[SettingKeyAccountQuotaNotifyEnabled] == "true"
-	if raw := strings.TrimSpace(settings[SettingKeyAccountQuotaNotifyEmails]); raw != "" {
-		result.AccountQuotaNotifyEmails = ParseNotifyEmails(raw)
-	}
-	if result.AccountQuotaNotifyEmails == nil {
-		result.AccountQuotaNotifyEmails = []NotifyEmailEntry{}
-	}
 
 	// 系统层默认 platform quota（修复 Bug B：parseSettings 不填充导致回显恒为 nil）
 	if raw := settings[SettingKeyDefaultPlatformQuotas]; raw != "" {
@@ -649,164 +525,4 @@ func normalizeOptionalNonNegativeFloatString(raw string) (string, error) {
 		return "", fmt.Errorf("invalid non-negative float")
 	}
 	return strconv.FormatFloat(value, 'f', -1, 64), nil
-}
-
-func parseDefaultSubscriptions(raw string) []DefaultSubscriptionSetting {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-
-	var items []DefaultSubscriptionSetting
-	if err := json.Unmarshal([]byte(raw), &items); err != nil {
-		return nil
-	}
-
-	normalized := make([]DefaultSubscriptionSetting, 0, len(items))
-	for _, item := range items {
-		if item.GroupID <= 0 || item.ValidityDays <= 0 {
-			continue
-		}
-		if item.ValidityDays > MaxValidityDays {
-			item.ValidityDays = MaxValidityDays
-		}
-		normalized = append(normalized, item)
-	}
-
-	return normalized
-}
-
-func parseProviderDefaultGrantSettings(settings map[string]string, keys authSourceDefaultKeySet) ProviderDefaultGrantSettings {
-	result := ProviderDefaultGrantSettings{
-		Balance:          defaultAuthSourceBalance,
-		Concurrency:      defaultAuthSourceConcurrency,
-		Subscriptions:    []DefaultSubscriptionSetting{},
-		GrantOnSignup:    false,
-		GrantOnFirstBind: false,
-	}
-
-	if v, err := strconv.ParseFloat(strings.TrimSpace(settings[keys.balance]), 64); err == nil {
-		result.Balance = v
-	}
-	if v, err := strconv.Atoi(strings.TrimSpace(settings[keys.concurrency])); err == nil {
-		result.Concurrency = v
-	}
-	if items := parseDefaultSubscriptions(settings[keys.subscriptions]); items != nil {
-		result.Subscriptions = items
-	}
-	if raw, ok := settings[keys.grantOnSignup]; ok {
-		result.GrantOnSignup = raw == "true"
-	}
-	if raw, ok := settings[keys.grantOnFirstBind]; ok {
-		result.GrantOnFirstBind = raw == "true"
-	}
-
-	if raw := settings[keys.platformQuotas]; raw != "" {
-		parsed := map[string]*DefaultPlatformQuotaSetting{}
-		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-			slog.Warn("[Setting] parseProviderDefaultGrantSettings: unmarshal auth source platform quotas failed", "source", keys.source, "error", err)
-		} else {
-			result.PlatformQuotas = parsed
-		}
-	}
-
-	return result
-}
-
-func writeProviderDefaultGrantUpdates(updates map[string]string, keys authSourceDefaultKeySet, settings ProviderDefaultGrantSettings) {
-	updates[keys.balance] = strconv.FormatFloat(settings.Balance, 'f', 8, 64)
-	updates[keys.concurrency] = strconv.Itoa(settings.Concurrency)
-
-	subscriptions := settings.Subscriptions
-	if subscriptions == nil {
-		subscriptions = []DefaultSubscriptionSetting{}
-	}
-	raw, err := json.Marshal(subscriptions)
-	if err != nil {
-		raw = []byte("[]")
-	}
-	updates[keys.subscriptions] = string(raw)
-	updates[keys.grantOnSignup] = strconv.FormatBool(settings.GrantOnSignup)
-	updates[keys.grantOnFirstBind] = strconv.FormatBool(settings.GrantOnFirstBind)
-
-	// auth source platform quota：整体替换语义。
-	// nil = 请求未携带该字段，跳过写入以保留既有配置（与系统层 buildSystemSettingsUpdates 的
-	// DefaultPlatformQuotas nil 守卫一致）；非 nil（含空 map）才整体替换。二者语义不可混同。
-	if keys.platformQuotas != "" && settings.PlatformQuotas != nil {
-		blob, err := json.Marshal(settings.PlatformQuotas)
-		if err != nil {
-			blob = []byte("{}")
-		}
-		updates[keys.platformQuotas] = string(blob)
-	}
-}
-
-func mergeProviderDefaultGrantSettings(globalDefaults ProviderDefaultGrantSettings, providerDefaults ProviderDefaultGrantSettings) ProviderDefaultGrantSettings {
-	result := ProviderDefaultGrantSettings{
-		Balance:          globalDefaults.Balance,
-		Concurrency:      globalDefaults.Concurrency,
-		Subscriptions:    append([]DefaultSubscriptionSetting(nil), globalDefaults.Subscriptions...),
-		GrantOnSignup:    providerDefaults.GrantOnSignup,
-		GrantOnFirstBind: providerDefaults.GrantOnFirstBind,
-	}
-
-	// 注意：不能把 parse 默认值 (defaultAuthSourceBalance / defaultAuthSourceConcurrency)
-	// 当作"未配置"哨兵——admin 完全有权显式设成相同的值，那时仍应覆盖 globalDefaults。
-	// 旧实现的 `!= defaultAuthSourceConcurrency` 会把 admin 设的 5 与 fallback 5 混淆，
-	// 导致渠道发放退回到全局默认（如 1），表现为"管理员设 5、新用户实际拿 1"。
-	if providerDefaults.Balance >= 0 {
-		result.Balance = providerDefaults.Balance
-	}
-	if providerDefaults.Concurrency > 0 {
-		result.Concurrency = providerDefaults.Concurrency
-	}
-	if len(providerDefaults.Subscriptions) > 0 {
-		result.Subscriptions = append([]DefaultSubscriptionSetting(nil), providerDefaults.Subscriptions...)
-	}
-
-	return result
-}
-
-func parseTablePreferences(defaultPageSizeRaw, optionsRaw string) (int, []int) {
-	defaultPageSize := 20
-	if v, err := strconv.Atoi(strings.TrimSpace(defaultPageSizeRaw)); err == nil {
-		defaultPageSize = v
-	}
-
-	var options []int
-	if strings.TrimSpace(optionsRaw) != "" {
-		_ = json.Unmarshal([]byte(optionsRaw), &options)
-	}
-
-	return normalizeTablePreferences(defaultPageSize, options)
-}
-
-func normalizeTablePreferences(defaultPageSize int, options []int) (int, []int) {
-	const minPageSize = 5
-	const maxPageSize = 1000
-	const fallbackPageSize = 20
-
-	seen := make(map[int]struct{}, len(options))
-	normalizedOptions := make([]int, 0, len(options))
-	for _, option := range options {
-		if option < minPageSize || option > maxPageSize {
-			continue
-		}
-		if _, ok := seen[option]; ok {
-			continue
-		}
-		seen[option] = struct{}{}
-		normalizedOptions = append(normalizedOptions, option)
-	}
-	sort.Ints(normalizedOptions)
-
-	if defaultPageSize < minPageSize || defaultPageSize > maxPageSize {
-		defaultPageSize = fallbackPageSize
-	}
-
-	if len(normalizedOptions) == 0 {
-		normalizedOptions = []int{10, 20, 50}
-	}
-
-	return defaultPageSize, normalizedOptions
 }

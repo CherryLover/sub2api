@@ -50,9 +50,7 @@ export function isUserTimingAPIPath(requestURL: string): boolean {
   if (path === '/groups/available' || path === '/groups/rates') return true
   if (path === '/channels/available') return true
   if (path === '/usage' || path.startsWith('/usage/')) return true
-  if (path === '/announcements' || path.startsWith('/announcements/')) return true
-  if (path === '/subscriptions' || path.startsWith('/subscriptions/')) return true
-  if (path === '/channel-monitors' || path.startsWith('/channel-monitors/')) return true
+  if (path === '/channel-monitor-v2' || path.startsWith('/channel-monitor-v2/')) return true
   return false
 }
 

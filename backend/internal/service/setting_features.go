@@ -13,67 +13,6 @@ import (
 	"time"
 )
 
-// IsRegistrationEnabled 检查是否开放注册
-func (s *SettingService) IsRegistrationEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEnabled)
-	if err != nil {
-		// 安全默认：如果设置不存在或查询出错，默认关闭注册
-		return false
-	}
-	return value == "true"
-}
-
-// IsEmailVerifyEnabled 检查是否开启邮件验证
-func (s *SettingService) IsEmailVerifyEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyEmailVerifyEnabled)
-	if err != nil {
-		return false
-	}
-	return value == "true"
-}
-
-// IsRegistrationEmailDomainQuotaEnabled 检查白名单非空时是否放行非白名单域名限量注册。
-// 安全默认：设置缺失或查询出错时按关闭处理（保持白名单严格模式）。
-func (s *SettingService) IsRegistrationEmailDomainQuotaEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEmailDomainQuotaEnabled)
-	if err != nil {
-		return false
-	}
-	return value == "true"
-}
-
-// GetRegistrationEmailSuffixWhitelist returns normalized registration email suffix whitelist.
-func (s *SettingService) GetRegistrationEmailSuffixWhitelist(ctx context.Context) []string {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEmailSuffixWhitelist)
-	if err != nil {
-		return []string{}
-	}
-	return ParseRegistrationEmailSuffixWhitelist(value)
-}
-
-// GetCustomMenuItemsRaw returns the raw JSON string of custom_menu_items setting.
-func (s *SettingService) GetCustomMenuItemsRaw(ctx context.Context) string {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyCustomMenuItems)
-	if err != nil {
-		return "[]"
-	}
-	return value
-}
-
-// IsPasswordResetEnabled 检查是否启用密码重置功能
-// 要求：必须同时开启邮件验证
-func (s *SettingService) IsPasswordResetEnabled(ctx context.Context) bool {
-	// Password reset requires email verification to be enabled
-	if !s.IsEmailVerifyEnabled(ctx) {
-		return false
-	}
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyPasswordResetEnabled)
-	if err != nil {
-		return false // 默认关闭
-	}
-	return value == "true"
-}
-
 // IsTotpEnabled 检查是否启用 TOTP 双因素认证功能
 func (s *SettingService) IsTotpEnabled(ctx context.Context) bool {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyTotpEnabled)
@@ -186,15 +125,6 @@ func parseAuditLogRetentionDays(value string) int {
 	return n
 }
 
-// GetSiteName 获取网站名称
-func (s *SettingService) GetSiteName(ctx context.Context) string {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeySiteName)
-	if err != nil || value == "" {
-		return "Sub2API"
-	}
-	return value
-}
-
 // GetDefaultConcurrency 获取默认并发量
 func (s *SettingService) GetDefaultConcurrency(ctx context.Context) int {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultConcurrency)
@@ -207,18 +137,6 @@ func (s *SettingService) GetDefaultConcurrency(ctx context.Context) int {
 	return s.cfg.Default.UserConcurrency
 }
 
-// GetDefaultBalance 获取默认余额
-func (s *SettingService) GetDefaultBalance(ctx context.Context) float64 {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultBalance)
-	if err != nil {
-		return s.cfg.Default.UserBalance
-	}
-	if v, err := strconv.ParseFloat(value, 64); err == nil && v >= 0 {
-		return v
-	}
-	return s.cfg.Default.UserBalance
-}
-
 // GetDefaultUserRPMLimit 获取新用户默认 RPM 限制（0 = 不限制）。未配置则返回 0。
 func (s *SettingService) GetDefaultUserRPMLimit(ctx context.Context) int {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultUserRPMLimit)
@@ -229,177 +147,6 @@ func (s *SettingService) GetDefaultUserRPMLimit(ctx context.Context) int {
 		return v
 	}
 	return 0
-}
-
-// GetDefaultSubscriptions 获取新用户默认订阅配置列表。
-func (s *SettingService) GetDefaultSubscriptions(ctx context.Context) []DefaultSubscriptionSetting {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultSubscriptions)
-	if err != nil {
-		return nil
-	}
-	return parseDefaultSubscriptions(value)
-}
-
-func (s *SettingService) GetAuthSourceDefaultSettings(ctx context.Context) (*AuthSourceDefaultSettings, error) {
-	keys := []string{
-		SettingKeyAuthSourceDefaultEmailBalance,
-		SettingKeyAuthSourceDefaultEmailConcurrency,
-		SettingKeyAuthSourceDefaultEmailSubscriptions,
-		SettingKeyAuthSourceDefaultEmailGrantOnSignup,
-		SettingKeyAuthSourceDefaultEmailGrantOnFirstBind,
-		SettingKeyAuthSourcePlatformQuotas("email"),
-	}
-
-	settings, err := s.settingRepo.GetMultiple(ctx, keys)
-	if err != nil {
-		return nil, fmt.Errorf("get auth source default settings: %w", err)
-	}
-
-	return &AuthSourceDefaultSettings{
-		Email: parseProviderDefaultGrantSettings(settings, emailAuthSourceDefaultKeys),
-	}, nil
-}
-
-func (s *SettingService) ResolveAuthSourceGrantSettings(ctx context.Context, signupSource string, firstBind bool) (ProviderDefaultGrantSettings, bool, error) {
-	result := ProviderDefaultGrantSettings{
-		Balance:       s.GetDefaultBalance(ctx),
-		Concurrency:   s.GetDefaultConcurrency(ctx),
-		Subscriptions: s.GetDefaultSubscriptions(ctx),
-	}
-
-	defaults, err := s.GetAuthSourceDefaultSettings(ctx)
-	if err != nil {
-		return result, false, err
-	}
-
-	providerDefaults, ok := authSourceSignupSettings(defaults, signupSource)
-	if !ok {
-		return result, false, nil
-	}
-
-	enabled := providerDefaults.GrantOnSignup
-	if firstBind {
-		enabled = providerDefaults.GrantOnFirstBind
-	}
-	if !enabled {
-		return result, false, nil
-	}
-
-	return mergeProviderDefaultGrantSettings(result, providerDefaults), true, nil
-}
-
-func (s *SettingService) UpdateAuthSourceDefaultSettings(ctx context.Context, settings *AuthSourceDefaultSettings) error {
-	updates, err := s.buildAuthSourceDefaultUpdates(ctx, settings)
-	if err != nil {
-		return err
-	}
-	if len(updates) == 0 {
-		return nil
-	}
-
-	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
-		return fmt.Errorf("update auth source default settings: %w", err)
-	}
-	return nil
-}
-
-// IsTurnstileEnabled 检查是否启用 Turnstile 验证
-func (s *SettingService) IsTurnstileEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyTurnstileEnabled)
-	if err != nil {
-		return false
-	}
-	return value == "true"
-}
-
-// GetTurnstileSecretKey 获取 Turnstile Secret Key
-func (s *SettingService) GetTurnstileSecretKey(ctx context.Context) string {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyTurnstileSecretKey)
-	if err != nil {
-		return ""
-	}
-	return value
-}
-
-// TencentCaptchaConfig contains the credentials required by Tencent Cloud's
-// ticket verification API. It must never be returned by a public handler.
-type TencentCaptchaConfig struct {
-	Enabled        bool
-	AppID          string
-	AppSecretKey   string
-	CloudSecretID  string
-	CloudSecretKey string
-	Region         string
-}
-
-// AliyunCaptchaConfig contains the credentials required by Aliyun Captcha 2.0's
-// server-side verification API. It must never be returned by a public handler.
-type AliyunCaptchaConfig struct {
-	Enabled         bool
-	AccessKeyID     string
-	AccessKeySecret string
-	SceneID         string
-	Region          string
-}
-
-type CaptchaProviderConfig struct {
-	TurnstileEnabled   bool
-	TurnstileSecretKey string
-	Tencent            TencentCaptchaConfig
-	Aliyun             AliyunCaptchaConfig
-}
-
-func (s *SettingService) GetCaptchaProviderConfig(ctx context.Context) (CaptchaProviderConfig, error) {
-	values, err := s.settingRepo.GetMultiple(ctx, []string{
-		SettingKeyTurnstileEnabled,
-		SettingKeyTurnstileSecretKey,
-		SettingKeyTencentCaptchaEnabled,
-		SettingKeyTencentCaptchaAppID,
-		SettingKeyTencentCaptchaAppSecretKey,
-		SettingKeyTencentCaptchaCloudSecretID,
-		SettingKeyTencentCaptchaCloudSecretKey,
-		SettingKeyTencentCaptchaRegion,
-		SettingKeyAliyunCaptchaEnabled,
-		SettingKeyAliyunCaptchaAccessKeyID,
-		SettingKeyAliyunCaptchaAccessKeySecret,
-		SettingKeyAliyunCaptchaSceneID,
-		SettingKeyAliyunCaptchaRegion,
-	})
-	if err != nil {
-		return CaptchaProviderConfig{}, fmt.Errorf("read captcha provider settings: %w", err)
-	}
-	return CaptchaProviderConfig{
-		TurnstileEnabled:   values[SettingKeyTurnstileEnabled] == "true",
-		TurnstileSecretKey: values[SettingKeyTurnstileSecretKey],
-		Tencent: TencentCaptchaConfig{
-			Enabled:        values[SettingKeyTencentCaptchaEnabled] == "true",
-			AppID:          values[SettingKeyTencentCaptchaAppID],
-			AppSecretKey:   values[SettingKeyTencentCaptchaAppSecretKey],
-			CloudSecretID:  values[SettingKeyTencentCaptchaCloudSecretID],
-			CloudSecretKey: values[SettingKeyTencentCaptchaCloudSecretKey],
-			Region:         normalizeTencentCaptchaRegion(values[SettingKeyTencentCaptchaRegion]),
-		},
-		Aliyun: AliyunCaptchaConfig{
-			Enabled:         values[SettingKeyAliyunCaptchaEnabled] == "true",
-			AccessKeyID:     values[SettingKeyAliyunCaptchaAccessKeyID],
-			AccessKeySecret: values[SettingKeyAliyunCaptchaAccessKeySecret],
-			SceneID:         values[SettingKeyAliyunCaptchaSceneID],
-			Region:          normalizeAliyunCaptchaRegion(values[SettingKeyAliyunCaptchaRegion]),
-		},
-	}, nil
-}
-
-func (s *SettingService) IsTencentCaptchaEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyTencentCaptchaEnabled)
-	return err == nil && value == "true"
-}
-
-func (s *SettingService) GetTencentCaptchaConfig(ctx context.Context) TencentCaptchaConfig {
-	config, err := s.GetCaptchaProviderConfig(ctx)
-	if err != nil {
-		return TencentCaptchaConfig{}
-	}
-	return config.Tencent
 }
 
 // IsIdentityPatchEnabled 检查是否启用身份补丁（Claude -> Gemini systemInstruction 注入）
@@ -1005,35 +752,4 @@ func (s *SettingService) GetAccountSchedulingThresholds(ctx context.Context) map
 		return cloneAccountSchedulingThresholds(thresholds)
 	}
 	return defaultAccountSchedulingThresholds()
-}
-
-// GetAuthSourcePlatformQuotas 读取指定 auth source 的 platform quota 覆盖（仅返回有配置的平台，override 语义）。
-func (s *SettingService) GetAuthSourcePlatformQuotas(ctx context.Context, source string) map[string]*DefaultPlatformQuotaSetting {
-	out := map[string]*DefaultPlatformQuotaSetting{}
-	raw, err := s.settingRepo.GetValue(ctx, SettingKeyAuthSourcePlatformQuotas(source))
-	if err != nil || raw == "" {
-		return out // 无 override
-	}
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		slog.Warn("[Setting] unmarshal auth source platform quotas failed (fail-open)", "source", source, "error", err)
-		return map[string]*DefaultPlatformQuotaSetting{}
-	}
-	return out // 仅含已配置平台，保持 override 语义
-}
-
-// mergePlatformQuotaDefaults 按字段级 patch：src 中非 nil 字段覆盖 dst。
-// 区分 nil（"未配置"，保留 dst）vs &0.0（"显式禁用"，覆盖 dst 为 0）
-func mergePlatformQuotaDefaults(dst, src *DefaultPlatformQuotaSetting) {
-	if src == nil || dst == nil {
-		return
-	}
-	if src.DailyLimitUSD != nil {
-		dst.DailyLimitUSD = src.DailyLimitUSD
-	}
-	if src.WeeklyLimitUSD != nil {
-		dst.WeeklyLimitUSD = src.WeeklyLimitUSD
-	}
-	if src.MonthlyLimitUSD != nil {
-		dst.MonthlyLimitUSD = src.MonthlyLimitUSD
-	}
 }

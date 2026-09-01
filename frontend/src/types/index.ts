@@ -22,16 +22,6 @@ export interface FetchOptions {
   signal?: AbortSignal
 }
 
-// ==================== Notification Types ====================
-
-/** Notification email entry with enable/disable and verification state.
- *  email="" is a placeholder for the primary email (user's registration email or admin email). */
-export interface NotifyEmailEntry {
-  email: string
-  disabled: boolean
-  verified: boolean
-}
-
 // ==================== User & Auth Types ====================
 
 export type UserAuthProvider = 'email'
@@ -82,16 +72,10 @@ export interface User {
   identity_bindings?: Partial<Record<UserAuthProvider, boolean | UserAuthBindingStatus>>
   email_bound?: boolean
   role: 'admin' | 'user' // User role for authorization
-  balance: number // User balance for API usage
-  frozen_balance?: number // Balance currently held by async batch jobs
   concurrency: number // Allowed concurrent requests
   rpm_limit?: number // User-level RPM cap (0 = unlimited); effective as fallback when group has no rpm_limit
   status: 'active' | 'disabled' // Account status
   allowed_groups: number[] | null // Allowed group IDs (null = all non-exclusive groups)
-  balance_notify_enabled: boolean
-  balance_notify_threshold: number | null
-  balance_notify_extra_emails: NotifyEmailEntry[]
-  subscriptions?: UserSubscription[] // User's active subscriptions
   last_active_at?: string | null
   created_at: string
   updated_at: string
@@ -111,51 +95,6 @@ export interface AdminUser extends User {
 export interface LoginRequest {
   email: string
   password: string
-  turnstile_token?: string
-  tencent_captcha_ticket?: string
-  tencent_captcha_randstr?: string
-}
-
-export interface TencentCaptchaRequestProof {
-  tencent_captcha_ticket: string
-  tencent_captcha_randstr: string
-}
-
-// 动作触发式验证码（OAuth 启动、passkey 等入口）的请求凭据：
-// 腾讯填 tencent_captcha_*，阿里云的 captchaVerifyParam 复用 turnstile_token 字段
-export interface ActionCaptchaRequestProof extends Partial<TencentCaptchaRequestProof> {
-  turnstile_token?: string
-}
-
-export interface RegisterRequest {
-  email: string
-  password: string
-  verify_code?: string
-  turnstile_token?: string
-  tencent_captcha_ticket?: string
-  tencent_captcha_randstr?: string
-}
-
-export interface SendVerifyCodeRequest {
-  email: string
-  turnstile_token?: string
-  tencent_captcha_ticket?: string
-  tencent_captcha_randstr?: string
-}
-
-export interface SendVerifyCodeResponse {
-  message: string
-  countdown: number
-}
-
-export interface CustomMenuItem {
-  id: string
-  label: string
-  icon_svg: string
-  url: string
-  page_slug?: string
-  visibility: 'user' | 'admin'
-  sort_order: number
 }
 
 export interface CustomEndpoint {
@@ -164,46 +103,10 @@ export interface CustomEndpoint {
   description: string
 }
 
-export interface LoginAgreementDocument {
-  id: string
-  title: string
-  content_md: string
-}
-
 export interface PublicSettings {
-  registration_enabled: boolean
-  email_verify_enabled: boolean
-  registration_email_suffix_whitelist: string[]
-  registration_email_domain_quota_enabled?: boolean
-  password_reset_enabled: boolean
-  login_agreement_enabled?: boolean
-  login_agreement_mode?: 'modal' | 'checkbox' | string
-  login_agreement_updated_at?: string
-  login_agreement_revision?: string
-  login_agreement_documents?: LoginAgreementDocument[]
-  turnstile_enabled: boolean
-  tencent_captcha_enabled?: boolean
-  tencent_captcha_app_id?: string
-  tencent_captcha_region?: string
   passkey_enabled?: boolean
-  turnstile_site_key: string
-  aliyun_captcha_enabled?: boolean
-  aliyun_captcha_scene_id?: string
-  aliyun_captcha_prefix?: string
-  aliyun_captcha_region?: string
-  site_name: string
-  site_logo: string
-  site_subtitle: string
-  api_base_url: string
-  contact_info: string
   doc_url: string
-  home_content: string
-  compact_home_enabled: boolean
-  hide_ccs_import_button: boolean
   risk_control_enabled: boolean
-  table_default_page_size: number
-  table_page_size_options: number[]
-  custom_menu_items: CustomMenuItem[]
   custom_endpoints: CustomEndpoint[]
   backend_mode_enabled: boolean
   /**
@@ -219,20 +122,10 @@ export interface PublicSettings {
   // 可选：注入的 __APP_CONFIG__ 旧缓存可能缺失
   server_timezone?: string
   server_utc_offset?: string
-  balance_low_notify_enabled: boolean
-  account_quota_notify_enabled: boolean
-  balance_low_notify_threshold: number
   channel_monitor_enabled: boolean
-  /** Exclusive mode: v1 active probes or v2 passive aggregation. Default v2. */
-  channel_monitor_mode?: 'v1' | 'v2'
-  channel_monitor_default_interval_seconds: number
   /** When true, user monitor hides RPM/TPM so scale cannot be reverse-estimated. */
   channel_monitor_hide_throughput?: boolean
-  /** When true, user monitor shows account quota/balance snapshots (default off). */
-  channel_monitor_show_quota?: boolean
   available_channels_enabled: boolean
-  model_plaza_enabled: boolean
-  model_plaza_require_auth: boolean
   service_quota_enabled: boolean
   allow_user_view_error_requests?: boolean
 }
@@ -278,86 +171,6 @@ export interface UpdateSubscriptionRequest {
   type?: Subscription['type']
   update_interval?: number
   is_active?: boolean
-}
-
-// ==================== Announcement Types ====================
-
-export type AnnouncementStatus = 'draft' | 'active' | 'archived'
-export type AnnouncementNotifyMode = 'silent' | 'popup'
-
-export type AnnouncementConditionType = 'subscription' | 'balance'
-
-export type AnnouncementOperator = 'in' | 'gt' | 'gte' | 'lt' | 'lte' | 'eq'
-
-export interface AnnouncementCondition {
-  type: AnnouncementConditionType
-  operator: AnnouncementOperator
-  group_ids?: number[]
-  value?: number
-}
-
-export interface AnnouncementConditionGroup {
-  all_of?: AnnouncementCondition[]
-}
-
-export interface AnnouncementTargeting {
-  any_of?: AnnouncementConditionGroup[]
-}
-
-export interface Announcement {
-  id: number
-  title: string
-  content: string
-  status: AnnouncementStatus
-  notify_mode: AnnouncementNotifyMode
-  targeting: AnnouncementTargeting
-  starts_at?: string
-  ends_at?: string
-  created_by?: number
-  updated_by?: number
-  created_at: string
-  updated_at: string
-}
-
-export interface UserAnnouncement {
-  id: number
-  title: string
-  content: string
-  notify_mode: AnnouncementNotifyMode
-  starts_at?: string
-  ends_at?: string
-  read_at?: string
-  created_at: string
-  updated_at: string
-}
-
-export interface CreateAnnouncementRequest {
-  title: string
-  content: string
-  status?: AnnouncementStatus
-  notify_mode?: AnnouncementNotifyMode
-  targeting: AnnouncementTargeting
-  starts_at?: number
-  ends_at?: number
-}
-
-export interface UpdateAnnouncementRequest {
-  title?: string
-  content?: string
-  status?: AnnouncementStatus
-  notify_mode?: AnnouncementNotifyMode
-  targeting?: AnnouncementTargeting
-  starts_at?: number
-  ends_at?: number
-}
-
-export interface AnnouncementUserReadStatus {
-  user_id: number
-  email: string
-  username: string
-  balance: number
-  eligible: boolean
-  read_at?: string
 }
 
 // ==================== Proxy Node Types ====================
@@ -515,18 +328,13 @@ export interface Group {
   reasoning_effort_mappings?: ReasoningEffortMapping[]
   is_exclusive: boolean
   status: 'active' | 'inactive'
-  subscription_type: SubscriptionType
-  daily_limit_usd: number | null
-  weekly_limit_usd: number | null
-  monthly_limit_usd: number | null
+  /** @deprecated 订阅体系已拆除（A4），后端不再返回；仅为兼容历史代码保留可选字段。 */
+  subscription_type?: SubscriptionType
   long_context_pricing_enabled: boolean
   // 图片生成计费配置
   allow_image_generation: boolean
-  allow_batch_image_generation: boolean
   image_rate_independent: boolean
   image_rate_multiplier: number
-  batch_image_discount_multiplier: number
-  batch_image_hold_multiplier: number
   image_price_1k: number | null
   image_price_2k: number | null
   image_price_4k: number | null
@@ -670,8 +478,7 @@ export interface ApiKey {
   ip_blacklist: string[]
   last_used_at: string | null
   last_used_ip: string | null
-  quota: number // Quota limit in USD (0 = unlimited)
-  quota_used: number // Used quota amount in USD
+  quota_used: number // 累计实际消费金额（USD），后端无条件累加，是 Key 的用量账本
   expires_at: string | null // Expiration time (null = never expires)
   created_at: string
   updated_at: string
@@ -697,7 +504,6 @@ export interface CreateApiKeyRequest {
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
   ip_blacklist?: string[]
-  quota?: number // Quota limit in USD (0 = unlimited)
   expires_in_days?: number // Days until expiry (null = never expires)
   rate_limit_5h?: number
   rate_limit_1d?: number
@@ -710,9 +516,7 @@ export interface UpdateApiKeyRequest {
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]
   ip_blacklist?: string[]
-  quota?: number // Quota limit in USD (null = no change, 0 = unlimited)
   expires_at?: string | null // Expiration time (null = no change)
-  reset_quota?: boolean // Reset quota_used to 0
   rate_limit_5h?: number
   rate_limit_1d?: number
   rate_limit_7d?: number
@@ -725,18 +529,11 @@ export interface CreateGroupRequest {
   platform?: GroupPlatform
   rate_multiplier?: number
   is_exclusive?: boolean
-  subscription_type?: SubscriptionType
-  daily_limit_usd?: number | null
-  weekly_limit_usd?: number | null
-  monthly_limit_usd?: number | null
   long_context_pricing_enabled?: boolean
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
-  allow_batch_image_generation?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
-  batch_image_discount_multiplier?: number
-  batch_image_hold_multiplier?: number
   image_price_1k?: number | null
   image_price_2k?: number | null
   image_price_4k?: number | null
@@ -787,18 +584,11 @@ export interface UpdateGroupRequest {
   rate_multiplier?: number
   is_exclusive?: boolean
   status?: 'active' | 'inactive'
-  subscription_type?: SubscriptionType
-  daily_limit_usd?: number | null
-  weekly_limit_usd?: number | null
-  monthly_limit_usd?: number | null
   long_context_pricing_enabled?: boolean
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
-  allow_batch_image_generation?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
-  batch_image_discount_multiplier?: number
-  batch_image_hold_multiplier?: number
   image_price_1k?: number | null
   image_price_2k?: number | null
   image_price_4k?: number | null
@@ -1641,7 +1431,6 @@ export interface UsageLog {
   user?: User
   api_key?: ApiKey
   group?: Group
-  subscription?: UserSubscription
 }
 
 export interface UsageLogAccountSummary {
@@ -1870,7 +1659,6 @@ export interface UpdateUserRequest {
   username?: string
   notes?: string
   role?: 'admin' | 'user'
-  balance?: number
   concurrency?: number
   rpm_limit?: number
   status?: 'active' | 'disabled'
@@ -1885,51 +1673,6 @@ export interface ChangePasswordRequest {
   new_password: string
 }
 
-// ==================== User Subscription Types ====================
-
-export interface UserSubscription {
-  id: number
-  user_id: number
-  group_id: number
-  status: 'active' | 'expired' | 'revoked' | 'suspended'
-  starts_at: string
-  daily_usage_usd: number
-  weekly_usage_usd: number
-  monthly_usage_usd: number
-  daily_window_start: string | null
-  weekly_window_start: string | null
-  monthly_window_start: string | null
-  created_at: string
-  updated_at: string
-  revoked_at?: string | null
-  expires_at: string | null
-  user?: User
-  group?: Group
-}
-
-export interface SubscriptionProgress {
-  subscription_id: number
-  daily: {
-    used: number
-    limit: number | null
-    percentage: number
-    reset_in_seconds: number | null
-  } | null
-  weekly: {
-    used: number
-    limit: number | null
-    percentage: number
-    reset_in_seconds: number | null
-  } | null
-  monthly: {
-    used: number
-    limit: number | null
-    percentage: number
-    reset_in_seconds: number | null
-  } | null
-  expires_at: string | null
-  days_remaining: number | null
-}
 
 export interface AssignSubscriptionRequest {
   user_id: number
@@ -2145,7 +1888,6 @@ export interface TotpStatus {
 }
 
 export interface TotpSetupRequest {
-  email_code?: string
   password?: string
 }
 
@@ -2166,12 +1908,11 @@ export interface TotpEnableResponse {
 }
 
 export interface TotpDisableRequest {
-  email_code?: string
   password?: string
 }
 
 export interface TotpVerificationMethod {
-  method: 'email' | 'password'
+  method: 'password'
 }
 
 export interface TotpLoginResponse {

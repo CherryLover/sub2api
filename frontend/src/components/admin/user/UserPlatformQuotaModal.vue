@@ -6,12 +6,6 @@
     @close="$emit('close')"
   >
     <div v-if="user" class="space-y-4">
-      <div
-        v-if="hasActiveSubscription"
-        class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
-      >
-        {{ t('admin.users.platformQuota.subscriptionWarning') }}
-      </div>
       <p class="text-sm text-gray-600 dark:text-gray-400">
         {{ t('admin.users.platformQuota.subtitle', { email: user.email }) }}
       </p>
@@ -115,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -139,10 +133,6 @@ interface QuotaRow {
   weekly_usage_usd: number
   monthly_usage_usd: number
 }
-
-const hasActiveSubscription = computed(() =>
-  props.user?.subscriptions?.some((s) => s.status === 'active') ?? false
-)
 
 const loading = ref(false)
 const submitting = ref(false)

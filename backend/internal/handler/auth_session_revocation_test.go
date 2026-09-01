@@ -3,10 +3,12 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -14,6 +16,56 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+// userHandlerRefreshTokenCacheStub 是 AuthService 的最小 refresh token 缓存桩。
+//
+// 它原本住在 user_handler_test.go 里，已经被裁剪工程连带删掉两次（先是「整删邮件体系」，
+// 再是「删掉解绑第三方登录的接口」），每次都让 unit tag 下的 handler 包编译不过。
+// 现在把它挪到唯一的使用方这里，跟着用例一起存亡，避免第三次。
+type userHandlerRefreshTokenCacheStub struct {
+	revokedUserIDs []int64
+}
+
+func (s *userHandlerRefreshTokenCacheStub) StoreRefreshToken(context.Context, string, *service.RefreshTokenData, time.Duration) error {
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) GetRefreshToken(context.Context, string) (*service.RefreshTokenData, error) {
+	return nil, service.ErrRefreshTokenNotFound
+}
+
+func (s *userHandlerRefreshTokenCacheStub) DeleteRefreshToken(context.Context, string) error {
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) DeleteUserRefreshTokens(_ context.Context, userID int64) error {
+	s.revokedUserIDs = append(s.revokedUserIDs, userID)
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) DeleteTokenFamily(context.Context, string) error {
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) AddToUserTokenSet(context.Context, int64, string, time.Duration) error {
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) AddToFamilyTokenSet(context.Context, string, string, time.Duration) error {
+	return nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) GetUserTokenHashes(context.Context, int64) ([]string, error) {
+	return nil, nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) GetFamilyTokenHashes(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) IsTokenInFamily(context.Context, string, string) (bool, error) {
+	return false, nil
+}
 
 func TestAuthHandlerRevokeAllSessionsInvalidatesAccessTokens(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -35,7 +87,7 @@ func TestAuthHandlerRevokeAllSessionsInvalidatesAccessTokens(t *testing.T) {
 			ExpireHour: 1,
 		},
 	}
-	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil, nil, nil, nil, nil, nil)
+	authService := service.NewAuthService(nil, repo, refreshTokenCache, cfg, nil)
 	handler := &AuthHandler{authService: authService}
 
 	recorder := httptest.NewRecorder()

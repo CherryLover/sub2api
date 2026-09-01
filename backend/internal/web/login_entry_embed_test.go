@@ -19,7 +19,7 @@ const testHiddenLoginPath = "/j7q2m9x4vk3p"
 func hiddenLoginServer(t *testing.T) *FrontendServer {
 	t.Helper()
 	provider := &mockSettingsProvider{
-		settings: map[string]any{"site_name": "Test", "login_entry_public": false, "default_home_path": "/key-usage"},
+		settings: map[string]any{"version": "test", "login_entry_public": false, "default_home_path": "/key-usage"},
 	}
 	server, err := NewFrontendServerWithLoginEntry(provider, LoginEntry{Hidden: true, Path: testHiddenLoginPath})
 	require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestHiddenLoginPath_ETagsDoNotCrossVariants(t *testing.T) {
 
 // Public mode must behave exactly as before: no extra script, no extra assignment.
 func TestPublicLoginEntry_InjectsNoMarker(t *testing.T) {
-	provider := &mockSettingsProvider{settings: map[string]any{"site_name": "Test"}}
+	provider := &mockSettingsProvider{settings: map[string]any{"version": "test"}}
 	server, err := NewFrontendServer(provider)
 	require.NoError(t, err)
 
@@ -188,7 +188,7 @@ func TestLoginEntry_Matches(t *testing.T) {
 // /api/v1/settings/public — may carry it.
 func TestHiddenLoginPath_NotPartOfInjectedSettingsJSON(t *testing.T) {
 	server := hiddenLoginServer(t)
-	rendered := string(server.injectSettings([]byte(`{"site_name":"Test","login_entry_public":false}`)))
+	rendered := string(server.injectSettings([]byte(`{"version":"test","login_entry_public":false}`)))
 
 	assert.NotContains(t, rendered, testHiddenLoginPath)
 	assert.Contains(t, rendered, LoginEntryFlagPlaceholder)
@@ -202,7 +202,7 @@ func TestHiddenLoginPath_NotPartOfInjectedSettingsJSON(t *testing.T) {
 // 快照——否则站长在后台藏起入口之后，进程不重启就一直按旧布置服务。
 func TestHiddenLoginPath_LayoutIsResolvedPerRequest(t *testing.T) {
 	provider := &mockSettingsProvider{
-		settings: map[string]any{"site_name": "Test", "login_entry_public": true},
+		settings: map[string]any{"version": "test", "login_entry_public": true},
 	}
 	var current LoginEntry
 	server, err := NewFrontendServerWithLoginEntryResolver(provider, func() LoginEntry { return current })
@@ -236,7 +236,7 @@ func TestHiddenLoginPath_LayoutIsResolvedPerRequest(t *testing.T) {
 // 布置刚翻转、缓存里还留着上一份渲染结果时，占位符绝不能原样漏进响应里：
 // 那既会暴露"这里有个登录标记"，也会让页面上的脚本解析失败。
 func TestHiddenLoginPath_PlaceholderNeverSurvivesALayoutFlip(t *testing.T) {
-	provider := &mockSettingsProvider{settings: map[string]any{"site_name": "Test"}}
+	provider := &mockSettingsProvider{settings: map[string]any{"version": "test"}}
 	current := LoginEntry{Hidden: true, Path: testHiddenLoginPath}
 	server, err := NewFrontendServerWithLoginEntryResolver(provider, func() LoginEntry { return current })
 	require.NoError(t, err)

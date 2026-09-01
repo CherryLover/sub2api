@@ -143,17 +143,18 @@ func TestPromptGuardWebSocketCloseMappingGolden(t *testing.T) {
 	require.Equal(t, securityaudit.ErrorCodeInvalidResponse, securityAuditWSCloseReason(promptGuardDecision(securityaudit.DecisionInvalid)))
 }
 
-func TestLegacyModerationErrorKeepsExistingClientPriority(t *testing.T) {
-	legacy := &securityaudit.Decision{
+// TestSecurityAuditErrorUsesDecisionClientMessage 内容安全审计删除后，Decision 不再带
+// Legacy 分支：客户端看到的状态码/错误码/文案必须完全来自 Decision 本身。
+func TestSecurityAuditErrorUsesDecisionClientMessage(t *testing.T) {
+	decision := &securityaudit.Decision{
 		Kind: securityaudit.DecisionBlock, HTTPStatus: http.StatusForbidden,
-		ErrorCode: "content_policy_violation", ClientMessage: "legacy exact message",
-		Legacy: &securityaudit.LegacyDecision{Blocked: true, StatusCode: http.StatusForbidden, ErrorCode: "content_policy_violation", Message: "legacy exact message"},
+		ErrorCode: securityaudit.ErrorCodeBlocked, ClientMessage: "prompt guard exact message",
 		Prompt: &securityaudit.PromptDecision{Kind: securityaudit.DecisionBlock, ErrorCode: securityaudit.ErrorCodeBlocked},
 	}
 	c, recorder := securityAuditErrorTestContext(t)
-	(&GatewayHandler{}).openAISecurityAuditError(c, legacy)
+	(&GatewayHandler{}).openAISecurityAuditError(c, decision)
 	require.Equal(t, http.StatusForbidden, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "legacy exact message")
-	require.Contains(t, recorder.Body.String(), "content_policy_violation")
-	require.NotContains(t, recorder.Body.String(), securityaudit.ErrorCodeBlocked)
+	require.Contains(t, recorder.Body.String(), "prompt guard exact message")
+	require.Contains(t, recorder.Body.String(), securityaudit.ErrorCodeBlocked)
+	require.Contains(t, recorder.Body.String(), "permission_error")
 }

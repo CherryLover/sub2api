@@ -4,17 +4,7 @@
  */
 
 import { apiClient } from "../client";
-import type {
-  CustomEndpoint,
-  CustomMenuItem,
-  LoginAgreementDocument,
-  NotifyEmailEntry,
-} from "@/types";
-
-export interface DefaultSubscriptionSetting {
-  group_id: number;
-  validity_days: number;
-}
+import type { CustomEndpoint } from "@/types";
 
 // ── 平台限额类型 ──────────────────────────────────────────────────
 export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok"
@@ -95,117 +85,10 @@ export function sanitizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | nul
   return result
 }
 
-// 单管理员内部部署：注册来源默认授予只保留 email 渠道（第三方 OAuth 登录已删除）。
-export type AuthSourceType = "email";
-
-export interface AuthSourceDefaultsValue {
-  balance: number;
-  concurrency: number;
-  subscriptions: DefaultSubscriptionSetting[];
-  grant_on_signup: boolean;
-  grant_on_first_bind: boolean;
-  // ★ 新增：平台限额覆盖（key = PlatformType）
-  platform_quotas: DefaultPlatformQuotasMap;
-}
-
-export type AuthSourceDefaultsState = Record<
-  AuthSourceType,
-  AuthSourceDefaultsValue
->;
-
-const AUTH_SOURCE_TYPES: AuthSourceType[] = ["email"];
-const AUTH_SOURCE_DEFAULT_BALANCE = 0;
-const AUTH_SOURCE_DEFAULT_CONCURRENCY = 5;
-
-export function normalizeDefaultSubscriptionSettings(
-  subscriptions: DefaultSubscriptionSetting[] | null | undefined,
-): DefaultSubscriptionSetting[] {
-  if (!Array.isArray(subscriptions)) return [];
-
-  return subscriptions
-    .filter((item) => item.group_id > 0 && item.validity_days > 0)
-    .map((item) => ({
-      group_id: Math.floor(item.group_id),
-      validity_days: Math.min(
-        36500,
-        Math.max(1, Math.floor(item.validity_days)),
-      ),
-    }));
-}
-
-export function buildAuthSourceDefaultsState(
-  settings: Partial<SystemSettings>,
-): AuthSourceDefaultsState {
-  const raw = settings as Record<string, unknown>;
-
-  return AUTH_SOURCE_TYPES.reduce((acc, source) => {
-    const subscriptions = raw[`auth_source_default_${source}_subscriptions`];
-    acc[source] = {
-      balance: Number(
-        raw[`auth_source_default_${source}_balance`] ??
-          AUTH_SOURCE_DEFAULT_BALANCE,
-      ),
-      concurrency: Math.max(
-        1,
-        Number(
-          raw[`auth_source_default_${source}_concurrency`] ??
-            AUTH_SOURCE_DEFAULT_CONCURRENCY,
-        ),
-      ),
-      subscriptions: normalizeDefaultSubscriptionSettings(
-        Array.isArray(subscriptions)
-          ? (subscriptions as DefaultSubscriptionSetting[])
-          : [],
-      ),
-      grant_on_signup:
-        raw[`auth_source_default_${source}_grant_on_signup`] === true,
-      grant_on_first_bind:
-        raw[`auth_source_default_${source}_grant_on_first_bind`] === true,
-      platform_quotas: normalizePlatformQuotasMap(raw[`auth_source_default_${source}_platform_quotas`] as DefaultPlatformQuotasMap | undefined),
-    };
-    return acc;
-  }, {} as AuthSourceDefaultsState);
-}
-
-export function appendAuthSourceDefaultsToUpdateRequest(
-  payload: UpdateSettingsRequest,
-  authSourceDefaults: AuthSourceDefaultsState,
-): UpdateSettingsRequest {
-  const target = payload as Record<string, unknown>;
-
-  for (const source of AUTH_SOURCE_TYPES) {
-    const current = authSourceDefaults[source];
-    target[`auth_source_default_${source}_balance`] =
-      Number(current.balance) || 0;
-    target[`auth_source_default_${source}_concurrency`] = Math.max(
-      1,
-      Math.floor(
-        Number(current.concurrency) || AUTH_SOURCE_DEFAULT_CONCURRENCY,
-      ),
-    );
-    target[`auth_source_default_${source}_subscriptions`] =
-      normalizeDefaultSubscriptionSettings(current.subscriptions);
-    target[`auth_source_default_${source}_grant_on_signup`] =
-      current.grant_on_signup;
-    target[`auth_source_default_${source}_grant_on_first_bind`] =
-      current.grant_on_first_bind;
-    target[`auth_source_default_${source}_platform_quotas`] = sanitizePlatformQuotasMap(current.platform_quotas)
-  }
-
-  return payload;
-}
-
 /**
  * System settings interface
  */
 export interface SystemSettings {
-  // Registration settings
-  registration_enabled: boolean;
-  email_verify_enabled: boolean;
-  registration_email_suffix_whitelist: string[];
-  registration_email_domain_quota_enabled: boolean;
-  password_reset_enabled: boolean;
-  frontend_url: string;
   totp_enabled: boolean; // TOTP 双因素认证
   totp_encryption_key_configured: boolean; // TOTP 加密密钥是否已配置
   passkey_enabled: boolean;
@@ -224,62 +107,15 @@ export interface SystemSettings {
   login_entry_locked_by_config: boolean;
   default_home_path_locked_by_config: boolean;
   audit_log_retention_days: number; // 审计日志保留天数
-  login_agreement_enabled: boolean;
-  login_agreement_mode: "modal" | "checkbox" | string;
-  login_agreement_updated_at: string;
-  login_agreement_documents: LoginAgreementDocument[];
   // Default settings
-  default_balance: number;
   default_concurrency: number;
   default_user_rpm_limit: number;
-  default_subscriptions: DefaultSubscriptionSetting[];
-  auth_source_default_email_balance?: number;
-  auth_source_default_email_concurrency?: number;
-  auth_source_default_email_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_email_grant_on_signup?: boolean;
-  auth_source_default_email_grant_on_first_bind?: boolean;
-  // ── 平台限额（嵌套 JSON，系统层 + email auth-source 层）────────────────────────────────
+  // ── 平台限额（嵌套 JSON）────────────────────────────────
   default_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_email_platform_quotas?: DefaultPlatformQuotasMap;
   // OEM settings
-  site_name: string;
-  site_logo: string;
-  site_subtitle: string;
-  api_base_url: string;
-  contact_info: string;
   doc_url: string;
-  home_content: string;
-  compact_home_enabled: boolean;
-  hide_ccs_import_button: boolean;
-  table_default_page_size: number;
-  table_page_size_options: number[];
   backend_mode_enabled: boolean;
-  custom_menu_items: CustomMenuItem[];
   custom_endpoints: CustomEndpoint[];
-  // SMTP settings
-  smtp_host: string;
-  smtp_port: number;
-  smtp_username: string;
-  smtp_password_configured: boolean;
-  smtp_from_email: string;
-  smtp_from_name: string;
-  smtp_use_tls: boolean;
-  // Cloudflare Turnstile settings
-  turnstile_enabled: boolean;
-  turnstile_site_key: string;
-  turnstile_secret_key_configured: boolean;
-  tencent_captcha_enabled: boolean;
-  tencent_captcha_app_id: string;
-  tencent_captcha_app_secret_key_configured: boolean;
-  tencent_captcha_cloud_secret_id_configured: boolean;
-  tencent_captcha_cloud_secret_key_configured: boolean;
-  tencent_captcha_region: string;
-  aliyun_captcha_enabled: boolean;
-  aliyun_captcha_access_key_id: string;
-  aliyun_captcha_access_key_secret_configured: boolean;
-  aliyun_captcha_scene_id: string;
-  aliyun_captcha_prefix: string;
-  aliyun_captcha_region: string;
   api_key_acl_trust_forwarded_ip: boolean;
   forwarded_client_ip_headers: string[];
 
@@ -371,28 +207,13 @@ export interface SystemSettings {
   openai_advanced_scheduler_effective_weight_previous_response?: string;
   openai_advanced_scheduler_effective_weight_session_sticky?: string;
 
-  // 余额、订阅到期与账号限额通知
-  balance_low_notify_enabled: boolean;
-  balance_low_notify_threshold: number;
-  balance_low_notify_recharge_url: string;
-  subscription_expiry_notify_enabled: boolean;
-  account_quota_notify_enabled: boolean;
-  account_quota_notify_emails: NotifyEmailEntry[];
-
   // Channel Monitor feature switch
   channel_monitor_enabled: boolean;
-  channel_monitor_mode?: 'v1' | 'v2';
-  channel_monitor_default_interval_seconds: number;
   channel_monitor_hide_throughput?: boolean;
-  channel_monitor_show_quota?: boolean;
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
 
-  // Model Plaza feature switches + description
-  model_plaza_enabled: boolean;
-  model_plaza_require_auth: boolean;
-  model_plaza_description: string;
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
@@ -402,12 +223,6 @@ export interface SystemSettings {
 }
 
 export interface UpdateSettingsRequest {
-  registration_enabled?: boolean;
-  email_verify_enabled?: boolean;
-  registration_email_suffix_whitelist?: string[];
-  registration_email_domain_quota_enabled?: boolean;
-  password_reset_enabled?: boolean;
-  frontend_url?: string;
   totp_enabled?: boolean; // TOTP 双因素认证
   passkey_enabled?: boolean;
   session_binding_enabled?: boolean; // 会话 IP/UA 绑定
@@ -417,58 +232,13 @@ export interface UpdateSettingsRequest {
   login_entry_path?: string;
   default_home_path?: string;
   audit_log_retention_days?: number; // 审计日志保留天数
-  login_agreement_enabled?: boolean;
-  login_agreement_mode?: "modal" | "checkbox" | string;
-  login_agreement_updated_at?: string;
-  login_agreement_documents?: LoginAgreementDocument[];
-  default_balance?: number;
   default_concurrency?: number;
   default_user_rpm_limit?: number;
-  default_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_email_balance?: number;
-  auth_source_default_email_concurrency?: number;
-  auth_source_default_email_subscriptions?: DefaultSubscriptionSetting[];
-  auth_source_default_email_grant_on_signup?: boolean;
-  auth_source_default_email_grant_on_first_bind?: boolean;
-  // ── 平台限额（嵌套 JSON，系统层 + email auth-source 层）────────────────────────────────
+  // ── 平台限额（嵌套 JSON）────────────────────────────────
   default_platform_quotas?: DefaultPlatformQuotasMap;
-  auth_source_default_email_platform_quotas?: DefaultPlatformQuotasMap;
-  site_name?: string;
-  site_logo?: string;
-  site_subtitle?: string;
-  api_base_url?: string;
-  contact_info?: string;
   doc_url?: string;
-  home_content?: string;
-  compact_home_enabled?: boolean;
-  hide_ccs_import_button?: boolean;
-  table_default_page_size?: number;
-  table_page_size_options?: number[];
   backend_mode_enabled?: boolean;
-  custom_menu_items?: CustomMenuItem[];
   custom_endpoints?: CustomEndpoint[];
-  smtp_host?: string;
-  smtp_port?: number;
-  smtp_username?: string;
-  smtp_password?: string;
-  smtp_from_email?: string;
-  smtp_from_name?: string;
-  smtp_use_tls?: boolean;
-  turnstile_enabled?: boolean;
-  turnstile_site_key?: string;
-  turnstile_secret_key?: string;
-  tencent_captcha_enabled?: boolean;
-  tencent_captcha_app_id?: string;
-  tencent_captcha_app_secret_key?: string;
-  tencent_captcha_cloud_secret_id?: string;
-  tencent_captcha_cloud_secret_key?: string;
-  tencent_captcha_region?: string;
-  aliyun_captcha_enabled?: boolean;
-  aliyun_captcha_access_key_id?: string;
-  aliyun_captcha_access_key_secret?: string;
-  aliyun_captcha_scene_id?: string;
-  aliyun_captcha_prefix?: string;
-  aliyun_captcha_region?: string;
   api_key_acl_trust_forwarded_ip?: boolean;
   forwarded_client_ip_headers?: string[];
   enable_model_fallback?: boolean;
@@ -531,28 +301,13 @@ export interface UpdateSettingsRequest {
   openai_advanced_scheduler_weight_upstream_cost?: string;
   openai_advanced_scheduler_weight_previous_response?: string;
   openai_advanced_scheduler_weight_session_sticky?: string;
-  // 余额、订阅到期与账号限额通知
-  balance_low_notify_enabled?: boolean;
-  balance_low_notify_threshold?: number;
-  balance_low_notify_recharge_url?: string;
-  subscription_expiry_notify_enabled?: boolean;
-  account_quota_notify_enabled?: boolean;
-  account_quota_notify_emails?: NotifyEmailEntry[];
-
   // Channel Monitor feature switch
   channel_monitor_enabled?: boolean;
-  channel_monitor_mode?: 'v1' | 'v2';
-  channel_monitor_default_interval_seconds?: number;
   channel_monitor_hide_throughput?: boolean;
-  channel_monitor_show_quota?: boolean;
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;
 
-  // Model Plaza feature switches + description
-  model_plaza_enabled?: boolean;
-  model_plaza_require_auth?: boolean;
-  model_plaza_description?: string;
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
@@ -580,162 +335,6 @@ export async function updateSettings(
   const { data } = await apiClient.put<SystemSettings>(
     "/admin/settings",
     settings,
-  );
-  return data;
-}
-
-/**
- * Test SMTP connection request
- */
-export interface TestSmtpRequest {
-  smtp_host: string;
-  smtp_port: number;
-  smtp_username: string;
-  smtp_password: string;
-  smtp_use_tls: boolean;
-}
-
-/**
- * Test SMTP connection with provided config
- * @param config - SMTP configuration to test
- * @returns Test result message
- */
-export async function testSmtpConnection(
-  config: TestSmtpRequest,
-): Promise<{ message: string }> {
-  const { data } = await apiClient.post<{ message: string }>(
-    "/admin/settings/test-smtp",
-    config,
-  );
-  return data;
-}
-
-/**
- * Send test email request
- */
-export interface SendTestEmailRequest {
-  email: string;
-  smtp_host: string;
-  smtp_port: number;
-  smtp_username: string;
-  smtp_password: string;
-  smtp_from_email: string;
-  smtp_from_name: string;
-  smtp_use_tls: boolean;
-}
-
-/**
- * Send test email with provided SMTP config
- * @param request - Email address and SMTP config
- * @returns Test result message
- */
-export async function sendTestEmail(
-  request: SendTestEmailRequest,
-): Promise<{ message: string }> {
-  const { data } = await apiClient.post<{ message: string }>(
-    "/admin/settings/send-test-email",
-    request,
-  );
-  return data;
-}
-
-// ==================== Email Template Settings ====================
-
-export interface EmailTemplateOption {
-  value: string;
-  label?: string;
-  description?: string;
-  category?: string;
-  optional?: boolean;
-}
-
-export type EmailTemplateEventOption = string | EmailTemplateOption;
-
-export interface EmailTemplateSummary {
-  event: string;
-  locale: string;
-  subject: string;
-  is_custom?: boolean;
-  updated_at?: string;
-}
-
-export interface EmailTemplateListResponse {
-  events: EmailTemplateEventOption[];
-  locales: string[];
-  templates?: EmailTemplateSummary[];
-  placeholders?: string[];
-}
-
-export interface EmailTemplateDetail {
-  event: string;
-  locale: string;
-  subject: string;
-  html: string;
-  is_custom?: boolean;
-  updated_at?: string;
-  placeholders?: string[];
-}
-
-export interface UpdateEmailTemplateRequest {
-  subject: string;
-  html: string;
-}
-
-export interface PreviewEmailTemplateRequest extends UpdateEmailTemplateRequest {
-  event: string;
-  locale: string;
-}
-
-export interface EmailTemplatePreviewResponse {
-  subject: string;
-  html: string;
-}
-
-export async function getEmailTemplates(): Promise<EmailTemplateListResponse> {
-  const { data } = await apiClient.get<EmailTemplateListResponse>(
-    "/admin/settings/email-templates",
-  );
-  return data;
-}
-
-export async function getEmailTemplate(
-  event: string,
-  locale: string,
-): Promise<EmailTemplateDetail> {
-  const { data } = await apiClient.get<EmailTemplateDetail>(
-    `/admin/settings/email-templates/${encodeURIComponent(event)}/${encodeURIComponent(locale)}`,
-  );
-  return data;
-}
-
-export async function updateEmailTemplate(
-  event: string,
-  locale: string,
-  request: UpdateEmailTemplateRequest,
-): Promise<EmailTemplateDetail> {
-  const { data } = await apiClient.put<EmailTemplateDetail>(
-    `/admin/settings/email-templates/${encodeURIComponent(event)}/${encodeURIComponent(locale)}`,
-    request,
-  );
-  return data;
-}
-
-export async function restoreOfficialEmailTemplate(
-  event: string,
-  locale: string,
-): Promise<EmailTemplateDetail> {
-  const { data } = await apiClient.post<EmailTemplateDetail>(
-    `/admin/settings/email-templates/${encodeURIComponent(event)}/${encodeURIComponent(locale)}/restore-official`,
-  );
-  return data;
-}
-
-export async function previewEmailTemplate(
-  request: PreviewEmailTemplateRequest,
-): Promise<EmailTemplatePreviewResponse> {
-  const { data } = await apiClient.post<EmailTemplatePreviewResponse>(
-    "/admin/settings/email-template-preview",
-    request,
   );
   return data;
 }
@@ -1077,13 +676,6 @@ export async function resetWebSearchUsage(payload: {
 export const settingsAPI = {
   getSettings,
   updateSettings,
-  testSmtpConnection,
-  sendTestEmail,
-  getEmailTemplates,
-  getEmailTemplate,
-  updateEmailTemplate,
-  restoreOfficialEmailTemplate,
-  previewEmailTemplate,
   getAdminApiKey,
   regenerateAdminApiKey,
   deleteAdminApiKey,

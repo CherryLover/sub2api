@@ -13,7 +13,6 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
-	dbusersub "github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -294,10 +293,6 @@ func (r *usageLogRepository) hydrateUsageLogAssociations(ctx context.Context, lo
 	if err != nil {
 		return err
 	}
-	subs, err := r.loadSubscriptions(ctx, ids.subscriptionIDs)
-	if err != nil {
-		return err
-	}
 
 	for i := range logs {
 		if user, ok := users[logs[i].UserID]; ok {
@@ -314,21 +309,15 @@ func (r *usageLogRepository) hydrateUsageLogAssociations(ctx context.Context, lo
 				logs[i].Group = group
 			}
 		}
-		if logs[i].SubscriptionID != nil {
-			if sub, ok := subs[*logs[i].SubscriptionID]; ok {
-				logs[i].Subscription = sub
-			}
-		}
 	}
 	return nil
 }
 
 type usageLogIDs struct {
-	userIDs         []int64
-	apiKeyIDs       []int64
-	accountIDs      []int64
-	groupIDs        []int64
-	subscriptionIDs []int64
+	userIDs    []int64
+	apiKeyIDs  []int64
+	accountIDs []int64
+	groupIDs   []int64
 }
 
 func collectUsageLogIDs(logs []service.UsageLog) usageLogIDs {
@@ -338,7 +327,6 @@ func collectUsageLogIDs(logs []service.UsageLog) usageLogIDs {
 	apiKeyIDs := idSet()
 	accountIDs := idSet()
 	groupIDs := idSet()
-	subscriptionIDs := idSet()
 
 	for i := range logs {
 		userIDs[logs[i].UserID] = struct{}{}
@@ -347,17 +335,13 @@ func collectUsageLogIDs(logs []service.UsageLog) usageLogIDs {
 		if logs[i].GroupID != nil {
 			groupIDs[*logs[i].GroupID] = struct{}{}
 		}
-		if logs[i].SubscriptionID != nil {
-			subscriptionIDs[*logs[i].SubscriptionID] = struct{}{}
-		}
 	}
 
 	return usageLogIDs{
-		userIDs:         setToSlice(userIDs),
-		apiKeyIDs:       setToSlice(apiKeyIDs),
-		accountIDs:      setToSlice(accountIDs),
-		groupIDs:        setToSlice(groupIDs),
-		subscriptionIDs: setToSlice(subscriptionIDs),
+		userIDs:    setToSlice(userIDs),
+		apiKeyIDs:  setToSlice(apiKeyIDs),
+		accountIDs: setToSlice(accountIDs),
+		groupIDs:   setToSlice(groupIDs),
 	}
 }
 
@@ -418,21 +402,6 @@ func (r *usageLogRepository) loadGroups(ctx context.Context, ids []int64) (map[i
 	}
 	for _, m := range models {
 		out[m.ID] = groupEntityToService(m)
-	}
-	return out, nil
-}
-
-func (r *usageLogRepository) loadSubscriptions(ctx context.Context, ids []int64) (map[int64]*service.UserSubscription, error) {
-	out := make(map[int64]*service.UserSubscription)
-	if len(ids) == 0 {
-		return out, nil
-	}
-	models, err := r.client.UserSubscription.Query().Where(dbusersub.IDIn(ids...)).All(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, m := range models {
-		out[m.ID] = userSubscriptionEntityToService(m)
 	}
 	return out, nil
 }

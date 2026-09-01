@@ -12,7 +12,6 @@ import (
 	"image"
 	"image/png"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,27 +22,21 @@ import (
 // --- mock: UserRepository ---
 
 type mockUserRepo struct {
-	updateBalanceErr         error
-	updateBalanceFn          func(ctx context.Context, id int64, amount float64) error
-	deductBalanceFn          func(ctx context.Context, id int64, amount float64) error
-	deductAvailableBalanceFn func(ctx context.Context, id int64, amount float64) (float64, error)
-	getByIDUser              *User
-	getByIDErr               error
-	identities               []UserAuthIdentityRecord
-	unbindIdentityErr        error
-	unboundProviders         []string
-	updateLastActiveErr      error
-	updateLastActiveUserIDs  []int64
-	updateLastActiveAt       []time.Time
-	updateFn                 func(ctx context.Context, user *User) error
-	updateCalls              int
-	updateFields             []UserUpdateFields
-	upsertAvatarFn           func(ctx context.Context, userID int64, input UpsertUserAvatarInput) (*UserAvatar, error)
-	upsertAvatarArgs         []UpsertUserAvatarInput
-	deleteAvatarFn           func(ctx context.Context, userID int64) error
-	deleteAvatarIDs          []int64
-	getAvatarFn              func(ctx context.Context, userID int64) (*UserAvatar, error)
-	txCalls                  int
+	getByIDUser             *User
+	getByIDErr              error
+	identities              []UserAuthIdentityRecord
+	updateLastActiveErr     error
+	updateLastActiveUserIDs []int64
+	updateLastActiveAt      []time.Time
+	updateFn                func(ctx context.Context, user *User) error
+	updateCalls             int
+	updateFields            []UserUpdateFields
+	upsertAvatarFn          func(ctx context.Context, userID int64, input UpsertUserAvatarInput) (*UserAvatar, error)
+	upsertAvatarArgs        []UpsertUserAvatarInput
+	deleteAvatarFn          func(ctx context.Context, userID int64) error
+	deleteAvatarIDs         []int64
+	getAvatarFn             func(ctx context.Context, userID int64) (*UserAvatar, error)
+	txCalls                 int
 }
 
 type mockUserRepoTxKey struct{}
@@ -187,37 +180,10 @@ func (m *mockUserRepo) List(context.Context, pagination.PaginationParams) ([]Use
 func (m *mockUserRepo) ListWithFilters(context.Context, pagination.PaginationParams, UserListFilters) ([]User, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
-func (m *mockUserRepo) UpdateBalance(ctx context.Context, id int64, amount float64) error {
-	if m.updateBalanceFn != nil {
-		return m.updateBalanceFn(ctx, id, amount)
-	}
-	return m.updateBalanceErr
-}
 func (m *mockUserRepo) UpdateUserLastActiveAt(_ context.Context, userID int64, activeAt time.Time) error {
 	m.updateLastActiveUserIDs = append(m.updateLastActiveUserIDs, userID)
 	m.updateLastActiveAt = append(m.updateLastActiveAt, activeAt)
 	return m.updateLastActiveErr
-}
-func (m *mockUserRepo) DeductBalance(ctx context.Context, id int64, amount float64) error {
-	if m.deductBalanceFn != nil {
-		return m.deductBalanceFn(ctx, id, amount)
-	}
-	return nil
-}
-
-func (m *mockUserRepo) DeductAvailableBalance(ctx context.Context, id int64, amount float64) (float64, error) {
-	if m.deductAvailableBalanceFn != nil {
-		return m.deductAvailableBalanceFn(ctx, id, amount)
-	}
-	return amount, nil
-}
-
-func (m *mockUserRepo) AdjustBalance(ctx context.Context, id int64, delta float64) (BalanceChange, error) {
-	panic("unexpected AdjustBalance call")
-}
-
-func (m *mockUserRepo) SetBalance(ctx context.Context, id int64, value float64) (BalanceChange, error) {
-	panic("unexpected SetBalance call")
 }
 func (m *mockUserRepo) UpdateConcurrency(context.Context, int64, int) error { return nil }
 func (m *mockUserRepo) ExistsByEmail(context.Context, string) (bool, error) { return false, nil }
@@ -251,22 +217,6 @@ func (m *mockUserRepo) DisableTotp(context.Context, int64) error               {
 func (m *mockUserRepo) RemoveGroupFromUserAllowedGroups(context.Context, int64, int64) error {
 	return nil
 }
-func (m *mockUserRepo) UnbindUserAuthProvider(_ context.Context, _ int64, provider string) error {
-	if m.unbindIdentityErr != nil {
-		return m.unbindIdentityErr
-	}
-	m.unboundProviders = append(m.unboundProviders, provider)
-	filtered := m.identities[:0]
-	for _, identity := range m.identities {
-		if identity.ProviderType == provider {
-			continue
-		}
-		filtered = append(filtered, identity)
-	}
-	m.identities = append([]UserAuthIdentityRecord(nil), filtered...)
-	return nil
-}
-
 func (m *mockUserRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*User, error) {
 	return m.GetByID(ctx, id)
 }
@@ -306,141 +256,7 @@ func (m *mockAuthCacheInvalidator) InvalidateAuthCacheByUserID(_ context.Context
 	m.invalidatedUserIDs = append(m.invalidatedUserIDs, userID)
 }
 
-// --- mock: BillingCache ---
-
-type mockBillingCache struct {
-	invalidateErr       error
-	invalidateCallCount atomic.Int64
-	invalidatedUserIDs  []int64
-	mu                  sync.Mutex
-}
-
-func (m *mockBillingCache) GetUserBalance(context.Context, int64) (float64, error)  { return 0, nil }
-func (m *mockBillingCache) SetUserBalance(context.Context, int64, float64) error    { return nil }
-func (m *mockBillingCache) DeductUserBalance(context.Context, int64, float64) error { return nil }
-func (m *mockBillingCache) InvalidateUserBalance(_ context.Context, userID int64) error {
-	m.invalidateCallCount.Add(1)
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.invalidatedUserIDs = append(m.invalidatedUserIDs, userID)
-	return m.invalidateErr
-}
-func (m *mockBillingCache) GetSubscriptionCache(context.Context, int64, int64) (*SubscriptionCacheData, error) {
-	return nil, nil
-}
-func (m *mockBillingCache) SetSubscriptionCache(context.Context, int64, int64, *SubscriptionCacheData) error {
-	return nil
-}
-func (m *mockBillingCache) UpdateSubscriptionUsage(context.Context, int64, int64, float64) error {
-	return nil
-}
-func (m *mockBillingCache) InvalidateSubscriptionCache(context.Context, int64, int64) error {
-	return nil
-}
-func (m *mockBillingCache) GetAPIKeyRateLimit(context.Context, int64) (*APIKeyRateLimitCacheData, error) {
-	return nil, nil
-}
-func (m *mockBillingCache) SetAPIKeyRateLimit(context.Context, int64, *APIKeyRateLimitCacheData) error {
-	return nil
-}
-func (m *mockBillingCache) UpdateAPIKeyRateLimitUsage(context.Context, int64, float64) error {
-	return nil
-}
-func (m *mockBillingCache) InvalidateAPIKeyRateLimit(context.Context, int64) error {
-	return nil
-}
-
-func (m *mockBillingCache) GetUserPlatformQuotaCache(context.Context, int64, string) (*UserPlatformQuotaCacheEntry, bool, error) {
-	return nil, false, nil
-}
-
-func (m *mockBillingCache) SetUserPlatformQuotaCache(context.Context, int64, string, *UserPlatformQuotaCacheEntry, time.Duration) error {
-	return nil
-}
-
-func (m *mockBillingCache) DeleteUserPlatformQuotaCache(context.Context, int64, string) error {
-	return nil
-}
-
-func (m *mockBillingCache) IncrUserPlatformQuotaUsageCache(context.Context, int64, string, float64, time.Duration, bool) error {
-	return nil
-}
-
-func (m *mockBillingCache) PopDirtyUserPlatformQuotaKeys(context.Context, int) ([]UserPlatformQuotaKey, error) {
-	return nil, nil
-}
-
-func (m *mockBillingCache) ReaddDirtyUserPlatformQuotaKeys(context.Context, []UserPlatformQuotaKey) error {
-	return nil
-}
-
-func (m *mockBillingCache) BatchGetUserPlatformQuotaCache(context.Context, []UserPlatformQuotaKey) ([]*UserPlatformQuotaCacheEntry, error) {
-	return nil, nil
-}
-
 // --- 测试 ---
-
-func TestUpdateBalance_Success(t *testing.T) {
-	repo := &mockUserRepo{}
-	cache := &mockBillingCache{}
-	svc := NewUserService(repo, nil, nil, cache)
-
-	err := svc.UpdateBalance(context.Background(), 42, 100.0)
-	require.NoError(t, err)
-
-	// 等待异步 goroutine 完成
-	require.Eventually(t, func() bool {
-		return cache.invalidateCallCount.Load() == 1
-	}, 2*time.Second, 10*time.Millisecond, "应异步调用 InvalidateUserBalance")
-
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-	require.Equal(t, []int64{42}, cache.invalidatedUserIDs, "应对 userID=42 失效缓存")
-}
-
-func TestUnbindUserAuthProviderRejectsLastRemainingLoginMethod(t *testing.T) {
-	repo := &mockUserRepo{
-		getByIDUser: &User{
-			ID:    9,
-			Email: "only-user@linuxdo-connect.invalid",
-		},
-		identities: []UserAuthIdentityRecord{
-			{
-				ProviderType:    "linuxdo",
-				ProviderKey:     "linuxdo",
-				ProviderSubject: "linuxdo-only-subject",
-			},
-		},
-	}
-	svc := NewUserService(repo, nil, nil, nil)
-
-	_, err := svc.UnbindUserAuthProvider(context.Background(), 9, "linuxdo")
-
-	require.ErrorIs(t, err, ErrIdentityUnbindLastMethod)
-	require.Empty(t, repo.unboundProviders)
-}
-
-func TestGetProfileIdentitySummaries_DoesNotTreatOAuthOnlyCompatEmailAsAlternativeLoginMethod(t *testing.T) {
-	repo := &mockUserRepo{
-		getByIDUser: &User{
-			ID:           10,
-			Email:        "oauth-only@example.com",
-			SignupSource: "oidc",
-		},
-		identities: []UserAuthIdentityRecord{
-			{
-				ProviderType:    "oidc",
-				ProviderKey:     "https://issuer.example.com",
-				ProviderSubject: "oidc-only-subject",
-			},
-		},
-	}
-	svc := NewUserService(repo, nil, nil, nil)
-
-	_, err := svc.UnbindUserAuthProvider(context.Background(), 10, "oidc")
-	require.ErrorIs(t, err, ErrIdentityUnbindLastMethod)
-	require.Empty(t, repo.unboundProviders)
-}
 
 func TestGetProfileIdentitySummaries_DoesNotTreatCompatBackfilledEmailIdentityAsAlternativeLoginMethod(t *testing.T) {
 	repo := &mockUserRepo{
@@ -466,72 +282,12 @@ func TestGetProfileIdentitySummaries_DoesNotTreatCompatBackfilledEmailIdentityAs
 			},
 		},
 	}
-	svc := NewUserService(repo, nil, nil, nil)
+	svc := NewUserService(repo, nil, nil)
 
 	summaries, err := svc.GetProfileIdentitySummaries(context.Background(), 11, repo.getByIDUser)
 
 	require.NoError(t, err)
 	require.True(t, summaries.Email.Bound)
-
-	_, err = svc.UnbindUserAuthProvider(context.Background(), 11, "wechat")
-	require.ErrorIs(t, err, ErrIdentityUnbindLastMethod)
-	require.Empty(t, repo.unboundProviders)
-}
-
-func TestUnbindUserAuthProviderRemovesProviderAndReturnsUpdatedProfile(t *testing.T) {
-	repo := &mockUserRepo{
-		getByIDUser: &User{
-			ID:    12,
-			Email: "alice@example.com",
-		},
-		identities: []UserAuthIdentityRecord{
-			{
-				ProviderType:    "email",
-				ProviderKey:     "email",
-				ProviderSubject: "alice@example.com",
-			},
-			{
-				ProviderType:    "linuxdo",
-				ProviderKey:     "linuxdo",
-				ProviderSubject: "linuxdo-subject-12",
-			},
-		},
-	}
-	invalidator := &mockAuthCacheInvalidator{}
-	svc := NewUserService(repo, nil, invalidator, nil)
-
-	user, err := svc.UnbindUserAuthProvider(context.Background(), 12, "linuxdo")
-
-	require.NoError(t, err)
-	require.Equal(t, []string{"linuxdo"}, repo.unboundProviders)
-	require.Equal(t, int64(12), user.ID)
-	require.Equal(t, []int64{12}, invalidator.invalidatedUserIDs)
-
-	summaries, err := svc.GetProfileIdentitySummaries(context.Background(), 12, user)
-	require.NoError(t, err)
-	require.True(t, summaries.Email.Bound)
-}
-
-func TestUpdateBalance_NilBillingCache_NoPanic(t *testing.T) {
-	repo := &mockUserRepo{}
-	svc := NewUserService(repo, nil, nil, nil) // billingCache = nil
-
-	err := svc.UpdateBalance(context.Background(), 1, 50.0)
-	require.NoError(t, err, "billingCache 为 nil 时不应 panic")
-}
-
-func TestUpdateBalance_CacheFailure_DoesNotAffectReturn(t *testing.T) {
-	repo := &mockUserRepo{}
-	cache := &mockBillingCache{invalidateErr: errors.New("redis connection refused")}
-	svc := NewUserService(repo, nil, nil, cache)
-
-	err := svc.UpdateBalance(context.Background(), 99, 200.0)
-	require.NoError(t, err, "缓存失效失败不应影响主流程返回值")
-
-	// 等待异步 goroutine 完成（即使失败也应调用）
-	require.Eventually(t, func() bool {
-		return cache.invalidateCallCount.Load() == 1
-	}, 2*time.Second, 10*time.Millisecond, "即使失败也应调用 InvalidateUserBalance")
 }
 
 func TestTouchLastActive_UpdatesWhenStale(t *testing.T) {
@@ -542,7 +298,7 @@ func TestTouchLastActive_UpdatesWhenStale(t *testing.T) {
 			LastActiveAt: &stale,
 		},
 	}
-	svc := NewUserService(repo, nil, nil, nil)
+	svc := NewUserService(repo, nil, nil)
 
 	svc.TouchLastActive(context.Background(), 42)
 
@@ -559,7 +315,7 @@ func TestTouchLastActive_SkipsWhenRecent(t *testing.T) {
 			LastActiveAt: &recent,
 		},
 	}
-	svc := NewUserService(repo, nil, nil, nil)
+	svc := NewUserService(repo, nil, nil)
 
 	svc.TouchLastActive(context.Background(), 42)
 
@@ -567,51 +323,14 @@ func TestTouchLastActive_SkipsWhenRecent(t *testing.T) {
 	require.Empty(t, repo.updateLastActiveAt)
 }
 
-func TestUpdateBalance_RepoError_ReturnsError(t *testing.T) {
-	repo := &mockUserRepo{updateBalanceErr: errors.New("database error")}
-	cache := &mockBillingCache{}
-	svc := NewUserService(repo, nil, nil, cache)
-
-	err := svc.UpdateBalance(context.Background(), 1, 100.0)
-	require.Error(t, err, "repo 失败时应返回错误")
-	require.Contains(t, err.Error(), "update balance")
-
-	// repo 失败时不应触发缓存失效
-	time.Sleep(100 * time.Millisecond)
-	require.Equal(t, int64(0), cache.invalidateCallCount.Load(),
-		"repo 失败时不应调用 InvalidateUserBalance")
-}
-
-func TestUpdateBalance_WithAuthCacheInvalidator(t *testing.T) {
-	repo := &mockUserRepo{}
-	auth := &mockAuthCacheInvalidator{}
-	cache := &mockBillingCache{}
-	svc := NewUserService(repo, nil, auth, cache)
-
-	err := svc.UpdateBalance(context.Background(), 77, 300.0)
-	require.NoError(t, err)
-
-	// 验证 auth cache 同步失效
-	auth.mu.Lock()
-	require.Equal(t, []int64{77}, auth.invalidatedUserIDs)
-	auth.mu.Unlock()
-
-	// 验证 billing cache 异步失效
-	require.Eventually(t, func() bool {
-		return cache.invalidateCallCount.Load() == 1
-	}, 2*time.Second, 10*time.Millisecond)
-}
-
 func TestNewUserService_FieldsAssignment(t *testing.T) {
 	repo := &mockUserRepo{}
 	auth := &mockAuthCacheInvalidator{}
-	cache := &mockBillingCache{}
 
-	svc := NewUserService(repo, nil, auth, cache)
+	svc := NewUserService(repo, nil, auth)
 	require.NotNil(t, svc)
 	require.Equal(t, repo, svc.userRepo)
 	require.Equal(t, auth, svc.authCacheInvalidator)
-	require.Equal(t, cache, svc.billingCache)
 }
 
 func TestUpdateProfile_StoresInlineAvatarWithinLimit(t *testing.T) {
@@ -625,7 +344,7 @@ func TestUpdateProfile_StoresInlineAvatarWithinLimit(t *testing.T) {
 			Username: "avatar-user",
 		},
 	}
-	svc := NewUserService(repo, nil, nil, nil)
+	svc := NewUserService(repo, nil, nil)
 
 	updated, err := svc.UpdateProfile(context.Background(), 7, UpdateProfileRequest{
 		AvatarURL: &dataURL,
@@ -676,7 +395,7 @@ func TestUpdateProfile_CompressesInlineAvatarToTwentyKilobytes(t *testing.T) {
 			Username: "avatar-compress",
 		},
 	}
-	svc := NewUserService(repo, nil, nil, nil)
+	svc := NewUserService(repo, nil, nil)
 
 	updated, err := svc.UpdateProfile(context.Background(), 17, UpdateProfileRequest{
 		AvatarURL: &dataURL,
@@ -704,7 +423,7 @@ func TestUpdateProfile_RejectsInlineAvatarOverLimit(t *testing.T) {
 			Username: "too-large",
 		},
 	}
-	svc := NewUserService(repo, nil, nil, nil)
+	svc := NewUserService(repo, nil, nil)
 
 	_, err := svc.UpdateProfile(context.Background(), 8, UpdateProfileRequest{
 		AvatarURL: &dataURL,
@@ -724,7 +443,7 @@ func TestUpdateProfile_StoresRemoteAvatarURL(t *testing.T) {
 			Username: "remote-avatar",
 		},
 	}
-	svc := NewUserService(repo, nil, nil, nil)
+	svc := NewUserService(repo, nil, nil)
 
 	updated, err := svc.UpdateProfile(context.Background(), 9, UpdateProfileRequest{
 		AvatarURL: &remoteURL,
@@ -749,7 +468,7 @@ func TestUpdateProfile_DeletesAvatarOnEmptyString(t *testing.T) {
 			AvatarSource: "remote_url",
 		},
 	}
-	svc := NewUserService(repo, nil, nil, nil)
+	svc := NewUserService(repo, nil, nil)
 
 	updated, err := svc.UpdateProfile(context.Background(), 10, UpdateProfileRequest{
 		AvatarURL: &empty,
@@ -773,7 +492,7 @@ func TestUpdateProfile_RollsBackAvatarMutationWhenUserUpdateFails(t *testing.T) 
 			return errors.New("write user failed")
 		},
 	}
-	svc := NewUserService(repo, nil, nil, nil)
+	svc := NewUserService(repo, nil, nil)
 
 	remoteURL := "https://cdn.example.com/new.png"
 	_, err := svc.UpdateProfile(context.Background(), 11, UpdateProfileRequest{
@@ -802,7 +521,7 @@ func TestGetProfile_HydratesAvatarFromRepository(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewUserService(repo, nil, nil, nil)
+	svc := NewUserService(repo, nil, nil)
 
 	user, err := svc.GetProfile(context.Background(), 12)
 	require.NoError(t, err)

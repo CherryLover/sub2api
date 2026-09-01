@@ -51,14 +51,7 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => authStore }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => appStore }))
-vi.mock('@/stores/adminSettings', () => ({ useAdminSettingsStore: () => ({ customMenuItems: [] }) }))
-vi.mock('@/stores/adminCompliance', () => ({
-  useAdminComplianceStore: () => ({
-    initialized: true,
-    fetchStatus: vi.fn(),
-    requireAcknowledgement: vi.fn(),
-  }),
-}))
+vi.mock('@/stores/adminSettings', () => ({ useAdminSettingsStore: () => ({}) }))
 vi.mock('@/composables/useNavigationLoading', () => ({
   useNavigationLoadingState: () => ({
     startNavigation: vi.fn(),
@@ -145,28 +138,12 @@ describe('登录入口隐藏时的导航守卫', () => {
     expect(JSON.stringify(next.mock.calls)).not.toContain('/login')
   })
 
-  it('隐藏模式下注册 / 找回密码在没走过入口时不可达', async () => {
-    appStore.cachedPublicSettings = HIDDEN_SETTINGS
-    const guard = await loadRouter('/home')
-
-    expect(await navigate(guard, { path: '/register', name: 'Register' })).toHaveBeenCalledWith({
-      path: '/key-usage',
-      replace: true,
-    })
-    expect(await navigate(guard, { path: '/forgot-password', name: 'ForgotPassword' })).toHaveBeenCalledWith({
-      path: '/key-usage',
-      replace: true,
-    })
-  })
-
-  it('隐藏模式不会误伤免登录页 / 邮件入口 / OAuth 回调 / 支付回跳', async () => {
+  it('隐藏模式不会误伤免登录页 / OAuth 回调 / 支付回跳', async () => {
     appStore.cachedPublicSettings = HIDDEN_SETTINGS
     const guard = await loadRouter('/home')
 
     for (const route of [
       { path: '/key-usage', name: 'KeyUsage' },
-      { path: '/reset-password', name: 'ResetPassword' },
-      { path: '/email-verify', name: 'EmailVerify' },
       { path: '/auth/callback', name: 'OAuthCallback' },
       { path: '/auth/linuxdo/callback', name: 'LinuxDoOAuthCallback' },
       { path: '/payment/result', name: 'PaymentResult' },
@@ -191,15 +168,6 @@ describe('登录入口隐藏时的导航守卫', () => {
       name: 'LoginEntry',
       meta: { loginEntry: true },
     })
-    expect(next).toHaveBeenCalledWith()
-  })
-
-  it('走过入口后同一标签页的注册页可达', async () => {
-    appStore.cachedPublicSettings = HIDDEN_SETTINGS
-    window.__APP_CONFIG__ = HIDDEN_SETTINGS as never
-    const guard = await loadRouter(HIDDEN_PATH, 1)
-
-    const next = await navigate(guard, { path: '/register', name: 'Register' })
     expect(next).toHaveBeenCalledWith()
   })
 
@@ -237,7 +205,6 @@ describe('登录入口隐藏时的导航守卫', () => {
 
     expect(routerHarness.addedRoutes).toHaveLength(0)
     expect(await navigate(guard, { path: '/login', name: 'Login' })).toHaveBeenCalledWith()
-    expect(await navigate(guard, { path: '/register', name: 'Register' })).toHaveBeenCalledWith()
 
     const protectedNext = await navigate(guard, {
       path: '/dashboard',

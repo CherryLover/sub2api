@@ -56,13 +56,9 @@ function createUser(overrides: Partial<User> = {}): User {
     email: 'alice@example.com',
     avatar_url: null,
     role: 'user',
-    balance: 10,
     concurrency: 2,
     status: 'active',
     allowed_groups: null,
-    balance_notify_enabled: true,
-    balance_notify_threshold: null,
-    balance_notify_extra_emails: [],
     created_at: '2026-04-20T00:00:00Z',
     updated_at: '2026-04-20T00:00:00Z',
     ...overrides
@@ -143,7 +139,6 @@ describe('ProfileInfoCard', () => {
     })
 
     expect(wrapper.get('[data-testid="profile-overview-hero"]').text()).toContain('alice@example.com')
-    expect(wrapper.get('[data-testid="profile-overview-metric-balance"]').text()).toContain('Account Balance')
     expect(wrapper.get('[data-testid="profile-overview-metric-concurrency"]').text()).toContain('Concurrency Limit')
     expect(wrapper.get('[data-testid="profile-overview-metric-member-since"]').text()).toContain('Member Since')
     expect(wrapper.find('[data-testid="profile-info-summary-grid"]').exists()).toBe(false)

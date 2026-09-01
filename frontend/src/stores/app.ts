@@ -21,11 +21,7 @@ export const useAppStore = defineStore('app', () => {
   // Public settings cache state
   const publicSettingsLoaded = ref<boolean>(false)
   const publicSettingsLoading = ref<boolean>(false)
-  const siteName = ref<string>('Sub2API')
-  const siteLogo = ref<string>('')
   const siteVersion = ref<string>('')
-  const contactInfo = ref<string>('')
-  const apiBaseUrl = ref<string>('')
   const docUrl = ref<string>('')
   const cachedPublicSettings = ref<PublicSettings | null>(null)
   let publicSettingsRequest: Promise<PublicSettings | null> | null = null
@@ -247,11 +243,7 @@ export const useAppStore = defineStore('app', () => {
       window.__APP_CONFIG__ = { ...config }
     }
     cachedPublicSettings.value = config
-    siteName.value = config.site_name || 'Sub2API'
-    siteLogo.value = config.site_logo || ''
     siteVersion.value = config.version || ''
-    contactInfo.value = config.contact_info || ''
-    apiBaseUrl.value = config.api_base_url || ''
     docUrl.value = config.doc_url || ''
     publicSettingsLoaded.value = true
   }
@@ -282,40 +274,13 @@ export const useAppStore = defineStore('app', () => {
         return Promise.resolve({ ...cachedPublicSettings.value })
       }
       return Promise.resolve({
-        registration_enabled: false,
-        email_verify_enabled: false,
-        registration_email_suffix_whitelist: [],
-        password_reset_enabled: false,
-        turnstile_enabled: false,
-        turnstile_site_key: '',
-        aliyun_captcha_enabled: false,
-        aliyun_captcha_scene_id: '',
-        aliyun_captcha_prefix: '',
-        aliyun_captcha_region: 'cn',
-        site_name: siteName.value,
-        site_logo: siteLogo.value,
-        site_subtitle: '',
-        api_base_url: apiBaseUrl.value,
-        contact_info: contactInfo.value,
         doc_url: docUrl.value,
-        home_content: '',
-        compact_home_enabled: false,
-        hide_ccs_import_button: false,
-        table_default_page_size: 20,
-        table_page_size_options: [10, 20, 50, 100],
-        custom_menu_items: [],
         custom_endpoints: [],
         backend_mode_enabled: false,
         passkey_enabled: false,
         version: siteVersion.value,
-        balance_low_notify_enabled: false,
-        account_quota_notify_enabled: false,
-        balance_low_notify_threshold: 0,
         channel_monitor_enabled: true,
-        channel_monitor_default_interval_seconds: 60,
         available_channels_enabled: false,
-        model_plaza_enabled: false,
-        model_plaza_require_auth: false,
         risk_control_enabled: false,
         service_quota_enabled: false,
         allow_user_view_error_requests: false,
@@ -389,11 +354,7 @@ export const useAppStore = defineStore('app', () => {
 
     // Public settings state
     publicSettingsLoaded,
-    siteName,
-    siteLogo,
     siteVersion,
-    contactInfo,
-    apiBaseUrl,
     docUrl,
     cachedPublicSettings,
 

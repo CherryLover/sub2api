@@ -23,7 +23,6 @@ type inputGroup struct {
 	Name                 string  `json:"name"`
 	Platform             string  `json:"platform"`
 	RateMultiplier       float64 `json:"rate_multiplier"`
-	SubscriptionType     string  `json:"subscription_type"`
 	ProfitControlEnabled bool    `json:"profit_control_enabled"`
 	ProfitMinMargin      float64 `json:"profit_min_margin"`
 	ProfitSafetyBuffer   float64 `json:"profit_safety_buffer"`
@@ -161,7 +160,6 @@ func parsePreviewInputs(raw []byte, assumeEnabled bool) ([]service.ProfitPreview
 			Status:               service.StatusActive,
 			Hydrated:             true,
 			RateMultiplier:       entry.Group.RateMultiplier,
-			SubscriptionType:     entry.Group.SubscriptionType,
 			ProfitControlEnabled: entry.Group.ProfitControlEnabled,
 			ProfitMinMargin:      entry.Group.ProfitMinMargin,
 			ProfitSafetyBuffer:   entry.Group.ProfitSafetyBuffer,

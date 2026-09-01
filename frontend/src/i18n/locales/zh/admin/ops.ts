@@ -414,7 +414,7 @@ export default {
       },
       alertEvents: {
         title: '告警事件',
-        description: '最近的告警触发/恢复记录（仅邮件通知）',
+        description: '最近的告警触发/恢复记录',
         loading: '加载中...',
         empty: '暂无告警事件',
         loadFailed: '加载告警事件失败',
@@ -454,15 +454,12 @@ export default {
           title: '标题',
           duration: '持续时间',
           metric: '指标 / 阈值',
-          dimensions: '维度',
-          email: '邮件已发送',
-          emailSent: '已发送',
-          emailIgnored: '已忽略'
+          dimensions: '维度'
         }
       },
       alertRules: {
         title: '告警规则',
-        description: '创建与管理系统阈值告警（仅邮件通知）',
+        description: '创建与管理系统阈值告警',
         loading: '加载中...',
         empty: '暂无告警规则',
         loadFailed: '加载告警规则失败',
@@ -542,8 +539,7 @@ export default {
           window: '统计窗口（分钟）',
           sustained: '连续样本数（每分钟）',
           cooldown: '冷却期（分钟）',
-          enabled: '启用',
-          notifyEmail: '发送邮件通知'
+          enabled: '启用'
         },
         validation: {
           title: '请先修正以下问题',
@@ -619,45 +615,6 @@ export default {
           upstreamErrorRateMaxRange: '上游错误率最大值必须在 0-100 之间'
         }
       },
-      email: {
-        title: '邮件通知配置',
-        description: '配置告警/报告邮件通知（存储在数据库中）。',
-        loading: '加载中...',
-        noData: '暂无邮件通知配置',
-        loadFailed: '加载邮件通知配置失败',
-        saveSuccess: '邮件通知配置已保存',
-        saveFailed: '保存邮件通知配置失败',
-        alertTitle: '告警邮件',
-        reportTitle: '报告邮件',
-        recipients: '收件人',
-        recipientsHint: '若为空，系统可能会回退使用第一个管理员邮箱。',
-        minSeverity: '最低级别',
-        minSeverityAll: '全部级别',
-        rateLimitPerHour: '每小时限额',
-        batchWindowSeconds: '合并窗口（秒）',
-        includeResolved: '包含恢复通知',
-        dailySummary: '每日摘要',
-        weeklySummary: '每周摘要',
-        errorDigest: '错误摘要',
-        errorDigestMinCount: '错误摘要最小数量',
-        accountHealth: '账号健康报告',
-        accountHealthThreshold: '错误率阈值（%）',
-        cronPlaceholder: 'Cron 表达式',
-        reportHint: '发送时间使用 Cron 语法；留空将使用默认值。',
-        validation: {
-          title: '请先修正以下问题',
-          invalid: '邮件通知配置不合法',
-          alertRecipientsRequired: '已启用告警邮件，但未配置任何收件人',
-          reportRecipientsRequired: '已启用报告邮件，但未配置任何收件人',
-          invalidRecipients: '存在不合法的收件人邮箱',
-          rateLimitRange: '每小时限额必须为 ≥ 0 的数字',
-          batchWindowRange: '合并窗口必须在 0 到 86400 秒之间',
-          cronRequired: '启用定时任务时必须填写 Cron 表达式',
-          cronFormat: 'Cron 表达式格式可能不正确（至少应包含 5 段）',
-          digestMinCountRange: '错误摘要最小数量必须为 ≥ 0 的数字',
-          accountHealthThresholdRange: '账号健康错误率阈值必须在 0 到 100 之间'
-        }
-      },
       settings: {
         title: '运维监控设置',
         loadFailed: '加载设置失败',
@@ -666,17 +623,6 @@ export default {
         dataCollection: '数据采集',
         evaluationInterval: '评估间隔（秒）',
         evaluationIntervalHint: '检测任务的执行频率，建议保持默认',
-        alertConfig: '预警配置',
-        enableAlert: '开启预警',
-        alertRecipients: '预警接收邮箱',
-        emailPlaceholder: '输入邮箱地址',
-        recipientsHint: '若为空，系统将使用第一个管理员邮箱作为默认收件人',
-        minSeverity: '最低级别',
-        reportConfig: '评估报告配置',
-        enableReport: '开启评估报告',
-        reportRecipients: '评估报告接收邮箱',
-        dailySummary: '每日摘要',
-        weeklySummary: '每周摘要',
         metricThresholds: '指标阈值配置',
         metricThresholdsHint: '配置各项指标的告警阈值，超出阈值时将以红色显示',
         slaMinPercent: 'SLA最低百分比',

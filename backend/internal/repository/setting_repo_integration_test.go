@@ -118,30 +118,30 @@ func (s *SettingRepoSuite) TestSet_EmptyValue() {
 }
 
 // TestSetMultiple_WithEmptyValues 测试批量保存包含空字符串的设置
-// 模拟用户保存站点设置时部分字段为空的场景
+// 模拟用户保存系统设置时部分字段为空的场景
 func (s *SettingRepoSuite) TestSetMultiple_WithEmptyValues() {
-	// 模拟保存站点设置，部分字段有值，部分字段为空
+	// 模拟保存系统设置，部分字段有值，部分字段为空
 	settings := map[string]string{
-		"site_name":     "Sub2api",
-		"site_subtitle": "Subscription to API",
-		"site_logo":     "", // 用户未上传Logo
-		"api_base_url":  "", // 用户未设置API地址
-		"contact_info":  "", // 用户未设置联系方式
-		"doc_url":       "", // 用户未设置文档链接
+		"grok_default_text_model":    "grok-4.6",
+		"grok_default_base_url_mode": "cli",
+		"identity_patch_prompt":      "", // 用户未设置身份补丁提示词
+		"min_codex_version":          "", // 用户未设置最低 Codex 版本
+		"doc_url":                    "", // 用户未设置文档链接
+		"custom_endpoints":           "", // 用户未添加自定义端点
 	}
 
 	s.Require().NoError(s.repo.SetMultiple(s.ctx, settings), "SetMultiple with empty values should succeed")
 
 	// 验证所有值都正确保存
-	result, err := s.repo.GetMultiple(s.ctx, []string{"site_name", "site_subtitle", "site_logo", "api_base_url", "contact_info", "doc_url"})
+	result, err := s.repo.GetMultiple(s.ctx, []string{"grok_default_text_model", "grok_default_base_url_mode", "identity_patch_prompt", "min_codex_version", "doc_url", "custom_endpoints"})
 	s.Require().NoError(err, "GetMultiple after SetMultiple with empty values")
 
-	s.Require().Equal("Sub2api", result["site_name"])
-	s.Require().Equal("Subscription to API", result["site_subtitle"])
-	s.Require().Equal("", result["site_logo"], "empty site_logo should be preserved")
-	s.Require().Equal("", result["api_base_url"], "empty api_base_url should be preserved")
-	s.Require().Equal("", result["contact_info"], "empty contact_info should be preserved")
+	s.Require().Equal("grok-4.6", result["grok_default_text_model"])
+	s.Require().Equal("cli", result["grok_default_base_url_mode"])
+	s.Require().Equal("", result["identity_patch_prompt"], "empty identity_patch_prompt should be preserved")
+	s.Require().Equal("", result["min_codex_version"], "empty min_codex_version should be preserved")
 	s.Require().Equal("", result["doc_url"], "empty doc_url should be preserved")
+	s.Require().Equal("", result["custom_endpoints"], "empty custom_endpoints should be preserved")
 }
 
 // TestSetMultiple_UpdateToEmpty 测试将已有值更新为空字符串

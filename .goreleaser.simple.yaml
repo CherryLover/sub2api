@@ -27,6 +27,23 @@ builds:
       - -X main.BuildType=release
 
 # 跳过 archives
+  # 管理员密码重置工具。批次 3 整删邮件体系后，自助找回密码随之消失，
+  # 这个二进制是唯一的自救通道，必须随发版镜像一起进生产。
+  # 只构建 linux：它的用途是在容器里 `docker exec` 跑，不进 archives（见 archives.ids）。
+  - id: adminpass
+    dir: backend
+    main: ./cmd/adminpass
+    binary: adminpass
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
 archives: []
 
 # 跳过 checksum

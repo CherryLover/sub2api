@@ -120,7 +120,8 @@ describe('passkey api', () => {
     })
   })
 
-  it('sends Tencent captcha proof only with the passkey begin request', async () => {
+  // 人机验证已整体移除：begin 不再携带任何验证码凭据。
+  it('begins the passkey ceremony without a captcha payload', async () => {
     post
       .mockResolvedValueOnce({
         data: {
@@ -137,19 +138,9 @@ describe('passkey api', () => {
       .mockResolvedValueOnce({ data: { access_token: 'access', token_type: 'Bearer', user: { id: 1 } } })
     credentialGet.mockResolvedValue(new FakePublicKeyCredential())
 
-    await passkeyAPI.login({
-      tencent_captcha_ticket: 'ticket-value',
-      tencent_captcha_randstr: '@rand-value'
-    })
+    await passkeyAPI.login()
 
-    expect(post).toHaveBeenNthCalledWith(1, '/auth/passkey/login/begin', {
-      tencent_captcha_ticket: 'ticket-value',
-      tencent_captcha_randstr: '@rand-value'
-    })
-    expect(post.mock.calls[1][1]).not.toEqual(expect.objectContaining({
-      tencent_captcha_ticket: expect.anything(),
-      tencent_captcha_randstr: expect.anything()
-    }))
+    expect(post).toHaveBeenNthCalledWith(1, '/auth/passkey/login/begin')
   })
 
   it('sends the account password when beginning registration', async () => {

@@ -49,7 +49,7 @@ func TestBillingErrorDetails_BillingServiceUnavailableMapsTo503(t *testing.T) {
 }
 
 func TestBillingErrorDetails_UnknownErrorFallsBackTo403(t *testing.T) {
-	status, code, msg, _ := billingErrorDetails(service.ErrInsufficientBalance)
+	status, code, msg, _ := billingErrorDetails(errors.New("some unexpected billing failure"))
 	require.Equal(t, http.StatusForbidden, status)
 	require.Equal(t, "billing_error", code)
 	require.NotEmpty(t, msg)

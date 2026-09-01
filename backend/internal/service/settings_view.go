@@ -12,21 +12,11 @@ func firstNonEmpty(values ...string) string {
 }
 
 type SystemSettings struct {
-	RegistrationEnabled                 bool
-	EmailVerifyEnabled                  bool
-	RegistrationEmailSuffixWhitelist    []string
-	RegistrationEmailDomainQuotaEnabled bool // 白名单非空时放行非白名单域名限量注册（默认关闭）
-	PasswordResetEnabled                bool
-	FrontendURL                         string
-	TotpEnabled                         bool // TOTP 双因素认证
-	PasskeyEnabled                      bool // Passkey 登录
-	SessionBindingEnabled               bool // 会话 IP/UA 绑定（变更即失效）
-	StepUpEnabled                       bool // 敏感操作 step-up 2FA 门控
-	AuditLogRetentionDays               int  // 审计日志保留天数（<=0 永久保留）
-	LoginAgreementEnabled               bool
-	LoginAgreementMode                  string
-	LoginAgreementUpdatedAt             string
-	LoginAgreementDocuments             []LoginAgreementDocument
+	TotpEnabled           bool // TOTP 双因素认证
+	PasskeyEnabled        bool // Passkey 登录
+	SessionBindingEnabled bool // 会话 IP/UA 绑定（变更即失效）
+	StepUpEnabled         bool // 敏感操作 step-up 2FA 门控
+	AuditLogRetentionDays int  // 审计日志保留天数（<=0 永久保留）
 
 	// 登录入口 / 默认首页（数据库层的值，未与本地配置文件合并）。
 	// LoginEntryPath 是自定义登录路径，只允许流向管理端（管理员鉴权）响应。
@@ -34,59 +24,17 @@ type SystemSettings struct {
 	LoginEntryPath   string
 	DefaultHomePath  string
 
-	SMTPHost               string
-	SMTPPort               int
-	SMTPUsername           string
-	SMTPPassword           string
-	SMTPPasswordConfigured bool
-	SMTPFrom               string
-	SMTPFromName           string
-	SMTPUseTLS             bool
+	APIKeyACLTrustForwardedIP bool
+	ForwardedClientIPHeaders  []string
 
-	TurnstileEnabled                       bool
-	TurnstileSiteKey                       string
-	TurnstileSecretKey                     string
-	TurnstileSecretKeyConfigured           bool
-	TencentCaptchaEnabled                  bool
-	TencentCaptchaAppID                    string
-	TencentCaptchaAppSecretKey             string
-	TencentCaptchaAppSecretKeyConfigured   bool
-	TencentCaptchaCloudSecretID            string
-	TencentCaptchaCloudSecretIDConfigured  bool
-	TencentCaptchaCloudSecretKey           string
-	TencentCaptchaCloudSecretKeyConfigured bool
-	TencentCaptchaRegion                   string
-	AliyunCaptchaEnabled                   bool
-	AliyunCaptchaAccessKeyID               string
-	AliyunCaptchaAccessKeySecret           string
-	AliyunCaptchaAccessKeySecretConfigured bool
-	AliyunCaptchaSceneID                   string
-	AliyunCaptchaPrefix                    string
-	AliyunCaptchaRegion                    string
-	APIKeyACLTrustForwardedIP              bool
-	ForwardedClientIPHeaders               []string
-
-	SiteName             string
-	SiteLogo             string
-	SiteSubtitle         string
-	APIBaseURL           string
-	ContactInfo          string
-	DocURL               string
-	HomeContent          string
-	CompactHomeEnabled   bool
-	HideCcsImportButton  bool
-	TableDefaultPageSize int
-	TablePageSizeOptions []int
-	CustomMenuItems      string // JSON array of custom menu items
-	CustomEndpoints      string // JSON array of custom endpoints
+	DocURL          string
+	CustomEndpoints string // JSON array of custom endpoints
 
 	DefaultConcurrency          int
-	DefaultBalance              float64
 	RiskControlEnabled          bool
 	CyberSessionBlockEnabled    bool
 	CyberSessionBlockTTLSeconds int
 	DefaultUserRPMLimit         int
-	DefaultSubscriptions        []DefaultSubscriptionSetting
 
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`
@@ -106,11 +54,8 @@ type SystemSettings struct {
 	OpsMetricsIntervalSeconds    int
 
 	// Channel Monitor feature
-	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
-	ChannelMonitorMode                   string `json:"channel_monitor_mode"`
-	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`
-	ChannelMonitorHideThroughput         bool   `json:"channel_monitor_hide_throughput"`
-	ChannelMonitorShowQuota              bool   `json:"channel_monitor_show_quota"`
+	ChannelMonitorEnabled        bool `json:"channel_monitor_enabled"`
+	ChannelMonitorHideThroughput bool `json:"channel_monitor_hide_throughput"`
 
 	// Grok model mapping policy (admin settings; empty mapping falls back to these).
 	GrokDefaultTextModel           string `json:"grok_default_text_model"`
@@ -119,11 +64,6 @@ type SystemSettings struct {
 
 	// Available Channels feature (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
-
-	// Model Plaza feature (public group/model pricing showcase)
-	ModelPlazaEnabled     bool   `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth bool   `json:"model_plaza_require_auth"`
-	ModelPlazaDescription string `json:"model_plaza_description"`
 
 	// Claude Code version check
 	MinClaudeCodeVersion string
@@ -189,18 +129,6 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse string
 	OpenAIAdvancedSchedulerEffectiveWeightSessionSticky    string
 
-	// 余额不足提醒
-	BalanceLowNotifyEnabled     bool
-	BalanceLowNotifyThreshold   float64
-	BalanceLowNotifyRechargeURL string
-
-	// 订阅到期提醒
-	SubscriptionExpiryNotifyEnabled bool
-
-	// 账号限额通知
-	AccountQuotaNotifyEnabled bool
-	AccountQuotaNotifyEmails  []NotifyEmailEntry
-
 	// 系统全局默认平台配额（key = platform，nil/缺省 = 不限制）
 	DefaultPlatformQuotas map[string]*DefaultPlatformQuotaSetting `json:"default_platform_quotas"`
 
@@ -211,62 +139,19 @@ type SystemSettings struct {
 	AllowUserViewErrorRequests bool
 }
 
-type DefaultSubscriptionSetting struct {
-	GroupID      int64 `json:"group_id"`
-	ValidityDays int   `json:"validity_days"`
-}
-
 type PublicSettings struct {
-	RegistrationEnabled                 bool
-	EmailVerifyEnabled                  bool
-	RegistrationEmailSuffixWhitelist    []string
-	RegistrationEmailDomainQuotaEnabled bool
-	PasswordResetEnabled                bool
-	TotpEnabled                         bool // TOTP 双因素认证
-	PasskeyEnabled                      bool
-	LoginAgreementEnabled               bool
-	LoginAgreementMode                  string
-	LoginAgreementUpdatedAt             string
-	LoginAgreementRevision              string
-	LoginAgreementDocuments             []LoginAgreementDocument
-	TurnstileEnabled                    bool
-	TurnstileSiteKey                    string
-	TencentCaptchaEnabled               bool
-	TencentCaptchaAppID                 string
-	TencentCaptchaRegion                string
-	AliyunCaptchaEnabled                bool
-	AliyunCaptchaSceneID                string
-	AliyunCaptchaPrefix                 string
-	AliyunCaptchaRegion                 string
-	SiteName                            string
-	SiteLogo                            string
-	SiteSubtitle                        string
-	APIBaseURL                          string
-	ContactInfo                         string
-	DocURL                              string
-	HomeContent                         string
-	CompactHomeEnabled                  bool
-	HideCcsImportButton                 bool
+	TotpEnabled    bool // TOTP 双因素认证
+	PasskeyEnabled bool
+	DocURL         string
 
-	TableDefaultPageSize int
-	TablePageSizeOptions []int
-	CustomMenuItems      string // JSON array of custom menu items
-	CustomEndpoints      string // JSON array of custom endpoints
+	CustomEndpoints string // JSON array of custom endpoints
 
 	BackendModeEnabled bool
 	Version            string
 
-	BalanceLowNotifyEnabled     bool
-	AccountQuotaNotifyEnabled   bool
-	BalanceLowNotifyThreshold   float64
-	BalanceLowNotifyRechargeURL string
-
 	// Channel Monitor feature
-	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
-	ChannelMonitorMode                   string `json:"channel_monitor_mode"`
-	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`
-	ChannelMonitorHideThroughput         bool   `json:"channel_monitor_hide_throughput"`
-	ChannelMonitorShowQuota              bool   `json:"channel_monitor_show_quota"`
+	ChannelMonitorEnabled        bool `json:"channel_monitor_enabled"`
+	ChannelMonitorHideThroughput bool `json:"channel_monitor_hide_throughput"`
 
 	// Grok model mapping policy (admin settings).
 	GrokDefaultTextModel           string `json:"grok_default_text_model"`
@@ -275,10 +160,6 @@ type PublicSettings struct {
 
 	// Available Channels feature (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
-
-	// Model Plaza feature (public group/model pricing showcase)
-	ModelPlazaEnabled     bool `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth bool `json:"model_plaza_require_auth"`
 
 	// LoginEntryPublic / DefaultHomePath 来自本地配置文件的 web 分组（不可通过后台修改）。
 	//
@@ -293,12 +174,6 @@ type PublicSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
-}
-
-type LoginAgreementDocument struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	ContentMD string `json:"content_md"`
 }
 
 // StreamTimeoutSettings 流超时处理配置（仅控制超时后的处理方式，超时判定由网关配置控制）

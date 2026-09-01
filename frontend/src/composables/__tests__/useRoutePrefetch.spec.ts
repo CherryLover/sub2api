@@ -28,7 +28,6 @@ const createMockRouter = (): Router => {
     { path: '/admin/accounts', components: { default: mockImportFn } },
     { path: '/admin/users', components: { default: mockImportFn } },
     { path: '/admin/groups', components: { default: mockImportFn } },
-    { path: '/admin/subscriptions', components: { default: mockImportFn } },
     { path: '/dashboard', components: { default: mockImportFn } },
     { path: '/keys', components: { default: mockImportFn } },
     { path: '/usage', components: { default: mockImportFn } },

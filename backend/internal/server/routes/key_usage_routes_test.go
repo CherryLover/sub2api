@@ -39,7 +39,7 @@ func newKeyUsageRoutesTestRouterWithConfig(t *testing.T, cfg *config.Config) *gi
 	router := gin.New()
 	v1 := router.Group("/api/v1")
 	// keyUsageService 传 nil：本用例只关心路由层的限流与开关，handler 会返回 503。
-	RegisterKeyUsageRoutes(v1, &handler.Handlers{KeyUsage: handler.NewKeyUsageHandler(nil, nil, nil)}, rdb, nil, nil, cfg)
+	RegisterKeyUsageRoutes(v1, &handler.Handlers{KeyUsage: handler.NewKeyUsageHandler(nil, nil)}, rdb, nil, nil, cfg)
 	return router
 }
 

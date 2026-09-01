@@ -26,16 +26,11 @@
     </header>
 
     <div
-      v-if="!systemModeV2"
+      v-if="!featureSwitchOn"
       class="rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-100"
       role="status"
     >
-      {{
-        t('channelMonitorV2.settings.modeBanner', {
-          mode: systemModeLabel,
-          modeV2: t('channelMonitorV2.settings.modeV2'),
-        })
-      }}
+      {{ t('channelMonitorV2.settings.disabledBanner') }}
       <router-link class="ml-1 font-medium underline" to="/admin/settings">{{ t('admin.settings.tabs.features') }}</router-link>
     </div>
 
@@ -267,7 +262,7 @@ import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { getChannelMonitorMode, isChannelMonitorV2Mode } from '@/utils/featureFlags'
+import { isChannelMonitorRouteEnabled } from '@/utils/featureFlags'
 import {
   getConfig,
   updateConfig,
@@ -293,16 +288,9 @@ const errorCategories = MONITOR_ERROR_CATEGORIES
 const countedErrorCategoryCount = computed(
   () => errorCategories.length - (draft.value?.ignored_error_categories?.length || 0)
 )
-/** System settings mode must be v2 for aggregation to run; config remains editable for prep. */
-const systemModeV2 = computed(() => isChannelMonitorV2Mode())
-const systemModeLabel = computed(() => {
-  if (!appStore.cachedPublicSettings?.channel_monitor_enabled) {
-    return t('channelMonitorV2.settings.modeClosed')
-  }
-  return getChannelMonitorMode() === 'v1'
-    ? t('channelMonitorV2.settings.modeV1')
-    : t('channelMonitorV2.settings.modeV2')
-})
+/** The channel_monitor_enabled switch must be on for aggregation to run;
+ *  this config stays editable while it is off so operators can prepare it. */
+const featureSwitchOn = computed(() => isChannelMonitorRouteEnabled())
 const defaultThresholds = {
   minimum_sample: 50,
   warning_error_rate: 0.05,

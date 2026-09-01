@@ -31,7 +31,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-# 默认从本仓库自己的 Release 安装/回滚，可用 GITHUB_REPO 环境变量覆盖
+# 默认从本仓库自己的 Release 安装，可用 GITHUB_REPO 环境变量覆盖
 GITHUB_REPO="${GITHUB_REPO:-CherryLover/sub2api}"
 INSTALL_DIR="/opt/sub2api"
 SERVICE_NAME="sub2api"
@@ -109,26 +109,6 @@ declare -A MSG_ZH=(
     ["cmd_restart"]="重启服务"
     ["cmd_stop"]="停止服务"
 
-    # Upgrade
-    ["upgrading"]="正在升级 Sub2API..."
-    ["current_version"]="当前版本"
-    ["stopping_service"]="正在停止服务..."
-    ["backup_created"]="备份已创建"
-    ["starting_service"]="正在启动服务..."
-    ["upgrade_complete"]="升级完成！"
-
-    # Version install
-    ["installing_version"]="正在安装指定版本"
-    ["version_not_found"]="指定版本不存在"
-    ["same_version"]="已经是该版本，无需操作"
-    ["rollback_complete"]="版本回退完成！"
-    ["install_version_complete"]="指定版本安装完成！"
-    ["validating_version"]="正在验证版本..."
-    ["available_versions"]="可用版本列表"
-    ["fetching_versions"]="正在获取可用版本..."
-    ["not_installed"]="Sub2API 尚未安装，请先执行全新安装"
-    ["fresh_install_hint"]="用法"
-
     # Uninstall
     ["uninstall_confirm"]="这将从系统中移除 Sub2API。"
     ["are_you_sure"]="确定要继续吗？(y/N)"
@@ -148,11 +128,7 @@ declare -A MSG_ZH=(
     ["usage"]="用法"
     ["cmd_none"]="(无参数)"
     ["cmd_install"]="安装 Sub2API"
-    ["cmd_upgrade"]="升级到最新版本"
     ["cmd_uninstall"]="卸载 Sub2API"
-    ["cmd_install_version"]="安装/回退到指定版本"
-    ["cmd_list_versions"]="列出可用版本"
-    ["opt_version"]="指定要安装的版本号 (例如: v1.0.0)"
 
     # Server configuration
     ["server_config_title"]="服务器配置"
@@ -166,6 +142,7 @@ declare -A MSG_ZH=(
 
     # Service management
     ["starting_service"]="正在启动服务..."
+    ["stopping_service"]="正在停止服务..."
     ["service_started"]="服务已启动"
     ["service_start_failed"]="服务启动失败，请检查日志"
     ["enabling_autostart"]="正在设置开机自启..."
@@ -234,26 +211,6 @@ declare -A MSG_EN=(
     ["cmd_restart"]="Restart"
     ["cmd_stop"]="Stop"
 
-    # Upgrade
-    ["upgrading"]="Upgrading Sub2API..."
-    ["current_version"]="Current version"
-    ["stopping_service"]="Stopping service..."
-    ["backup_created"]="Backup created"
-    ["starting_service"]="Starting service..."
-    ["upgrade_complete"]="Upgrade completed!"
-
-    # Version install
-    ["installing_version"]="Installing specified version"
-    ["version_not_found"]="Specified version not found"
-    ["same_version"]="Already at this version, no action needed"
-    ["rollback_complete"]="Version rollback completed!"
-    ["install_version_complete"]="Specified version installed!"
-    ["validating_version"]="Validating version..."
-    ["available_versions"]="Available versions"
-    ["fetching_versions"]="Fetching available versions..."
-    ["not_installed"]="Sub2API is not installed. Please run a fresh install first"
-    ["fresh_install_hint"]="Usage"
-
     # Uninstall
     ["uninstall_confirm"]="This will remove Sub2API from your system."
     ["are_you_sure"]="Are you sure? (y/N)"
@@ -273,11 +230,7 @@ declare -A MSG_EN=(
     ["usage"]="Usage"
     ["cmd_none"]="(none)"
     ["cmd_install"]="Install Sub2API"
-    ["cmd_upgrade"]="Upgrade to the latest version"
     ["cmd_uninstall"]="Remove Sub2API"
-    ["cmd_install_version"]="Install/rollback to a specific version"
-    ["cmd_list_versions"]="List available versions"
-    ["opt_version"]="Specify version to install (e.g., v1.0.0)"
 
     # Server configuration
     ["server_config_title"]="Server Configuration"
@@ -291,6 +244,7 @@ declare -A MSG_EN=(
 
     # Service management
     ["starting_service"]="Starting service..."
+    ["stopping_service"]="Stopping service..."
     ["service_started"]="Service started"
     ["service_start_failed"]="Service failed to start, please check logs"
     ["enabling_autostart"]="Enabling auto-start on boot..."
@@ -543,77 +497,6 @@ get_latest_version() {
     print_info "$(msg 'latest_version'): $LATEST_VERSION"
 }
 
-# List available versions
-list_versions() {
-    print_info "$(msg 'fetching_versions')"
-
-    local versions
-    versions=$(github_api_curl -s --connect-timeout 10 --max-time 30 "https://api.github.com/repos/${GITHUB_REPO}/releases" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' | head -20)
-
-    if [ -z "$versions" ]; then
-        print_error "$(msg 'failed_get_version')"
-        print_info "Please check your network connection or try again later."
-        exit 1
-    fi
-
-    echo ""
-    echo "$(msg 'available_versions'):"
-    echo "----------------------------------------"
-    echo "$versions" | while read -r version; do
-        echo "  $version"
-    done
-    echo "----------------------------------------"
-    echo ""
-}
-
-# Validate if a version exists
-validate_version() {
-    local version="$1"
-
-    # Check for empty version
-    if [ -z "$version" ]; then
-        print_error "$(msg 'opt_version')" >&2
-        exit 1
-    fi
-
-    # Ensure version starts with 'v'
-    if [[ ! "$version" =~ ^v ]]; then
-        version="v$version"
-    fi
-
-    print_info "$(msg 'validating_version') $version" >&2
-
-    # Check if the release exists
-    local http_code
-    http_code=$(github_api_curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 30 "https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${version}" 2>/dev/null)
-
-    # Check for network errors (empty or non-numeric response)
-    if [ -z "$http_code" ] || ! [[ "$http_code" =~ ^[0-9]+$ ]]; then
-        print_error "Network error: Failed to connect to GitHub API" >&2
-        exit 1
-    fi
-
-    if [ "$http_code" != "200" ]; then
-        print_error "$(msg 'version_not_found'): $version" >&2
-        echo "" >&2
-        list_versions >&2
-        exit 1
-    fi
-
-    # Return the normalized version (to stdout)
-    echo "$version"
-}
-
-# Get current installed version
-get_current_version() {
-    if [ -f "$INSTALL_DIR/sub2api" ]; then
-        # Use grep -E for better compatibility (works on macOS and Linux)
-        "$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown"
-    else
-        echo "not_installed"
-    fi
-}
-
 # Download and extract
 download_and_extract() {
     local version_num=${LATEST_VERSION#v}
@@ -719,7 +602,7 @@ install_service() {
     cat > /etc/systemd/system/sub2api.service << EOF
 [Unit]
 Description=Sub2API - AI API Gateway Platform
-Documentation=https://github.com/Wei-Shaw/sub2api
+Documentation=https://github.com/CherryLover/sub2api
 After=network.target postgresql.service redis.service
 Wants=postgresql.service redis.service
 
@@ -852,119 +735,12 @@ print_completion() {
     echo "=============================================="
 }
 
-# Upgrade function
-upgrade() {
-    # Check if Sub2API is installed
-    if [ ! -f "$INSTALL_DIR/sub2api" ]; then
-        print_error "$(msg 'not_installed')"
-        print_info "$(msg 'fresh_install_hint'): $0 install"
-        exit 1
-    fi
-
-    print_info "$(msg 'upgrading')"
-
-    # Get current version
-    CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
-    print_info "$(msg 'current_version'): $CURRENT_VERSION"
-
-    # Stop service
-    if systemctl is-active --quiet sub2api; then
+# Stop a running service before overwriting the binary (re-running the installer)
+stop_service_if_running() {
+    if systemctl is-active --quiet sub2api 2>/dev/null; then
         print_info "$(msg 'stopping_service')"
         systemctl stop sub2api
     fi
-
-    # Backup current binary
-    cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/sub2api.backup"
-    print_info "$(msg 'backup_created'): $INSTALL_DIR/sub2api.backup"
-
-    # Download and install new version
-    get_latest_version
-    download_and_extract
-
-    # Set permissions
-    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"
-
-    # Start service
-    print_info "$(msg 'starting_service')"
-    systemctl start sub2api
-
-    print_success "$(msg 'upgrade_complete')"
-}
-
-# Install specific version (for upgrade or rollback)
-# Requires: Sub2API must already be installed
-install_version() {
-    local target_version="$1"
-
-    # Check if Sub2API is installed
-    if [ ! -f "$INSTALL_DIR/sub2api" ]; then
-        print_error "$(msg 'not_installed')"
-        print_info "$(msg 'fresh_install_hint'): $0 install -v $target_version"
-        exit 1
-    fi
-
-    # Validate and normalize version
-    target_version=$(validate_version "$target_version")
-
-    print_info "$(msg 'installing_version'): $target_version"
-
-    # Get current version
-    local current_version
-    current_version=$(get_current_version)
-    print_info "$(msg 'current_version'): $current_version"
-
-    # Check if same version
-    if [ "$current_version" = "$target_version" ] || [ "$current_version" = "${target_version#v}" ]; then
-        print_warning "$(msg 'same_version')"
-        exit 0
-    fi
-
-    # Stop service if running
-    if systemctl is-active --quiet sub2api; then
-        print_info "$(msg 'stopping_service')"
-        systemctl stop sub2api
-    fi
-
-    # Backup current binary (for potential recovery)
-    if [ -f "$INSTALL_DIR/sub2api" ]; then
-        local backup_name
-        if [ "$current_version" != "unknown" ] && [ "$current_version" != "not_installed" ]; then
-            backup_name="sub2api.backup.${current_version}"
-        else
-            backup_name="sub2api.backup.$(date +%Y%m%d%H%M%S)"
-        fi
-        cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/$backup_name"
-        print_info "$(msg 'backup_created'): $INSTALL_DIR/$backup_name"
-    fi
-
-    # Set LATEST_VERSION to the target version for download_and_extract
-    LATEST_VERSION="$target_version"
-
-    # Download and install
-    download_and_extract
-
-    # Set permissions
-    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"
-
-    # Start service
-    print_info "$(msg 'starting_service')"
-    if systemctl start sub2api; then
-        print_success "$(msg 'service_started')"
-    else
-        print_error "$(msg 'service_start_failed')"
-        print_info "sudo journalctl -u sub2api -n 50"
-    fi
-
-    # Print completion message
-    local new_version
-    new_version=$(get_current_version)
-    echo ""
-    echo "=============================================="
-    print_success "$(msg 'install_version_complete')"
-    echo "=============================================="
-    echo ""
-    echo "  $(msg 'current_version'): $new_version"
-    echo ""
 }
 
 # Uninstall function
@@ -1032,7 +808,6 @@ uninstall() {
 # Main
 main() {
     # Parse flags first
-    local target_version=""
     local positional_args=()
 
     while [[ $# -gt 0 ]]; do
@@ -1043,23 +818,6 @@ main() {
                 ;;
             --purge)
                 PURGE="true"
-                shift
-                ;;
-            -v|--version)
-                if [ -n "${2:-}" ] && [[ ! "$2" =~ ^- ]]; then
-                    target_version="$2"
-                    shift 2
-                else
-                    echo "Error: --version requires a version argument"
-                    exit 1
-                fi
-                ;;
-            --version=*)
-                target_version="${1#*=}"
-                if [ -z "$target_version" ]; then
-                    echo "Error: --version requires a version argument"
-                    exit 1
-                fi
                 shift
                 ;;
             *)
@@ -1083,83 +841,6 @@ main() {
 
     # Parse commands
     case "${1:-}" in
-        upgrade|update)
-            check_root
-            detect_platform
-            check_dependencies
-            if [ -n "$target_version" ]; then
-                # Upgrade to specific version
-                install_version "$target_version"
-            else
-                # Upgrade to latest
-                upgrade
-            fi
-            exit 0
-            ;;
-        install)
-            # Install with optional version
-            check_root
-            detect_platform
-            check_dependencies
-            if [ -n "$target_version" ]; then
-                # Install specific version (fresh install or rollback)
-                if [ -f "$INSTALL_DIR/sub2api" ]; then
-                    # Already installed, treat as version change
-                    install_version "$target_version"
-                else
-                    # Fresh install with specific version
-                    configure_server
-                    LATEST_VERSION=$(validate_version "$target_version")
-                    download_and_extract
-                    create_user
-                    setup_directories
-                    install_service
-                    prepare_for_setup
-                    get_public_ip
-                    start_service
-                    enable_autostart
-                    print_completion
-                fi
-            else
-                # Fresh install with latest version
-                configure_server
-                get_latest_version
-                download_and_extract
-                create_user
-                setup_directories
-                install_service
-                prepare_for_setup
-                get_public_ip
-                start_service
-                enable_autostart
-                print_completion
-            fi
-            exit 0
-            ;;
-        rollback)
-            # Rollback to a specific version (alias for install with version)
-            if [ -z "$target_version" ] && [ -n "${2:-}" ]; then
-                target_version="$2"
-            fi
-            if [ -z "$target_version" ]; then
-                print_error "$(msg 'opt_version')"
-                echo ""
-                echo "Usage: $0 rollback -v <version>"
-                echo "       $0 rollback <version>"
-                echo ""
-                list_versions
-                exit 1
-            fi
-            check_root
-            detect_platform
-            check_dependencies
-            install_version "$target_version"
-            exit 0
-            ;;
-        list-versions|versions)
-            list_versions
-            exit 0
-            ;;
         uninstall|remove)
             check_root
             uninstall
@@ -1171,63 +852,38 @@ main() {
             echo "Commands:"
             echo "  $(msg 'cmd_none')            $(msg 'cmd_install')"
             echo "  install              $(msg 'cmd_install')"
-            echo "  upgrade              $(msg 'cmd_upgrade')"
-            echo "  rollback <version>   $(msg 'cmd_install_version')"
-            echo "  list-versions        $(msg 'cmd_list_versions')"
             echo "  uninstall            $(msg 'cmd_uninstall')"
             echo ""
             echo "Options:"
-            echo "  -v, --version <ver>  $(msg 'opt_version')"
             echo "  -y, --yes            Skip confirmation prompts (for uninstall)"
+            echo "  --purge              Also remove $CONFIG_DIR (for uninstall)"
             echo ""
             echo "Examples:"
-            echo "  $0                        # Install latest version"
-            echo "  $0 install -v v0.1.0      # Install specific version"
-            echo "  $0 upgrade                # Upgrade to latest"
-            echo "  $0 upgrade -v v0.2.0      # Upgrade to specific version"
-            echo "  $0 rollback v0.1.0        # Rollback to v0.1.0"
-            echo "  $0 list-versions          # List available versions"
+            echo "  $0                        # Install the latest release"
+            echo "  $0 install                # Same as above"
+            echo "  $0 uninstall              # Remove Sub2API"
             echo ""
             exit 0
             ;;
     esac
 
-    # Default: Fresh install with latest version
+    # Default (and 'install'): fresh install of the latest release
     check_root
     detect_platform
     check_dependencies
 
-    if [ -n "$target_version" ]; then
-        # Install specific version
-        if [ -f "$INSTALL_DIR/sub2api" ]; then
-            install_version "$target_version"
-        else
-            configure_server
-            LATEST_VERSION=$(validate_version "$target_version")
-            download_and_extract
-            create_user
-            setup_directories
-            install_service
-            prepare_for_setup
-            get_public_ip
-            start_service
-            enable_autostart
-            print_completion
-        fi
-    else
-        # Install latest version
-        configure_server
-        get_latest_version
-        download_and_extract
-        create_user
-        setup_directories
-        install_service
-        prepare_for_setup
-        get_public_ip
-        start_service
-        enable_autostart
-        print_completion
-    fi
+    configure_server
+    get_latest_version
+    stop_service_if_running
+    download_and_extract
+    create_user
+    setup_directories
+    install_service
+    prepare_for_setup
+    get_public_ip
+    start_service
+    enable_autostart
+    print_completion
 }
 
 main "$@"

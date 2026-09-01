@@ -67,81 +67,10 @@
                 </p>
               </div>
 
-              <div
-                v-if="showEmailForm"
-                data-testid="profile-binding-email-form"
-                class="grid gap-2 sm:grid-cols-[minmax(0,1.4fr)_auto]"
-              >
-                <input
-                  v-model.trim="emailBindingForm.email"
-                  data-testid="profile-binding-email-input"
-                  type="email"
-                  class="input"
-                  :placeholder="t('profile.authBindings.emailPlaceholder')"
-                  :disabled="isSendingEmailCode || isBindingEmail"
-                />
-                <button
-                  data-testid="profile-binding-email-send-code"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="isSendingEmailCode || isBindingEmail"
-                  @click="sendEmailCode"
-                >
-                  {{
-                    isSendingEmailCode
-                      ? t('common.loading')
-                      : t('profile.authBindings.sendCodeAction')
-                  }}
-                </button>
-                <input
-                  v-model.trim="emailBindingForm.verifyCode"
-                  data-testid="profile-binding-email-code-input"
-                  type="text"
-                  inputmode="numeric"
-                  maxlength="6"
-                  class="input"
-                  :placeholder="t('profile.authBindings.codePlaceholder')"
-                  :disabled="isBindingEmail"
-                />
-                <input
-                  v-model="emailBindingForm.password"
-                  data-testid="profile-binding-email-password-input"
-                  type="password"
-                  class="input"
-                  :placeholder="emailPasswordPlaceholder"
-                  :disabled="isBindingEmail"
-                />
-                <button
-                  data-testid="profile-binding-email-submit"
-                  type="button"
-                  class="btn btn-primary btn-sm sm:col-span-2"
-                  :disabled="isBindingEmail"
-                  @click="bindEmail"
-                >
-                  {{
-                    isBindingEmail
-                      ? t('common.loading')
-                      : emailSubmitActionLabel
-                  }}
-                </button>
-              </div>
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t('profile.authBindings.readOnlyHint') }}
+              </p>
             </div>
-          </div>
-
-          <div class="flex shrink-0 flex-wrap items-center gap-3">
-            <button
-              v-if="compact"
-              data-testid="profile-binding-email-toggle"
-              type="button"
-              class="btn btn-secondary btn-sm"
-              @click="toggleEmailForm"
-            >
-              {{
-                showEmailForm
-                  ? t('profile.authBindings.hideEmailFormAction')
-                  : t('profile.authBindings.manageEmailAction')
-              }}
-            </button>
           </div>
         </div>
       </div>
@@ -150,11 +79,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { bindEmailIdentity, sendEmailBindingCode } from '@/api/user'
 import Icon from '@/components/icons/Icon.vue'
-import { useAppStore, useAuthStore } from '@/stores'
 import type { User, UserAuthBindingStatus } from '@/types'
 
 const props = withDefaults(
@@ -170,44 +97,8 @@ const props = withDefaults(
 )
 
 const { t } = useI18n()
-const appStore = useAppStore()
-const authStore = useAuthStore()
 
-const localUser = ref<User | null>(null)
-const isSendingEmailCode = ref(false)
-const isBindingEmail = ref(false)
-const isEmailFormExpanded = ref(!props.compact)
-const emailBindingForm = reactive({
-  email: '',
-  verifyCode: '',
-  password: '',
-})
-
-watch(
-  () => props.user,
-  (user) => {
-    localUser.value = null
-    if (!user) {
-      return
-    }
-    if (typeof user.email === 'string' && !user.email.endsWith('.invalid')) {
-      emailBindingForm.email = user.email
-    }
-  },
-  { immediate: true }
-)
-
-watch(
-  () => props.compact,
-  (value) => {
-    if (!value) {
-      isEmailFormExpanded.value = true
-    }
-  },
-  { immediate: true }
-)
-
-const currentUser = computed(() => localUser.value ?? props.user)
+const currentUser = computed(() => props.user)
 const compact = computed(() => props.compact)
 const rowClass = computed(() =>
   props.embedded
@@ -226,17 +117,7 @@ const emailDetails = computed(() => {
   return binding
 })
 const displayableEmail = computed(() => getDisplayableEmail(currentUser.value))
-const showEmailForm = computed(() => !compact.value || isEmailFormExpanded.value)
-const emailPasswordPlaceholder = computed(() =>
-  emailBound.value
-    ? t('profile.authBindings.replaceEmailPasswordPlaceholder')
-    : t('profile.authBindings.passwordPlaceholder')
-)
-const emailSubmitActionLabel = computed(() =>
-  emailBound.value
-    ? t('profile.authBindings.confirmEmailReplaceAction')
-    : t('profile.authBindings.confirmEmailBindAction')
-)
+
 const legacyBindingNoteKeys: Record<string, string> = {
   'Primary account email is managed from the profile form.':
     'profile.authBindings.notes.emailManagedFromProfile',
@@ -303,85 +184,5 @@ function hasBindingDetails(details: UserAuthBindingStatus | null): boolean {
     return false
   }
   return Boolean(bindingCountLabel(details) || bindingNote(details))
-}
-
-function toggleEmailForm(): void {
-  isEmailFormExpanded.value = !isEmailFormExpanded.value
-}
-
-function applyUpdatedUser(user: User): void {
-  localUser.value = user
-  authStore.user = user
-}
-
-function validateEmailBindingForm(requireCode: boolean): boolean {
-  if (!emailBindingForm.email) {
-    appStore.showError(t('auth.emailRequired'))
-    return false
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailBindingForm.email)) {
-    appStore.showError(t('auth.invalidEmail'))
-    return false
-  }
-  if (requireCode && !emailBindingForm.verifyCode) {
-    appStore.showError(t('auth.codeRequired'))
-    return false
-  }
-  if (requireCode && !emailBindingForm.password) {
-    appStore.showError(t('auth.passwordRequired'))
-    return false
-  }
-  if (requireCode && !emailBound.value && emailBindingForm.password.length < 6) {
-    appStore.showError(t('auth.passwordMinLength'))
-    return false
-  }
-  return true
-}
-
-async function sendEmailCode(): Promise<void> {
-  if (!validateEmailBindingForm(false)) {
-    return
-  }
-
-  isSendingEmailCode.value = true
-  try {
-    await sendEmailBindingCode(emailBindingForm.email)
-    appStore.showSuccess(t('profile.authBindings.codeSentTo', { email: emailBindingForm.email }))
-  } catch (error) {
-    appStore.showError((error as { message?: string }).message || t('auth.sendCodeFailed'))
-  } finally {
-    isSendingEmailCode.value = false
-  }
-}
-
-async function bindEmail(): Promise<void> {
-  if (!validateEmailBindingForm(true)) {
-    return
-  }
-
-  isBindingEmail.value = true
-  try {
-    const user = await bindEmailIdentity({
-      email: emailBindingForm.email,
-      verify_code: emailBindingForm.verifyCode,
-      password: emailBindingForm.password,
-    })
-    const replacingBoundEmail = emailBound.value
-    applyUpdatedUser(user)
-    emailBindingForm.verifyCode = ''
-    emailBindingForm.password = ''
-    if (compact.value) {
-      isEmailFormExpanded.value = false
-    }
-    appStore.showSuccess(
-      replacingBoundEmail
-        ? t('profile.authBindings.replaceSuccess')
-        : t('profile.authBindings.bindSuccess')
-    )
-  } catch (error) {
-    appStore.showError((error as { message?: string }).message || t('common.tryAgain'))
-  } finally {
-    isBindingEmail.value = false
-  }
 }
 </script>

@@ -32,7 +32,7 @@ const (
 
 // DefaultCSPPolicy is the default Content-Security-Policy with nonce support
 // __CSP_NONCE__ will be replaced with actual nonce at request time by the SecurityHeaders middleware
-const DefaultCSPPolicy = "default-src 'self'; worker-src 'self' blob:; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://*.alicdn.com https://static.cloudflareinsights.com https://turing.captcha.qcloud.com https://turing.captcha.gtimg.com https://ca.turing.captcha.qcloud.com https://global.turing.captcha.gtimg.com https://www.tycaptcha.com https://cloudcache.tencentcs.com https://*.stripe.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; style-src 'self' 'unsafe-inline' https://*.captcha.gtimg.com https://fonts.googleapis.com https://*.alicdn.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://turing.captcha.qcloud.com https://www.tycaptcha.com https://rce.tencentrio.com https:; frame-src https://challenges.cloudflare.com https://turing.captcha.qcloud.com https://ca.turing.captcha.qcloud.com https://www.tycaptcha.com https://*.stripe.com https://checkout.airwallex.com https://checkout-demo.airwallex.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+const DefaultCSPPolicy = "default-src 'self'; worker-src 'self' blob:; script-src 'self' __CSP_NONCE__ https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https:; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
 // UMQ（用户消息队列）模式常量
 const (
@@ -62,39 +62,35 @@ const (
 const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 
 type Config struct {
-	Server                  ServerConfig                  `mapstructure:"server"`
-	Log                     LogConfig                     `mapstructure:"log"`
-	CORS                    CORSConfig                    `mapstructure:"cors"`
-	Security                SecurityConfig                `mapstructure:"security"`
-	Billing                 BillingConfig                 `mapstructure:"billing"`
-	Turnstile               TurnstileConfig               `mapstructure:"turnstile"`
-	Database                DatabaseConfig                `mapstructure:"database"`
-	Redis                   RedisConfig                   `mapstructure:"redis"`
-	Ops                     OpsConfig                     `mapstructure:"ops"`
-	JWT                     JWTConfig                     `mapstructure:"jwt"`
-	Totp                    TotpConfig                    `mapstructure:"totp"`
-	WebAuthn                WebAuthnConfig                `mapstructure:"webauthn"`
-	Default                 DefaultConfig                 `mapstructure:"default"`
-	RateLimit               RateLimitConfig               `mapstructure:"rate_limit"`
-	Pricing                 PricingConfig                 `mapstructure:"pricing"`
-	Gateway                 GatewayConfig                 `mapstructure:"gateway"`
-	APIKeyAuth              APIKeyAuthCacheConfig         `mapstructure:"api_key_auth_cache"`
-	SubscriptionCache       SubscriptionCacheConfig       `mapstructure:"subscription_cache"`
-	SubscriptionMaintenance SubscriptionMaintenanceConfig `mapstructure:"subscription_maintenance"`
-	Dashboard               DashboardCacheConfig          `mapstructure:"dashboard_cache"`
-	DashboardAgg            DashboardAggregationConfig    `mapstructure:"dashboard_aggregation"`
-	UsageCleanup            UsageCleanupConfig            `mapstructure:"usage_cleanup"`
-	Concurrency             ConcurrencyConfig             `mapstructure:"concurrency"`
-	TokenRefresh            TokenRefreshConfig            `mapstructure:"token_refresh"`
-	RunMode                 string                        `mapstructure:"run_mode" yaml:"run_mode"`
-	Timezone                string                        `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
-	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
-	Update                  UpdateConfig                  `mapstructure:"update"`
-	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
-	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
-	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
-	KeyUsage                KeyUsageConfig                `mapstructure:"key_usage"`
-	Web                     WebConfig                     `mapstructure:"web"`
+	Server       ServerConfig               `mapstructure:"server"`
+	Log          LogConfig                  `mapstructure:"log"`
+	CORS         CORSConfig                 `mapstructure:"cors"`
+	Security     SecurityConfig             `mapstructure:"security"`
+	Billing      BillingConfig              `mapstructure:"billing"`
+	Database     DatabaseConfig             `mapstructure:"database"`
+	Redis        RedisConfig                `mapstructure:"redis"`
+	Ops          OpsConfig                  `mapstructure:"ops"`
+	JWT          JWTConfig                  `mapstructure:"jwt"`
+	Totp         TotpConfig                 `mapstructure:"totp"`
+	WebAuthn     WebAuthnConfig             `mapstructure:"webauthn"`
+	Default      DefaultConfig              `mapstructure:"default"`
+	RateLimit    RateLimitConfig            `mapstructure:"rate_limit"`
+	Pricing      PricingConfig              `mapstructure:"pricing"`
+	Gateway      GatewayConfig              `mapstructure:"gateway"`
+	APIKeyAuth   APIKeyAuthCacheConfig      `mapstructure:"api_key_auth_cache"`
+	Dashboard    DashboardCacheConfig       `mapstructure:"dashboard_cache"`
+	DashboardAgg DashboardAggregationConfig `mapstructure:"dashboard_aggregation"`
+	UsageCleanup UsageCleanupConfig         `mapstructure:"usage_cleanup"`
+	Concurrency  ConcurrencyConfig          `mapstructure:"concurrency"`
+	TokenRefresh TokenRefreshConfig         `mapstructure:"token_refresh"`
+	RunMode      string                     `mapstructure:"run_mode" yaml:"run_mode"`
+	Timezone     string                     `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
+	Gemini       GeminiConfig               `mapstructure:"gemini"`
+	Update       UpdateConfig               `mapstructure:"update"`
+	Idempotency  IdempotencyConfig          `mapstructure:"idempotency"`
+	ImageStorage ImageStorageConfig         `mapstructure:"image_storage"`
+	KeyUsage     KeyUsageConfig             `mapstructure:"key_usage"`
+	Web          WebConfig                  `mapstructure:"web"`
 }
 
 type LogConfig struct {
@@ -181,56 +177,6 @@ type IdempotencyConfig struct {
 	CleanupIntervalSeconds int `mapstructure:"cleanup_interval_seconds"`
 	// CleanupBatchSize 每次清理的最大记录数。
 	CleanupBatchSize int `mapstructure:"cleanup_batch_size"`
-}
-
-type BatchImageConfig struct {
-	Enabled                           bool   `mapstructure:"enabled"`
-	MaxItemsPerJobDefault             int    `mapstructure:"max_items_per_job_default"`
-	MaxItemsPerJobTrial               int    `mapstructure:"max_items_per_job_trial"`
-	MaxOutputImagesPerJob             int    `mapstructure:"max_output_images_per_job"`
-	MaxOutputImagesPerItem            int    `mapstructure:"max_output_images_per_item"`
-	MaxPromptCharsPerItem             int    `mapstructure:"max_prompt_chars_per_item"`
-	MaxReferenceImagesPerJob          int    `mapstructure:"max_reference_images_per_job"`
-	MaxReferenceInlineBytesPerJob     int    `mapstructure:"max_reference_inline_bytes_per_job"`
-	DefaultResponseMimeType           string `mapstructure:"default_response_mime_type"`
-	DefaultImageSize                  string `mapstructure:"default_image_size"`
-	MaxDownloadItemsZip               int    `mapstructure:"max_download_items_zip"`
-	MaxDownloadBytesPerRequest        int64  `mapstructure:"max_download_bytes_per_request"`
-	MaxDownloadDurationSeconds        int    `mapstructure:"max_download_duration_seconds"`
-	MaxDownloadConcurrencyPerUser     int    `mapstructure:"max_download_concurrency_per_user"`
-	InputRetentionAfterTerminalHours  int    `mapstructure:"input_retention_after_terminal_hours"`
-	OutputRetentionAfterTerminalHours int    `mapstructure:"output_retention_after_terminal_hours"`
-	OutputRetentionMaxDays            int    `mapstructure:"output_retention_max_days"`
-	CleanupIntervalMinutes            int    `mapstructure:"cleanup_interval_minutes"`
-	CleanupBatchSize                  int    `mapstructure:"cleanup_batch_size"`
-	QueueEnabled                      bool   `mapstructure:"queue_enabled"`
-	QueueReadyKey                     string `mapstructure:"queue_ready_key"`
-	QueueDelayedKey                   string `mapstructure:"queue_delayed_key"`
-	QueueActiveKey                    string `mapstructure:"queue_active_key"`
-	InflightKeyPrefix                 string `mapstructure:"inflight_key_prefix"`
-	LockKeyPrefix                     string `mapstructure:"lock_key_prefix"`
-	IdempotencyKeyPrefix              string `mapstructure:"idempotency_key_prefix"`
-	InflightTTLSeconds                int    `mapstructure:"inflight_ttl_seconds"`
-	JobLockTTLSeconds                 int    `mapstructure:"job_lock_ttl_seconds"`
-	DefaultRequeueDelaySeconds        int    `mapstructure:"default_requeue_delay_seconds"`
-	ErrorRetryDelaySeconds            int    `mapstructure:"error_retry_delay_seconds"`
-	LockConflictDelaySeconds          int    `mapstructure:"lock_conflict_delay_seconds"`
-	StaleActiveAfterSeconds           int    `mapstructure:"stale_active_after_seconds"`
-	DelayedMoverIntervalSeconds       int    `mapstructure:"delayed_mover_interval_seconds"`
-	RecoveryIntervalSeconds           int    `mapstructure:"recovery_interval_seconds"`
-	DelayedMoveLimit                  int    `mapstructure:"delayed_move_limit"`
-	RecoverLimit                      int    `mapstructure:"recover_limit"`
-	VertexEnabled                     bool   `mapstructure:"vertex_enabled"`
-	VertexProjectID                   string `mapstructure:"vertex_project_id"`
-	VertexLocation                    string `mapstructure:"vertex_location"`
-	// VertexManagedGCSBucket is a server-owned bucket for batch JSONL input/output.
-	// Disable Cloud Storage soft delete on this bucket to avoid retaining deleted batch objects.
-	VertexManagedGCSBucket       string `mapstructure:"vertex_managed_gcs_bucket"`
-	VertexManagedGCSPrefix       string `mapstructure:"vertex_managed_gcs_prefix"`
-	VertexInputRetentionHours    int    `mapstructure:"vertex_input_retention_hours"`
-	VertexOutputRetentionHours   int    `mapstructure:"vertex_output_retention_hours"`
-	VertexBatchPredictionBaseURL string `mapstructure:"vertex_batch_prediction_base_url"`
-	VertexGCSBaseURL             string `mapstructure:"vertex_gcs_base_url"`
 }
 
 // ImageStorageConfig 配置异步图片任务结果上传的 S3 兼容对象存储。
@@ -541,10 +487,6 @@ func normalizeProxyProbeURLs(targets []ProbeURLConfig) ([]ProbeURLConfig, error)
 
 type BillingConfig struct {
 	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker"`
-	// MinimumBalanceReserve is the conservative preflight floor for balance billing.
-	// Requests in balance mode are rejected when the cached balance is below this
-	// amount, even if it is still positive. Set to 0 to keep the legacy balance > 0 gate.
-	MinimumBalanceReserve float64 `mapstructure:"minimum_balance_reserve"`
 	// UserPlatformQuotaCacheTTLSeconds 用户 × 平台 quota 缓存 TTL（秒），默认 86400=1天，覆盖典型 daily 窗口。
 	// 消费点：
 	//   - billing_cache_service.cacheWriteWorker 异步累加
@@ -1293,15 +1235,10 @@ type TotpConfig struct {
 	EncryptionKeyConfigured bool `mapstructure:"-"`
 }
 
-type TurnstileConfig struct {
-	Required bool `mapstructure:"required"`
-}
-
 type DefaultConfig struct {
 	AdminEmail      string  `mapstructure:"admin_email"`
 	AdminPassword   string  `mapstructure:"admin_password"`
 	UserConcurrency int     `mapstructure:"user_concurrency"`
-	UserBalance     float64 `mapstructure:"user_balance"`
 	APIKeyPrefix    string  `mapstructure:"api_key_prefix"`
 	RateMultiplier  float64 `mapstructure:"rate_multiplier"`
 }
@@ -1329,20 +1266,6 @@ type InvalidAuthAbuseConfig struct {
 	WindowSeconds int  `mapstructure:"window_seconds"`
 	BlockSeconds  int  `mapstructure:"block_seconds"`
 	Capacity      int  `mapstructure:"capacity"`
-}
-
-// SubscriptionCacheConfig 订阅认证 L1 缓存配置
-type SubscriptionCacheConfig struct {
-	L1Size        int `mapstructure:"l1_size"`
-	L1TTLSeconds  int `mapstructure:"l1_ttl_seconds"`
-	JitterPercent int `mapstructure:"jitter_percent"`
-}
-
-// SubscriptionMaintenanceConfig 订阅窗口维护后台任务配置。
-// 用于将“请求路径触发的维护动作”有界化，避免高并发下 goroutine 膨胀。
-type SubscriptionMaintenanceConfig struct {
-	WorkerCount int `mapstructure:"worker_count"`
-	QueueSize   int `mapstructure:"queue_size"`
 }
 
 // DashboardCacheConfig 仪表盘统计缓存配置
@@ -1754,12 +1677,8 @@ func setDefaults() {
 	viper.SetDefault("billing.circuit_breaker.failure_threshold", 5)
 	viper.SetDefault("billing.circuit_breaker.reset_timeout_seconds", 30)
 	viper.SetDefault("billing.circuit_breaker.half_open_requests", 3)
-	viper.SetDefault("billing.minimum_balance_reserve", 0.000001)
 	viper.SetDefault("billing.user_platform_quota_cache_ttl_seconds", 86400)
 	viper.SetDefault("billing.user_platform_quota_sentinel_ttl_seconds", 3600)
-
-	// Turnstile
-	viper.SetDefault("turnstile.required", false)
 
 	// Database
 	viper.SetDefault("database.host", "localhost")
@@ -1788,53 +1707,6 @@ func setDefaults() {
 	viper.SetDefault("redis.pool_size", 1024)
 	viper.SetDefault("redis.min_idle_conns", 128)
 	viper.SetDefault("redis.enable_tls", false)
-
-	// Batch Image queue
-	viper.SetDefault("batch_image.enabled", false)
-	viper.SetDefault("batch_image.max_items_per_job_default", 200)
-	viper.SetDefault("batch_image.max_items_per_job_trial", 50)
-	viper.SetDefault("batch_image.max_output_images_per_job", 200)
-	viper.SetDefault("batch_image.max_output_images_per_item", 4)
-	viper.SetDefault("batch_image.max_prompt_chars_per_item", 8000)
-	viper.SetDefault("batch_image.max_reference_images_per_job", 1000)
-	viper.SetDefault("batch_image.max_reference_inline_bytes_per_job", 134217728)
-	viper.SetDefault("batch_image.default_response_mime_type", "image/png")
-	viper.SetDefault("batch_image.default_image_size", "1K")
-	viper.SetDefault("batch_image.max_download_items_zip", 200)
-	viper.SetDefault("batch_image.max_download_bytes_per_request", 536870912)
-	viper.SetDefault("batch_image.max_download_duration_seconds", 600)
-	viper.SetDefault("batch_image.max_download_concurrency_per_user", 1)
-	viper.SetDefault("batch_image.input_retention_after_terminal_hours", 24)
-	viper.SetDefault("batch_image.output_retention_after_terminal_hours", 72)
-	viper.SetDefault("batch_image.output_retention_max_days", 7)
-	viper.SetDefault("batch_image.cleanup_interval_minutes", 30)
-	viper.SetDefault("batch_image.cleanup_batch_size", 100)
-	viper.SetDefault("batch_image.queue_enabled", false)
-	viper.SetDefault("batch_image.queue_ready_key", "batch_image:queue:ready")
-	viper.SetDefault("batch_image.queue_delayed_key", "batch_image:queue:delayed")
-	viper.SetDefault("batch_image.queue_active_key", "batch_image:queue:active")
-	viper.SetDefault("batch_image.inflight_key_prefix", "batch_image:queue:inflight:")
-	viper.SetDefault("batch_image.lock_key_prefix", "batch_image:queue:lock:")
-	viper.SetDefault("batch_image.idempotency_key_prefix", "batch_image:queue:idem:")
-	viper.SetDefault("batch_image.inflight_ttl_seconds", 604800)
-	viper.SetDefault("batch_image.job_lock_ttl_seconds", 300)
-	viper.SetDefault("batch_image.default_requeue_delay_seconds", 30)
-	viper.SetDefault("batch_image.error_retry_delay_seconds", 60)
-	viper.SetDefault("batch_image.lock_conflict_delay_seconds", 5)
-	viper.SetDefault("batch_image.stale_active_after_seconds", 600)
-	viper.SetDefault("batch_image.delayed_mover_interval_seconds", 5)
-	viper.SetDefault("batch_image.recovery_interval_seconds", 300)
-	viper.SetDefault("batch_image.delayed_move_limit", 100)
-	viper.SetDefault("batch_image.recover_limit", 100)
-	viper.SetDefault("batch_image.vertex_enabled", false)
-	viper.SetDefault("batch_image.vertex_project_id", "")
-	viper.SetDefault("batch_image.vertex_location", "global")
-	viper.SetDefault("batch_image.vertex_managed_gcs_bucket", "")
-	viper.SetDefault("batch_image.vertex_managed_gcs_prefix", "batch-image/{env}/{batch_id}")
-	viper.SetDefault("batch_image.vertex_input_retention_hours", 24)
-	viper.SetDefault("batch_image.vertex_output_retention_hours", 72)
-	viper.SetDefault("batch_image.vertex_batch_prediction_base_url", "")
-	viper.SetDefault("batch_image.vertex_gcs_base_url", "")
 
 	// Image storage (async image task result offload to S3-compatible object storage)
 	viper.SetDefault("image_storage.enabled", false)
@@ -1883,7 +1755,6 @@ func setDefaults() {
 	viper.SetDefault("default.admin_email", "")
 	viper.SetDefault("default.admin_password", "")
 	viper.SetDefault("default.user_concurrency", 5)
-	viper.SetDefault("default.user_balance", 0)
 	viper.SetDefault("default.api_key_prefix", "sk-")
 	viper.SetDefault("default.rate_multiplier", 1.0)
 
@@ -1915,11 +1786,6 @@ func setDefaults() {
 	viper.SetDefault("api_key_auth_cache.invalid_abuse.window_seconds", 60)
 	viper.SetDefault("api_key_auth_cache.invalid_abuse.block_seconds", 60)
 	viper.SetDefault("api_key_auth_cache.invalid_abuse.capacity", 16384)
-
-	// Subscription auth L1 cache
-	viper.SetDefault("subscription_cache.l1_size", 16384)
-	viper.SetDefault("subscription_cache.l1_ttl_seconds", 10)
-	viper.SetDefault("subscription_cache.jitter_percent", 10)
 
 	// Dashboard cache
 	viper.SetDefault("dashboard_cache.enabled", true)
@@ -2167,10 +2033,6 @@ func setDefaults() {
 	viper.SetDefault("gemini.oauth.scopes", "")
 	viper.SetDefault("gemini.quota.policy", "")
 
-	// Subscription Maintenance (bounded queue + worker pool)
-	viper.SetDefault("subscription_maintenance.worker_count", 2)
-	viper.SetDefault("subscription_maintenance.queue_size", 1024)
-
 	setEnvReachableDefaults()
 }
 
@@ -2348,13 +2210,6 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.SubscriptionMaintenance.WorkerCount < 0 {
-		return fmt.Errorf("subscription_maintenance.worker_count must be non-negative")
-	}
-	if c.SubscriptionMaintenance.QueueSize < 0 {
-		return fmt.Errorf("subscription_maintenance.queue_size must be non-negative")
-	}
-
 	// Gemini OAuth 配置校验：client_id 与 client_secret 必须同时设置或同时留空。
 	// 留空时表示使用内置的 Gemini CLI OAuth 客户端（其 client_secret 通过环境变量注入）。
 	geminiClientID := strings.TrimSpace(c.Gemini.OAuth.ClientID)
@@ -2455,9 +2310,6 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("billing.circuit_breaker.half_open_requests must be positive")
 		}
 	}
-	if c.Billing.MinimumBalanceReserve < 0 {
-		return fmt.Errorf("billing.minimum_balance_reserve must be non-negative")
-	}
 	if c.Database.MaxOpenConns <= 0 {
 		return fmt.Errorf("database.max_open_conns must be positive")
 	}
@@ -2490,61 +2342,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Redis.MinIdleConns > c.Redis.PoolSize {
 		return fmt.Errorf("redis.min_idle_conns cannot exceed redis.pool_size")
-	}
-	if c.BatchImage.QueueEnabled {
-		if strings.TrimSpace(c.BatchImage.QueueReadyKey) == "" {
-			return fmt.Errorf("batch_image.queue_ready_key must not be empty")
-		}
-		if strings.TrimSpace(c.BatchImage.QueueDelayedKey) == "" {
-			return fmt.Errorf("batch_image.queue_delayed_key must not be empty")
-		}
-		if strings.TrimSpace(c.BatchImage.QueueActiveKey) == "" {
-			return fmt.Errorf("batch_image.queue_active_key must not be empty")
-		}
-		if strings.TrimSpace(c.BatchImage.InflightKeyPrefix) == "" {
-			return fmt.Errorf("batch_image.inflight_key_prefix must not be empty")
-		}
-		if strings.TrimSpace(c.BatchImage.LockKeyPrefix) == "" {
-			return fmt.Errorf("batch_image.lock_key_prefix must not be empty")
-		}
-		if c.BatchImage.InflightTTLSeconds <= 0 {
-			return fmt.Errorf("batch_image.inflight_ttl_seconds must be positive")
-		}
-		if c.BatchImage.JobLockTTLSeconds <= 0 {
-			return fmt.Errorf("batch_image.job_lock_ttl_seconds must be positive")
-		}
-		if c.BatchImage.StaleActiveAfterSeconds <= 0 {
-			return fmt.Errorf("batch_image.stale_active_after_seconds must be positive")
-		}
-		if c.BatchImage.DelayedMoveLimit <= 0 {
-			return fmt.Errorf("batch_image.delayed_move_limit must be positive")
-		}
-		if c.BatchImage.RecoverLimit <= 0 {
-			return fmt.Errorf("batch_image.recover_limit must be positive")
-		}
-	}
-	if c.BatchImage.VertexEnabled {
-		if strings.TrimSpace(c.BatchImage.VertexManagedGCSBucket) == "" {
-			return fmt.Errorf("batch_image.vertex_managed_gcs_bucket must not be empty when vertex is enabled")
-		}
-		if strings.Contains(c.BatchImage.VertexManagedGCSBucket, "://") {
-			return fmt.Errorf("batch_image.vertex_managed_gcs_bucket must be a bucket name, not a URI")
-		}
-		if strings.TrimSpace(c.BatchImage.VertexLocation) == "" {
-			return fmt.Errorf("batch_image.vertex_location must not be empty when vertex is enabled")
-		}
-		if strings.TrimSpace(c.BatchImage.VertexManagedGCSPrefix) == "" {
-			return fmt.Errorf("batch_image.vertex_managed_gcs_prefix must not be empty when vertex is enabled")
-		}
-		if !strings.Contains(c.BatchImage.VertexManagedGCSPrefix, "{batch_id}") {
-			return fmt.Errorf("batch_image.vertex_managed_gcs_prefix must contain {batch_id}")
-		}
-		if c.BatchImage.VertexInputRetentionHours <= 0 {
-			return fmt.Errorf("batch_image.vertex_input_retention_hours must be positive")
-		}
-		if c.BatchImage.VertexOutputRetentionHours <= 0 {
-			return fmt.Errorf("batch_image.vertex_output_retention_hours must be positive")
-		}
 	}
 	if c.Dashboard.Enabled {
 		if c.Dashboard.StatsFreshTTLSeconds <= 0 {

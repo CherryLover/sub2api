@@ -1,12 +1,8 @@
-import { getConfiguredTableDefaultPageSize, normalizeTablePageSize } from '@/utils/tablePreferences'
+import { DEFAULT_TABLE_PAGE_SIZE, normalizeTablePageSize } from '@/utils/tablePreferences'
 
 const STORAGE_KEY = 'table-page-size'
 
-export function getPersistedPageSize(fallback = getConfiguredTableDefaultPageSize()): number {
-  if (typeof window !== 'undefined' && window.__APP_CONFIG__?.table_default_page_size !== undefined) {
-    return normalizeTablePageSize(getConfiguredTableDefaultPageSize())
-  }
-
+export function getPersistedPageSize(fallback = DEFAULT_TABLE_PAGE_SIZE): number {
   if (typeof window !== 'undefined') {
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY)
@@ -20,7 +16,7 @@ export function getPersistedPageSize(fallback = getConfiguredTableDefaultPageSiz
       console.warn('Failed to read persisted page size:', error)
     }
   }
-  return normalizeTablePageSize(getConfiguredTableDefaultPageSize() || fallback)
+  return normalizeTablePageSize(fallback)
 }
 
 export function setPersistedPageSize(size: number): void {

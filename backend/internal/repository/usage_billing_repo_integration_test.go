@@ -15,7 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-func TestUsageBillingRepositoryApply_DeduplicatesBalanceBilling(t *testing.T) {
+func TestUsageBillingRepositoryApply_DeduplicatesAPIKeyQuotaBilling(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
 	repo := NewUsageBillingRepository(client, integrationDB)
@@ -23,7 +23,6 @@ func TestUsageBillingRepositoryApply_DeduplicatesBalanceBilling(t *testing.T) {
 	user := mustCreateUser(t, client, &service.User{
 		Email:        fmt.Sprintf("usage-billing-user-%d@example.com", time.Now().UnixNano()),
 		PasswordHash: "hash",
-		Balance:      100,
 	})
 	apiKey := mustCreateApiKey(t, client, &service.APIKey{
 		UserID: user.ID,
@@ -43,7 +42,6 @@ func TestUsageBillingRepositoryApply_DeduplicatesBalanceBilling(t *testing.T) {
 		UserID:              user.ID,
 		AccountID:           account.ID,
 		AccountType:         service.AccountTypeAPIKey,
-		BalanceCost:         1.25,
 		APIKeyQuotaCost:     1.25,
 		APIKeyRateLimitCost: 1.25,
 	}
@@ -58,10 +56,6 @@ func TestUsageBillingRepositoryApply_DeduplicatesBalanceBilling(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result2)
 	require.False(t, result2.Applied)
-
-	var balance float64
-	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT balance FROM users WHERE id = $1", user.ID).Scan(&balance))
-	require.InDelta(t, 98.75, balance, 0.000001)
 
 	var quotaUsed float64
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT quota_used FROM api_keys WHERE id = $1", apiKey.ID).Scan(&quotaUsed))
@@ -80,54 +74,6 @@ func TestUsageBillingRepositoryApply_DeduplicatesBalanceBilling(t *testing.T) {
 	require.Equal(t, 1, dedupCount)
 }
 
-func TestUsageBillingRepositoryApply_DeduplicatesSubscriptionBilling(t *testing.T) {
-	ctx := context.Background()
-	client := testEntClient(t)
-	repo := NewUsageBillingRepository(client, integrationDB)
-
-	user := mustCreateUser(t, client, &service.User{
-		Email:        fmt.Sprintf("usage-billing-sub-user-%d@example.com", time.Now().UnixNano()),
-		PasswordHash: "hash",
-	})
-	group := mustCreateGroup(t, client, &service.Group{
-		Name:             "usage-billing-group-" + uuid.NewString(),
-		Platform:         service.PlatformAnthropic,
-		SubscriptionType: service.SubscriptionTypeSubscription,
-	})
-	apiKey := mustCreateApiKey(t, client, &service.APIKey{
-		UserID:  user.ID,
-		GroupID: &group.ID,
-		Key:     "sk-usage-billing-sub-" + uuid.NewString(),
-		Name:    "billing-sub",
-	})
-	subscription := mustCreateSubscription(t, client, &service.UserSubscription{
-		UserID:  user.ID,
-		GroupID: group.ID,
-	})
-
-	requestID := uuid.NewString()
-	cmd := &service.UsageBillingCommand{
-		RequestID:        requestID,
-		APIKeyID:         apiKey.ID,
-		UserID:           user.ID,
-		AccountID:        0,
-		SubscriptionID:   &subscription.ID,
-		SubscriptionCost: 2.5,
-	}
-
-	result1, err := repo.Apply(ctx, cmd)
-	require.NoError(t, err)
-	require.True(t, result1.Applied)
-
-	result2, err := repo.Apply(ctx, cmd)
-	require.NoError(t, err)
-	require.False(t, result2.Applied)
-
-	var dailyUsage float64
-	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT daily_usage_usd FROM user_subscriptions WHERE id = $1", subscription.ID).Scan(&dailyUsage))
-	require.InDelta(t, 2.5, dailyUsage, 0.000001)
-}
-
 func TestUsageBillingRepositoryApply_RequestFingerprintConflict(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
@@ -136,7 +82,6 @@ func TestUsageBillingRepositoryApply_RequestFingerprintConflict(t *testing.T) {
 	user := mustCreateUser(t, client, &service.User{
 		Email:        fmt.Sprintf("usage-billing-conflict-user-%d@example.com", time.Now().UnixNano()),
 		PasswordHash: "hash",
-		Balance:      100,
 	})
 	apiKey := mustCreateApiKey(t, client, &service.APIKey{
 		UserID: user.ID,
@@ -146,18 +91,18 @@ func TestUsageBillingRepositoryApply_RequestFingerprintConflict(t *testing.T) {
 
 	requestID := uuid.NewString()
 	_, err := repo.Apply(ctx, &service.UsageBillingCommand{
-		RequestID:   requestID,
-		APIKeyID:    apiKey.ID,
-		UserID:      user.ID,
-		BalanceCost: 1.25,
+		RequestID:       requestID,
+		APIKeyID:        apiKey.ID,
+		UserID:          user.ID,
+		APIKeyQuotaCost: 1.25,
 	})
 	require.NoError(t, err)
 
 	_, err = repo.Apply(ctx, &service.UsageBillingCommand{
-		RequestID:   requestID,
-		APIKeyID:    apiKey.ID,
-		UserID:      user.ID,
-		BalanceCost: 2.50,
+		RequestID:       requestID,
+		APIKeyID:        apiKey.ID,
+		UserID:          user.ID,
+		APIKeyQuotaCost: 2.50,
 	})
 	require.ErrorIs(t, err, service.ErrUsageBillingRequestConflict)
 }
@@ -329,7 +274,6 @@ func TestUsageBillingRepositoryApply_DeduplicatesAgainstArchivedKey(t *testing.T
 	user := mustCreateUser(t, client, &service.User{
 		Email:        fmt.Sprintf("usage-billing-archive-user-%d@example.com", time.Now().UnixNano()),
 		PasswordHash: "hash",
-		Balance:      100,
 	})
 	apiKey := mustCreateApiKey(t, client, &service.APIKey{
 		UserID: user.ID,
@@ -339,10 +283,9 @@ func TestUsageBillingRepositoryApply_DeduplicatesAgainstArchivedKey(t *testing.T
 
 	requestID := uuid.NewString()
 	cmd := &service.UsageBillingCommand{
-		RequestID:   requestID,
-		APIKeyID:    apiKey.ID,
-		UserID:      user.ID,
-		BalanceCost: 1.25,
+		RequestID: requestID,
+		APIKeyID:  apiKey.ID,
+		UserID:    user.ID,
 	}
 
 	result1, err := repo.Apply(ctx, cmd)
@@ -360,8 +303,4 @@ func TestUsageBillingRepositoryApply_DeduplicatesAgainstArchivedKey(t *testing.T
 	result2, err := repo.Apply(ctx, cmd)
 	require.NoError(t, err)
 	require.False(t, result2.Applied)
-
-	var balance float64
-	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT balance FROM users WHERE id = $1", user.ID).Scan(&balance))
-	require.InDelta(t, 98.75, balance, 0.000001)
 }

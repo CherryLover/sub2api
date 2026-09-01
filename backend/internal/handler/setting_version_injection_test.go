@@ -47,7 +47,7 @@ func TestProvideSettingHandlerInjectsBuildVersion(t *testing.T) {
 	svc := service.NewSettingService(&settingVersionRepoStub{}, &config.Config{})
 
 	const wantVersion = "internal-rc-test"
-	h := ProvideSettingHandler(svc, BuildInfo{Version: wantVersion, BuildType: "source"}, nil)
+	h := ProvideSettingHandler(svc, BuildInfo{Version: wantVersion, BuildType: "source"})
 	require.NotNil(t, h)
 
 	payload, err := svc.GetPublicSettingsForInjection(context.Background())

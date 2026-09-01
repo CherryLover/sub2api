@@ -7,8 +7,6 @@ import { resetLoginEntryCacheForTests } from '@/router/loginEntry'
 const { appStore, authStore } = vi.hoisted(() => ({
   appStore: {
     cachedPublicSettings: {} as Record<string, unknown>,
-    siteName: 'Fallback site',
-    siteLogo: '',
     docUrl: '',
     publicSettingsLoaded: true,
     fetchPublicSettings: vi.fn(),
@@ -32,7 +30,7 @@ vi.mock('vue-i18n', async (importOriginal) => {
 })
 
 function mountHome(settings: Record<string, unknown> = {}) {
-  appStore.cachedPublicSettings = { site_name: 'Test site', site_subtitle: 'Test subtitle', ...settings }
+  appStore.cachedPublicSettings = { ...settings }
   return mount(HomeView, {
     global: {
       stubs: {
@@ -65,28 +63,22 @@ describe('HomeView 登录入口', () => {
   it.each([undefined, true])('登录入口公开（login_entry_public=%s）时首页展示登录入口', (loginPublic) => {
     const settings = loginPublic === undefined ? {} : { login_entry_public: loginPublic }
 
-    for (const compact of [false, true]) {
-      const wrapper = mountHome({ ...settings, compact_home_enabled: compact })
-      expect(linkTargets(wrapper)).toContain('/login')
-    }
+    const wrapper = mountHome(settings)
+    expect(linkTargets(wrapper)).toContain('/login')
   })
 
   it('登录入口隐藏时首页完全不渲染登录入口', () => {
-    for (const compact of [false, true]) {
-      const wrapper = mountHome({ login_entry_public: false, compact_home_enabled: compact })
-      const targets = linkTargets(wrapper)
-      expect(targets).not.toContain('/login')
-      expect(JSON.stringify(targets)).not.toContain('login')
-    }
+    const wrapper = mountHome({ login_entry_public: false })
+    const targets = linkTargets(wrapper)
+    expect(targets).not.toContain('/login')
+    expect(JSON.stringify(targets)).not.toContain('login')
   })
 
   it('已登录用户在隐藏模式下仍然能看到进入面板的入口', () => {
     authStore.isAuthenticated = true
 
-    for (const compact of [false, true]) {
-      const wrapper = mountHome({ login_entry_public: false, compact_home_enabled: compact })
-      expect(linkTargets(wrapper)).toContain('/dashboard')
-    }
+    const wrapper = mountHome({ login_entry_public: false })
+    expect(linkTargets(wrapper)).toContain('/dashboard')
   })
 
   it('本标签页已经走过隐藏入口时，首页可以再指回那条路径', () => {
@@ -94,7 +86,7 @@ describe('HomeView 登录入口', () => {
     window.__LOGIN_ENTRY__ = 1
     resetLoginEntryCacheForTests()
 
-    const wrapper = mountHome({ login_entry_public: false, compact_home_enabled: true })
+    const wrapper = mountHome({ login_entry_public: false })
     expect(linkTargets(wrapper)).toContain('/j7q2m9x4vk3p')
   })
 })

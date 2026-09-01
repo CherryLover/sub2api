@@ -8,10 +8,8 @@ import usersAPI from './users'
 import groupsAPI from './groups'
 import accountsAPI from './accounts'
 import proxiesAPI from './proxies'
-import announcementsAPI from './announcements'
 import settingsAPI from './settings'
 import systemAPI from './system'
-import subscriptionsAPI from './subscriptions'
 import usageAPI from './usage'
 import geminiAPI from './gemini'
 import antigravityAPI from './antigravity'
@@ -26,10 +24,6 @@ import scheduledTestsAPI from './scheduledTests'
 import backupAPI from './backup'
 import tlsFingerprintProfileAPI from './tlsFingerprintProfile'
 import channelsAPI from './channels'
-import channelMonitorAPI from './channelMonitor'
-import channelMonitorTemplateAPI from './channelMonitorTemplate'
-import riskControlAPI from './riskControl'
-import adminComplianceAPI from './compliance'
 import auditAPI from './audit'
 
 /**
@@ -41,10 +35,8 @@ export const adminAPI = {
   groups: groupsAPI,
   accounts: accountsAPI,
   proxies: proxiesAPI,
-  announcements: announcementsAPI,
   settings: settingsAPI,
   system: systemAPI,
-  subscriptions: subscriptionsAPI,
   usage: usageAPI,
   gemini: geminiAPI,
   antigravity: antigravityAPI,
@@ -59,10 +51,6 @@ export const adminAPI = {
   backup: backupAPI,
   tlsFingerprintProfiles: tlsFingerprintProfileAPI,
   channels: channelsAPI,
-  channelMonitor: channelMonitorAPI,
-  channelMonitorTemplate: channelMonitorTemplateAPI,
-  riskControl: riskControlAPI,
-  compliance: adminComplianceAPI,
   audit: auditAPI
 }
 
@@ -72,10 +60,8 @@ export {
   groupsAPI,
   accountsAPI,
   proxiesAPI,
-  announcementsAPI,
   settingsAPI,
   systemAPI,
-  subscriptionsAPI,
   usageAPI,
   geminiAPI,
   antigravityAPI,
@@ -90,10 +76,6 @@ export {
   backupAPI,
   tlsFingerprintProfileAPI,
   channelsAPI,
-  channelMonitorAPI,
-  channelMonitorTemplateAPI,
-  riskControlAPI,
-  adminComplianceAPI,
   auditAPI
 }
 
@@ -104,4 +86,3 @@ export type { AuditLog, AuditLogQuery, AuditLogListResponse } from './audit'
 export type { ErrorPassthroughRule, CreateRuleRequest, UpdateRuleRequest } from './errorPassthrough'
 export type { BackupAgentHealth, DataManagementConfig } from './dataManagement'
 export type { TLSFingerprintProfile, CreateProfileRequest, UpdateProfileRequest } from './tlsFingerprintProfile'
-export type { ContentModerationConfig, ContentModerationLog, ModerationMode } from './riskControl'

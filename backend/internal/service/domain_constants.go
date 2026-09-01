@@ -1,10 +1,15 @@
 package service
 
 import (
-	"fmt"
-
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
+
+// SiteName 是站点显示名的固定值。
+//
+// 内部部署裁剪掉了可配置的 site_name/site_subtitle 设置项，但邮件标题、TOTP
+// issuer、页面 <title> 等处仍需要一个非空的站点名——这里给死值，绝不允许回退
+// 成空串（空串会让邮件标题变成「[] Test Email」、页面标题只剩后缀）。
+const SiteName = "Sub2API"
 
 // Status constants
 const (
@@ -20,6 +25,17 @@ const (
 const (
 	RoleAdmin = domain.RoleAdmin
 	RoleUser  = domain.RoleUser
+)
+
+// SecurityAuditProtocol* 标识网关入口使用的请求协议，作为提示词审计
+// （securityaudit）的 protocol 实参在 15 个网关入口之间共享。
+// 原先定义在已删除的内容安全审计里，随该功能下线搬到这里并改名。
+const (
+	SecurityAuditProtocolAnthropicMessages = "anthropic_messages"
+	SecurityAuditProtocolOpenAIResponses   = "openai_responses"
+	SecurityAuditProtocolOpenAIChat        = "openai_chat_completions"
+	SecurityAuditProtocolGemini            = "gemini"
+	SecurityAuditProtocolOpenAIImages      = "openai_images"
 )
 
 // Platform constants
@@ -133,21 +149,6 @@ const (
 	AdjustmentTypeAdminConcurrency = domain.AdjustmentTypeAdminConcurrency // 管理员调整并发数
 )
 
-// Group subscription type constants
-const (
-	SubscriptionTypeStandard     = domain.SubscriptionTypeStandard     // 标准计费模式（按余额扣费）
-	SubscriptionTypeSubscription = domain.SubscriptionTypeSubscription // 订阅模式（按限额控制）
-)
-
-// Subscription status constants
-const (
-	SubscriptionStatusActive    = domain.SubscriptionStatusActive
-	SubscriptionStatusExpired   = domain.SubscriptionStatusExpired
-	SubscriptionStatusSuspended = domain.SubscriptionStatusSuspended
-	// SubscriptionStatusRevoked 是 soft-deleted 订阅的 API 展示态，不写入 status 字段。
-	SubscriptionStatusRevoked = "revoked"
-)
-
 // LinuxDoConnectSyntheticEmailDomain 是 LinuxDo Connect 用户的合成邮箱后缀（RFC 保留域名）。
 const LinuxDoConnectSyntheticEmailDomain = "@linuxdo-connect.invalid"
 
@@ -162,53 +163,9 @@ const DingTalkConnectSyntheticEmailDomain = "@dingtalk-connect.invalid"
 
 // Setting keys
 const (
-	// 注册设置
-	SettingKeyRegistrationEnabled              = "registration_enabled"                // 是否开放注册
-	SettingKeyEmailVerifyEnabled               = "email_verify_enabled"                // 是否开启邮件验证
-	SettingKeyRegistrationEmailSuffixWhitelist = "registration_email_suffix_whitelist" // 注册邮箱后缀白名单（JSON 数组）
-	// 白名单非空时，是否放行非白名单域名按主域名限量注册（每域名 1 个账户）。
-	// 默认 false：非白名单域名直接拒绝（白名单严格模式）。
-	SettingKeyRegistrationEmailDomainQuotaEnabled = "registration_email_domain_quota_enabled"
-	SettingKeyPasswordResetEnabled                = "password_reset_enabled"          // 是否启用忘记密码功能（需要先开启邮件验证）
-	SettingKeyFrontendURL                         = "frontend_url"                    // 前端基础URL，用于生成邮件中的重置密码链接
-	SettingKeyRiskControlEnabled                  = "risk_control_enabled"            // 是否启用风控中心入口与审计链路
-	SettingKeyContentModerationConfig             = "content_moderation_config"       // 内容审计配置（JSON）
-	SettingKeyCyberSessionBlockEnabled            = "cyber_session_block_enabled"     // cyber 命中后会话级自动屏蔽总开关(默认关)
-	SettingKeyCyberSessionBlockTTLSeconds         = "cyber_session_block_ttl_seconds" // 会话屏蔽 TTL 秒数(默认 3600)
-	SettingKeyLoginAgreementEnabled               = "login_agreement_enabled"         // 登录前是否要求同意条款
-	SettingKeyLoginAgreementMode                  = "login_agreement_mode"            // 条款确认展示模式：modal / checkbox
-	SettingKeyLoginAgreementUpdatedAt             = "login_agreement_updated_at"      // 条款更新日期（展示用）
-	SettingKeyLoginAgreementDocuments             = "login_agreement_documents"       // 条款文档列表（JSON，Markdown 内容）
-
-	// 邮件服务设置
-	SettingKeySMTPHost     = "smtp_host"      // SMTP服务器地址
-	SettingKeySMTPPort     = "smtp_port"      // SMTP端口
-	SettingKeySMTPUsername = "smtp_username"  // SMTP用户名
-	SettingKeySMTPPassword = "smtp_password"  // SMTP密码（加密存储）
-	SettingKeySMTPFrom     = "smtp_from"      // 发件人地址
-	SettingKeySMTPFromName = "smtp_from_name" // 发件人名称
-	SettingKeySMTPUseTLS   = "smtp_use_tls"   // 是否使用TLS
-
-	// Cloudflare Turnstile 设置
-	SettingKeyTurnstileEnabled   = "turnstile_enabled"    // 是否启用 Turnstile 验证
-	SettingKeyTurnstileSiteKey   = "turnstile_site_key"   // Turnstile Site Key
-	SettingKeyTurnstileSecretKey = "turnstile_secret_key" // Turnstile Secret Key
-
-	// 腾讯天御验证码设置
-	SettingKeyTencentCaptchaEnabled        = "tencent_captcha_enabled"
-	SettingKeyTencentCaptchaAppID          = "tencent_captcha_app_id"
-	SettingKeyTencentCaptchaAppSecretKey   = "tencent_captcha_app_secret_key"
-	SettingKeyTencentCaptchaCloudSecretID  = "tencent_captcha_cloud_secret_id"
-	SettingKeyTencentCaptchaCloudSecretKey = "tencent_captcha_cloud_secret_key"
-	SettingKeyTencentCaptchaRegion         = "tencent_captcha_region" // 站点："cn"|"intl"，决定前端 SDK 脚本与服务端接入点
-
-	// 阿里云验证码 2.0 设置（与 Turnstile、腾讯天御互斥，同一时间仅可启用一家）
-	SettingKeyAliyunCaptchaEnabled         = "aliyun_captcha_enabled"           // 是否启用阿里云验证码
-	SettingKeyAliyunCaptchaAccessKeyID     = "aliyun_captcha_access_key_id"     // 阿里云 AccessKey ID
-	SettingKeyAliyunCaptchaAccessKeySecret = "aliyun_captcha_access_key_secret" // 阿里云 AccessKey Secret
-	SettingKeyAliyunCaptchaSceneID         = "aliyun_captcha_scene_id"          // 验证场景 ID（所有认证流程共用）
-	SettingKeyAliyunCaptchaPrefix          = "aliyun_captcha_prefix"            // 身份标，前端 SDK 初始化用
-	SettingKeyAliyunCaptchaRegion          = "aliyun_captcha_region"            // 地域："cn"|"sgp"，决定前端脚本区域与服务端接入点
+	SettingKeyRiskControlEnabled          = "risk_control_enabled"            // 安全审计总开关：管理端入口与提示词审计链路
+	SettingKeyCyberSessionBlockEnabled    = "cyber_session_block_enabled"     // cyber 命中后会话级自动屏蔽总开关(默认关)
+	SettingKeyCyberSessionBlockTTLSeconds = "cyber_session_block_ttl_seconds" // 会话屏蔽 TTL 秒数(默认 3600)
 
 	// API Key IP 访问控制设置
 	SettingKeyAPIKeyACLTrustForwardedIP = "api_key_acl_trust_forwarded_ip" // API Key IP 白/黑名单是否信任转发 IP
@@ -241,32 +198,12 @@ const (
 	SettingKeyAuditLogRetentionDays = "audit_log_retention_days" // 审计日志保留天数（<=0 永久保留），默认 180
 
 	// OEM设置
-	SettingKeySiteName             = "site_name"               // 网站名称
-	SettingKeySiteLogo             = "site_logo"               // 网站Logo (base64)
-	SettingKeySiteSubtitle         = "site_subtitle"           // 网站副标题
-	SettingKeyAPIBaseURL           = "api_base_url"            // API端点地址（用于客户端配置和导入）
-	SettingKeyContactInfo          = "contact_info"            // 客服联系方式
-	SettingKeyDocURL               = "doc_url"                 // 文档链接
-	SettingKeyHomeContent          = "home_content"            // 首页内容（支持 Markdown/HTML，或 URL 作为 iframe src）
-	SettingKeyCompactHomeEnabled   = "compact_home_enabled"    // 是否启用内置简洁首页
-	SettingKeyHideCcsImportButton  = "hide_ccs_import_button"  // 是否隐藏 API Keys 页面的导入 CCS 按钮
-	SettingKeyTableDefaultPageSize = "table_default_page_size" // 表格默认每页条数
-	SettingKeyTablePageSizeOptions = "table_page_size_options" // 表格可选每页条数（JSON 数组）
-	SettingKeyCustomMenuItems      = "custom_menu_items"       // 自定义菜单项（JSON 数组）
-	SettingKeyCustomEndpoints      = "custom_endpoints"        // 自定义端点列表（JSON 数组）
+	SettingKeyDocURL          = "doc_url"          // 文档链接
+	SettingKeyCustomEndpoints = "custom_endpoints" // 自定义端点列表（JSON 数组）
 
 	// 默认配置
-	SettingKeyDefaultConcurrency   = "default_concurrency"    // 新用户默认并发量
-	SettingKeyDefaultBalance       = "default_balance"        // 新用户默认余额
-	SettingKeyDefaultSubscriptions = "default_subscriptions"  // 新用户默认订阅列表（JSON）
-	SettingKeyDefaultUserRPMLimit  = "default_user_rpm_limit" // 新用户默认 RPM 限制（0 = 不限制）
-
-	// 注册来源默认授予配置（单管理员内部部署仅保留 email 渠道）
-	SettingKeyAuthSourceDefaultEmailBalance          = "auth_source_default_email_balance"
-	SettingKeyAuthSourceDefaultEmailConcurrency      = "auth_source_default_email_concurrency"
-	SettingKeyAuthSourceDefaultEmailSubscriptions    = "auth_source_default_email_subscriptions"
-	SettingKeyAuthSourceDefaultEmailGrantOnSignup    = "auth_source_default_email_grant_on_signup"
-	SettingKeyAuthSourceDefaultEmailGrantOnFirstBind = "auth_source_default_email_grant_on_first_bind"
+	SettingKeyDefaultConcurrency  = "default_concurrency"    // 新用户默认并发量
+	SettingKeyDefaultUserRPMLimit = "default_user_rpm_limit" // 新用户默认 RPM 限制（0 = 不限制）
 
 	// 管理员 API Key
 	SettingKeyAdminAPIKey = "admin_api_key" // 全局管理员 API Key（用于外部系统集成）
@@ -298,9 +235,6 @@ const (
 	// SettingKeyOpsQueryModeDefault controls the default query mode for ops dashboard (auto/raw/preagg).
 	SettingKeyOpsQueryModeDefault = "ops_query_mode_default"
 
-	// SettingKeyOpsEmailNotificationConfig stores JSON config for ops email notifications.
-	SettingKeyOpsEmailNotificationConfig = "ops_email_notification_config"
-
 	// SettingKeyOpsAlertRuntimeSettings stores JSON config for ops alert evaluator runtime settings.
 	SettingKeyOpsAlertRuntimeSettings = "ops_alert_runtime_settings"
 
@@ -317,34 +251,16 @@ const (
 	// Channel Monitor (渠道监控)
 	// =========================
 
-	// SettingKeyChannelMonitorEnabled is a DB-backed soft switch for the channel monitor feature.
-	// When false: runner skips scheduling and user-facing endpoints return an empty list.
+	// SettingKeyChannelMonitorEnabled is a DB-backed soft switch for the channel monitor
+	// feature (passive V2 aggregation). When false: the aggregator stops and both the
+	// admin and user-facing V2 endpoints return CHANNEL_MONITOR_DISABLED.
 	SettingKeyChannelMonitorEnabled = "channel_monitor_enabled"
-
-	// SettingKeyChannelMonitorMode selects exclusive implementation:
-	// "v1" active probes, "v2" passive aggregation. Default "v1" (opt-in to v2).
-	SettingKeyChannelMonitorMode = "channel_monitor_mode"
-
-	// ChannelMonitorModeV1/V2 are the only accepted mode values.
-	ChannelMonitorModeV1 = "v1"
-	ChannelMonitorModeV2 = "v2"
-
-	// SettingKeyChannelMonitorDefaultIntervalSeconds controls the default interval (seconds)
-	// pre-filled when creating a new channel monitor from the admin UI. Range: [15, 3600].
-	SettingKeyChannelMonitorDefaultIntervalSeconds = "channel_monitor_default_interval_seconds"
 
 	// SettingKeyChannelMonitorHideThroughput hides RPM/TPM (and similar absolute
 	// throughput rates) from non-admin user-facing monitor APIs and UI, so users
 	// cannot reverse-estimate fleet volume from rates × window length.
 	// Default false (show rates). Admin endpoints always keep full metrics.
 	SettingKeyChannelMonitorHideThroughput = "channel_monitor_hide_throughput"
-
-	// SettingKeyChannelMonitorShowQuota controls whether quota/balance snapshots
-	// attached to channel monitors (check_mode=quota/quota_probe) are exposed on
-	// the user-facing monitor APIs and UI. Default false (hidden); parsed
-	// fail-closed (only the literal "true" enables it). Admin endpoints always
-	// keep the full snapshots regardless of this flag.
-	SettingKeyChannelMonitorShowQuota = "channel_monitor_show_quota"
 
 	// SettingKeyGrokDefaultTextModel is the fallback Grok text model for empty
 	// request models and built-in Grok aliases (e.g. "grok" → this id). Default grok-4.5.
@@ -363,20 +279,6 @@ const (
 	// user-facing aggregate view. When false: user endpoint returns an empty list and the
 	// sidebar entry is hidden. Defaults to false (opt-in feature).
 	SettingKeyAvailableChannelsEnabled = "available_channels_enabled"
-
-	// SettingKeyModelPlazaEnabled is a DB-backed soft switch for the Model Plaza page
-	// (public group/model pricing showcase). When false: the plaza endpoint returns 404
-	// and the header entry is hidden. Defaults to false (opt-in feature).
-	SettingKeyModelPlazaEnabled = "model_plaza_enabled"
-
-	// SettingKeyModelPlazaRequireAuth controls whether the Model Plaza page requires a
-	// logged-in user. When false the page is public and anonymous visitors see only
-	// non-exclusive groups.
-	SettingKeyModelPlazaRequireAuth = "model_plaza_require_auth"
-
-	// SettingKeyModelPlazaDescription stores the Markdown blurb rendered at the top of
-	// the Model Plaza page (global pricing notes, exchange rate, promotions, ...).
-	SettingKeyModelPlazaDescription = "model_plaza_description"
 
 	// SettingKeyUpstreamBillingProbeSettings stores the global enable switch and interval
 	// for probing remote Sub2API API-key billing metadata.
@@ -518,18 +420,6 @@ const (
 	// 迁移后等价规则写入 SettingKeyCodexCLIOnlyWhitelist，不再参与运行时判定。
 	SettingKeyOpenAIAllowClaudeCodeCodexPlugin = "openai_allow_claude_code_codex_plugin"
 
-	// 余额不足提醒
-	SettingKeyBalanceLowNotifyEnabled     = "balance_low_notify_enabled"      // 全局开关
-	SettingKeyBalanceLowNotifyThreshold   = "balance_low_notify_threshold"    // 默认阈值（USD）
-	SettingKeyBalanceLowNotifyRechargeURL = "balance_low_notify_recharge_url" // 充值页面 URL
-
-	// 订阅到期提醒
-	SettingKeySubscriptionExpiryNotifyEnabled = "subscription_expiry_notify_enabled" // 订阅到期提醒全局开关，默认开启
-
-	// 账号限额通知
-	SettingKeyAccountQuotaNotifyEnabled = "account_quota_notify_enabled" // 全局开关
-	SettingKeyAccountQuotaNotifyEmails  = "account_quota_notify_emails"  // 管理员通知邮箱列表（JSON 数组）
-
 	// Web Search Emulation
 	SettingKeyWebSearchEmulationConfig = "web_search_emulation_config" // JSON 配置
 )
@@ -541,12 +431,6 @@ const SettingKeyDefaultPlatformQuotas = "default_platform_quotas"
 // SettingKeyAccountSchedulingThresholds —— 系统全局：按平台自动停调阈值（JSON map）。
 // 值为 map[platform]percent，1..100；100 = 禁用该平台自动停调。
 const SettingKeyAccountSchedulingThresholds = "account_scheduling_thresholds"
-
-// SettingKeyAuthSourcePlatformQuotas 返回某 auth source 的 platform quota JSON key。
-// 形如 auth_source_default_{source}_platform_quotas
-func SettingKeyAuthSourcePlatformQuotas(source string) string {
-	return fmt.Sprintf("auth_source_default_%s_platform_quotas", source)
-}
 
 // QuotaDimension constants for spark shadow accounts.
 const (

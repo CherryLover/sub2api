@@ -34,27 +34,18 @@ type Group struct {
 	// an already committed one-click copy. It must never be mapped to API DTOs.
 	DuplicateOperationID string
 
-	SubscriptionType    string
-	DailyLimitUSD       *float64
-	WeeklyLimitUSD      *float64
-	MonthlyLimitUSD     *float64
-	DefaultValidityDays int
-
 	// 图片生成计费配置（antigravity 和 gemini 平台使用）
-	AllowImageGeneration         bool
-	AllowBatchImageGeneration    bool
-	ImageRateIndependent         bool
-	ImageRateMultiplier          float64
-	ImagePrice1K                 *float64
-	ImagePrice2K                 *float64
-	ImagePrice4K                 *float64
-	BatchImageDiscountMultiplier float64
-	BatchImageHoldMultiplier     float64
-	VideoRateIndependent         bool
-	VideoRateMultiplier          float64
-	VideoPrice480P               *float64
-	VideoPrice720P               *float64
-	VideoPrice1080P              *float64
+	AllowImageGeneration bool
+	ImageRateIndependent bool
+	ImageRateMultiplier  float64
+	ImagePrice1K         *float64
+	ImagePrice2K         *float64
+	ImagePrice4K         *float64
+	VideoRateIndependent bool
+	VideoRateMultiplier  float64
+	VideoPrice480P       *float64
+	VideoPrice720P       *float64
+	VideoPrice1080P      *float64
 	// VideoModelPrices is optional per-model-family per-second pricing
 	// (groups.video_model_prices JSONB). Shape: family → resolution → USD/s.
 	// When set for a model, overrides VideoPrice* for that model only.
@@ -135,22 +126,6 @@ type Group struct {
 
 func (g *Group) IsActive() bool {
 	return g.Status == StatusActive
-}
-
-func (g *Group) IsSubscriptionType() bool {
-	return g.SubscriptionType == SubscriptionTypeSubscription
-}
-
-func (g *Group) HasDailyLimit() bool {
-	return g.DailyLimitUSD != nil && *g.DailyLimitUSD > 0
-}
-
-func (g *Group) HasWeeklyLimit() bool {
-	return g.WeeklyLimitUSD != nil && *g.WeeklyLimitUSD > 0
-}
-
-func (g *Group) HasMonthlyLimit() bool {
-	return g.MonthlyLimitUSD != nil && *g.MonthlyLimitUSD > 0
 }
 
 // GetImagePrice 根据 image_size 返回对应的图片生成价格
@@ -299,7 +274,7 @@ func parseMinutes(hhmm string) (int, bool) {
 //
 // 该方法是纯函数，不读取任何外部状态，便于单测。
 func (g *Group) PeakMultiplierAt(now time.Time) float64 {
-	if g == nil || !g.IsSubscriptionType() || !g.PeakRateEnabled || g.PeakStart == "" || g.PeakEnd == "" {
+	if g == nil || !g.PeakRateEnabled || g.PeakStart == "" || g.PeakEnd == "" {
 		return 1.0
 	}
 	start, ok1 := parseMinutes(g.PeakStart)
@@ -316,15 +291,12 @@ func (g *Group) PeakMultiplierAt(now time.Time) float64 {
 }
 
 // ValidatePeakRateConfig 是高峰倍率配置的唯一校验来源，供 handler 与 service 层共用。
-// enabled=true 时仅允许订阅类型分组；并要求 start/end 合法且 end>start（不支持跨天），multiplier>=0。
+// enabled=true 时要求 start/end 合法且 end>start（不支持跨天），multiplier>=0。
 // multiplier=0 是允许的，表示高峰 token 请求按 0 倍计费，可用于折扣/免费策略。
-// enabled=false 时放行（不关心类型）。subscriptionType 为空按 standard 处理。
-func ValidatePeakRateConfig(subscriptionType string, enabled bool, start, end string, multiplier float64) error {
+// enabled=false 时放行，由 NormalizePeakRateConfig 兜底清洗。
+func ValidatePeakRateConfig(enabled bool, start, end string, multiplier float64) error {
 	if !enabled {
 		return nil
-	}
-	if subscriptionType != SubscriptionTypeSubscription {
-		return errors.New("高峰时段倍率仅支持订阅类型分组")
 	}
 	if start == "" || end == "" {
 		return errors.New("peak_rate_enabled 为 true 时 peak_start 与 peak_end 必填")
@@ -347,17 +319,12 @@ func ValidatePeakRateConfig(subscriptionType string, enabled bool, start, end st
 }
 
 // NormalizePeakRateConfig 归一化最终落库的高峰配置，CreateGroup 与 UpdateGroup 两条写路径共用（唯一收口）：
-//   - 非订阅类型分组不携带任何高峰配置，一律清空（enabled=false、窗口置空、倍率归 1.0）；
-//   - 订阅分组关闭高峰时保留已配置的合法窗口（便于临时停用后再启用），
-//     但清掉无法解析的脏字符串与负倍率，避免脏数据入库。
+// 关闭高峰时保留已配置的合法窗口（便于临时停用后再启用），但清掉无法解析的脏字符串
+// 与负倍率，避免脏数据入库。
 //
 // 与 ValidatePeakRateConfig 的分工：enabled=true 时校验已保证各字段合法，本函数为无操作；
-// enabled=false 时校验放行，由本函数兜底清洗。调用顺序为先归一化、后校验，
-// 使"订阅转标准"这类更新能静默清空高峰配置而不是被校验拒绝。
-func NormalizePeakRateConfig(subscriptionType string, enabled bool, start, end string, multiplier float64) (bool, string, string, float64) {
-	if subscriptionType != SubscriptionTypeSubscription {
-		return false, "", "", 1.0
-	}
+// enabled=false 时校验放行，由本函数兜底清洗。调用顺序为先归一化、后校验。
+func NormalizePeakRateConfig(enabled bool, start, end string, multiplier float64) (bool, string, string, float64) {
 	if !enabled {
 		if _, ok := parseMinutes(start); !ok {
 			start = ""
