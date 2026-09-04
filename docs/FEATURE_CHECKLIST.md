@@ -218,7 +218,7 @@
 | ✓ | 残留 | 位置 | 说明 |
 |---|---|---|---|
 | [ ] | `subscription_type` 字段前端还在 8 个文件里传来传去 | `types/index.ts:333`；`views/user/KeysView.vue`(144/475/489/1087/1416)；`UserApiKeysModal.vue`；`GroupSelector.vue`；`AccountGroupsCell.vue`；`AvailableChannelsTable.vue`；`api/channels.ts`；数据库 `ent/schema/group.go` 的列也还在 | 后端 Group DTO 已彻底移除该字段，运行时永远是 `undefined`，GroupBadge 默认回落 `'standard'`，所以只是徽标永远显示「标准型」，不报错 |
-| [ ] | `/key-usage` 页写着「订阅类型」和「钱包余额」 | `views/KeyUsageView.vue`（detailRows 的 unrestricted 分支）（i18n `keyUsage.subscriptionType`、`keyUsage.walletBalance`） | 不限额模式下明细里有一行标签写「订阅类型」（现在排在「今日费用」之后），值其实是分组名；Key 没绑分组时兜底文案是「钱包余额」。订阅和余额都已删除，应改成「所属分组 / 不限额度」 |
+| [x] | ~~`/key-usage` 页写着「订阅类型」和「钱包余额」~~ **已清理** | — | 不限额模式下明细里曾有一行标签写「订阅类型」，值其实是分组名；Key 没绑分组时兜底文案是「钱包余额」。**已删**：detailRows 的 unrestricted 分支整段删除（不限额 Key 的明细只剩「今日费用」），状态徽标不再显示分组名 / 「钱包余额」，改为「不限额模式」（新键 `keyUsage.unlimitedMode`，与「Key 限额模式」对称）；i18n `keyUsage.subscriptionType`、`keyUsage.walletBalance` 及只为余额环服务的 `RingItem.isBalance` 一并删除。后端 `/v1/usage` 仍回 `planName`，前端不再读它 |
 | [ ] | 一组失效 i18n 文案零引用 | `i18n/locales/zh/admin/overview.ts:561` 的 `allowedGroupsHint`（写着「订阅类型分组请在订阅管理中配置」）及同组 `setAllowedGroups`/`allowAllGroups`/`allowAllGroupsHint`/`noStandardGroups`/`allowedGroupsUpdated`/`failedToUpdateAllowedGroups`，还有 `insufficientBalance` | 旧的「设置允许分组」弹窗已被 `UserAllowedGroupsModal` 取代，这批文案没清干净 |
 | [ ] | `views/auth/` 下三份文档还在教人用已删除的注册页 | `frontend/src/views/auth/README.md`、`VISUAL_GUIDE.md`、`USAGE_EXAMPLES.md`（均确认仍含 `RegisterView` 段落） | 里面给出 `import RegisterView from '@/views/auth/RegisterView.vue'` 这类示例，而该文件已删除，**照着这份文档动手会直接编译不过** |
 | [ ] | 个人资料页的「账号绑定」区块只剩一块只读展示 | `components/user/profile/ProfileIdentityBindingsSection.vue` | 邮箱绑定/换绑已删，卡片现在纯只读、下面写着「登录邮箱由管理员维护」。功能没坏，但对用户来说是一块什么也做不了的东西 |
