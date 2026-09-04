@@ -66,6 +66,9 @@ func RegisterAdminRoutes(
 		// 数据库备份恢复
 		registerBackupRoutes(admin, h, stepUpAuth)
 
+		// 通知通道（Bark）
+		registerNotificationRoutes(admin, h)
+
 		// 运维监控（Ops）
 		registerOpsRoutes(admin, h)
 
@@ -541,6 +544,17 @@ func registerBackupRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAut
 
 		// 恢复操作：整库覆盖可回滚安全设置（含 step-up 开关本身）——要求 step-up 2FA
 		backup.POST("/:id/restore", gin.HandlerFunc(stepUpAuth), h.Admin.Backup.RestoreBackup)
+	}
+}
+
+// registerNotificationRoutes 主动推送通道的管理端配置。邮件体系裁掉之后这是唯一的外发出口，
+// 目前只有 Bark；设置键 notify_bark_config 只在这里读写，不进公开设置。
+func registerNotificationRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	notifications := admin.Group("/notifications")
+	{
+		notifications.GET("/bark", h.Admin.NotificationBark.GetBarkConfig)
+		notifications.PUT("/bark", h.Admin.NotificationBark.UpdateBarkConfig)
+		notifications.POST("/bark/test", h.Admin.NotificationBark.TestBark)
 	}
 }
 

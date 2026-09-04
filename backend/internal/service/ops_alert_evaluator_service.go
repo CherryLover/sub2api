@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -36,6 +37,9 @@ type OpsAlertEvaluatorService struct {
 	opsRepo    OpsRepository
 	proxyRepo  ProxyRepository
 
+	// alertNotifier 告警出口（Bark）。为 nil 或未启用时评估流程与从前完全一致，只落库不外发。
+	alertNotifier *BarkNotificationService
+
 	redisClient *redis.Client
 	cfg         *config.Config
 	instanceID  string
@@ -65,15 +69,17 @@ func NewOpsAlertEvaluatorService(
 	redisClient *redis.Client,
 	cfg *config.Config,
 	proxyRepo ProxyRepository,
+	alertNotifier *BarkNotificationService,
 ) *OpsAlertEvaluatorService {
 	return &OpsAlertEvaluatorService{
-		opsService:  opsService,
-		opsRepo:     opsRepo,
-		proxyRepo:   proxyRepo,
-		redisClient: redisClient,
-		cfg:         cfg,
-		instanceID:  uuid.NewString(),
-		ruleStates:  map[int64]*opsAlertRuleState{},
+		opsService:    opsService,
+		opsRepo:       opsRepo,
+		proxyRepo:     proxyRepo,
+		alertNotifier: alertNotifier,
+		redisClient:   redisClient,
+		cfg:           cfg,
+		instanceID:    uuid.NewString(),
+		ruleStates:    map[int64]*opsAlertRuleState{},
 	}
 }
 
@@ -283,6 +289,8 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 			}
 
 			eventsCreated++
+			// 事件已落库，外发只是附加通道：失败只记日志，不影响本轮评估。
+			s.notifyAlertFired(ctx, rule, metricValue, now)
 			continue
 		}
 
@@ -293,12 +301,47 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] resolve event failed (event=%d): %v", activeEvent.ID, err)
 			} else {
 				eventsResolved++
+				s.notifyAlertResolved(ctx, rule, metricValue, activeEvent.FiredAt, resolvedAt)
 			}
 		}
 	}
 
 	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved), 2048)
 	s.recordHeartbeatSuccess(runAt, time.Since(startedAt), result)
+}
+
+// notifyAlertFired 把刚落库的告警事件推到 Bark；通道未启用时是空操作。
+func (s *OpsAlertEvaluatorService) notifyAlertFired(ctx context.Context, rule *OpsAlertRule, value float64, firedAt time.Time) {
+	if s == nil || s.alertNotifier == nil || rule == nil {
+		return
+	}
+	if err := s.alertNotifier.NotifyOpsAlertFired(ctx, buildOpsAlertNotification(rule, value, firedAt, nil)); err != nil {
+		slog.Warn("ops_alert_bark_notify_failed", "kind", "fired", "rule_id", rule.ID, "rule", rule.Name, "error", err)
+	}
+}
+
+// notifyAlertResolved 告警解除后推「已恢复」；是否推由 Bark 配置里的 notify_on_resolve 决定。
+func (s *OpsAlertEvaluatorService) notifyAlertResolved(ctx context.Context, rule *OpsAlertRule, value float64, firedAt, resolvedAt time.Time) {
+	if s == nil || s.alertNotifier == nil || rule == nil {
+		return
+	}
+	if err := s.alertNotifier.NotifyOpsAlertResolved(ctx, buildOpsAlertNotification(rule, value, firedAt, &resolvedAt)); err != nil {
+		slog.Warn("ops_alert_bark_notify_failed", "kind", "resolved", "rule_id", rule.ID, "rule", rule.Name, "error", err)
+	}
+}
+
+func buildOpsAlertNotification(rule *OpsAlertRule, value float64, firedAt time.Time, resolvedAt *time.Time) OpsAlertNotification {
+	return OpsAlertNotification{
+		RuleName:   strings.TrimSpace(rule.Name),
+		Severity:   strings.TrimSpace(rule.Severity),
+		MetricType: strings.TrimSpace(rule.MetricType),
+		Operator:   strings.TrimSpace(rule.Operator),
+		Threshold:  rule.Threshold,
+		Value:      value,
+		Scope:      FormatOpsAlertScope(rule.Filters),
+		FiredAt:    firedAt,
+		ResolvedAt: resolvedAt,
+	}
 }
 
 func (s *OpsAlertEvaluatorService) pruneRuleStates(rules []*OpsAlertRule) {

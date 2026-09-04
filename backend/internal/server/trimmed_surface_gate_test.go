@@ -490,6 +490,30 @@ func TestRetainedPromptAuditSurfaceStillRegistered(t *testing.T) {
 	}
 }
 
+// TestNotificationBarkSurfaceRegistered 批次 6 / A6-2 补回的唯一主动推送通道：
+// Bark 配置的读 / 写 / 测试三条管理端路由必须在场，且只挂在 /admin 下。
+func TestNotificationBarkSurfaceRegistered(t *testing.T) {
+	router, _ := newTrimmedSurfaceRouter(t)
+
+	routes := make(map[string]struct{})
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = struct{}{}
+	}
+	for _, want := range []string{
+		"GET /api/v1/admin/notifications/bark",
+		"PUT /api/v1/admin/notifications/bark",
+		"POST /api/v1/admin/notifications/bark/test",
+	} {
+		_, exists := routes[want]
+		require.Truef(t, exists, "Bark 通知路由 %s 应已注册", want)
+	}
+	// 旧的邮件通知配置路由不许借 Bark 之名回流。
+	for _, route := range router.Routes() {
+		require.NotContainsf(t, route.Path, "email-notification", "旧邮件通知路由 %s 不应回流", route.Path)
+		require.Falsef(t, strings.HasPrefix(route.Path, "/api/v1/notifications"), "Bark 通知配置只能挂在 /admin 下，发现 %s", route.Path)
+	}
+}
+
 // TestPublicSettingsKeepsRiskControlSwitch risk_control_enabled 是提示词审计的
 // 总开关，内容安全审计删除后仍必须出现在公开设置里，否则前端菜单与路由守卫会失效。
 func TestPublicSettingsKeepsRiskControlSwitch(t *testing.T) {
@@ -596,6 +620,16 @@ func TestPublicSettingsHasNoPaymentKey(t *testing.T) {
 		"account_quota_notify_enabled",
 	} {
 		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪的邮件相关键 %s", key)
+	}
+	// 批次 6 / A6-2 补回的 Bark 推送通道：配置里含加密后的 device_key，只走管理端接口，
+	// 任何形态都不许出现在公开设置里。
+	for _, key := range []string{
+		"notify_bark_config",
+		"bark_enabled",
+		"bark_server_url",
+		"bark_device_key",
+	} {
+		require.NotContainsf(t, resp.Data, key, "公开设置不应包含 Bark 推送配置键 %s", key)
 	}
 	// 订阅 / 余额语义（批次 4 / A4）：注册默认值与订阅相关键整体移除，不许回流。
 	for _, key := range []string{

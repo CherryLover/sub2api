@@ -453,10 +453,22 @@ func ProvideOpsAlertEvaluatorService(
 	redisClient *redis.Client,
 	cfg *config.Config,
 	proxyRepo ProxyRepository,
+	alertNotifier *BarkNotificationService,
 ) *OpsAlertEvaluatorService {
-	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, redisClient, cfg, proxyRepo)
+	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, redisClient, cfg, proxyRepo, alertNotifier)
 	svc.Start()
 	return svc
+}
+
+// ProvideBarkNotificationService 构造 Bark 通知设置服务（管理端配置 / 测试推送 / 告警出口）。
+// 推送客户端独立于上游代理池；device_key 是否允许落库取决于是否配置了固定加密密钥（与备份 S3 同一条护栏）。
+func ProvideBarkNotificationService(
+	settingRepo SettingRepository,
+	encryptor SecretEncryptor,
+	cfg *config.Config,
+) *BarkNotificationService {
+	encryptionKeyConfigured := cfg != nil && cfg.Totp.EncryptionKeyConfigured
+	return NewBarkNotificationService(settingRepo, encryptor, NewBarkNotifier(nil), encryptionKeyConfigured)
 }
 
 // ProvideOpsCleanupService creates and starts OpsCleanupService (cron scheduled).
@@ -778,6 +790,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAuditLogService,
 	ProvideOpsMetricsCollector,
 	ProvideOpsAggregationService,
+	ProvideBarkNotificationService,
 	ProvideOpsAlertEvaluatorService,
 	ProvideOpsCleanupService,
 	ProvideConcurrencyService,
