@@ -360,8 +360,12 @@
               <!-- View Usage Button -->
               <button
                 @click="openKeyUsage(row)"
-                :disabled="usageLookupKeyId === row.id"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-primary-50 hover:text-primary-600 disabled:cursor-wait disabled:opacity-60 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
+                :disabled="row.status === 'inactive' || usageLookupKeyId === row.id"
+                :title="row.status === 'inactive' ? t('keys.usageUnavailableInactive') : undefined"
+                :class="[
+                  'flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-primary-50 hover:text-primary-600 disabled:opacity-60 dark:hover:bg-primary-900/20 dark:hover:text-primary-400',
+                  usageLookupKeyId === row.id ? 'disabled:cursor-wait' : 'disabled:cursor-not-allowed'
+                ]"
               >
                 <Icon v-if="usageLookupKeyId === row.id" name="refresh" size="sm" class="animate-spin" />
                 <Icon v-else name="chartBar" size="sm" />
@@ -1744,17 +1748,31 @@ const resetRateLimitUsage = async () => {
 const usageLookupKeyId = ref<number | null>(null)
 
 /**
- * 打开免登录用量页：先用原始 Key 换一枚只读查询令牌，再以 ?t=<令牌> 新开标签页。
- * 原始 Key 绝不进网址。已停用的 Key 前端不拦截，由后端决定能否查看（拒绝时走失败提示）。
+ * 打开免登录用量页：先用原始 Key 换一枚只读查询令牌，再把新标签页导航到 ?t=<令牌>。
+ * 原始 Key 绝不进网址。已停用的 Key 后端一律 401，按钮已置灰，这里只是兜底。
+ *
+ * 新标签页必须在任何 await 之前同步打开：Safari 只放行用户手势同步栈内的 window.open，
+ * 拿到令牌后再开会被当弹窗拦掉。不能带 noopener（返回值恒为 null，拿不到窗口引用），
+ * 目标是同源页，拿到引用后手动断开 opener 即可。被拦截时退化为当前标签页跳转。
  */
 const openKeyUsage = async (row: ApiKey) => {
-  if (usageLookupKeyId.value === row.id) return
+  if (row.status === 'inactive' || usageLookupKeyId.value === row.id) return
   usageLookupKeyId.value = row.id
+  const popup = window.open('about:blank', '_blank')
+  if (popup) {
+    popup.opener = null
+  }
   try {
     const session = await createKeyUsageSession(row.key, t('keys.failedToOpenUsage'))
-    const url = router.resolve({ path: '/key-usage', query: { t: session.token } }).href
-    window.open(url, '_blank', 'noopener')
+    const target = { path: '/key-usage', query: { t: session.token } }
+    if (popup) {
+      // about:blank 里解析相对路径不可靠，给绝对地址。
+      popup.location.replace(new URL(router.resolve(target).href, window.location.href).href)
+    } else {
+      await router.push(target)
+    }
   } catch (error: any) {
+    popup?.close()
     console.error('Failed to open key usage lookup:', error)
     const errorMsg = error?.message || t('keys.failedToOpenUsage')
     appStore.showError(errorMsg)

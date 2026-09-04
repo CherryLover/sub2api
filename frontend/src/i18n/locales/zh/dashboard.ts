@@ -124,6 +124,7 @@ export default {
     lastUsedAt: '上次使用时间',
     lastUsedIP: '最近使用 IP',
     viewUsage: '查用量',
+    usageUnavailableInactive: '已停用的密钥无法查询用量',
     useKey: '使用密钥',
     useKeyModal: {
       title: '使用 API 密钥',

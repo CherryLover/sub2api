@@ -124,6 +124,7 @@ export default {
     lastUsedAt: 'Last Used',
     lastUsedIP: 'Last Used IP',
     viewUsage: 'Usage',
+    usageUnavailableInactive: 'Disabled keys cannot look up usage',
     useKey: 'Use Key',
     useKeyModal: {
       title: 'Use API Key',
