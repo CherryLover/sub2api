@@ -115,6 +115,7 @@ export default {
     clickToChangeGroup: '点击更换分组',
     groupChangedSuccess: '分组更换成功',
     failedToChangeGroup: '更换分组失败',
+    failedToOpenUsage: '打开用量查询失败',
     groupRequired: '请选择分组',
     usage: '用量',
     today: '今日',
@@ -122,6 +123,7 @@ export default {
     spent: '累计消费',
     lastUsedAt: '上次使用时间',
     lastUsedIP: '最近使用 IP',
+    viewUsage: '查用量',
     useKey: '使用密钥',
     useKeyModal: {
       title: '使用 API 密钥',

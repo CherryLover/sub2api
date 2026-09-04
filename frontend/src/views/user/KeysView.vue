@@ -357,6 +357,16 @@
                 <Icon name="terminal" size="sm" />
                 <span class="text-xs">{{ t('keys.useKey') }}</span>
               </button>
+              <!-- View Usage Button -->
+              <button
+                @click="openKeyUsage(row)"
+                :disabled="usageLookupKeyId === row.id"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-primary-50 hover:text-primary-600 disabled:cursor-wait disabled:opacity-60 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
+              >
+                <Icon v-if="usageLookupKeyId === row.id" name="refresh" size="sm" class="animate-spin" />
+                <Icon v-else name="chartBar" size="sm" />
+                <span class="text-xs">{{ t('keys.viewUsage') }}</span>
+              </button>
               <!-- Import to CC Switch Button -->
               <button
                 @click="importToCcswitch(row)"
@@ -1015,12 +1025,14 @@
 <script setup lang="ts">
 	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
+	import { useRouter } from 'vue-router'
 	import { useAppStore } from '@/stores/app'
 	import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
+import { createKeyUsageSession } from '@/api/keyUsage'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import DataTable from '@/components/common/DataTable.vue'
@@ -1071,6 +1083,7 @@ interface GroupOption {
 }
 
 const appStore = useAppStore()
+const router = useRouter()
 const { copyToClipboard: clipboardCopy } = useClipboard()
 
 const allColumns = computed<Column[]>(() => [
@@ -1724,6 +1737,31 @@ const resetRateLimitUsage = async () => {
   } catch (error: any) {
     const errorMsg = error.response?.data?.detail || t('keys.failedToResetRateLimit')
     appStore.showError(errorMsg)
+  }
+}
+
+/** 正在换查询令牌的 Key id；该行的「查用量」按钮期间禁用，防止连点。 */
+const usageLookupKeyId = ref<number | null>(null)
+
+/**
+ * 打开免登录用量页：先用原始 Key 换一枚只读查询令牌，再以 ?t=<令牌> 新开标签页。
+ * 原始 Key 绝不进网址。已停用的 Key 前端不拦截，由后端决定能否查看（拒绝时走失败提示）。
+ */
+const openKeyUsage = async (row: ApiKey) => {
+  if (usageLookupKeyId.value === row.id) return
+  usageLookupKeyId.value = row.id
+  try {
+    const session = await createKeyUsageSession(row.key, t('keys.failedToOpenUsage'))
+    const url = router.resolve({ path: '/key-usage', query: { t: session.token } }).href
+    window.open(url, '_blank', 'noopener')
+  } catch (error: any) {
+    console.error('Failed to open key usage lookup:', error)
+    const errorMsg = error?.message || t('keys.failedToOpenUsage')
+    appStore.showError(errorMsg)
+  } finally {
+    if (usageLookupKeyId.value === row.id) {
+      usageLookupKeyId.value = null
+    }
   }
 }
 

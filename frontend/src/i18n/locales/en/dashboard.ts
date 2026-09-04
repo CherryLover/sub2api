@@ -115,6 +115,7 @@ export default {
     clickToChangeGroup: 'Click to change group',
     groupChangedSuccess: 'Group changed successfully',
     failedToChangeGroup: 'Failed to change group',
+    failedToOpenUsage: 'Failed to open usage lookup',
     groupRequired: 'Please select a group',
     usage: 'Usage',
     today: 'Today',
@@ -122,6 +123,7 @@ export default {
     spent: 'Total Spent',
     lastUsedAt: 'Last Used',
     lastUsedIP: 'Last Used IP',
+    viewUsage: 'Usage',
     useKey: 'Use Key',
     useKeyModal: {
       title: 'Use API Key',
