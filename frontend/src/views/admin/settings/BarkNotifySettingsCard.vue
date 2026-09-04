@@ -203,22 +203,17 @@
         <Toggle v-model="form.notify_on_resolve" data-testid="bark-notify-on-resolve" />
       </div>
 
-      <!-- 最近一次测试的结果 -->
+      <!-- 最近一次测试的结果：色调见 testTone()，data-tone 方便测试断言 -->
       <div
         v-if="lastTest"
         :class="[
           'flex items-start gap-2 rounded-lg border px-4 py-3 text-sm',
-          lastTestSucceeded
-            ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-200'
-            : 'border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200',
+          TEST_TONE_CLASSES[lastTestTone],
         ]"
+        :data-tone="lastTestTone"
         data-testid="bark-test-result"
       >
-        <Icon
-          :name="lastTestSucceeded ? 'checkCircle' : 'exclamationTriangle'"
-          size="sm"
-          class="mt-0.5 shrink-0"
-        />
+        <Icon :name="TEST_TONE_ICONS[lastTestTone]" size="sm" class="mt-0.5 shrink-0" />
         <div class="min-w-0 space-y-0.5">
           <p class="font-medium">{{ lastTestHeadline }}</p>
           <p v-if="lastTestDetail" class="break-all text-xs opacity-80">
@@ -312,11 +307,28 @@ const BARK_DEFAULT_SERVER_URL = "https://api.day.app";
 const BARK_DEFAULT_GROUP = "sub2api";
 
 type TestMode = "connection" | "send";
+// 结果条的四种色调：success 绿、info 蓝、warning 琥珀、error 红
+type TestTone = "success" | "info" | "warning" | "error";
 interface TestOutcome {
   mode: TestMode;
   result?: TestBarkNotifyResponse;
   error?: string;
 }
+
+const TEST_TONE_CLASSES: Record<TestTone, string> = {
+  success:
+    "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-200",
+  info: "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200",
+  warning:
+    "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200",
+  error: "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200",
+};
+const TEST_TONE_ICONS = {
+  success: "checkCircle",
+  info: "exclamationCircle",
+  warning: "exclamationTriangle",
+  error: "xCircle",
+} as const;
 
 const loading = ref(true);
 const loadFailed = ref(false);
@@ -364,13 +376,36 @@ const lastSavedText = computed(() => {
   return Number.isNaN(date.getTime()) ? updatedAt.value : date.toLocaleString();
 });
 
-const lastTestSucceeded = computed(() => {
-  const outcome = lastTest.value;
-  if (!outcome || outcome.error || !outcome.result) return false;
-  return outcome.mode === "connection"
-    ? outcome.result.ping_ok
-    : outcome.result.ok;
-});
+// 「测试连接」把探活 ping_ok 与推送 ok 两个维度合起来看（HTTP 200 的四种组合）；
+// 「发送测试通知」只看 ok。请求本身被拒（非 2xx）一律按 error。
+function testTone(outcome: TestOutcome): TestTone {
+  if (outcome.error || !outcome.result) return "error";
+  const { ok, ping_ok: pingOk } = outcome.result;
+  if (outcome.mode === "send") return ok ? "success" : "error";
+  if (pingOk && ok) return "success";
+  if (pingOk) return "info"; // 服务器通了，只是还没配设备 Key，后端没推送
+  if (ok) return "warning"; // 探活接口没响应（比如自建服务器没开 /ping），但推送成功
+  return "error";
+}
+
+const lastTestTone = computed<TestTone>(() =>
+  lastTest.value ? testTone(lastTest.value) : "error",
+);
+
+function connectionHeadline(tone: TestTone, result: TestBarkNotifyResponse): string {
+  switch (tone) {
+    case "success":
+      return t("admin.settings.notifications.bark.resultPingOk");
+    case "info":
+      return t("admin.settings.notifications.bark.connectionOkNoDeviceKey", {
+        latency: result.latency_ms,
+      });
+    case "warning":
+      return t("admin.settings.notifications.bark.connectionPingFailedPushOk");
+    default:
+      return t("admin.settings.notifications.bark.resultPingFailed");
+  }
+}
 
 const lastTestHeadline = computed(() => {
   const outcome = lastTest.value;
@@ -383,9 +418,7 @@ const lastTestHeadline = computed(() => {
   const result = outcome.result;
   if (!result) return "";
   if (outcome.mode === "connection") {
-    return result.ping_ok
-      ? t("admin.settings.notifications.bark.resultPingOk")
-      : t("admin.settings.notifications.bark.resultPingFailed");
+    return connectionHeadline(testTone(outcome), result);
   }
   return result.ok
     ? t("admin.settings.notifications.bark.resultSent")
@@ -494,8 +527,41 @@ async function save(): Promise<void> {
   }
 }
 
+// 「测试连接」的弹出提示与结果条色调一一对应，见 testTone()
+function notifyConnectionResult(tone: TestTone, result: TestBarkNotifyResponse): void {
+  switch (tone) {
+    case "success":
+      appStore.showSuccess(
+        t("admin.settings.notifications.bark.connectionOk", {
+          latency: result.latency_ms,
+        }),
+      );
+      break;
+    case "info":
+      appStore.showInfo(
+        t("admin.settings.notifications.bark.connectionOkNoDeviceKey", {
+          latency: result.latency_ms,
+        }),
+      );
+      break;
+    case "warning":
+      appStore.showWarning(
+        t("admin.settings.notifications.bark.connectionPingFailedPushOk"),
+      );
+      break;
+    default:
+      appStore.showError(
+        result.message
+          ? t("admin.settings.notifications.bark.connectionFailedWithMessage", {
+              message: result.message,
+            })
+          : t("admin.settings.notifications.bark.connectionFailed"),
+      );
+  }
+}
+
 // 两个测试按钮共用同一个接口，都用表单当前值（不要求先保存）；
-// 「测试连接」只看 ping_ok 与延迟，「发送测试通知」看 ok 并带上标题正文
+// 「测试连接」不要求有设备 Key（后端没 Key 时只探活），「发送测试通知」看 ok 并带上标题正文
 async function runTest(mode: TestMode): Promise<void> {
   if (busy.value || loadFailed.value) return;
   if (form.server_url.trim() === "") {
@@ -519,20 +585,10 @@ async function runTest(mode: TestMode): Promise<void> {
   lastTest.value = null;
   try {
     const result = await adminAPI.notifications.testBark(payload);
-    lastTest.value = { mode, result };
+    const outcome: TestOutcome = { mode, result };
+    lastTest.value = outcome;
     if (mode === "connection") {
-      if (result.ping_ok) {
-        appStore.showSuccess(
-          t("admin.settings.notifications.bark.connectionOk", {
-            latency: result.latency_ms,
-          }),
-        );
-      } else {
-        appStore.showError(
-          result.message ||
-            t("admin.settings.notifications.bark.connectionFailed"),
-        );
-      }
+      notifyConnectionResult(testTone(outcome), result);
     } else if (result.ok) {
       appStore.showSuccess(t("admin.settings.notifications.bark.sent"));
     } else {

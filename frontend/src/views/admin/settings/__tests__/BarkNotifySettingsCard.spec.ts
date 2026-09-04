@@ -4,13 +4,16 @@ import { defineComponent, h } from 'vue'
 
 import BarkNotifySettingsCard from '../BarkNotifySettingsCard.vue'
 
-const { getBarkConfig, updateBarkConfig, testBark, showError, showSuccess } = vi.hoisted(() => ({
-  getBarkConfig: vi.fn(),
-  updateBarkConfig: vi.fn(),
-  testBark: vi.fn(),
-  showError: vi.fn(),
-  showSuccess: vi.fn(),
-}))
+const { getBarkConfig, updateBarkConfig, testBark, showError, showSuccess, showInfo, showWarning } =
+  vi.hoisted(() => ({
+    getBarkConfig: vi.fn(),
+    updateBarkConfig: vi.fn(),
+    testBark: vi.fn(),
+    showError: vi.fn(),
+    showSuccess: vi.fn(),
+    showInfo: vi.fn(),
+    showWarning: vi.fn(),
+  }))
 
 vi.mock('@/api', () => ({
   adminAPI: {
@@ -26,8 +29,8 @@ vi.mock('@/stores', () => ({
   useAppStore: () => ({
     showError,
     showSuccess,
-    showWarning: vi.fn(),
-    showInfo: vi.fn(),
+    showWarning,
+    showInfo,
   }),
 }))
 
@@ -139,6 +142,8 @@ describe('BarkNotifySettingsCard', () => {
     testBark.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
+    showInfo.mockReset()
+    showWarning.mockReset()
   })
 
   it('loads the config on mount and fills every field, never echoing the device key', async () => {
@@ -310,7 +315,7 @@ describe('BarkNotifySettingsCard', () => {
 
   it('test connection reports the ping result and latency without a title/body', async () => {
     getBarkConfig.mockResolvedValue(configuredConfig())
-    testBark.mockResolvedValue({ ...okTestResult(), ok: false, latency_ms: 42 })
+    testBark.mockResolvedValue({ ...okTestResult(), latency_ms: 42 })
 
     const wrapper = await mountCard()
     await field(wrapper, 'bark-test-connection').trigger('click')
@@ -325,8 +330,130 @@ describe('BarkNotifySettingsCard', () => {
     expect(showError).not.toHaveBeenCalled()
 
     const result = field(wrapper, 'bark-test-result')
+    expect(result.attributes('data-tone')).toBe('success')
     expect(result.text()).toContain('admin.settings.notifications.bark.resultPingOk')
     expect(result.text()).toContain('admin.settings.notifications.bark.resultLatency:42')
+    expect(result.text()).toContain('admin.settings.notifications.bark.resultStatus:200')
+  })
+
+  it('test connection with ping ok but no device key shows an info headline instead of a failure', async () => {
+    getBarkConfig.mockResolvedValue(freshConfig())
+    testBark.mockResolvedValue({
+      ok: false,
+      ping_ok: true,
+      status_code: 0,
+      message: '未配置设备 Key，仅测试了服务器连通性',
+      latency_ms: 42,
+    })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'bark-test-connection').trigger('click')
+    await flushPromises()
+
+    // 没有设备 Key 也放行「测试连接」，由后端只做探活
+    expect(testBark).toHaveBeenCalledTimes(1)
+    expect(testBark.mock.calls[0][0]).toMatchObject({ device_key: '' })
+    expect(showInfo).toHaveBeenCalledWith(
+      'admin.settings.notifications.bark.connectionOkNoDeviceKey:42',
+    )
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
+
+    const result = field(wrapper, 'bark-test-result')
+    expect(result.attributes('data-tone')).toBe('info')
+    expect(result.text()).toContain('admin.settings.notifications.bark.connectionOkNoDeviceKey:42')
+    expect(result.text()).toContain('admin.settings.notifications.bark.resultLatency:42')
+    expect(result.text()).not.toContain('admin.settings.notifications.bark.resultStatus')
+  })
+
+  it('test connection with ping failed but push ok shows a warning, not a failure', async () => {
+    getBarkConfig.mockResolvedValue(configuredConfig())
+    testBark.mockResolvedValue({
+      ok: true,
+      ping_ok: false,
+      status_code: 200,
+      message: 'success',
+      latency_ms: 120,
+    })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'bark-test-connection').trigger('click')
+    await flushPromises()
+
+    expect(showWarning).toHaveBeenCalledWith(
+      'admin.settings.notifications.bark.connectionPingFailedPushOk',
+    )
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
+
+    const result = field(wrapper, 'bark-test-result')
+    expect(result.attributes('data-tone')).toBe('warning')
+    expect(result.text()).toContain('admin.settings.notifications.bark.connectionPingFailedPushOk')
+    expect(result.text()).toContain('admin.settings.notifications.bark.resultStatus:200')
+  })
+
+  it('test connection with both ping and push failed shows the failure with the backend message', async () => {
+    getBarkConfig.mockResolvedValue(freshConfig())
+    testBark.mockResolvedValue({
+      ok: false,
+      ping_ok: false,
+      status_code: 0,
+      message: 'connection refused',
+      latency_ms: 0,
+    })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'bark-test-connection').trigger('click')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith(
+      'admin.settings.notifications.bark.connectionFailedWithMessage:connection refused',
+    )
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(showInfo).not.toHaveBeenCalled()
+    expect(showWarning).not.toHaveBeenCalled()
+
+    const result = field(wrapper, 'bark-test-result')
+    expect(result.attributes('data-tone')).toBe('error')
+    expect(result.text()).toContain('admin.settings.notifications.bark.resultPingFailed')
+    expect(result.text()).toContain('connection refused')
+  })
+
+  it('send test only looks at ok, even when the ping failed', async () => {
+    getBarkConfig.mockResolvedValue(configuredConfig())
+    testBark.mockResolvedValue({
+      ok: true,
+      ping_ok: false,
+      status_code: 200,
+      message: 'success',
+      latency_ms: 65,
+    })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'bark-send-test').trigger('click')
+    await flushPromises()
+
+    expect(showSuccess).toHaveBeenCalledWith('admin.settings.notifications.bark.sent')
+    expect(showWarning).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
+
+    const result = field(wrapper, 'bark-test-result')
+    expect(result.attributes('data-tone')).toBe('success')
+    expect(result.text()).toContain('admin.settings.notifications.bark.resultSent')
+  })
+
+  it('sends an empty group when the field is cleared and shows the backend default afterwards', async () => {
+    getBarkConfig.mockResolvedValue(configuredConfig())
+    updateBarkConfig.mockResolvedValue({ ...configuredConfig(), group: 'sub2api' })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'bark-group').setValue('   ')
+    await field(wrapper, 'bark-save').trigger('click')
+    await flushPromises()
+
+    expect(updateBarkConfig).toHaveBeenCalledWith(expect.objectContaining({ group: '' }))
+    expect((field(wrapper, 'bark-group').element as HTMLInputElement).value).toBe('sub2api')
+    expect(showSuccess).toHaveBeenCalledWith('admin.settings.notifications.bark.saved')
   })
 
   it('shows the backend failure message when the test call is rejected, and re-enables the buttons', async () => {

@@ -140,17 +140,6 @@ func TestNotificationBarkHandler_TestEndpoint(t *testing.T) {
 	sender := &barkHandlerTestSender{}
 	r := newBarkHandlerRouter(t, sender)
 
-	// 没有任何 key → 400。
-	rec, envelope := doBarkJSON(t, r, http.MethodPost, "/api/v1/admin/notifications/bark/test",
-		`{"server_url":"https://api.day.app"}`)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Equal(t, "BARK_DEVICE_KEY_REQUIRED", envelope.Reason)
-	require.Equal(t, 0, sender.sent)
-
-	// 请求里带 key → 推送成功。
-	rec, envelope = doBarkJSON(t, r, http.MethodPost, "/api/v1/admin/notifications/bark/test",
-		`{"server_url":"https://api.day.app","device_key":"abc","title":"hi","body":"there"}`)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var data struct {
 		OK         bool   `json:"ok"`
 		PingOK     bool   `json:"ping_ok"`
@@ -158,6 +147,29 @@ func TestNotificationBarkHandler_TestEndpoint(t *testing.T) {
 		Message    string `json:"message"`
 		LatencyMs  int64  `json:"latency_ms"`
 	}
+
+	// server_url 缺失 → 400。
+	rec, envelope := doBarkJSON(t, r, http.MethodPost, "/api/v1/admin/notifications/bark/test", `{"device_key":"abc"}`)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "BARK_SERVER_URL_INVALID", envelope.Reason)
+	require.Equal(t, 0, sender.sent)
+
+	// 没有任何 key → 200，只探活不推送：ok=false、ping_ok 为探活结果、status_code=0。
+	rec, envelope = doBarkJSON(t, r, http.MethodPost, "/api/v1/admin/notifications/bark/test",
+		`{"server_url":"https://api.day.app"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(envelope.Data, &data))
+	require.False(t, data.OK)
+	require.True(t, data.PingOK)
+	require.Equal(t, 0, data.StatusCode)
+	require.Equal(t, "未配置设备 Key，仅测试了服务器连通性", data.Message)
+	require.GreaterOrEqual(t, data.LatencyMs, int64(0))
+	require.Equal(t, 0, sender.sent)
+
+	// 请求里带 key → 推送成功。
+	rec, envelope = doBarkJSON(t, r, http.MethodPost, "/api/v1/admin/notifications/bark/test",
+		`{"server_url":"https://api.day.app","device_key":"abc","title":"hi","body":"there"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.NoError(t, json.Unmarshal(envelope.Data, &data))
 	require.True(t, data.OK)
 	require.True(t, data.PingOK)
@@ -173,4 +185,16 @@ func TestNotificationBarkHandler_TestEndpoint(t *testing.T) {
 	require.Equal(t, "BARK_PUSH_FAILED", envelope.Reason)
 	require.Contains(t, envelope.Message, "400")
 	require.Contains(t, envelope.Message, "device key is invalid")
+}
+
+func TestNotificationBarkHandler_BlankGroupFallsBackToDefault(t *testing.T) {
+	r := newBarkHandlerRouter(t, &barkHandlerTestSender{})
+	rec, envelope := doBarkJSON(t, r, http.MethodPut, "/api/v1/admin/notifications/bark",
+		`{"enabled":false,"server_url":"https://api.day.app","group":"   "}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Contains(t, string(envelope.Data), `"group":"sub2api"`)
+
+	rec, envelope = doBarkJSON(t, r, http.MethodGet, "/api/v1/admin/notifications/bark", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, string(envelope.Data), `"group":"sub2api"`)
 }

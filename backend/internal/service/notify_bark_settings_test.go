@@ -311,15 +311,68 @@ func TestBarkNotificationService_TestBarkPrefersRequestKeyAndCustomText(t *testi
 	require.Equal(t, "自定义正文", sends[0].Msg.Body)
 }
 
-func TestBarkNotificationService_TestBarkWithoutAnyKey(t *testing.T) {
+func TestBarkNotificationService_TestBarkWithoutAnyKeyOnlyPings(t *testing.T) {
 	t.Parallel()
 
 	svc, _, sender := newBarkSettingsFixture(t)
-	_, err := svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{ServerURL: "https://api.day.app"}})
-	require.ErrorIs(t, err, ErrBarkDeviceKeyRequired)
-	require.True(t, infraerrors.IsBadRequest(err))
+	res, err := svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{ServerURL: "https://api.day.app/"}})
+	require.NoError(t, err, "没有任何 key 不再是 400，而是只探活")
+	require.False(t, res.OK)
+	require.True(t, res.PingOK)
+	require.Equal(t, 0, res.StatusCode)
+	require.Equal(t, "未配置设备 Key，仅测试了服务器连通性", res.Message)
+	require.GreaterOrEqual(t, res.LatencyMs, int64(0))
+	require.Equal(t, []string{"https://api.day.app"}, sender.pings, "只探活一次，地址已规范化")
+	require.Empty(t, sender.sent(), "没有 key 绝不能发 push")
+
+	// 探活失败：仍是 200 结果而不是错误，只是 ping_ok=false。
+	sender.pingErr = errors.New("connection refused")
+	res, err = svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{ServerURL: "https://api.day.app"}})
+	require.NoError(t, err)
+	require.False(t, res.OK)
+	require.False(t, res.PingOK)
+	require.Equal(t, 0, res.StatusCode)
+	require.Equal(t, "未配置设备 Key，仅测试了服务器连通性", res.Message)
 	require.Empty(t, sender.sent())
-	require.Empty(t, sender.pings, "没有 key 就不该发起任何网络请求")
+}
+
+func TestBarkNotificationService_GroupFallsBackToDefault(t *testing.T) {
+	t.Parallel()
+
+	svc, repo, sender := newBarkSettingsFixture(t)
+
+	// PUT：group 去空白后为空 → 落默认值，落库、返回与 GET 回显都是 sub2api。
+	view, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "k", Group: "   ",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "sub2api", view.Group)
+	require.Equal(t, "sub2api", storedBarkConfig(t, repo).Group)
+	got, err := svc.GetBarkConfig(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "sub2api", got.Group)
+
+	// 测试推送：请求里 group 为空白 → 发出去的消息用默认分组。
+	_, err = svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{
+		ServerURL: "https://api.day.app", DeviceKey: "k", Group: " \t",
+	}})
+	require.NoError(t, err)
+	sends := sender.sent()
+	require.Len(t, sends, 1)
+	require.Equal(t, "sub2api", sends[0].Msg.Group)
+
+	// 库里直接是空串（旧数据 / 手改）：GET 回显与告警推送同样回落默认值。
+	raw := strings.Replace(repo.values[settingKeyNotifyBarkConfig], `"group":"sub2api"`, `"group":""`, 1)
+	require.Contains(t, raw, `"group":""`)
+	require.NoError(t, repo.Set(context.Background(), settingKeyNotifyBarkConfig, raw))
+	svc.invalidateCache()
+	got, err = svc.GetBarkConfig(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "sub2api", got.Group)
+	require.NoError(t, svc.NotifyOpsAlertFired(context.Background(), OpsAlertNotification{RuleName: "r", Severity: "P1"}))
+	sends = sender.sent()
+	require.Len(t, sends, 2)
+	require.Equal(t, "sub2api", sends[1].Msg.Group)
 }
 
 func TestBarkNotificationService_TestBarkRequiresServerURLAndValidLevel(t *testing.T) {

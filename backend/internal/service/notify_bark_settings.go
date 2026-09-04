@@ -34,11 +34,12 @@ const (
 
 	barkTestDefaultTitle = "Sub2API 测试通知"
 	barkTimeLayout       = "2006-01-02 15:04:05"
+	// barkTestNoDeviceKeyMessage 测试接口在没有任何 device_key 时只探活不推送，用这句话告诉前端。
+	barkTestNoDeviceKeyMessage = "未配置设备 Key，仅测试了服务器连通性"
 )
 
 var (
 	ErrBarkLevelInvalid                 = infraerrors.BadRequest("BARK_LEVEL_INVALID", "level must be one of: active, timeSensitive, passive, critical")
-	ErrBarkDeviceKeyRequired            = infraerrors.BadRequest("BARK_DEVICE_KEY_REQUIRED", "device_key is required: none provided in the request and none saved yet")
 	ErrBarkDeviceKeyRequiredWhenEnabled = infraerrors.BadRequest("BARK_DEVICE_KEY_REQUIRED", "device_key is required when Bark notification is enabled: provide one in the request or save it first")
 	ErrBarkConfigCorrupt                = infraerrors.InternalServer("BARK_CONFIG_CORRUPT", "bark notification config data is corrupted")
 
@@ -207,10 +208,15 @@ func (s *BarkNotificationService) UpdateBarkConfig(ctx context.Context, in BarkC
 }
 
 // TestBark 用请求体里的配置直接发一条测试通知：先探活（失败不阻断），再 push。
+// 请求里没带 device_key、库里也没存时不算错误：只做探活，返回 ok=false + ping_ok，
+// 让前端能在还没填 Key 的阶段就验证服务器地址是否可达。
 func (s *BarkNotificationService) TestBark(ctx context.Context, in BarkTestInput) (*BarkTestResult, error) {
 	cfg, err := normalizeBarkConfigInput(in.BarkConfigInput, true)
 	if err != nil {
 		return nil, err
+	}
+	if s.sender == nil {
+		return nil, errors.New("bark sender not initialized")
 	}
 
 	deviceKey := strings.TrimSpace(in.DeviceKey)
@@ -218,21 +224,18 @@ func (s *BarkNotificationService) TestBark(ctx context.Context, in BarkTestInput
 		deviceKey = s.storedDeviceKey(ctx)
 	}
 	if deviceKey == "" {
-		return nil, ErrBarkDeviceKeyRequired
-	}
-	if s.sender == nil {
-		return nil, errors.New("bark sender not initialized")
+		pingOK, pingLatency := s.ping(ctx, cfg.ServerURL)
+		return &BarkTestResult{
+			OK:         false,
+			PingOK:     pingOK,
+			StatusCode: 0,
+			Message:    barkTestNoDeviceKeyMessage,
+			LatencyMs:  pingLatency.Milliseconds(),
+		}, nil
 	}
 
 	result := &BarkTestResult{}
-
-	pingCtx, cancelPing := context.WithTimeout(ctx, barkPingTimeout)
-	if err := s.sender.Ping(pingCtx, cfg.ServerURL); err != nil {
-		slog.Warn("bark_test_ping_failed", "server_url", cfg.ServerURL, "error", err)
-	} else {
-		result.PingOK = true
-	}
-	cancelPing()
+	result.PingOK, _ = s.ping(ctx, cfg.ServerURL)
 
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
@@ -268,6 +271,20 @@ func (s *BarkNotificationService) TestBark(ctx context.Context, in BarkTestInput
 	result.Message = sent.Message
 	result.LatencyMs = sent.Latency.Milliseconds()
 	return result, nil
+}
+
+// ping 探活一次，返回是否成功与耗时；失败只记日志，不向上返回错误。
+func (s *BarkNotificationService) ping(ctx context.Context, serverURL string) (bool, time.Duration) {
+	pingCtx, cancel := context.WithTimeout(ctx, barkPingTimeout)
+	defer cancel()
+	startedAt := time.Now()
+	err := s.sender.Ping(pingCtx, serverURL)
+	elapsed := time.Since(startedAt)
+	if err != nil {
+		slog.Warn("bark_test_ping_failed", "server_url", serverURL, "error", err)
+		return false, elapsed
+	}
+	return true, elapsed
 }
 
 // ─── 告警出口 ───
@@ -402,6 +419,10 @@ func (s *BarkNotificationService) load(ctx context.Context) (*BarkConfig, error)
 	}
 	if strings.TrimSpace(cfg.Level) == "" {
 		cfg.Level = BarkLevelActive
+	}
+	// 旧数据或手改过的行 group 可能是空串：读出来统一回落默认分组，GET 回显与推送都用得上。
+	if strings.TrimSpace(cfg.Group) == "" {
+		cfg.Group = barkDefaultGroup
 	}
 	return cfg, nil
 }
