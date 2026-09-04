@@ -73,7 +73,7 @@ export default {
     cost: 'Cost',
     // Status
     quotaMode: 'Key Quota Mode',
-    walletBalance: 'Wallet Balance',
+    unlimitedMode: 'Unlimited Mode',
     // Ring card titles
     limit5h: '5-Hour Limit',
     limitDaily: 'Daily Limit',
@@ -86,7 +86,6 @@ export default {
     daysLeft: '({days} days)',
     usedQuota: 'Used Quota',
     resetNow: 'Resetting soon',
-    subscriptionType: 'Subscription Type',
     subscriptionExpires: 'Subscription Expires',
     // Usage stat cells
     todayRequests: 'Today Requests',

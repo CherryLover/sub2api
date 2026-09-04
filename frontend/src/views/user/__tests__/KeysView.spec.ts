@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
@@ -14,6 +14,7 @@ const {
   showError,
   showSuccess,
   copyToClipboard,
+  createKeyUsageSession,
 } = vi.hoisted(() => ({
   listKeys: vi.fn(),
   getPublicSettings: vi.fn(),
@@ -23,6 +24,14 @@ const {
   showError: vi.fn(),
   showSuccess: vi.fn(),
   copyToClipboard: vi.fn(),
+  createKeyUsageSession: vi.fn(),
+}))
+
+const routerMock = vi.hoisted(() => ({
+  resolve: vi.fn((to: { path: string; query?: Record<string, string> }) => ({
+    href: `${to.path}?${new URLSearchParams(to.query ?? {}).toString()}`,
+  })),
+  push: vi.fn(() => Promise.resolve()),
 }))
 
 const messages: Record<string, string> = {
@@ -49,6 +58,9 @@ const messages: Record<string, string> = {
   'keys.status.inactive': 'Inactive',
   'keys.status.quota_exhausted': 'Quota exhausted',
   'keys.usage': 'Usage',
+  'keys.viewUsage': 'View Usage',
+  'keys.usageUnavailableInactive': 'Disabled keys cannot look up usage',
+  'keys.failedToOpenUsage': 'Failed to open usage lookup',
 }
 
 vi.mock('@/api', () => ({
@@ -70,6 +82,18 @@ vi.mock('@/api', () => ({
     getUserGroupRates,
   },
 }))
+
+vi.mock('@/api/keyUsage', () => ({
+  createKeyUsageSession,
+}))
+
+vi.mock('vue-router', async () => {
+  const actual = await vi.importActual<typeof import('vue-router')>('vue-router')
+  return {
+    ...actual,
+    useRouter: () => routerMock,
+  }
+})
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
@@ -167,6 +191,9 @@ const DataTableStub = {
         >
           <slot name="cell-last_used_ip" :value="row.last_used_ip" :row="row" />
         </div>
+        <div data-test="row-actions">
+          <slot name="cell-actions" :value="null" :row="row" />
+        </div>
       </div>
       <slot name="empty" />
     </div>
@@ -244,32 +271,51 @@ const getButtonByText = (wrapper: VueWrapper, text: string) => {
   return button
 }
 
-describe('user KeysView column settings', () => {
-  beforeEach(() => {
-    localStorage.clear()
+/** Stand-in for the about:blank tab that openKeyUsage opens synchronously and navigates later. */
+const createPopup = () => ({
+  opener: {} as unknown,
+  location: { replace: vi.fn() },
+  close: vi.fn(),
+})
 
-    listKeys.mockReset()
-    getPublicSettings.mockReset()
-    getDashboardApiKeysUsage.mockReset()
-    getAvailableGroups.mockReset()
-    getUserGroupRates.mockReset()
-    showError.mockReset()
-    showSuccess.mockReset()
-    copyToClipboard.mockReset()
+let popup: ReturnType<typeof createPopup>
+let openSpy: MockInstance<typeof window.open>
 
-    listKeys.mockResolvedValue({
-      items: [createApiKey()],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      pages: 1,
-    })
-    getPublicSettings.mockResolvedValue({})
-    getDashboardApiKeysUsage.mockResolvedValue({ stats: {} })
-    getAvailableGroups.mockResolvedValue([])
-    getUserGroupRates.mockResolvedValue({})
+beforeEach(() => {
+  localStorage.clear()
+
+  listKeys.mockReset()
+  getPublicSettings.mockReset()
+  getDashboardApiKeysUsage.mockReset()
+  getAvailableGroups.mockReset()
+  getUserGroupRates.mockReset()
+  showError.mockReset()
+  showSuccess.mockReset()
+  copyToClipboard.mockReset()
+  createKeyUsageSession.mockReset()
+  routerMock.resolve.mockClear()
+  routerMock.push.mockClear()
+  popup = createPopup()
+  openSpy = vi.spyOn(window, 'open').mockImplementation(() => popup as unknown as Window)
+
+  listKeys.mockResolvedValue({
+    items: [createApiKey()],
+    total: 1,
+    page: 1,
+    page_size: 20,
+    pages: 1,
   })
+  getPublicSettings.mockResolvedValue({})
+  getDashboardApiKeysUsage.mockResolvedValue({ stats: {} })
+  getAvailableGroups.mockResolvedValue([])
+  getUserGroupRates.mockResolvedValue({})
+})
 
+afterEach(() => {
+  openSpy.mockRestore()
+})
+
+describe('user KeysView column settings', () => {
   it('uses the default API key columns with low-frequency columns hidden', async () => {
     const wrapper = await mountView()
 
@@ -422,5 +468,129 @@ describe('user KeysView column settings', () => {
       },
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
+  })
+})
+
+describe('user KeysView usage lookup', () => {
+  const getUsageButton = (wrapper: VueWrapper) => getButtonByText(wrapper, 'View Usage')
+
+  const listSingleKey = (overrides: Partial<ApiKey>) =>
+    listKeys.mockResolvedValueOnce({
+      items: [{ ...createApiKey(), ...overrides }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+
+  it('opens a blank tab before the exchange, then navigates it to the usage page with the token only', async () => {
+    createKeyUsageSession.mockResolvedValue({ token: 'tok-1', expires_at: '2026-10-04T00:00:00Z' })
+    const wrapper = await mountView()
+
+    await getUsageButton(wrapper).trigger('click')
+    await flushPromises()
+
+    // The tab is opened inside the click gesture (before any await) so Safari does not block it.
+    expect(openSpy).toHaveBeenCalledTimes(1)
+    expect(openSpy).toHaveBeenCalledWith('about:blank', '_blank')
+    expect(openSpy.mock.invocationCallOrder[0]).toBeLessThan(createKeyUsageSession.mock.invocationCallOrder[0])
+    // noopener cannot be used (it hides the window handle), so the link is severed by hand.
+    expect(popup.opener).toBeNull()
+
+    expect(createKeyUsageSession).toHaveBeenCalledTimes(1)
+    expect(createKeyUsageSession).toHaveBeenCalledWith('sk-test-key', 'Failed to open usage lookup')
+    expect(routerMock.resolve).toHaveBeenCalledWith({ path: '/key-usage', query: { t: 'tok-1' } })
+
+    expect(popup.location.replace).toHaveBeenCalledTimes(1)
+    const url = String(popup.location.replace.mock.calls[0][0])
+    expect(url).toContain('/key-usage?')
+    expect(url).toContain('t=tok-1')
+    // The raw key must never be written into the URL.
+    expect(url).not.toContain('sk-test-key')
+
+    expect(popup.close).not.toHaveBeenCalled()
+    expect(routerMock.push).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
+  })
+
+  it('disables the button while the token exchange is in flight', async () => {
+    let resolveSession: (value: { token: string; expires_at: string | null }) => void = () => {}
+    createKeyUsageSession.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSession = resolve
+        })
+    )
+    const wrapper = await mountView()
+
+    await getUsageButton(wrapper).trigger('click')
+    await nextTick()
+    expect(getUsageButton(wrapper).attributes('disabled')).toBeDefined()
+
+    // A second click while pending must neither open another tab nor start another exchange.
+    await getUsageButton(wrapper).trigger('click')
+    expect(openSpy).toHaveBeenCalledTimes(1)
+    expect(createKeyUsageSession).toHaveBeenCalledTimes(1)
+
+    resolveSession({ token: 'tok-2', expires_at: null })
+    await flushPromises()
+    expect(getUsageButton(wrapper).attributes('disabled')).toBeUndefined()
+    expect(popup.location.replace).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes the blank tab and shows the backend error when the exchange fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    createKeyUsageSession.mockRejectedValue(new Error('Invalid or expired key'))
+    const wrapper = await mountView()
+
+    await getUsageButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(popup.close).toHaveBeenCalledTimes(1)
+    expect(popup.location.replace).not.toHaveBeenCalled()
+    expect(routerMock.push).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalledWith('Invalid or expired key')
+    expect(getUsageButton(wrapper).attributes('disabled')).toBeUndefined()
+
+    consoleError.mockRestore()
+  })
+
+  it('falls back to navigating the current tab when the popup is blocked', async () => {
+    openSpy.mockImplementation(() => null)
+    createKeyUsageSession.mockResolvedValue({ token: 'tok-3', expires_at: null })
+    const wrapper = await mountView()
+
+    await getUsageButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(openSpy).toHaveBeenCalledTimes(1)
+    expect(routerMock.push).toHaveBeenCalledTimes(1)
+    expect(routerMock.push).toHaveBeenCalledWith({ path: '/key-usage', query: { t: 'tok-3' } })
+    expect(JSON.stringify(routerMock.push.mock.calls)).not.toContain('sk-test-key')
+    expect(popup.location.replace).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
+  })
+
+  it('disables the button for a disabled key and explains why', async () => {
+    listSingleKey({ status: 'inactive' })
+    const wrapper = await mountView()
+
+    const button = getUsageButton(wrapper)
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.attributes('title')).toBe('Disabled keys cannot look up usage')
+
+    // The backend answers 401 for inactive keys, so no tab and no request are ever started.
+    await button.trigger('click')
+    expect(openSpy).not.toHaveBeenCalled()
+    expect(createKeyUsageSession).not.toHaveBeenCalled()
+  })
+
+  it('keeps the button enabled for a quota-exhausted key', async () => {
+    listSingleKey({ status: 'quota_exhausted' })
+    const wrapper = await mountView()
+
+    const button = getUsageButton(wrapper)
+    expect(button.attributes('disabled')).toBeUndefined()
+    expect(button.attributes('title')).toBeUndefined()
   })
 })

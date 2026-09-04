@@ -357,6 +357,20 @@
                 <Icon name="terminal" size="sm" />
                 <span class="text-xs">{{ t('keys.useKey') }}</span>
               </button>
+              <!-- View Usage Button -->
+              <button
+                @click="openKeyUsage(row)"
+                :disabled="row.status === 'inactive' || usageLookupKeyId === row.id"
+                :title="row.status === 'inactive' ? t('keys.usageUnavailableInactive') : undefined"
+                :class="[
+                  'flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-primary-50 hover:text-primary-600 disabled:opacity-60 dark:hover:bg-primary-900/20 dark:hover:text-primary-400',
+                  usageLookupKeyId === row.id ? 'disabled:cursor-wait' : 'disabled:cursor-not-allowed'
+                ]"
+              >
+                <Icon v-if="usageLookupKeyId === row.id" name="refresh" size="sm" class="animate-spin" />
+                <Icon v-else name="chartBar" size="sm" />
+                <span class="text-xs">{{ t('keys.viewUsage') }}</span>
+              </button>
               <!-- Import to CC Switch Button -->
               <button
                 @click="importToCcswitch(row)"
@@ -1015,12 +1029,14 @@
 <script setup lang="ts">
 	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
+	import { useRouter } from 'vue-router'
 	import { useAppStore } from '@/stores/app'
 	import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
+import { createKeyUsageSession } from '@/api/keyUsage'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import DataTable from '@/components/common/DataTable.vue'
@@ -1071,6 +1087,7 @@ interface GroupOption {
 }
 
 const appStore = useAppStore()
+const router = useRouter()
 const { copyToClipboard: clipboardCopy } = useClipboard()
 
 const allColumns = computed<Column[]>(() => [
@@ -1724,6 +1741,45 @@ const resetRateLimitUsage = async () => {
   } catch (error: any) {
     const errorMsg = error.response?.data?.detail || t('keys.failedToResetRateLimit')
     appStore.showError(errorMsg)
+  }
+}
+
+/** 正在换查询令牌的 Key id；该行的「查用量」按钮期间禁用，防止连点。 */
+const usageLookupKeyId = ref<number | null>(null)
+
+/**
+ * 打开免登录用量页：先用原始 Key 换一枚只读查询令牌，再把新标签页导航到 ?t=<令牌>。
+ * 原始 Key 绝不进网址。已停用的 Key 后端一律 401，按钮已置灰，这里只是兜底。
+ *
+ * 新标签页必须在任何 await 之前同步打开：Safari 只放行用户手势同步栈内的 window.open，
+ * 拿到令牌后再开会被当弹窗拦掉。不能带 noopener（返回值恒为 null，拿不到窗口引用），
+ * 目标是同源页，拿到引用后手动断开 opener 即可。被拦截时退化为当前标签页跳转。
+ */
+const openKeyUsage = async (row: ApiKey) => {
+  if (row.status === 'inactive' || usageLookupKeyId.value === row.id) return
+  usageLookupKeyId.value = row.id
+  const popup = window.open('about:blank', '_blank')
+  if (popup) {
+    popup.opener = null
+  }
+  try {
+    const session = await createKeyUsageSession(row.key, t('keys.failedToOpenUsage'))
+    const target = { path: '/key-usage', query: { t: session.token } }
+    if (popup) {
+      // about:blank 里解析相对路径不可靠，给绝对地址。
+      popup.location.replace(new URL(router.resolve(target).href, window.location.href).href)
+    } else {
+      await router.push(target)
+    }
+  } catch (error: any) {
+    popup?.close()
+    console.error('Failed to open key usage lookup:', error)
+    const errorMsg = error?.message || t('keys.failedToOpenUsage')
+    appStore.showError(errorMsg)
+  } finally {
+    if (usageLookupKeyId.value === row.id) {
+      usageLookupKeyId.value = null
+    }
   }
 }
 

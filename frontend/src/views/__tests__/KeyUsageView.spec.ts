@@ -52,14 +52,13 @@ const messages: Record<string, string> = {
   'keyUsage.totalTokens': 'Total Tokens',
   'keyUsage.cost': 'Cost',
   'keyUsage.quotaMode': 'Key Quota Mode',
-  'keyUsage.walletBalance': 'Wallet Balance',
+  'keyUsage.unlimitedMode': 'Unlimited Mode',
   'keyUsage.limit5h': '5-Hour Limit',
   'keyUsage.limitDaily': 'Daily Limit',
   'keyUsage.limit7d': '7-Day Limit',
   'keyUsage.limitWeekly': 'Weekly Limit',
   'keyUsage.limitMonthly': 'Monthly Limit',
   'keyUsage.usedQuota': 'Used Quota',
-  'keyUsage.subscriptionType': 'Subscription Type',
   'keyUsage.todayRequests': 'Today Requests',
   'keyUsage.todayInputTokens': 'Today Input',
   'keyUsage.todayOutputTokens': 'Today Output',
@@ -395,6 +394,34 @@ describe('KeyUsageView', () => {
       await settle()
 
       expect(wrapper.find('[data-testid="usage-unavailable"]').exists()).toBe(false)
+
+      wrapper.unmount()
+    })
+  })
+
+  // ==================== Unrestricted mode ====================
+
+  describe('unrestricted mode', () => {
+    it('labels the badge as unlimited and renders no subscription or wallet residue', async () => {
+      overrides.report = () =>
+        jsonResponse({
+          ...makeReport(),
+          // The backend still echoes the group name as `planName`; the page must not surface it.
+          usage: { ...usagePayload, mode: 'unrestricted', planName: 'Team Group' },
+        })
+
+      const wrapper = mountView()
+      await wrapper.find('input').setValue('sk-test-key')
+      await wrapper.find('input').trigger('keydown.enter')
+      await settle()
+
+      const text = wrapper.text()
+      expect(text).toContain('Unlimited Mode')
+      expect(text).toContain('Today Cost')
+      // Subscriptions and wallet balances were removed in trim batch 4.
+      expect(text).not.toContain('Subscription Type')
+      expect(text).not.toContain('Wallet Balance')
+      expect(text).not.toContain('Team Group')
 
       wrapper.unmount()
     })
