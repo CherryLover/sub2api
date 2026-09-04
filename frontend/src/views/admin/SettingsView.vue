@@ -4234,13 +4234,18 @@
 
         </div><!-- /Tab: Features -->
 
+        <!-- Tab: Notifications — 每张卡片独立保存，不进下面的大 payload -->
+        <div v-show="activeTab === 'notifications'" class="space-y-6">
+          <BarkNotifySettingsCard />
+        </div>
+
         <!-- Tab: Backup -->
         <div v-show="activeTab === 'backup'">
           <BackupSettings />
         </div>
 
         <!-- Save Button -->
-        <div v-show="activeTab !== 'backup'" class="flex justify-end">
+        <div v-show="showGlobalSaveButton" class="flex justify-end">
           <button
             type="submit"
             :disabled="saving || loadFailed"
@@ -4338,6 +4343,7 @@ import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
 import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
+import BarkNotifySettingsCard from "@/views/admin/settings/BarkNotifySettingsCard.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import {
   useStepUp,
@@ -4367,6 +4373,7 @@ type SettingsTab =
   | "security"
   | "users"
   | "gateway"
+  | "notifications"
   | "backup";
 const activeTab = ref<SettingsTab>("general");
 const settingsTabs = [
@@ -4375,8 +4382,14 @@ const settingsTabs = [
   { key: "security" as SettingsTab, icon: "shield" as const },
   { key: "users" as SettingsTab, icon: "user" as const },
   { key: "gateway" as SettingsTab, icon: "server" as const },
+  { key: "notifications" as SettingsTab, icon: "bell" as const },
   { key: "backup" as SettingsTab, icon: "database" as const },
 ];
+// 这些页签里的卡片各自调自己的接口、带自己的保存按钮，不走页面底部的大表单保存
+const tabsWithOwnSave: readonly SettingsTab[] = ["notifications", "backup"];
+const showGlobalSaveButton = computed(
+  () => !tabsWithOwnSave.includes(activeTab.value),
+);
 
 const settingsTabKeyboardActions = {
   ArrowLeft: -1,

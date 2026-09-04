@@ -32,6 +32,8 @@
 注册体系 · 人机验证 · 支付 · 兑换码 · 促销分销 · 第三方登录 · 邮件体系 ·
 批量生图 · 内容安全审计 · 渠道监控 V1 主动探测 · 公告 · 模型广场 · 订阅体系 · 用户余额
 
+邮件体系删掉之后，系统一度**没有任何主动推送通道**。批次 6（A6-2）补了一条 **Bark 推送通知**：运维告警触发时推到 iOS 的 Bark 应用，配置入口在 设置 → 通知，验收条目见第 5 章。别再找「邮件通知」了，它不会回来。
+
 其中两条的**语义变化**最容易踩坑，请先读一遍：
 
 1. **Key 的额度上限 UI 已下线。** 后台不再提供「给 Key 设总额度」的入口，`api_keys.quota` 一律按 0（不限额）对待，`quota_used` 只当作累计消费账本用于展示。历史上手工设过 `quota>0` 的 Key 仍会被后端拦截，升级前建议查一遍 `SELECT id, name, quota FROM api_keys WHERE quota > 0`，需要的话直接置 0。
@@ -160,8 +162,9 @@
 
 ## 5. 系统设置、运维与数据
 
-> 系统设置页共 **6 个页签**：通用 / 功能开关 / 安全与认证 / 用户默认值 / 网关 / 数据备份
-> （`SettingsView.vue:4447-4454`）。安全与认证页签下的条目已在第 1 章逐条列出，这里不重复。
+> 系统设置页共 **7 个页签**：通用 / 功能开关 / 安全与认证 / 用户默认值 / 网关 / 通知 / 数据备份
+> （`SettingsView.vue:4379-4387`）。安全与认证页签下的条目已在第 1 章逐条列出，这里不重复。
+> 「通知」和「数据备份」两个页签里的卡片**各自带保存按钮、各自调自己的接口**，页面底部的大「保存设置」按钮在这两个页签下是隐藏的，不要以为没保存。
 
 | ✓ | 功能 | 入口 / 接口 / 文件 | 验证方法 | 风险 |
 |---|---|---|---|---|
@@ -174,6 +177,7 @@
 | [ ] | Web 搜索模拟 | 设置 → 网关 → Web 搜索模拟卡片<br>`GET/PUT /admin/settings/web-search-emulation`、`POST /web-search-emulation/test`、`/reset-usage`<br>`SettingsView.vue`、`views/admin/ChannelsView.vue` | 配好搜索服务参数 → 点「测试」应返回真实搜索结果而不是超时。开启后用一个带 web_search 工具的请求跑一次 → 应能拿到搜索结果。点「重置用量」后配额计数归零 | 低 |
 | [ ] | 数据备份（S3 / 计划 / 创建 / 下载 / 恢复） | 设置 → 数据备份页签<br>`GET/PUT /admin/backup/s3-config`（改 S3 **需 step-up**）、`/s3-config/test`、`GET/PUT /admin/backup/schedule`、`POST /admin/backup`（**需 step-up**）、`GET /admin/backup`、`GET /:id/download-url`（**需 step-up**）、`POST /:id/restore`（**需 step-up**）、`DELETE /:id`<br>`views/admin/BackupView.vue`、`api/admin/backup.ts` | 配好 S3 点「测试连接」→ 成功。点「创建备份」→ 弹二次验证 → 任务出现在列表并最终变成完成。点「下载」→ 同样弹二次验证 → 能拿到文件且能解开。设一个每日计划 → 保存后回显正确。**恢复功能务必先在测试环境验**，确认恢复后数据完整、服务能正常起来 | **高** |
 | [ ] | 图片存储配置 | 设置 → 数据备份 → 图片存储卡片<br>`GET/PUT /admin/backup/image-storage`（**需 step-up**）、`POST /image-storage/test` | 配好后点「测试」应成功。跑一次图片生成请求 → 生成的图片应能通过返回的地址正常打开（批量生图已删，但**走网关的单次图片生成仍在**，图片要有地方存） | 中 |
+| [ ] | Bark 推送通知配置 | 设置 → 通知页签 → 「Bark 推送通知」卡片<br>`GET/PUT /admin/notifications/bark`、`POST /admin/notifications/bark/test`（管理员鉴权；`device_key` 永不回显，用 `has_device_key` 表示已配置）<br>`views/admin/settings/BarkNotifySettingsCard.vue`、`api/admin/notifications.ts`、i18n `admin.settings.notifications.bark.*`；后端 Bark 通道与告警引擎接线见批次 6 / A6-2 后端提交 | 服务器地址留官方 `https://api.day.app`，设备 Key 从手机 Bark 应用首页复制 → 点「测试连接」应提示服务器可达并显示延迟；点「发送测试通知」→ 手机应马上收到一条「Sub2API 测试通知」。**两个测试按钮都用表单当前值，不需要先保存**。点「保存」→ 刷新页面：设备 Key 输入框为空但带「已配置」标记，其余字段回显；再保存一次留空设备 Key → 旧 Key 应仍有效（再点发送测试能收到）。只打开「启用」不填设备 Key 直接点保存 → 应被拦下并提示，不发请求。把打断级别切到「紧急」再发一次测试 → 手机静音状态下也应响（这是 critical 的语义，普通告警别用）。最后建一条会触发的告警规则 → 触发和恢复各收到一条推送；关掉「告警恢复时也通知」后只收触发那条 | 中 |
 | [ ] | 审计日志 | 侧边栏「审计日志」→ `/admin/audit-logs`（简易模式下隐藏）<br>`GET /admin/audit-logs`、`/:id`、`POST /clear`<br>`views/admin/AuditLogView.vue`、`handler/admin/audit_log_handler.go` | 做几个动作（登录、改设置、建用户、启停 2FA）后打开这一页 → 应能看到对应记录，含操作人、动作、来访 IP、时间。**重点核对来访 IP 是真实公网 IP 而不是反代内网地址**（否则去查第 1 章的 IP 来源配置）。点某条看详情。保留天数在 设置 → 安全与认证 的 `audit_log_retention_days`（0 = 永久）。清空功能见第 1 章 | 低 |
 | [ ] | 运维监控大盘 | 侧边栏「运维监控」→ `/admin/ops`（受设置项 `ops_monitoring_enabled` 控制，**但设置页里没有这个开关**，见「发现的残留」）<br>`GET /admin/ops/dashboard/*`、`/concurrency`、`/realtime-traffic`、`/errors`、`/request-errors`、`/upstream-errors`、`/requests`、`/system-logs`、`/alert-rules`、`/alert-events`<br>`views/admin/ops/OpsDashboard.vue` 及 `components/Ops*.vue` | 打开后各卡片都应出数：并发情况、吞吐趋势、延迟直方图、错误趋势与分布、OpenAI token 统计、系统日志表。制造一次失败请求（用错的上游 Key）→ 几秒后应出现在「请求错误」里，点开能看到上游错误详情。建一条告警规则（如错误率阈值）→ 触发后在「告警事件」里出现，能标记状态、能建静默 | 中 |
 | [ ] | 运维高级设置与指标阈值 | `/admin/ops` → 右上设置对话框<br>`GET/PUT /admin/ops/advanced-settings`、`GET/PUT /admin/ops/settings/metric-thresholds`、`GET/PUT /admin/ops/runtime/alert`、`/runtime/logging`、`POST /runtime/logging/reset`<br>`OpsSettingsDialog.vue`、`OpsSystemLogTable.vue` | 改一个指标阈值保存 → 刷新回显正确，大盘上对应指标的红黄绿判定跟着变。改日志级别后新产生的日志详细程度应跟着变，点「重置」回到默认。**注意：`OpsRuntimeSettingsCard.vue` 这个组件没有任何页面引用**（见「发现的残留」），告警运行时设置目前只能从别处改 | 中 |
