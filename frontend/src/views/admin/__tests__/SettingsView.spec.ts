@@ -501,6 +501,7 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
+        BarkNotifySettingsCard: true,
       },
     },
   });

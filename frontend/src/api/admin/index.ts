@@ -25,6 +25,7 @@ import backupAPI from './backup'
 import tlsFingerprintProfileAPI from './tlsFingerprintProfile'
 import channelsAPI from './channels'
 import auditAPI from './audit'
+import notificationsAPI from './notifications'
 
 /**
  * Unified admin API object for convenient access
@@ -51,7 +52,8 @@ export const adminAPI = {
   backup: backupAPI,
   tlsFingerprintProfiles: tlsFingerprintProfileAPI,
   channels: channelsAPI,
-  audit: auditAPI
+  audit: auditAPI,
+  notifications: notificationsAPI
 }
 
 export {
@@ -76,7 +78,8 @@ export {
   backupAPI,
   tlsFingerprintProfileAPI,
   channelsAPI,
-  auditAPI
+  auditAPI,
+  notificationsAPI
 }
 
 export default adminAPI
@@ -86,3 +89,10 @@ export type { AuditLog, AuditLogQuery, AuditLogListResponse } from './audit'
 export type { ErrorPassthroughRule, CreateRuleRequest, UpdateRuleRequest } from './errorPassthrough'
 export type { BackupAgentHealth, DataManagementConfig } from './dataManagement'
 export type { TLSFingerprintProfile, CreateProfileRequest, UpdateProfileRequest } from './tlsFingerprintProfile'
+export type {
+  BarkLevel,
+  BarkNotifyConfig,
+  UpdateBarkNotifyConfigRequest,
+  TestBarkNotifyRequest,
+  TestBarkNotifyResponse,
+} from './notifications'
