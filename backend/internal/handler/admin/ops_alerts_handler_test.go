@@ -207,7 +207,9 @@ func TestOpsAlertsHandler_AccountIDsCappedAt200(t *testing.T) {
 	body = `{"name":"a","metric_type":"account_today_cost","operator":">","threshold":10,"filters":{"account_ids":[` + strings.Join(ids[:200], ",") + `]}}`
 	w, _ = doOpsAlertsJSON(t, r, http.MethodPost, "/alert-rules", body)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.Len(t, repo.created.Filters["account_ids"].([]int64), 200)
+	accountIDs, ok := repo.created.Filters["account_ids"].([]int64)
+	require.True(t, ok)
+	require.Len(t, accountIDs, 200)
 }
 
 func TestOpsAlertsHandler_UpdateAlsoValidatesAccountFilters(t *testing.T) {
