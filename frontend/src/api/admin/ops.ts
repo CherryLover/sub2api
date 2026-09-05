@@ -688,6 +688,11 @@ export type MetricType =
   | 'account_error_ratio'
   | 'account_temp_unscheduled_count'
   | 'overload_account_count'
+  // 账号用量阈值指标（设置 → 通知 → 账号用量提醒规则），filters 里带作用域与窗口/维度
+  | 'account_window_used_percent'
+  | 'account_quota_used_percent'
+  | 'account_balance'
+  | 'account_today_cost'
 export type Operator = '>' | '>=' | '<' | '<=' | '==' | '!='
 
 export interface AlertRule {
@@ -1167,6 +1172,37 @@ export async function deleteAlertRule(id: number): Promise<void> {
   await apiClient.delete(`/admin/ops/alert-rules/${id}`)
 }
 
+// 手动试发一条规则：后端用真实数据算一遍，不落事件、不改状态；send=true 时顺带推一条 Bark
+export interface AlertRuleEvaluationAccount {
+  account_id: number
+  account_name: string
+  platform: string
+  value: number
+  breached: boolean
+  currency?: string
+}
+
+export interface AlertRuleEvaluation {
+  rule_id: number
+  rule_name: string
+  metric_type: MetricType
+  operator: Operator
+  threshold: number
+  evaluated_at: string
+  has_data: boolean
+  // 聚合值：percent / cost 取最大、balance 取最小；null 表示作用域内没有可用数据
+  value: number | null
+  breached: boolean
+  accounts: AlertRuleEvaluationAccount[]
+  sent: boolean
+  send_error?: string
+}
+
+export async function evaluateAlertRule(id: number, send = false): Promise<AlertRuleEvaluation> {
+  const { data } = await apiClient.post<AlertRuleEvaluation>(`/admin/ops/alert-rules/${id}/evaluate`, { send })
+  return data
+}
+
 export interface AlertEventsQuery {
   limit?: number
   status?: string
@@ -1302,6 +1338,7 @@ export const opsAPI = {
   createAlertRule,
   updateAlertRule,
   deleteAlertRule,
+  evaluateAlertRule,
   listAlertEvents,
   getAlertEvent,
   updateAlertEventStatus,
