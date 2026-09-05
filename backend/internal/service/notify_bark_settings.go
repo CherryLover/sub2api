@@ -42,6 +42,8 @@ var (
 	ErrBarkLevelInvalid                 = infraerrors.BadRequest("BARK_LEVEL_INVALID", "level must be one of: active, timeSensitive, passive, critical")
 	ErrBarkDeviceKeyRequiredWhenEnabled = infraerrors.BadRequest("BARK_DEVICE_KEY_REQUIRED", "device_key is required when Bark notification is enabled: provide one in the request or save it first")
 	ErrBarkConfigCorrupt                = infraerrors.InternalServer("BARK_CONFIG_CORRUPT", "bark notification config data is corrupted")
+	// ErrBarkNotEnabled 手动试发要求 Bark 已启用且配置完整；未启用时明确报错而不是静默跳过。
+	ErrBarkNotEnabled = infraerrors.BadRequest("BARK_NOT_ENABLED", "Bark notification is not enabled or not fully configured")
 
 	// ErrBarkEncryptionKeyNotConfigured 与备份 S3 密钥同一条护栏（#4524）：
 	// 自动生成的加密密钥每次重启都变，落库的 device_key 密文会在重启后解不开。
@@ -106,15 +108,21 @@ type BarkTestResult struct {
 	LatencyMs  int64  `json:"latency_ms"`
 }
 
-// OpsAlertNotification 评估器交给推送通道的一条告警摘要（触发与恢复共用）。
+// OpsAlertNotification 评估器交给推送通道的一条告警摘要（触发 / 恢复 / 手动试发共用）。
 type OpsAlertNotification struct {
 	RuleName   string
 	Severity   string
 	MetricType string
-	Operator   string
-	Threshold  float64
-	Value      float64
-	Scope      string
+	// MetricLabel 非空时「指标：」行用它代替裸的 MetricType（账号用量类指标给人话名字）。
+	MetricLabel string
+	Operator    string
+	Threshold   float64
+	Value       float64
+	// Unit 当前值 / 阈值的后缀，如 "%"、" CNY"；为空时格式与旧版完全一致。
+	Unit  string
+	Scope string
+	// Details 插在「指标」与「当前值」之间的补充行（账号用量类规则放账号行）；为空时旧格式不变。
+	Details    []string
 	FiredAt    time.Time
 	ResolvedAt *time.Time
 }
@@ -309,6 +317,23 @@ func (s *BarkNotificationService) NotifyOpsAlertResolved(ctx context.Context, n 
 	return s.push(ctx, cfg, strings.TrimSpace(title), buildOpsAlertBarkBody(n, true))
 }
 
+// IsEnabled Bark 是否已启用且配置完整（可直接推送）。
+func (s *BarkNotificationService) IsEnabled(ctx context.Context) bool {
+	_, ok := s.runtimeConfig(ctx)
+	return ok
+}
+
+// NotifyOpsAlertManual 「立即试算」的手动试发：首行说明这不是真实告警，随后当前值、是否越阈、
+// 涉及账号（Details）与作用域。Bark 未启用时返回 ErrBarkNotEnabled 而不是静默 nil。
+func (s *BarkNotificationService) NotifyOpsAlertManual(ctx context.Context, n OpsAlertNotification, hasData bool, breached bool) error {
+	cfg, ok := s.runtimeConfig(ctx)
+	if !ok {
+		return ErrBarkNotEnabled
+	}
+	title := fmt.Sprintf("[Sub2API] 手动试发 %s", strings.TrimSpace(n.RuleName))
+	return s.push(ctx, cfg, strings.TrimSpace(title), buildOpsAlertManualBarkBody(n, hasData, breached))
+}
+
 func (s *BarkNotificationService) push(ctx context.Context, cfg *BarkConfig, title, body string) error {
 	if s == nil || s.sender == nil {
 		return errors.New("bark sender not initialized")
@@ -330,16 +355,13 @@ func (s *BarkNotificationService) push(ctx context.Context, cfg *BarkConfig, tit
 }
 
 func buildOpsAlertBarkBody(n OpsAlertNotification, resolved bool) string {
-	scope := strings.TrimSpace(n.Scope)
-	if scope == "" {
-		scope = "全局"
-	}
-	lines := []string{
-		"指标：" + strings.TrimSpace(n.MetricType),
-		fmt.Sprintf("当前值：%s（阈值 %s %s）", formatBarkNumber(n.Value), strings.TrimSpace(n.Operator), formatBarkNumber(n.Threshold)),
-		"作用域：" + scope,
-		"触发时间：" + formatBarkTime(n.FiredAt),
-	}
+	lines := []string{opsAlertBarkMetricLine(n)}
+	lines = append(lines, n.Details...)
+	lines = append(lines,
+		opsAlertBarkValueLine(n),
+		"作用域："+opsAlertBarkScope(n),
+		"触发时间："+formatBarkTime(n.FiredAt),
+	)
 	if resolved && n.ResolvedAt != nil {
 		line := "恢复时间：" + formatBarkTime(*n.ResolvedAt)
 		if d := n.ResolvedAt.Sub(n.FiredAt); d > 0 {
@@ -350,10 +372,63 @@ func buildOpsAlertBarkBody(n OpsAlertNotification, resolved bool) string {
 	return strings.Join(lines, "\n")
 }
 
-// FormatOpsAlertScope 把规则的 filters（platform / group_id / region）压成一行作用域说明；无过滤时返回空串。
+// buildOpsAlertManualBarkBody 手动试发正文：首行声明不是真实告警，随后指标、当前值、是否越阈、
+// 涉及账号（调用方已裁到最多 5 行 +「另有 N 个」）、作用域、评估时间。
+func buildOpsAlertManualBarkBody(n OpsAlertNotification, hasData bool, breached bool) string {
+	lines := []string{
+		"这是手动试发，不代表真实告警",
+		opsAlertBarkMetricLine(n),
+	}
+	if hasData {
+		lines = append(lines, opsAlertBarkValueLine(n))
+		if breached {
+			lines = append(lines, "是否越阈：是")
+		} else {
+			lines = append(lines, "是否越阈：否")
+		}
+	} else {
+		lines = append(lines,
+			fmt.Sprintf("当前值：无数据（阈值 %s %s%s）", strings.TrimSpace(n.Operator), formatBarkNumber(n.Threshold), n.Unit),
+			"是否越阈：无数据",
+		)
+	}
+	lines = append(lines, n.Details...)
+	lines = append(lines,
+		"作用域："+opsAlertBarkScope(n),
+		"评估时间："+formatBarkTime(n.FiredAt),
+	)
+	return strings.Join(lines, "\n")
+}
+
+func opsAlertBarkMetricLine(n OpsAlertNotification) string {
+	label := strings.TrimSpace(n.MetricLabel)
+	if label == "" {
+		label = strings.TrimSpace(n.MetricType)
+	}
+	return "指标：" + label
+}
+
+func opsAlertBarkValueLine(n OpsAlertNotification) string {
+	return fmt.Sprintf("当前值：%s%s（阈值 %s %s%s）",
+		formatBarkNumber(n.Value), n.Unit,
+		strings.TrimSpace(n.Operator), formatBarkNumber(n.Threshold), n.Unit,
+	)
+}
+
+func opsAlertBarkScope(n OpsAlertNotification) string {
+	scope := strings.TrimSpace(n.Scope)
+	if scope == "" {
+		return "全局"
+	}
+	return scope
+}
+
+// FormatOpsAlertScope 把规则的 filters 压成一行作用域说明；无过滤时返回空串。
+// 健康度指标只有 platform / group_id / region；账号用量类规则再带 window / dimension / provider
+// 与指定账号数（accounts=N）。
 func FormatOpsAlertScope(filters map[string]any) string {
 	platform, groupID, region := parseOpsAlertRuleScope(filters)
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 6)
 	if platform != "" {
 		parts = append(parts, "platform="+platform)
 	}
@@ -362,6 +437,16 @@ func FormatOpsAlertScope(filters map[string]any) string {
 	}
 	if region != nil && *region != "" {
 		parts = append(parts, "region="+*region)
+	}
+	if filters != nil {
+		for _, key := range []string{"window", "dimension", "provider"} {
+			if v := strings.TrimSpace(stringValue(filters[key])); v != "" {
+				parts = append(parts, key+"="+v)
+			}
+		}
+		if ids := ParseOpsAlertAccountIDs(filters["account_ids"]); len(ids) > 0 {
+			parts = append(parts, fmt.Sprintf("accounts=%d", len(ids)))
+		}
 	}
 	return strings.Join(parts, " ")
 }

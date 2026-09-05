@@ -53,6 +53,13 @@ type OpsService struct {
 	// getAccountAvailability is a unit-test hook for overriding account availability lookup.
 	getAccountAvailability func(ctx context.Context, platformFilter string, groupIDFilter *int64) (*OpsAccountAvailability, error)
 
+	// listAccountsForAlerts 账号用量类告警规则取账号的单测钩子（仿 getAccountAvailability）。
+	listAccountsForAlerts func(ctx context.Context, platform string, groupID *int64, accountIDs []int64) ([]*Account, error)
+
+	// alertRuleEvaluator 由 wire 在 OpsAlertEvaluatorService 构造完成后通过 SetAlertRuleEvaluator 注入，
+	// 供「立即试算」接口透传；解耦避免 OpsService -> 评估器的构造期循环依赖。
+	alertRuleEvaluator AlertRuleEvaluator
+
 	concurrencyService          *ConcurrencyService
 	gatewayService              *GatewayService
 	openAIGatewayService        *OpenAIGatewayService
@@ -98,6 +105,19 @@ func (s *OpsService) SetCleanupReloader(r CleanupReloader) {
 		return
 	}
 	s.cleanupReloader = r
+}
+
+// AlertRuleEvaluator 由 OpsAlertEvaluatorService 实现：立即试算一条告警规则（不落事件）。
+type AlertRuleEvaluator interface {
+	EvaluateRuleNow(ctx context.Context, ruleID int64, send bool) (*OpsAlertRuleEvaluation, error)
+}
+
+// SetAlertRuleEvaluator 由 wire 注入评估器（构造期循环依赖的解耦点，同 SetCleanupReloader）。
+func (s *OpsService) SetAlertRuleEvaluator(ev AlertRuleEvaluator) {
+	if s == nil {
+		return
+	}
+	s.alertRuleEvaluator = ev
 }
 
 // SetOpenAIQuotaAutoPauseSettingsSink 由 wire 注入，把最新的 quota auto-pause 全局默认

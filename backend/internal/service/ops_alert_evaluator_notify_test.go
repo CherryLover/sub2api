@@ -108,7 +108,7 @@ func newNotifyEvaluatorFixture(t *testing.T, barkEnabled bool, notifyOnResolve b
 	svc := &OpsAlertEvaluatorService{
 		opsRepo:       repo,
 		alertNotifier: bark,
-		ruleStates:    map[int64]*opsAlertRuleState{},
+		ruleStates:    map[opsAlertRuleStateKey]*opsAlertRuleState{},
 	}
 	return svc, repo, sender
 }
@@ -207,7 +207,7 @@ func TestOpsAlertEvaluator_NoPushWhenBarkDisabledOrAbsent(t *testing.T) {
 	// 完全没有注入通知服务（例如旧的测试装配）也不能 panic。
 	bare := &OpsAlertEvaluatorService{
 		opsRepo:    &notifyStubOpsRepo{rules: repo.rules, metrics: repo.metrics},
-		ruleStates: map[int64]*opsAlertRuleState{},
+		ruleStates: map[opsAlertRuleStateKey]*opsAlertRuleState{},
 	}
 	require.NotPanics(t, func() { bare.evaluateOnce(60 * time.Second) })
 }

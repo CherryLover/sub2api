@@ -218,6 +218,85 @@ func (s *OpsService) UpdateAlertEventStatus(ctx context.Context, eventID int64, 
 	return s.opsRepo.UpdateAlertEventStatus(ctx, eventID, status, resolvedAt)
 }
 
+// EvaluateAlertRuleNow 「立即试算」一条规则，透传给评估器；未接线时返回 503。
+func (s *OpsService) EvaluateAlertRuleNow(ctx context.Context, ruleID int64, send bool) (*OpsAlertRuleEvaluation, error) {
+	if err := s.RequireMonitoringEnabled(ctx); err != nil {
+		return nil, err
+	}
+	if ruleID <= 0 {
+		return nil, infraerrors.BadRequest("INVALID_RULE_ID", "invalid rule id")
+	}
+	if s.alertRuleEvaluator == nil {
+		return nil, infraerrors.ServiceUnavailable("OPS_ALERT_EVALUATOR_UNAVAILABLE", "Ops alert evaluator not available")
+	}
+	return s.alertRuleEvaluator.EvaluateRuleNow(ctx, ruleID, send)
+}
+
+// ListAccountsForAlerts 账号用量类告警规则取账号：整实体（含 extra 快照）。
+//
+// 必须走 ListAllWithFilters / GetByIDs，不能用 ListOpsAccountsForStats —— 后者只选 11 列、
+// 没有 extra，所有用量都会读成 0，规则"正常运行"但永远不触发。
+// accountIDs 非空时按 ID 取，再用 platform / groupID 在内存里过滤一遍。
+func (s *OpsService) ListAccountsForAlerts(ctx context.Context, platform string, groupID *int64, accountIDs []int64) ([]*Account, error) {
+	if s == nil {
+		return nil, errors.New("ops service is nil")
+	}
+	if s.listAccountsForAlerts != nil {
+		return s.listAccountsForAlerts(ctx, platform, groupID, accountIDs)
+	}
+	if s.accountRepo == nil {
+		return nil, errors.New("account repository not available")
+	}
+	platform = strings.ToLower(strings.TrimSpace(platform))
+
+	if len(accountIDs) > 0 {
+		accounts, err := s.accountRepo.GetByIDs(ctx, accountIDs)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]*Account, 0, len(accounts))
+		for _, account := range accounts {
+			if account == nil {
+				continue
+			}
+			if platform != "" && strings.ToLower(strings.TrimSpace(account.Platform)) != platform {
+				continue
+			}
+			if groupID != nil && *groupID > 0 && !accountInGroup(account, *groupID) {
+				continue
+			}
+			out = append(out, account)
+		}
+		return out, nil
+	}
+
+	var gid int64
+	if groupID != nil && *groupID > 0 {
+		gid = *groupID
+	}
+	accounts, err := s.accountRepo.ListAllWithFilters(ctx, platform, "", "", "", gid, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Account, 0, len(accounts))
+	for i := range accounts {
+		out = append(out, &accounts[i])
+	}
+	return out, nil
+}
+
+func accountInGroup(account *Account, groupID int64) bool {
+	if account == nil {
+		return false
+	}
+	for _, id := range account.GroupIDs {
+		if id == groupID {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *OpsService) UpdateAlertEventEmailSent(ctx context.Context, eventID int64, emailSent bool) error {
 	if err := s.RequireMonitoringEnabled(ctx); err != nil {
 		return err

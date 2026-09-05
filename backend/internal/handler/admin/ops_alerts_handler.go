@@ -2,7 +2,9 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"strconv"
@@ -33,7 +35,16 @@ var validOpsAlertMetricTypes = []string{
 	"overload_account_count",
 	"proxy_expired_count",
 	"proxy_expiring_soon_count",
+	// 账号用量阈值提醒（批次 6 / A6-2 第二步）：按账号拆分评估。
+	service.OpsAlertMetricAccountWindowUsedPercent,
+	service.OpsAlertMetricAccountQuotaUsedPercent,
+	service.OpsAlertMetricAccountBalance,
+	service.OpsAlertMetricAccountTodayCost,
 }
+
+var validOpsAlertAccountWindows = []string{"5h", "7d"}
+var validOpsAlertQuotaDimensions = []string{"daily", "weekly", "total"}
+var validOpsAlertBalanceProviders = []string{"kimi", "deepseek"}
 
 var validOpsAlertMetricTypeSet = func() map[string]struct{} {
 	set := make(map[string]struct{}, len(validOpsAlertMetricTypes))
@@ -95,11 +106,127 @@ func isPercentOrRateMetric(metricType string) bool {
 		"memory_usage_percent",
 		"group_available_ratio",
 		"group_rate_limit_ratio",
-		"account_error_ratio":
+		"account_error_ratio",
+		service.OpsAlertMetricAccountWindowUsedPercent,
+		service.OpsAlertMetricAccountQuotaUsedPercent:
 		return true
 	default:
 		return false
 	}
+}
+
+// validateAccountAlertFilters 校验并规范化账号用量类规则的 filters（非账号指标原样放过）：
+// window / dimension 必填枚举，provider 可选且只允许 kimi / deepseek，platform 可选字符串，
+// group_id 可选正整数，account_ids 可选正整数数组（去重后 ≤ 200）。通过后把这些键写回规范值。
+func validateAccountAlertFilters(metricType string, filters map[string]any) error {
+	if !service.IsOpsAlertAccountMetric(metricType) {
+		return nil
+	}
+	if filters == nil {
+		return fmt.Errorf("filters is required for metric_type %s", metricType)
+	}
+
+	stringFilter := func(key string) (string, error) {
+		raw, ok := filters[key]
+		if !ok || raw == nil {
+			return "", nil
+		}
+		s, ok := raw.(string)
+		if !ok {
+			return "", fmt.Errorf("filters.%s must be a string", key)
+		}
+		return strings.ToLower(strings.TrimSpace(s)), nil
+	}
+	inList := func(value string, allowed []string) bool {
+		for _, v := range allowed {
+			if v == value {
+				return true
+			}
+		}
+		return false
+	}
+
+	switch metricType {
+	case service.OpsAlertMetricAccountWindowUsedPercent:
+		window, err := stringFilter("window")
+		if err != nil {
+			return err
+		}
+		if !inList(window, validOpsAlertAccountWindows) {
+			return fmt.Errorf("filters.window must be one of: %s", strings.Join(validOpsAlertAccountWindows, ", "))
+		}
+		filters["window"] = window
+	case service.OpsAlertMetricAccountQuotaUsedPercent:
+		dimension, err := stringFilter("dimension")
+		if err != nil {
+			return err
+		}
+		if !inList(dimension, validOpsAlertQuotaDimensions) {
+			return fmt.Errorf("filters.dimension must be one of: %s", strings.Join(validOpsAlertQuotaDimensions, ", "))
+		}
+		filters["dimension"] = dimension
+	case service.OpsAlertMetricAccountBalance:
+		provider, err := stringFilter("provider")
+		if err != nil {
+			return err
+		}
+		if provider != "" {
+			if !inList(provider, validOpsAlertBalanceProviders) {
+				return fmt.Errorf("filters.provider must be one of: %s", strings.Join(validOpsAlertBalanceProviders, ", "))
+			}
+			filters["provider"] = provider
+		} else {
+			delete(filters, "provider")
+		}
+	}
+
+	platform, err := stringFilter("platform")
+	if err != nil {
+		return err
+	}
+	if platform != "" {
+		filters["platform"] = platform
+	} else {
+		delete(filters, "platform")
+	}
+	if provider, _ := filters["provider"].(string); provider != "" && platform != "" && provider != platform {
+		return fmt.Errorf("filters.provider %s conflicts with filters.platform %s", provider, platform)
+	}
+
+	if raw, ok := filters["group_id"]; ok && raw != nil {
+		n, ok := raw.(float64)
+		if !ok || n <= 0 || n != math.Trunc(n) {
+			return fmt.Errorf("filters.group_id must be a positive integer")
+		}
+		filters["group_id"] = int64(n)
+	} else {
+		delete(filters, "group_id")
+	}
+
+	if raw, ok := filters["account_ids"]; ok && raw != nil {
+		items, ok := raw.([]any)
+		if !ok {
+			return fmt.Errorf("filters.account_ids must be an array of positive integers")
+		}
+		ids := make([]int64, 0, len(items))
+		for _, item := range items {
+			n, ok := item.(float64)
+			if !ok || n <= 0 || n != math.Trunc(n) {
+				return fmt.Errorf("filters.account_ids must be an array of positive integers")
+			}
+			ids = append(ids, int64(n))
+		}
+		ids = service.ParseOpsAlertAccountIDs(ids)
+		if len(ids) > service.OpsAlertAccountIDsMax {
+			return fmt.Errorf("filters.account_ids must contain at most %d accounts", service.OpsAlertAccountIDsMax)
+		}
+		if len(ids) > 0 {
+			filters["account_ids"] = ids
+		} else {
+			delete(filters, "account_ids")
+		}
+	}
+	return nil
 }
 
 func validateOpsAlertRulePayload(raw map[string]json.RawMessage) (*opsAlertRuleValidatedInput, error) {
@@ -296,6 +423,10 @@ func (h *OpsHandler) CreateAlertRule(c *gin.Context) {
 	rule.Severity = validated.Severity
 	rule.Enabled = validated.Enabled
 	rule.NotifyEmail = validated.NotifyEmail
+	if err := validateAccountAlertFilters(rule.MetricType, rule.Filters); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 
 	created, err := h.opsService.CreateAlertRule(c.Request.Context(), &rule)
 	if err != nil {
@@ -351,6 +482,10 @@ func (h *OpsHandler) UpdateAlertRule(c *gin.Context) {
 	rule.Severity = validated.Severity
 	rule.Enabled = validated.Enabled
 	rule.NotifyEmail = validated.NotifyEmail
+	if err := validateAccountAlertFilters(rule.MetricType, rule.Filters); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 
 	updated, err := h.opsService.UpdateAlertRule(c.Request.Context(), &rule)
 	if err != nil {
@@ -383,6 +518,41 @@ func (h *OpsHandler) DeleteAlertRule(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"deleted": true})
+}
+
+// EvaluateAlertRule 立即试算一条规则（不落事件、不动持续计数），body `{"send": bool}` 可省略；
+// send=true 时把结果以「手动试发」推到 Bark：未启用回 400 BARK_NOT_ENABLED，推送失败仍回 200 且 sent=false。
+// POST /api/v1/admin/ops/alert-rules/:id/evaluate
+func (h *OpsHandler) EvaluateAlertRule(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid rule ID")
+		return
+	}
+
+	var payload struct {
+		Send bool `json:"send"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil && !errors.Is(err, io.EOF) {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+
+	result, err := h.opsService.EvaluateAlertRuleNow(c.Request.Context(), id, payload.Send)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 // GetAlertEvent returns a single ops alert event.

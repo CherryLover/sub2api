@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -518,6 +519,87 @@ ORDER BY fired_at DESC
 LIMIT 1`
 
 	row := r.db.QueryRowContext(ctx, q, ruleID)
+	ev, err := scanOpsAlertEvent(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return ev, nil
+}
+
+// GetActiveAlertEventForAccount 取「规则 × 账号」当前仍在触发中的事件；账号用量类规则
+// 一条规则会对应多个账号各自的事件，靠 dimensions.account_id 区分。
+func (r *opsRepository) GetActiveAlertEventForAccount(ctx context.Context, ruleID int64, accountID int64) (*service.OpsAlertEvent, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("nil ops repository")
+	}
+	if ruleID <= 0 || accountID <= 0 {
+		return nil, fmt.Errorf("invalid rule id or account id")
+	}
+
+	q := `
+SELECT
+  id,
+  COALESCE(rule_id, 0),
+  COALESCE(severity, ''),
+  COALESCE(status, ''),
+  COALESCE(title, ''),
+  COALESCE(description, ''),
+  metric_value,
+  threshold_value,
+  dimensions,
+  fired_at,
+  resolved_at,
+  email_sent,
+  created_at
+FROM ops_alert_events
+WHERE rule_id = $1 AND status = $2 AND dimensions->>'account_id' = $3
+ORDER BY fired_at DESC
+LIMIT 1`
+
+	row := r.db.QueryRowContext(ctx, q, ruleID, service.OpsAlertStatusFiring, strconv.FormatInt(accountID, 10))
+	ev, err := scanOpsAlertEvent(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return ev, nil
+}
+
+// GetLatestAlertEventForAccount 取「规则 × 账号」最近一次事件（不限状态），用于冷却判断。
+func (r *opsRepository) GetLatestAlertEventForAccount(ctx context.Context, ruleID int64, accountID int64) (*service.OpsAlertEvent, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("nil ops repository")
+	}
+	if ruleID <= 0 || accountID <= 0 {
+		return nil, fmt.Errorf("invalid rule id or account id")
+	}
+
+	q := `
+SELECT
+  id,
+  COALESCE(rule_id, 0),
+  COALESCE(severity, ''),
+  COALESCE(status, ''),
+  COALESCE(title, ''),
+  COALESCE(description, ''),
+  metric_value,
+  threshold_value,
+  dimensions,
+  fired_at,
+  resolved_at,
+  email_sent,
+  created_at
+FROM ops_alert_events
+WHERE rule_id = $1 AND dimensions->>'account_id' = $2
+ORDER BY fired_at DESC
+LIMIT 1`
+
+	row := r.db.QueryRowContext(ctx, q, ruleID, strconv.FormatInt(accountID, 10))
 	ev, err := scanOpsAlertEvent(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
