@@ -491,7 +491,8 @@ func TestRetainedPromptAuditSurfaceStillRegistered(t *testing.T) {
 }
 
 // TestNotificationBarkSurfaceRegistered 批次 6 / A6-2 补回的唯一主动推送通道：
-// Bark 配置的读 / 写 / 测试三条管理端路由必须在场，且只挂在 /admin 下。
+// Bark 配置的读 / 写 / 测试三条管理端路由必须在场，且只挂在 /admin 下；
+// 第二步的账号用量规则「立即试算」接口（可选推到 Bark）同样在场。
 func TestNotificationBarkSurfaceRegistered(t *testing.T) {
 	router, _ := newTrimmedSurfaceRouter(t)
 
@@ -503,6 +504,7 @@ func TestNotificationBarkSurfaceRegistered(t *testing.T) {
 		"GET /api/v1/admin/notifications/bark",
 		"PUT /api/v1/admin/notifications/bark",
 		"POST /api/v1/admin/notifications/bark/test",
+		"POST /api/v1/admin/ops/alert-rules/:id/evaluate",
 	} {
 		_, exists := routes[want]
 		require.Truef(t, exists, "Bark 通知路由 %s 应已注册", want)
