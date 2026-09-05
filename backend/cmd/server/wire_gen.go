@@ -261,7 +261,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
-	opsAlertEvaluatorService := service.ProvideOpsAlertEvaluatorService(opsService, opsRepository, redisClient, configConfig, proxyRepository, barkNotificationService)
+	opsAlertEvaluatorService := service.ProvideOpsAlertEvaluatorService(opsService, opsRepository, redisClient, configConfig, proxyRepository, barkNotificationService, usageLogRepository)
 	opsCleanupService := service.ProvideOpsCleanupService(opsRepository, db, redisClient, configConfig, settingRepository, opsService)
 	opsIngressRejectAggregator := service.ProvideOpsIngressRejectAggregator(opsRepository, opsService)
 	accountExpiryService := service.ProvideAccountExpiryService(accountRepository)

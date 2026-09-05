@@ -46,6 +46,9 @@ type OpsRepository interface {
 	GetAlertEventByID(ctx context.Context, eventID int64) (*OpsAlertEvent, error)
 	GetActiveAlertEvent(ctx context.Context, ruleID int64) (*OpsAlertEvent, error)
 	GetLatestAlertEvent(ctx context.Context, ruleID int64) (*OpsAlertEvent, error)
+	// 账号用量类规则按「规则 × 账号」各自维护事件，用 dimensions.account_id 区分。
+	GetActiveAlertEventForAccount(ctx context.Context, ruleID int64, accountID int64) (*OpsAlertEvent, error)
+	GetLatestAlertEventForAccount(ctx context.Context, ruleID int64, accountID int64) (*OpsAlertEvent, error)
 	CreateAlertEvent(ctx context.Context, event *OpsAlertEvent) (*OpsAlertEvent, error)
 	UpdateAlertEventStatus(ctx context.Context, eventID int64, status string, resolvedAt *time.Time) error
 	UpdateAlertEventEmailSent(ctx context.Context, eventID int64, emailSent bool) error

@@ -74,6 +74,36 @@ type OpsAlertSilence struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// OpsAlertAccountSample 手动试算里单个账号的取值与是否越阈。
+type OpsAlertAccountSample struct {
+	AccountID   int64   `json:"account_id"`
+	AccountName string  `json:"account_name"`
+	Platform    string  `json:"platform"`
+	Value       float64 `json:"value"`
+	Breached    bool    `json:"breached"`
+	Currency    string  `json:"currency,omitempty"`
+}
+
+// OpsAlertRuleEvaluation 「立即试算」一条规则的结果：不落事件、不动持续计数。
+// Value 是聚合值（percent / cost 取最大、balance 取最小），无数据时为 nil。
+type OpsAlertRuleEvaluation struct {
+	RuleID      int64     `json:"rule_id"`
+	RuleName    string    `json:"rule_name"`
+	MetricType  string    `json:"metric_type"`
+	Operator    string    `json:"operator"`
+	Threshold   float64   `json:"threshold"`
+	EvaluatedAt time.Time `json:"evaluated_at"`
+
+	HasData  bool     `json:"has_data"`
+	Value    *float64 `json:"value"`
+	Breached bool     `json:"breached"`
+
+	Accounts []OpsAlertAccountSample `json:"accounts"`
+
+	Sent      bool   `json:"sent"`
+	SendError string `json:"send_error,omitempty"`
+}
+
 type OpsAlertEventFilter struct {
 	Limit int
 

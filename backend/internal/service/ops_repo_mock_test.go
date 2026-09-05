@@ -153,6 +153,14 @@ func (m *opsRepoMock) GetLatestAlertEvent(ctx context.Context, ruleID int64) (*O
 	return nil, nil
 }
 
+func (m *opsRepoMock) GetActiveAlertEventForAccount(ctx context.Context, ruleID int64, accountID int64) (*OpsAlertEvent, error) {
+	return nil, nil
+}
+
+func (m *opsRepoMock) GetLatestAlertEventForAccount(ctx context.Context, ruleID int64, accountID int64) (*OpsAlertEvent, error) {
+	return nil, nil
+}
+
 func (m *opsRepoMock) CreateAlertEvent(ctx context.Context, event *OpsAlertEvent) (*OpsAlertEvent, error) {
 	return event, nil
 }
