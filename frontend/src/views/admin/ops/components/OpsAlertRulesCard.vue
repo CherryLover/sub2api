@@ -66,6 +66,15 @@ const groupMetricTypes = new Set<MetricType>([
   'group_rate_limit_ratio'
 ])
 
+// 账号用量阈值指标：作用范围（平台 / 分组 / 账号 / 窗口）在 设置 → 通知 → 账号用量提醒规则 里配置，
+// 这里只保证编辑已有规则时下拉能显示人话名称，并提示去那边改范围。
+const accountUsageMetricTypes = new Set<MetricType>([
+  'account_window_used_percent',
+  'account_quota_used_percent',
+  'account_balance',
+  'account_today_cost'
+])
+
 function parsePositiveInt(value: unknown): number | null {
   if (value == null) return null
   if (typeof value === 'boolean') return null
@@ -88,6 +97,11 @@ async function loadGroups() {
 const isGroupMetricSelected = computed(() => {
   const metricType = draft.value?.metric_type
   return metricType ? groupMetricTypes.has(metricType) : false
+})
+
+const isAccountUsageMetricSelected = computed(() => {
+  const metricType = draft.value?.metric_type
+  return metricType ? accountUsageMetricTypes.has(metricType) : false
 })
 
 const draftGroupId = computed<number | null>({
@@ -240,6 +254,43 @@ const metricDefinitions = computed(() => {
       description: t('admin.ops.alertRules.metricDescriptions.overloadAccountCount'),
       recommendedOperator: '>',
       recommendedThreshold: 0
+    },
+
+    // Account usage thresholds (scope is configured under Settings → Notifications)
+    {
+      type: 'account_window_used_percent',
+      group: 'account',
+      label: t('admin.ops.alertRules.metrics.accountWindowUsedPercent'),
+      description: t('admin.ops.alertRules.metricDescriptions.accountWindowUsedPercent'),
+      recommendedOperator: '>=',
+      recommendedThreshold: 80,
+      unit: '%'
+    },
+    {
+      type: 'account_quota_used_percent',
+      group: 'account',
+      label: t('admin.ops.alertRules.metrics.accountQuotaUsedPercent'),
+      description: t('admin.ops.alertRules.metricDescriptions.accountQuotaUsedPercent'),
+      recommendedOperator: '>=',
+      recommendedThreshold: 80,
+      unit: '%'
+    },
+    {
+      type: 'account_balance',
+      group: 'account',
+      label: t('admin.ops.alertRules.metrics.accountBalance'),
+      description: t('admin.ops.alertRules.metricDescriptions.accountBalance'),
+      recommendedOperator: '<',
+      recommendedThreshold: 10
+    },
+    {
+      type: 'account_today_cost',
+      group: 'account',
+      label: t('admin.ops.alertRules.metrics.accountTodayCost'),
+      description: t('admin.ops.alertRules.metricDescriptions.accountTodayCost'),
+      recommendedOperator: '>=',
+      recommendedThreshold: 10,
+      unit: '$'
     }
   ] satisfies MetricDefinition[]
 })
@@ -545,6 +596,9 @@ function cancelDelete() {
                     unit: selectedMetricDefinition.unit || ''
                   })
                 }}
+              </p>
+              <p v-if="isAccountUsageMetricSelected" class="text-amber-600 dark:text-amber-400">
+                {{ t('admin.ops.alertRules.hints.accountScopeInSettings') }}
               </p>
             </div>
           </div>

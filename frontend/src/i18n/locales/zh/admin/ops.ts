@@ -494,7 +494,11 @@ export default {
           accountErrorCount: '错误账号数（不含临时不可调度）',
           accountErrorRatio: '错误账号比例 (%)',
           accountTempUnscheduledCount: '临时不可调度账号数',
-          overloadAccountCount: '过载账号数'
+          overloadAccountCount: '过载账号数',
+          accountWindowUsedPercent: '账号窗口用量 (%)',
+          accountQuotaUsedPercent: '账号额度用量 (%)',
+          accountBalance: '账号余额',
+          accountTodayCost: '账号当日费用 ($)'
         },
         metricDescriptions: {
           successRate: '统计窗口内成功请求占比（0~100）。',
@@ -512,12 +516,17 @@ export default {
           accountErrorCount: '统计窗口内产生错误的账号数量（不含临时不可调度）。',
           accountErrorRatio: '统计窗口内错误账号占比（0~100）。',
           accountTempUnscheduledCount: '当前处于临时不可调度状态的账号数量（如代理/凭据故障被自动摘除）。',
-          overloadAccountCount: '统计窗口内过载账号数量。'
+          overloadAccountCount: '统计窗口内过载账号数量。',
+          accountWindowUsedPercent: '单个账号在 5 小时 / 7 天窗口内已用的百分比（0~100），按账号逐个评估。',
+          accountQuotaUsedPercent: '单个账号在日 / 周 / 总额度里已用的百分比（0~100），按账号逐个评估。',
+          accountBalance: '单个国产供应商账号（Kimi / DeepSeek）的剩余余额，按账号逐个评估。',
+          accountTodayCost: '单个账号今天累计产生的费用（美元），按账号逐个评估。'
         },
         hints: {
           recommended: '推荐：运算符 {operator}，阈值 {threshold}{unit}',
           groupRequired: '该指标为分组级别指标，必须选择分组（group_id）。',
-          groupOptional: '可选：通过 group_id 将规则限定到某个分组。'
+          groupOptional: '可选：通过 group_id 将规则限定到某个分组。',
+          accountScopeInSettings: '这是账号用量指标，作用范围（平台 / 分组 / 账号 / 窗口）请到 设置 → 通知 → 账号用量提醒规则 里配置。'
         },
         table: {
           name: '名称',

@@ -4237,6 +4237,7 @@
         <!-- Tab: Notifications — 每张卡片独立保存，不进下面的大 payload -->
         <div v-show="activeTab === 'notifications'" class="space-y-6">
           <BarkNotifySettingsCard />
+          <AccountUsageAlertRulesCard />
         </div>
 
         <!-- Tab: Backup -->
@@ -4344,6 +4345,7 @@ import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import BarkNotifySettingsCard from "@/views/admin/settings/BarkNotifySettingsCard.vue";
+import AccountUsageAlertRulesCard from "@/views/admin/settings/AccountUsageAlertRulesCard.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import {
   useStepUp,

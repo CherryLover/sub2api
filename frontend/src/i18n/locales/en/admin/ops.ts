@@ -494,7 +494,11 @@ export default {
           accountErrorCount: 'Error Accounts (excluding temporarily unschedulable)',
           accountErrorRatio: 'Error Account Ratio (%)',
           accountTempUnscheduledCount: 'Temporarily Unschedulable Accounts',
-          overloadAccountCount: 'Overloaded Accounts'
+          overloadAccountCount: 'Overloaded Accounts',
+          accountWindowUsedPercent: 'Account Window Usage (%)',
+          accountQuotaUsedPercent: 'Account Quota Usage (%)',
+          accountBalance: 'Account Balance',
+          accountTodayCost: "Account Today's Cost ($)"
         },
         metricDescriptions: {
           successRate: 'Percentage of successful requests in the window (0-100).',
@@ -512,12 +516,17 @@ export default {
           accountErrorCount: 'Number of error accounts within the window (excluding temporarily unschedulable).',
           accountErrorRatio: 'Error account ratio within the window (0-100).',
           accountTempUnscheduledCount: 'Number of accounts currently temporarily unschedulable (e.g. proxy/credential failure auto-eviction).',
-          overloadAccountCount: 'Number of overloaded accounts within the window.'
+          overloadAccountCount: 'Number of overloaded accounts within the window.',
+          accountWindowUsedPercent: 'Percentage (0-100) of the 5-hour / 7-day window a single account has used, evaluated per account.',
+          accountQuotaUsedPercent: 'Percentage (0-100) of the daily / weekly / total quota a single account has used, evaluated per account.',
+          accountBalance: 'Remaining balance of a single Chinese provider account (Kimi / DeepSeek), evaluated per account.',
+          accountTodayCost: "Cost a single account has accumulated today (USD), evaluated per account."
         },
         hints: {
           recommended: 'Recommended: operator {operator}, threshold {threshold}{unit}',
           groupRequired: 'This is a group-level metric; selecting a group (group_id) is required.',
-          groupOptional: 'Optional: limit the rule to a specific group via group_id.'
+          groupOptional: 'Optional: limit the rule to a specific group via group_id.',
+          accountScopeInSettings: 'This is an account usage metric. Configure its scope (platform / group / accounts / window) under Settings → Notifications → Account Usage Alert Rules.'
         },
         table: {
           name: 'Name',
