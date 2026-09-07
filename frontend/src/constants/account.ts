@@ -14,6 +14,22 @@ export const QUOTA_RESET_MODE_ROLLING = 'rolling' as const
 export const QUOTA_RESET_MODE_FIXED = 'fixed' as const
 export type QuotaResetMode = typeof QUOTA_RESET_MODE_ROLLING | typeof QUOTA_RESET_MODE_FIXED
 
+/** 周限额的自然周默认：固定重置 / 周一 / 00:00（批次 6 · A3，与迁移 239 写入的值一致） */
+export const QUOTA_WEEKLY_DEFAULT_RESET_DAY = 1
+export const QUOTA_WEEKLY_DEFAULT_RESET_HOUR = 0
+
+/** 公开设置里拿不到服务器时区时的兜底（与后端 timezone 未初始化时的旧默认一致） */
+export const QUOTA_RESET_TIMEZONE_FALLBACK = 'UTC'
+
+/**
+ * 固定重置模式的缺省时区：跟服务器项目时区走（public settings 的 server_timezone，
+ * 对应后端 timezone.Name()），拿不到时退回 UTC。
+ */
+export function defaultQuotaResetTimezone(serverTimezone?: string | null): string {
+  const tz = serverTimezone?.trim()
+  return tz ? tz : QUOTA_RESET_TIMEZONE_FALLBACK
+}
+
 /** Vertex AI location options for Service Account accounts */
 export const VERTEX_LOCATION_OPTIONS = [
   {

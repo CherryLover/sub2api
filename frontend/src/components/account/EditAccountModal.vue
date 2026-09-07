@@ -2825,7 +2825,7 @@ import {
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
-import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
+import { VERTEX_LOCATION_OPTIONS, defaultQuotaResetTimezone } from '@/constants/account'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -5176,7 +5176,7 @@ const handleSubmit = async () => {
         delete newExtra.quota_weekly_reset_hour
       }
       if (editDailyResetMode.value === 'fixed' || editWeeklyResetMode.value === 'fixed') {
-        newExtra.quota_reset_timezone = editResetTimezone.value || 'UTC'
+        newExtra.quota_reset_timezone = editResetTimezone.value || defaultQuotaResetTimezone(appStore.cachedPublicSettings?.server_timezone)
       } else {
         delete newExtra.quota_reset_timezone
       }

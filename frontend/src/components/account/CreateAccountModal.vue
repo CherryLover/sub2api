@@ -3772,7 +3772,7 @@ import {
 } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
-import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
+import { VERTEX_LOCATION_OPTIONS, defaultQuotaResetTimezone } from '@/constants/account'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -5639,7 +5639,7 @@ const createAccountAndFinish = async (
       quotaExtra.quota_weekly_reset_hour = editWeeklyResetHour.value ?? 0
     }
     if (editDailyResetMode.value === 'fixed' || editWeeklyResetMode.value === 'fixed') {
-      quotaExtra.quota_reset_timezone = editResetTimezone.value || 'UTC'
+      quotaExtra.quota_reset_timezone = editResetTimezone.value || defaultQuotaResetTimezone(appStore.cachedPublicSettings?.server_timezone)
     }
     // Quota notify config
     writeQuotaNotifyToExtra(quotaExtra, 'create')
