@@ -117,6 +117,7 @@ export default {
     usage: 'Usage',
     profile: 'Profile',
     users: 'Users',
+    adminApiKeys: 'All API Keys',
     groups: 'Groups',
     channels: 'Channels',
     availableChannels: 'Available Channels',
