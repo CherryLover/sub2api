@@ -30,7 +30,6 @@
                   v-if="key.group_id && key.group"
                   :name="key.group.name"
                   :platform="key.group.platform"
-                  :subscription-type="key.group.subscription_type"
                   :rate-multiplier="key.group.rate_multiplier"
                   :peak-rate-enabled="key.group.peak_rate_enabled"
                   :peak-start="key.group.peak_start"
@@ -90,7 +89,6 @@
           <GroupOptionItem
             :name="group.name"
             :platform="group.platform"
-            :subscription-type="group.subscription_type"
             :rate-multiplier="group.rate_multiplier"
             :peak-rate-enabled="group.peak_rate_enabled"
             :peak-start="group.peak_start"

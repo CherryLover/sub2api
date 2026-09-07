@@ -55,11 +55,6 @@ export default {
     checkDetailedLogs: '查看详细的使用日志',
   },
 
-  // Groups (shared)
-  groups: {
-    subscription: '订阅'
-  },
-
   // API Keys
   keys: {
     title: 'API 密钥',

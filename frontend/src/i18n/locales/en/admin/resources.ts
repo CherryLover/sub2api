@@ -282,7 +282,7 @@ export default {
 	  upstreamModelMismatchOnly: 'Mismatched only',
 	  upstreamModelMatchedOnly: 'Matched only',
       ipAddress: 'IP',
-      clickToViewBalance: 'Click to view balance history',
+      clickToFilterByUser: 'Click to drill down into usage for this user',
       failedToLoadUser: 'Failed to load user info',
       userDeletedBadge: 'Deleted',
       tokenRanking: {

@@ -77,15 +77,6 @@ export async function getAllIncludingInactive(): Promise<AdminGroup[]> {
   return data
 }
 
-/**
- * Get active groups by platform
- * @param platform - Platform to filter by
- * @returns List of groups for the specified platform
- */
-export async function getByPlatform(platform: GroupPlatform): Promise<AdminGroup[]> {
-  return getAll(platform)
-}
-
 /** 获取当前 Sub2API 服务端的 Live 运行环境能力。 */
 export async function getLiveCapability(): Promise<LiveCapability> {
   const { data } = await apiClient.get<LiveCapability>('/admin/groups/live-capability')
@@ -227,54 +218,6 @@ export async function update(id: number, updates: UpdateGroupRequest): Promise<A
  */
 export async function deleteGroup(id: number): Promise<{ message: string }> {
   const { data } = await apiClient.delete<{ message: string }>(`/admin/groups/${id}`)
-  return data
-}
-
-/**
- * Toggle group status
- * @param id - Group ID
- * @param status - New status
- * @returns Updated group
- */
-export async function toggleStatus(id: number, status: 'active' | 'inactive'): Promise<AdminGroup> {
-  return update(id, { status })
-}
-
-/**
- * Get group statistics
- * @param id - Group ID
- * @returns Group usage statistics
- */
-export async function getStats(id: number): Promise<{
-  total_api_keys: number
-  active_api_keys: number
-  total_requests: number
-  total_cost: number
-}> {
-  const { data } = await apiClient.get<{
-    total_api_keys: number
-    active_api_keys: number
-    total_requests: number
-    total_cost: number
-  }>(`/admin/groups/${id}/stats`)
-  return data
-}
-
-/**
- * Get API keys in a group
- * @param id - Group ID
- * @param page - Page number
- * @param pageSize - Items per page
- * @returns Paginated list of API keys in the group
- */
-export async function getGroupApiKeys(
-  id: number,
-  page: number = 1,
-  pageSize: number = 20
-): Promise<PaginatedResponse<any>> {
-  const { data } = await apiClient.get<PaginatedResponse<any>>(`/admin/groups/${id}/api-keys`, {
-    params: { page, page_size: pageSize }
-  })
   return data
 }
 
@@ -473,7 +416,6 @@ export async function getCapacitySummary(): Promise<
 export const groupsAPI = {
   list,
   getAll,
-  getByPlatform,
   getAllIncludingInactive,
   getLiveCapability,
   getById,
@@ -482,9 +424,6 @@ export const groupsAPI = {
   duplicate,
   update,
   delete: deleteGroup,
-  toggleStatus,
-  getStats,
-  getGroupApiKeys,
   listCompositeRoutes,
   createCompositeRoute,
   updateCompositeRoute,

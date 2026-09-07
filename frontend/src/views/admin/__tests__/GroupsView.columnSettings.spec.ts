@@ -90,7 +90,6 @@ const createGroup = (overrides: Partial<AdminGroup> = {}): AdminGroup => ({
   rpm_limit: 0,
   is_exclusive: false,
   status: 'active',
-  subscription_type: 'standard',
   daily_limit_usd: null,
   weekly_limit_usd: null,
   monthly_limit_usd: null,

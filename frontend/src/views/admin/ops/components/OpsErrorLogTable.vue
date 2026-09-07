@@ -69,7 +69,7 @@
             <button
               v-if="userClickable && row.user_email"
               class="font-medium text-primary-600 underline decoration-dashed underline-offset-2 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
-              :title="t('admin.usage.clickToViewBalance')"
+              :title="t('admin.usage.clickToFilterByUser')"
               @click.stop="emit('userClick', row.user_id, row.user_email)"
             >
               {{ row.user_email }}

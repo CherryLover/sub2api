@@ -503,8 +503,6 @@ export default {
       publicGroupCount: '+{count} public',
       exclusiveLabel: 'exclusive',
       publicLabel: 'public',
-      daysRemaining: '{days}d',
-      expired: 'Expired',
       disable: 'Disable',
       enable: 'Enable',
       disableUser: 'Disable User',
@@ -535,7 +533,6 @@ export default {
       emailRequired: 'Please enter email',
       concurrencyMin: 'Concurrency must be at least 1',
       amountRequired: 'Please enter a valid amount',
-      insufficientBalance: 'Insufficient balance',
       adjustBalance: 'Adjust Balance',
       adjustConcurrency: 'Adjust Concurrency',
       adjustmentAmount: 'Adjustment Amount',
@@ -552,15 +549,6 @@ export default {
       failedToSave: 'Failed to save user',
       failedToAdjust: 'Adjustment failed',
       deleteConfirm: "Are you sure you want to delete '{email}'? This action cannot be undone.",
-      setAllowedGroups: 'Set Allowed Groups',
-      allowedGroupsHint:
-        'Select which standard groups this user can use. Subscription groups are managed separately.',
-      noStandardGroups: 'No standard groups available',
-      allowAllGroups: 'Allow All Groups',
-      allowAllGroupsHint: 'User can use any non-exclusive group',
-      allowedGroupsUpdated: 'Allowed groups updated successfully',
-      failedToLoadGroups: 'Failed to load groups',
-      failedToUpdateAllowedGroups: 'Failed to update allowed groups',
       // User Group Configuration
       groupConfig: 'User Group Configuration',
       groupConfigHint: 'Configure custom rate multipliers for user {email} (overrides group defaults)',
@@ -601,24 +589,12 @@ export default {
       failedToDeposit: 'Failed to deposit',
       failedToWithdraw: 'Failed to withdraw',
       useDepositWithdrawButtons: 'Please use deposit/withdraw buttons to adjust balance',
-      // Balance History
-      balanceHistory: 'Recharge History',
-      balanceHistoryTip: 'Click to open recharge history',
       columnAlwaysVisible: 'This column is always visible',
       // Per-platform usage breakdown (hover tooltip)
       platformBreakdown: 'Per-platform breakdown',
       platformBreakdownEmpty: 'No platform usage yet',
       platformBreakdownHint: 'Hover for per-platform usage',
       platformOther: 'Other',
-      balanceHistoryTitle: 'User Recharge & Concurrency History',
-      noBalanceHistory: 'No records found for this user',
-      allTypes: 'All Types',
-      typeBalance: 'Balance (Redeem)',
-      typeAdminBalance: 'Balance (Admin)',
-      typeConcurrency: 'Concurrency (Redeem)',
-      typeAdminConcurrency: 'Concurrency (Admin)',
-      typeSubscription: 'Subscription',
-      failedToLoadBalanceHistory: 'Failed to load balance history',
       createdAt: 'Created',
       roles: {
         admin: 'Admin',
@@ -1132,14 +1108,6 @@ export default {
         tooltip: 'When enabled, if the request contains MCP tools, an XML format call protocol prompt will be injected into the system prompt. Disable this to avoid interference with certain clients.',
         enabled: 'Enabled',
         disabled: 'Disabled'
-      },
-      claudeMaxSimulation: {
-        title: 'Claude Max Usage Simulation',
-        tooltip:
-          'When enabled, for Claude models without upstream cache-write usage, the system deterministically maps tokens to a small input plus 1h cache creation while keeping total tokens unchanged.',
-        enabled: 'Enabled (simulate 1h cache)',
-        disabled: 'Disabled',
-        hint: 'Only token categories in usage billing logs are adjusted. No per-request mapping state is persisted.'
       },
       supportedScopes: {
         title: 'Supported Model Families',

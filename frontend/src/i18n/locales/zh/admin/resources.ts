@@ -280,7 +280,7 @@ export default {
 	  upstreamModelMismatchOnly: '仅不一致',
 	  upstreamModelMatchedOnly: '仅一致',
       ipAddress: 'IP',
-      clickToViewBalance: '点击查看充值记录',
+      clickToFilterByUser: '点击下钻筛选该用户的用量明细',
       failedToLoadUser: '加载用户信息失败',
       userDeletedBadge: '已删除',
       tokenRanking: {
