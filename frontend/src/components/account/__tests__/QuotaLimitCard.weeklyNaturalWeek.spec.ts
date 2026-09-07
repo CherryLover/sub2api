@@ -180,7 +180,8 @@ describe('QuotaLimitCard weekly natural-week default', () => {
   })
 
   it('re-applies the default when a legacy account clears and re-enters its weekly limit', async () => {
-    const { wrapper, state } = mountCard({ weeklyLimit: 100 })
+    // 留一个总限额：清空唯一的限额会让整张卡片自动关掉（既有行为），这里只验周限额那一行
+    const { wrapper, state } = mountCard({ weeklyLimit: 100, totalLimit: 500 })
 
     await wrapper.get('[data-testid="quota-weekly-limit"]').setValue('')
     expect(state.weeklyLimit).toBeNull()
