@@ -136,7 +136,10 @@ func registerAuditLogRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 func registerAdminAPIKeyRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	apiKeys := admin.Group("/api-keys")
 	{
-		apiKeys.PUT("/:id", h.Admin.APIKey.UpdateGroup)
+		// 跨用户密钥总表：只回掩码 Key，已登记为审计敏感 GET（middleware/audit_log.go auditSensitiveReads）
+		apiKeys.GET("", h.Admin.APIKey.List)
+		apiKeys.PUT("/:id", h.Admin.APIKey.Update)
+		apiKeys.DELETE("/:id", h.Admin.APIKey.Delete)
 	}
 }
 
