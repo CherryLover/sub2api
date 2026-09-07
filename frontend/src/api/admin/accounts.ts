@@ -132,6 +132,75 @@ export async function getById(id: number): Promise<Account> {
   return data
 }
 
+// ==================== 容量负载明细（最近 N 分钟请求） ====================
+// 契约：GET /admin/accounts/:id/recent-requests?minutes=15&limit=50
+// minutes 1..1440 默认 15；limit ≤200 默认 50；账号不存在 404。
+// items 按 created_at desc 取 limit 条；total_requests / by_api_key / by_model 统计整个窗口，不受 limit 截断。
+
+export interface AccountRecentRequestItem {
+  id: number
+  request_id?: string
+  created_at: string
+  user?: { id: number; email: string } | null
+  api_key?: { id: number; name: string } | null
+  model: string
+  upstream_model?: string | null
+  request_type?: string | null
+  stream?: boolean
+  duration_ms?: number | null
+  first_token_ms?: number | null
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens?: number
+  total_cost: number
+  actual_cost: number
+}
+
+export interface AccountRecentRequestsByApiKey {
+  api_key_id: number
+  name: string
+  count: number
+  cost: number
+}
+
+export interface AccountRecentRequestsByModel {
+  model: string
+  count: number
+  cost: number
+}
+
+export interface AccountRecentRequestsResponse {
+  account_id: number
+  window_minutes: number
+  current_concurrency: number
+  max_concurrency: number
+  waiting_count: number
+  total_requests: number
+  items: AccountRecentRequestItem[]
+  by_api_key: AccountRecentRequestsByApiKey[]
+  by_model: AccountRecentRequestsByModel[]
+}
+
+export interface AccountRecentRequestsParams {
+  minutes?: number
+  limit?: number
+}
+
+/**
+ * Get an account's recent requests (usage-log backed) with per-key / per-model aggregates
+ * @param id - Account ID
+ * @param params - minutes (window, default 15) and limit (rows, default 50)
+ */
+export async function getRecentRequests(
+  id: number,
+  params: AccountRecentRequestsParams = {}
+): Promise<AccountRecentRequestsResponse> {
+  const { data } = await apiClient.get<AccountRecentRequestsResponse>(`/admin/accounts/${id}/recent-requests`, {
+    params
+  })
+  return data
+}
+
 /**
  * Create new account
  * @param accountData - Account data
@@ -989,6 +1058,7 @@ export const accountsAPI = {
   list,
   listWithEtag,
   getById,
+  getRecentRequests,
   create,
   duplicate,
   update,

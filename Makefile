@@ -20,6 +20,10 @@ FRONTEND_CRITICAL_VITEST := \
 	src/components/keys/__tests__/EndpointPopover.spec.ts \
 	src/views/admin/__tests__/ApiKeysView.spec.ts \
 	src/components/admin/user/__tests__/UserApiKeysModal.spec.ts \
+	src/components/admin/usage/__tests__/UsageTable.spec.ts \
+	src/views/admin/__tests__/UsageView.spec.ts \
+	src/components/account/__tests__/AccountCapacityCell.spec.ts \
+	src/components/admin/account/__tests__/AccountLoadDrawer.spec.ts \
 	src/views/__tests__/KeyUsageView.spec.ts \
 	src/features/channel-monitor-v2/__tests__/designSystem.structure.spec.ts \
 	src/features/channel-monitor-v2/__tests__/monitorFormat.spec.ts \

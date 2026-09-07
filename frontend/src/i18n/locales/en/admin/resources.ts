@@ -283,6 +283,7 @@ export default {
 	  upstreamModelMatchedOnly: 'Matched only',
       ipAddress: 'IP',
       clickToFilterByUser: 'Click to drill down into usage for this user',
+      clickToFilterByAccount: 'Click to drill down into usage for this account',
       failedToLoadUser: 'Failed to load user info',
       userDeletedBadge: 'Deleted',
       tokenRanking: {

@@ -1,11 +1,36 @@
 <template>
   <div class="flex flex-col gap-0.5">
-    <!-- 并发槽位 -->
-    <CapacityBadge :color-class="concurrencyClass" :current="currentConcurrency" :max="account.concurrency">
-      <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-      </svg>
-    </CapacityBadge>
+    <!-- 并发槽位：悬停 300ms 拉一次最近 15 分钟简版负载，点击打开负载抽屉 -->
+    <button
+      ref="concurrencyRef"
+      type="button"
+      class="w-fit rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40"
+      :title="t('admin.accounts.capacity.load.hoverHint')"
+      :aria-label="t('admin.accounts.capacity.load.hoverHint')"
+      data-testid="capacity-concurrency"
+      @mouseenter="scheduleLoadSummary"
+      @mouseleave="cancelLoadSummary"
+      @focus="scheduleLoadSummary"
+      @blur="cancelLoadSummary"
+      @click="emit('openLoad', account)"
+    >
+      <CapacityBadge :color-class="concurrencyClass" :current="currentConcurrency" :max="account.concurrency">
+        <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+        </svg>
+      </CapacityBadge>
+    </button>
+    <Teleport to="body">
+      <div
+        v-if="summaryVisible"
+        class="pointer-events-none fixed z-[9999] max-w-xs rounded-lg bg-gray-900 px-2.5 py-1.5 text-[11px] leading-snug text-white shadow-lg dark:bg-dark-700"
+        :style="summaryStyle"
+        role="tooltip"
+        data-testid="capacity-load-summary"
+      >
+        {{ summaryText }}
+      </div>
+    </Teleport>
 
     <!-- 5h窗口费用限制 -->
     <CapacityBadge v-if="showWindowCost" :color-class="windowCostClass" :tooltip="windowCostTooltip" :current="'$' + formatCost(currentWindowCost)" :max="'$' + formatCost(account.window_cost_limit)">
@@ -36,8 +61,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { adminAPI } from '@/api/admin'
+import type { AccountRecentRequestsResponse } from '@/api/admin/accounts'
 import type { Account } from '@/types'
 import CapacityBadge from '@/components/account/CapacityBadge.vue'
 import QuotaBadge from '@/components/account/QuotaBadge.vue'
@@ -46,10 +73,122 @@ const props = defineProps<{
   account: Account
 }>()
 
+const emit = defineEmits<{
+  openLoad: [account: Account]
+}>()
+
 const { t } = useI18n()
 
 // ====== 并发 ======
 const currentConcurrency = computed(() => props.account.current_concurrency || 0)
+
+// ====== 并发悬停简版负载 ======
+// 列表可能有上百行，悬停才拉、300ms 防抖、按账号缓存 30 秒，避免鼠标扫过整列时放大请求量。
+const SUMMARY_HOVER_DELAY_MS = 300
+const SUMMARY_CACHE_TTL_MS = 30_000
+const SUMMARY_WINDOW_MINUTES = 15
+
+interface SummaryCacheEntry {
+  fetchedAt: number
+  data: AccountRecentRequestsResponse
+}
+// 模块级缓存：同一账号在多行/多次渲染之间共享
+const summaryCache = new Map<number, SummaryCacheEntry>()
+
+const concurrencyRef = ref<HTMLElement | null>(null)
+const summaryVisible = ref(false)
+const summaryStatus = ref<'idle' | 'loading' | 'ready' | 'failed'>('idle')
+const summaryData = ref<AccountRecentRequestsResponse | null>(null)
+const summaryStyle = ref<Record<string, string>>({})
+let hoverTimer: ReturnType<typeof setTimeout> | null = null
+let hoverSeq = 0
+
+const summaryText = computed(() => {
+  if (summaryStatus.value === 'loading') return t('admin.accounts.capacity.load.summaryLoading')
+  if (summaryStatus.value === 'failed') return t('admin.accounts.capacity.load.summaryFailed')
+  const data = summaryData.value
+  if (!data) return ''
+  // Go 侧空切片可能序列化成 null，先兜底再挑 count 最大的密钥
+  const byApiKey = data.by_api_key ?? []
+  const topKey = byApiKey.length
+    ? [...byApiKey].sort((a, b) => b.count - a.count)[0]
+    : null
+  return t('admin.accounts.capacity.load.summary', {
+    current: data.current_concurrency,
+    max: data.max_concurrency,
+    minutes: data.window_minutes || SUMMARY_WINDOW_MINUTES,
+    count: data.total_requests,
+    key: topKey ? (topKey.name || `#${topKey.api_key_id}`) : t('admin.accounts.capacity.load.noKey')
+  })
+})
+
+const updateSummaryPosition = () => {
+  const el = concurrencyRef.value
+  if (!el || typeof el.getBoundingClientRect !== 'function') return
+  const rect = el.getBoundingClientRect()
+  summaryStyle.value = {
+    top: `${rect.bottom + 6}px`,
+    left: `${Math.max(8, rect.left)}px`
+  }
+}
+
+const readSummaryCache = (accountId: number): AccountRecentRequestsResponse | null => {
+  const entry = summaryCache.get(accountId)
+  if (!entry) return null
+  if (Date.now() - entry.fetchedAt > SUMMARY_CACHE_TTL_MS) {
+    summaryCache.delete(accountId)
+    return null
+  }
+  return entry.data
+}
+
+const loadSummary = async () => {
+  const accountId = props.account.id
+  const seq = ++hoverSeq
+  updateSummaryPosition()
+  summaryVisible.value = true
+
+  const cached = readSummaryCache(accountId)
+  if (cached) {
+    summaryData.value = cached
+    summaryStatus.value = 'ready'
+    return
+  }
+
+  summaryStatus.value = 'loading'
+  try {
+    const data = await adminAPI.accounts.getRecentRequests(accountId, { minutes: SUMMARY_WINDOW_MINUTES, limit: 1 })
+    summaryCache.set(accountId, { fetchedAt: Date.now(), data })
+    if (seq !== hoverSeq) return
+    summaryData.value = data
+    summaryStatus.value = 'ready'
+  } catch {
+    if (seq !== hoverSeq) return
+    summaryStatus.value = 'failed'
+  }
+}
+
+const scheduleLoadSummary = () => {
+  if (hoverTimer) clearTimeout(hoverTimer)
+  hoverTimer = setTimeout(() => {
+    hoverTimer = null
+    void loadSummary()
+  }, SUMMARY_HOVER_DELAY_MS)
+}
+
+const cancelLoadSummary = () => {
+  if (hoverTimer) {
+    clearTimeout(hoverTimer)
+    hoverTimer = null
+  }
+  hoverSeq += 1
+  summaryVisible.value = false
+  summaryStatus.value = 'idle'
+}
+
+onUnmounted(() => {
+  cancelLoadSummary()
+})
 
 const concurrencyClass = computed(() => {
   const current = currentConcurrency.value

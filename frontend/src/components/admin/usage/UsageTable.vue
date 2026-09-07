@@ -49,7 +49,19 @@
         </template>
 
         <template #cell-account="{ row }">
-          <span class="text-sm text-gray-900 dark:text-white">{{ row.account?.name || '-' }}</span>
+          <div class="text-sm">
+            <!-- 账号格可点：下钻到该账号的用量筛选（与用户格同一交互模式） -->
+            <button
+              v-if="row.account?.name"
+              type="button"
+              class="font-medium text-primary-600 underline decoration-dashed underline-offset-2 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+              :title="t('admin.usage.clickToFilterByAccount')"
+              @click="$emit('accountClick', row.account.id, row.account.name)"
+            >
+              {{ row.account.name }}
+            </button>
+            <span v-else class="text-gray-900 dark:text-white">-</span>
+          </div>
         </template>
 
         <template #cell-model="{ row }">
@@ -575,6 +587,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 const emit = defineEmits<{
   userClick: [userID: number, email?: string]
+  accountClick: [accountID: number, name?: string]
   sort: [key: string, order: 'asc' | 'desc']
   ipGeoBatchFailed: []
 }>()

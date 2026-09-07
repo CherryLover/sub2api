@@ -640,3 +640,56 @@ describe('admin UsageTable deleted-user badge', () => {
     expect(wrapper.text()).toContain('active@test.com')
   })
 })
+
+// A DataTable stub that renders cell-account, so the account drill-down button can be asserted.
+const DataTableStubWithAccount = {
+  props: ['data'],
+  template: `
+    <div>
+      <div v-for="row in data" :key="row.request_id">
+        <slot name="cell-account" :row="row" />
+      </div>
+    </div>
+  `,
+}
+
+describe('admin UsageTable account cell', () => {
+  const mountWithAccountRows = (rows: Array<Record<string, unknown>>) => mount(UsageTable, {
+    props: {
+      data: rows,
+      loading: false,
+      columns: [{ key: 'account', label: 'Account' }],
+    },
+    global: {
+      stubs: {
+        DataTable: DataTableStubWithAccount,
+        EmptyState: true,
+        Icon: true,
+        Teleport: true,
+      },
+    },
+  })
+
+  it('renders the account name as a button and emits accountClick with id and name', async () => {
+    const wrapper = mountWithAccountRows([
+      { request_id: 'req-acc-1', account_id: 7, account: { id: 7, name: 'acc-seven' } },
+    ])
+
+    const button = wrapper.get('button[title="admin.usage.clickToFilterByAccount"]')
+    expect(button.text()).toBe('acc-seven')
+
+    await button.trigger('click')
+
+    expect(wrapper.emitted('accountClick')).toEqual([[7, 'acc-seven']])
+  })
+
+  it('renders a dash without a button when the row has no account', () => {
+    const wrapper = mountWithAccountRows([
+      { request_id: 'req-acc-none', account_id: null, account: undefined },
+    ])
+
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.text()).toContain('-')
+    expect(wrapper.emitted('accountClick')).toBeUndefined()
+  })
+})
