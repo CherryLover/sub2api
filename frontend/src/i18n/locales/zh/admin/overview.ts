@@ -602,24 +602,12 @@ export default {
       failedToDeposit: '充值失败',
       failedToWithdraw: '退款失败',
       useDepositWithdrawButtons: '请使用充值/退款按钮调整余额',
-      // 余额变动记录
-      balanceHistory: '充值记录',
-      balanceHistoryTip: '点击查看充值记录',
       columnAlwaysVisible: '该列固定显示，不可隐藏',
       // 平台用量明细（悬浮显示）
       platformBreakdown: '按平台拆分',
       platformBreakdownEmpty: '暂无平台明细',
       platformBreakdownHint: '悬浮查看各平台用量',
       platformOther: '其他',
-      balanceHistoryTitle: '用户充值和并发变动记录',
-      noBalanceHistory: '暂无变动记录',
-      allTypes: '全部类型',
-      typeBalance: '余额（兑换码）',
-      typeAdminBalance: '余额（管理员调整）',
-      typeConcurrency: '并发（兑换码）',
-      typeAdminConcurrency: '并发（管理员调整）',
-      typeSubscription: '订阅',
-      failedToLoadBalanceHistory: '加载余额记录失败',
       createdAt: '创建时间',
       // Settings Dropdowns
       filterSettings: '筛选设置',
@@ -1120,14 +1108,6 @@ export default {
         selectAccounts: '选择账号',
         noAccounts: '此分组暂无账号',
         loadingAccounts: '加载账号中...',
-      claudeMaxSimulation: {
-        title: 'Claude Max 用量模拟',
-        tooltip:
-          '启用后，对于没有上游缓存写入用量的 Claude 模型，系统会确定性地将 token 映射为少量输入加 1h 缓存创建，同时保持总 token 不变。',
-        enabled: '已启用（模拟 1h 缓存）',
-        disabled: '已禁用',
-        hint: '仅调整用量计费日志中的 token 类别。不会持久化每个请求的映射状态。'
-      },
         removeRule: '删除规则',
         noRules: '暂无路由规则',
         noRulesHint: '添加路由规则以将特定模型请求优先路由到指定账号',

@@ -601,24 +601,12 @@ export default {
       failedToDeposit: 'Failed to deposit',
       failedToWithdraw: 'Failed to withdraw',
       useDepositWithdrawButtons: 'Please use deposit/withdraw buttons to adjust balance',
-      // Balance History
-      balanceHistory: 'Recharge History',
-      balanceHistoryTip: 'Click to open recharge history',
       columnAlwaysVisible: 'This column is always visible',
       // Per-platform usage breakdown (hover tooltip)
       platformBreakdown: 'Per-platform breakdown',
       platformBreakdownEmpty: 'No platform usage yet',
       platformBreakdownHint: 'Hover for per-platform usage',
       platformOther: 'Other',
-      balanceHistoryTitle: 'User Recharge & Concurrency History',
-      noBalanceHistory: 'No records found for this user',
-      allTypes: 'All Types',
-      typeBalance: 'Balance (Redeem)',
-      typeAdminBalance: 'Balance (Admin)',
-      typeConcurrency: 'Concurrency (Redeem)',
-      typeAdminConcurrency: 'Concurrency (Admin)',
-      typeSubscription: 'Subscription',
-      failedToLoadBalanceHistory: 'Failed to load balance history',
       createdAt: 'Created',
       roles: {
         admin: 'Admin',
@@ -1132,14 +1120,6 @@ export default {
         tooltip: 'When enabled, if the request contains MCP tools, an XML format call protocol prompt will be injected into the system prompt. Disable this to avoid interference with certain clients.',
         enabled: 'Enabled',
         disabled: 'Disabled'
-      },
-      claudeMaxSimulation: {
-        title: 'Claude Max Usage Simulation',
-        tooltip:
-          'When enabled, for Claude models without upstream cache-write usage, the system deterministically maps tokens to a small input plus 1h cache creation while keeping total tokens unchanged.',
-        enabled: 'Enabled (simulate 1h cache)',
-        disabled: 'Disabled',
-        hint: 'Only token categories in usage billing logs are adjusted. No per-request mapping state is persisted.'
       },
       supportedScopes: {
         title: 'Supported Model Families',
