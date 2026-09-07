@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { resolveCompletedSetupRedirectPath } from '@/router/setupRedirect'
+import { resolveAdminEquivalentPath } from '@/router/adminRedirect'
 
 // Mock 导航加载状态
 vi.mock('@/composables/useNavigationLoading', () => {
@@ -96,6 +97,14 @@ function simulateGuard(
   // 需要管理员但不是管理员
   if (requiresAdmin && !authState.isAdmin) {
     return '/dashboard'
+  }
+
+  // 管理员访问用户端仪表盘/用量页 → 管理端对应页
+  if (authState.isAdmin) {
+    const adminTarget = resolveAdminEquivalentPath(toPath)
+    if (adminTarget) {
+      return adminTarget
+    }
   }
 
   // 简易模式限制
@@ -213,9 +222,34 @@ describe('路由守卫逻辑', () => {
       expect(redirect).toBeNull()
     })
 
-    it('访问用户页面允许通过', () => {
+    it('访问 /dashboard 重定向到 /admin/dashboard', () => {
       const redirect = simulateGuard('/dashboard', {}, authState)
+      expect(redirect).toBe('/admin/dashboard')
+    })
+
+    it('访问 /usage 重定向到 /admin/usage', () => {
+      const redirect = simulateGuard('/usage', {}, authState)
+      expect(redirect).toBe('/admin/usage')
+    })
+
+    it('访问 /keys 允许通过（管理员自己的密钥仍走用户端页面）', () => {
+      const redirect = simulateGuard('/keys', {}, authState)
       expect(redirect).toBeNull()
+    })
+
+    it('访问 /profile 允许通过', () => {
+      const redirect = simulateGuard('/profile', {}, authState)
+      expect(redirect).toBeNull()
+    })
+  })
+
+  describe('resolveAdminEquivalentPath', () => {
+    it('只收录 /dashboard 与 /usage 两页', () => {
+      expect(resolveAdminEquivalentPath('/dashboard')).toBe('/admin/dashboard')
+      expect(resolveAdminEquivalentPath('/usage')).toBe('/admin/usage')
+      expect(resolveAdminEquivalentPath('/keys')).toBeNull()
+      expect(resolveAdminEquivalentPath('/admin/dashboard')).toBeNull()
+      expect(resolveAdminEquivalentPath('/usage/detail')).toBeNull()
     })
   })
 
