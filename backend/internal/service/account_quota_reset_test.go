@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -546,7 +547,7 @@ func TestComputeQuotaResetAt_DefaultTimezone(t *testing.T) {
 
 	resetAt, err := time.Parse(time.RFC3339, resetAtStr)
 	require.NoError(t, err)
-	// Default timezone is UTC
+	// 缺省时区跟项目时区走；本包测试（group_peak_rate_test.go 的 init）把项目时区固定成 UTC
 	assert.Equal(t, 12, resetAt.UTC().Hour())
 }
 
@@ -564,4 +565,91 @@ func TestComputeQuotaResetAt_InvalidHour_ClampedToZero(t *testing.T) {
 	require.NoError(t, err)
 	// Invalid hour → clamped to 0
 	assert.Equal(t, 0, resetAt.UTC().Hour())
+}
+
+// ---------------------------------------------------------------------------
+// 缺省时区 = 项目时区（批次 6 / A3：账号周额度锚到自然周）
+// ---------------------------------------------------------------------------
+
+// withProjectTimezone 临时把全局项目时区切到 name，用例结束后恢复为 UTC
+//（本包 group_peak_rate_test.go 的 init 固定成 UTC，其它用例都依赖它）。
+func withProjectTimezone(t *testing.T, name string) {
+	t.Helper()
+	require.NoError(t, timezone.Init(name))
+	t.Cleanup(func() { _ = timezone.Init("UTC") })
+}
+
+func TestGetQuotaResetTimezone_DefaultsToProjectTimezone(t *testing.T) {
+	withProjectTimezone(t, "Asia/Shanghai")
+
+	a := &Account{Extra: map[string]any{"quota_weekly_reset_mode": "fixed"}}
+	assert.Equal(t, "Asia/Shanghai", a.GetQuotaResetTimezone(), "键缺失 → 项目时区，而不是硬编码 UTC")
+
+	a.Extra["quota_reset_timezone"] = "America/New_York"
+	assert.Equal(t, "America/New_York", a.GetQuotaResetTimezone(), "显式配置优先")
+}
+
+func TestComputeQuotaResetAt_DefaultTimezone_FollowsProjectTimezone(t *testing.T) {
+	withProjectTimezone(t, "Asia/Shanghai")
+
+	extra := map[string]any{
+		"quota_weekly_reset_mode": "fixed",
+		"quota_weekly_reset_day":  float64(1),
+		"quota_weekly_reset_hour": float64(0),
+	}
+	ComputeQuotaResetAt(extra)
+
+	resetAtStr, ok := extra["quota_weekly_reset_at"].(string)
+	require.True(t, ok)
+	resetAt, err := time.Parse(time.RFC3339, resetAtStr)
+	require.NoError(t, err)
+
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	require.NoError(t, err)
+	local := resetAt.In(loc)
+	assert.Equal(t, time.Monday, local.Weekday())
+	assert.Equal(t, 0, local.Hour())
+	// 周一 00:00 CST = 周日 16:00 UTC；若缺省仍是 UTC，这里会是 0
+	assert.Equal(t, 16, resetAt.UTC().Hour())
+	assert.True(t, resetAt.After(time.Now()), "下次重置必须在未来")
+	assert.LessOrEqual(t, time.Until(resetAt), 7*24*time.Hour, "且不超过一周")
+}
+
+func TestNormalizeFixedQuotaWindows_DefaultTimezone_FollowsProjectTimezone(t *testing.T) {
+	withProjectTimezone(t, "Asia/Shanghai")
+
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	require.NoError(t, err)
+	now := time.Now().In(loc)
+	daysSinceMonday := (int(now.Weekday()) + 6) % 7
+	weekStart := time.Date(now.Year(), now.Month(), now.Day()-daysSinceMonday, 0, 0, 0, 0, loc)
+
+	// 起点落在本周一 00:00 CST 之后 1 秒：按项目时区算属于本周，用量必须保留；
+	// 若误按 UTC 算（周一 00:00 UTC = 周一 08:00 CST），大部分时候会被当成上周而清零。
+	extra := map[string]any{
+		"quota_weekly_limit":      500.0,
+		"quota_weekly_used":       76.0,
+		"quota_weekly_start":      weekStart.Add(time.Second).UTC().Format(time.RFC3339),
+		"quota_weekly_reset_mode": "fixed",
+		"quota_weekly_reset_day":  float64(1),
+		"quota_weekly_reset_hour": float64(0),
+	}
+	NormalizeFixedQuotaWindows(extra)
+
+	assert.Equal(t, 76.0, extra["quota_weekly_used"])
+	assert.Equal(t, weekStart.Add(time.Second).UTC().Format(time.RFC3339), extra["quota_weekly_start"])
+
+	// 起点在上周：按项目时区算已过期 → 清零并把起点对齐到本周一 00:00 CST
+	stale := map[string]any{
+		"quota_weekly_limit":      500.0,
+		"quota_weekly_used":       76.0,
+		"quota_weekly_start":      weekStart.Add(-time.Hour).UTC().Format(time.RFC3339),
+		"quota_weekly_reset_mode": "fixed",
+		"quota_weekly_reset_day":  float64(1),
+		"quota_weekly_reset_hour": float64(0),
+	}
+	NormalizeFixedQuotaWindows(stale)
+
+	assert.Equal(t, 0.0, stale["quota_weekly_used"])
+	assert.Equal(t, weekStart.UTC().Format(time.RFC3339), stale["quota_weekly_start"])
 }

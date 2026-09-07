@@ -202,12 +202,15 @@ func TestReadAccountWindowUsedPercent(t *testing.T) {
 func TestReadAccountQuotaUsedPercent(t *testing.T) {
 	t.Parallel()
 
-	daily := &Account{Extra: map[string]any{"quota_daily_limit": 100.0, "quota_daily_used": 40.0}}
+	// 周期起点取"刚刚"，保证滚动窗口仍在有效期内。
+	freshStart := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
+
+	daily := &Account{Extra: map[string]any{"quota_daily_limit": 100.0, "quota_daily_used": 40.0, "quota_daily_start": freshStart}}
 	got, ok := readAccountQuotaUsedPercent(daily, "daily")
 	require.True(t, ok)
 	require.InDelta(t, 40, got, 0.0001)
 
-	weekly := &Account{Extra: map[string]any{"quota_weekly_limit": "200", "quota_weekly_used": "150"}}
+	weekly := &Account{Extra: map[string]any{"quota_weekly_limit": "200", "quota_weekly_used": "150", "quota_weekly_start": freshStart}}
 	got, ok = readAccountQuotaUsedPercent(weekly, "weekly")
 	require.True(t, ok)
 	require.InDelta(t, 75, got, 0.0001)
@@ -223,6 +226,47 @@ func TestReadAccountQuotaUsedPercent(t *testing.T) {
 	require.False(t, ok, "limit ≤ 0 → 无数据")
 	_, ok = readAccountQuotaUsedPercent(daily, "monthly")
 	require.False(t, ok, "非法维度 → 无数据")
+}
+
+// TestReadAccountQuotaUsedPercent_ExpiredPeriodCountsAsZero 锁住"过期周期按 0 计"：
+// 计费是惰性清零的，跨周后 extra 里仍留着上周的 used，告警不能拿它继续报超阈值。
+func TestReadAccountQuotaUsedPercent_ExpiredPeriodCountsAsZero(t *testing.T) {
+	t.Parallel()
+
+	staleStart := time.Now().Add(-10 * 24 * time.Hour).UTC().Format(time.RFC3339)
+
+	rollingWeekly := &Account{Extra: map[string]any{"quota_weekly_limit": 200.0, "quota_weekly_used": 150.0, "quota_weekly_start": staleStart}}
+	got, ok := readAccountQuotaUsedPercent(rollingWeekly, "weekly")
+	require.True(t, ok, "limit > 0 仍算有数据")
+	require.InDelta(t, 0, got, 0.0001, "滚动窗口已走完 → 旧 used 不算")
+
+	fixedWeekly := &Account{Extra: map[string]any{
+		"quota_weekly_limit":      200.0,
+		"quota_weekly_used":       150.0,
+		"quota_weekly_start":      staleStart,
+		"quota_weekly_reset_mode": "fixed",
+		"quota_weekly_reset_day":  float64(1),
+		"quota_weekly_reset_hour": float64(0),
+		"quota_reset_timezone":    "UTC",
+	}}
+	got, ok = readAccountQuotaUsedPercent(fixedWeekly, "weekly")
+	require.True(t, ok)
+	require.InDelta(t, 0, got, 0.0001, "固定周一 00:00 重置点已过 → 旧 used 不算")
+
+	rollingDaily := &Account{Extra: map[string]any{"quota_daily_limit": 100.0, "quota_daily_used": 40.0, "quota_daily_start": staleStart}}
+	got, ok = readAccountQuotaUsedPercent(rollingDaily, "daily")
+	require.True(t, ok)
+	require.InDelta(t, 0, got, 0.0001, "日额度同口径")
+
+	neverUsed := &Account{Extra: map[string]any{"quota_weekly_limit": 200.0, "quota_weekly_used": 150.0}}
+	got, ok = readAccountQuotaUsedPercent(neverUsed, "weekly")
+	require.True(t, ok)
+	require.InDelta(t, 0, got, 0.0001, "没有周期起点 = 从未计费，残留 used 不算")
+
+	total := &Account{Extra: map[string]any{"quota_limit": 50.0, "quota_used": 60.0}}
+	got, ok = readAccountQuotaUsedPercent(total, "total")
+	require.True(t, ok)
+	require.InDelta(t, 120, got, 0.0001, "总额度没有周期概念，不受影响")
 }
 
 func TestReadAccountBalance(t *testing.T) {
