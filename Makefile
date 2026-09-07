@@ -17,6 +17,7 @@ FRONTEND_CRITICAL_VITEST := \
 	src/components/account/__tests__/QuotaLimitCard.weeklyNaturalWeek.spec.ts \
 	src/views/admin/__tests__/GroupsView.columnSettings.spec.ts \
 	src/views/user/__tests__/KeysView.spec.ts \
+	src/components/keys/__tests__/EndpointPopover.spec.ts \
 	src/views/__tests__/KeyUsageView.spec.ts \
 	src/features/channel-monitor-v2/__tests__/designSystem.structure.spec.ts \
 	src/features/channel-monitor-v2/__tests__/monitorFormat.spec.ts \

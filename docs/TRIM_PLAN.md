@@ -37,7 +37,7 @@
 A7 文档改写（README/DEV_GUIDE 内部化）+ 压测 + 备份恢复演练 + Key 泄露演练（未开始；演练涉及服务器，须遵守下方新纪律）。
 **站长待办**：在生产「系统设置 → 通知」填一次 Bark 配置（配置按环境分别存储，way-rc 上填的不会带到生产）。
 **尚未完成、需站长决策**：迁移基线重置**维持不做**（A5 内，方案见第四节「⛔ 未完成项 1」）；
-`security.url_allowlist.enabled=false`、`server.trusted_proxies` 未配置、`custom_endpoints` 设置去留**三项仍未决**
+`security.url_allowlist.enabled=false`、`server.trusted_proxies` 未配置**两项仍未决**（`custom_endpoints` 已于 2026-09-07 批次 6 / 包 D 整键删除，迁移 240 清库）
 （批次 2 验收起累计，生产上线后保持原状，见第四节台账）。第四节「后续候选项台账」的未勾项与 FEATURE_CHECKLIST 的 P1 / P2 残留均未处理。
 **关口**：auto-release 保持现状不动（批次 6 的三个版本都是 ff 合并 `fork/main` 后自动发出的，内部版本线继续走 main）。
 
