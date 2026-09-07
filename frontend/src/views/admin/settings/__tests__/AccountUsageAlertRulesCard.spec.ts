@@ -566,10 +566,44 @@ describe('AccountUsageAlertRulesCard', () => {
         filters: { window: '5h', platform: 'openai' },
       })
     }
-    const results = field(wrapper, 'usage-rule-tier-results').findAll('li')
-    expect(results.map((li) => li.attributes('data-status'))).toEqual(['ok', 'ok', 'ok'])
     expect(showSuccess).toHaveBeenCalledWith('admin.settings.notifications.accountUsageRules.tiers.summary:3,0')
     expect(listAlertRules).toHaveBeenCalledTimes(2)
+    // 三条全部成功：和普通新建一样自动收起弹窗，逐条结果随弹窗一起消失
+    expect(field(wrapper, 'dialog').exists()).toBe(false)
+    expect(field(wrapper, 'usage-rule-editor').exists()).toBe(false)
+    expect(field(wrapper, 'usage-rule-tier-results').exists()).toBe(false)
+  })
+
+  it('keeps the dialog open with per-tier results when one of the tiers fails to create', async () => {
+    createAlertRule.mockImplementation((rule: { name: string }) => {
+      if (rule.name === 'Codex 5h 60%') {
+        return Promise.reject({ status: 500, message: 'boom' })
+      }
+      return Promise.resolve({ ...rule, id: Math.random() })
+    })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'usage-rules-create-tiers').trigger('click')
+    await flushPromises()
+    await field(wrapper, 'usage-rule-name').setValue('Codex 5h')
+    await field(wrapper, 'usage-rule-save').trigger('click')
+    await flushPromises()
+
+    // 第二条失败不影响第三条继续创建
+    expect(createAlertRule).toHaveBeenCalledTimes(3)
+    expect(createAlertRule.mock.calls.map((call) => call[0].name)).toEqual(['Codex 5h 40%', 'Codex 5h 60%', 'Codex 5h 80%'])
+    // 有失败：弹窗留着，逐条结果里能看到哪条失败了
+    expect(field(wrapper, 'dialog').exists()).toBe(true)
+    expect(field(wrapper, 'usage-rule-editor').exists()).toBe(true)
+    const results = field(wrapper, 'usage-rule-tier-results').findAll('li')
+    expect(results.map((li) => li.attributes('data-status'))).toEqual(['ok', 'failed', 'ok'])
+    expect(results[1].text()).toContain('admin.settings.notifications.accountUsageRules.tiers.failed')
+    expect(results[1].text()).toContain('boom')
+    expect(showWarning).toHaveBeenCalledWith('admin.settings.notifications.accountUsageRules.tiers.summary:2,1')
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(listAlertRules).toHaveBeenCalledTimes(2)
+    // 保存按钮恢复可点，用户可以手动关掉弹窗
+    expect((field(wrapper, 'usage-rule-save').element as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('reports duplicate tier names one by one: known names are skipped locally, backend duplicates read as duplicates', async () => {
@@ -597,11 +631,15 @@ describe('AccountUsageAlertRulesCard', () => {
     // 40% 本地已知重名不发请求，60% 成功，80% 后端报唯一约束
     expect(createAlertRule).toHaveBeenCalledTimes(2)
     expect(createAlertRule.mock.calls.map((call) => call[0].name)).toEqual(['Codex 5h 60%', 'Codex 5h 80%'])
+    // 有重名跳过：弹窗留着，逐条结果里标出哪几条被跳过
+    expect(field(wrapper, 'dialog').exists()).toBe(true)
+    expect(field(wrapper, 'usage-rule-editor').exists()).toBe(true)
     const results = field(wrapper, 'usage-rule-tier-results').findAll('li')
     expect(results.map((li) => li.attributes('data-status'))).toEqual(['skipped', 'ok', 'skipped'])
     expect(results[0].text()).toContain('admin.settings.notifications.accountUsageRules.tiers.duplicate')
     expect(results[2].text()).toContain('admin.settings.notifications.accountUsageRules.tiers.duplicate')
     expect(showWarning).toHaveBeenCalledWith('admin.settings.notifications.accountUsageRules.tiers.summary:1,2')
+    expect(showSuccess).not.toHaveBeenCalled()
   })
 
   it('toggles a rule by PUTting the whole rule with enabled flipped', async () => {

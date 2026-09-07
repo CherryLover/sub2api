@@ -1203,9 +1203,15 @@ async function createTiers(): Promise<void> {
   }
   saving.value = false;
   const summary = t(`${I18N}.tiers.summary`, { ok, failed });
-  if (failed === 0) appStore.showSuccess(summary);
-  else if (ok === 0) appStore.showError(summary);
-  else appStore.showWarning(summary);
+  if (failed === 0) {
+    // 三条全部创建成功：和普通新建一样直接收起弹窗；有失败 / 重名跳过时留着弹窗给用户看逐条结果
+    appStore.showSuccess(summary);
+    closeEditor();
+  } else if (ok === 0) {
+    appStore.showError(summary);
+  } else {
+    appStore.showWarning(summary);
+  }
   await load();
 }
 
