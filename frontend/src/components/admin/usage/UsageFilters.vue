@@ -545,7 +545,18 @@ const setApiKeyKeyword = (label: string) => {
   showApiKeyDropdown.value = false
 }
 
+// 供外部(如使用记录账号格下钻 / 账号页「查看用量」跳转)在程序化设置 account_id 后回显选中的账号名
+const setAccountKeyword = (label: string) => {
+  if (accountSearchTimeout) {
+    clearTimeout(accountSearchTimeout)
+    accountSearchTimeout = null
+  }
+  accountKeyword.value = label
+  accountResults.value = []
+  showAccountDropdown.value = false
+}
+
 const getUserSearchRevision = () => userSearchSequence
 
-defineExpose({ getUserSearchRevision, setUserKeyword, setApiKeyKeyword })
+defineExpose({ getUserSearchRevision, setUserKeyword, setApiKeyKeyword, setAccountKeyword })
 </script>

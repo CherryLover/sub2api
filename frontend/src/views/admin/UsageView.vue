@@ -131,6 +131,7 @@
             :default-sort-order="'desc'"
             @sort="handleSort"
             @userClick="handleUserClick"
+            @accountClick="handleAccountClick"
             @ipGeoBatchFailed="handleIpGeoBatchFailed"
           />
           <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
@@ -260,6 +261,14 @@ const handleRankingSelectUser = (userId: number, email: string) => {
   applyFilters()
 }
 
+// 使用记录账号格下钻：把整页筛选收窄到该账号，并回显账号名（名称缺失时显示 #id）
+const handleAccountClick = (accountId: number, name?: string) => {
+  filters.value = { ...filters.value, account_id: accountId }
+  usageFiltersRef.value?.setAccountKeyword?.(name || `#${accountId}`)
+  activeTab.value = 'usage'
+  applyFilters()
+}
+
 const granularityOptions = computed(() => [{ value: 'day', label: t('admin.dashboard.day') }, { value: 'hour', label: t('admin.dashboard.hour') }])
 // Use local timezone to avoid UTC timezone issues
 const formatLD = (d: Date) => {
@@ -309,6 +318,8 @@ const applyRouteQueryFilters = () => {
   const queryUserId = getNumericQueryValue(route.query.user_id)
   // 密钥总表「查用量」以 ?api_key_id=<id> 跳过来，直接落到密钥筛选
   const queryApiKeyId = getNumericQueryValue(route.query.api_key_id)
+  // 账号页「查看用量」以 ?account_id=<id> 跳过来，直接落到账号筛选
+  const queryAccountId = getNumericQueryValue(route.query.account_id)
 
   if (queryStartDate) {
     startDate.value = queryStartDate
@@ -321,6 +332,7 @@ const applyRouteQueryFilters = () => {
     ...filters.value,
     user_id: queryUserId,
     api_key_id: queryApiKeyId,
+    account_id: queryAccountId,
     start_date: startDate.value,
     end_date: endDate.value
   }
@@ -342,6 +354,23 @@ const loadRouteApiKeyFilterLabel = async () => {
   } catch {
     if (!routeApiKeyFilterIsCurrent()) return
     usageFiltersRef.value?.setApiKeyKeyword?.(fallbackLabel)
+  }
+}
+
+// 路由带来的 account_id 只是个数字，回显时尽量换成账号名；查不到就显示 #id
+const loadRouteAccountFilterLabel = async () => {
+  const requestedAccountId = filters.value.account_id
+  if (!requestedAccountId) return
+  const fallbackLabel = `#${requestedAccountId}`
+  const routeAccountFilterIsCurrent = () => filters.value.account_id === requestedAccountId
+
+  try {
+    const account = await adminAPI.accounts.getById(requestedAccountId)
+    if (!routeAccountFilterIsCurrent()) return
+    usageFiltersRef.value?.setAccountKeyword?.(account?.name || fallbackLabel)
+  } catch {
+    if (!routeAccountFilterIsCurrent()) return
+    usageFiltersRef.value?.setAccountKeyword?.(fallbackLabel)
   }
 }
 
@@ -866,6 +895,7 @@ onMounted(() => {
   applyRouteQueryFilters()
   void loadRouteUserFilterLabel()
   void loadRouteApiKeyFilterLabel()
+  void loadRouteAccountFilterLabel()
   loadLogs()
   loadStats()
   loadModelStats(modelDistributionSource.value, true)

@@ -1479,6 +1479,7 @@ export default {
       videoReceived: '已收到第 {count} 段测试视频',
       // Stats Modal
       viewStats: '查看统计',
+      viewUsageLogs: '查看用量',
       usageStatistics: '使用统计',
       last30DaysUsage: '近30天使用统计（日均基于实际使用天数）',
       stats: {

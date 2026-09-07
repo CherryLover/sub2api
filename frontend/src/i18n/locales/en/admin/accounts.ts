@@ -1429,6 +1429,7 @@ export default {
       videoReceived: 'Received test video #{count}',
       // Stats Modal
       viewStats: 'View Stats',
+      viewUsageLogs: 'View Usage',
       usageStatistics: 'Usage Statistics',
       last30DaysUsage: 'Last 30 days usage statistics (based on actual usage days)',
       stats: {

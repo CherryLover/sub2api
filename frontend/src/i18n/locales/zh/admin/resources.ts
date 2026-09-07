@@ -281,6 +281,7 @@ export default {
 	  upstreamModelMatchedOnly: '仅一致',
       ipAddress: 'IP',
       clickToFilterByUser: '点击下钻筛选该用户的用量明细',
+      clickToFilterByAccount: '点击下钻筛选该账号的用量明细',
       failedToLoadUser: '加载用户信息失败',
       userDeletedBadge: '已删除',
       tokenRanking: {

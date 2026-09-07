@@ -4,7 +4,7 @@ import { defineComponent, ref } from 'vue'
 
 import UsageView from '../UsageView.vue'
 
-const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery, aoaToSheet, sheetAddAoa, saveAs, xlsxWrite } = vi.hoisted(() => {
+const { list, exportList, getStats, getSnapshotV2, getById, accountGetById, getModelStats, listErrorLogs, routeQuery, aoaToSheet, sheetAddAoa, saveAs, xlsxWrite } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -17,6 +17,7 @@ const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listE
     getStats: vi.fn(),
     getSnapshotV2: vi.fn(),
     getById: vi.fn(),
+    accountGetById: vi.fn(),
     getModelStats: vi.fn(),
     listErrorLogs: vi.fn(),
     routeQuery: {} as Record<string, string>,
@@ -60,6 +61,9 @@ vi.mock('@/api/admin', () => ({
     },
     users: {
       getById,
+    },
+    accounts: {
+      getById: accountGetById,
     },
   },
 }))
@@ -119,24 +123,29 @@ const AppLayoutStub = { template: '<div><slot /></div>' }
 const UsageFiltersStub = defineComponent({
   setup(_, { expose }) {
     const userKeyword = ref('')
+    const accountKeyword = ref('')
     let userSearchRevision = 0
     const setUserKeyword = (email: string) => {
       userSearchRevision += 1
       userKeyword.value = email
     }
+    const setAccountKeyword = (label: string) => {
+      accountKeyword.value = label
+    }
     expose({
       getUserSearchRevision: () => userSearchRevision,
       setUserKeyword,
+      setAccountKeyword,
       simulateUserInput: setUserKeyword,
     })
-    return { userKeyword }
+    return { userKeyword, accountKeyword }
   },
-  template: '<div><span data-test="user-filter-label">{{ userKeyword }}</span><slot name="after-reset" /></div>',
+  template: '<div><span data-test="user-filter-label">{{ userKeyword }}</span><span data-test="account-filter-label">{{ accountKeyword }}</span><slot name="after-reset" /></div>',
 })
 const UsageTableStub = {
   props: ['columns'],
-  emits: ['userClick'],
-  template: '<div data-test="usage-table"><button class="user-click" @click="$emit(\'userClick\', 2)">user</button></div>',
+  emits: ['userClick', 'accountClick'],
+  template: '<div data-test="usage-table"><button class="user-click" @click="$emit(\'userClick\', 2)">user</button><button class="account-click" @click="$emit(\'accountClick\', 7, \'acc-seven\')">account</button></div>',
 }
 const UserTokenRankingStub = {
   emits: ['select-user'],
@@ -192,11 +201,46 @@ describe('admin UsageView route filters', () => {
     getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
     getModelStats.mockReset().mockResolvedValue({ models: [] })
     getById.mockReset()
+    accountGetById.mockReset()
   })
 
   afterEach(() => {
     Object.keys(routeQuery).forEach((key) => delete routeQuery[key])
     vi.useRealTimers()
+  })
+
+  it('applies a routed account_id to usage requests and shows the account name', async () => {
+    routeQuery.account_id = '7'
+    accountGetById.mockResolvedValue({ id: 7, name: 'acc-seven' })
+
+    const wrapper = mountRouteFilteredUsageView()
+    await flushPromises()
+
+    expect(accountGetById).toHaveBeenCalledWith(7)
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ account_id: 7 }), expect.anything())
+    expect(wrapper.find('[data-test="account-filter-label"]').text()).toBe('acc-seven')
+  })
+
+  it('shows the routed account ID when its name lookup fails', async () => {
+    routeQuery.account_id = '7'
+    accountGetById.mockRejectedValue(new Error('lookup failed'))
+
+    const wrapper = mountRouteFilteredUsageView()
+    await flushPromises()
+
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ account_id: 7 }), expect.anything())
+    expect(wrapper.find('[data-test="account-filter-label"]').text()).toBe('#7')
+  })
+
+  it('ignores a non-numeric account_id in the route', async () => {
+    routeQuery.account_id = 'abc'
+
+    mountRouteFilteredUsageView()
+    await flushPromises()
+
+    expect(accountGetById).not.toHaveBeenCalled()
+    expect(list).toHaveBeenCalled()
+    expect(list.mock.calls[0][0].account_id).toBeUndefined()
   })
 
   it('shows the routed user while applying user_id to usage requests', async () => {
@@ -464,6 +508,7 @@ describe('admin UsageView handleUserClick', () => {
     getStats.mockReset()
     getSnapshotV2.mockReset()
     getById.mockReset()
+    accountGetById.mockReset()
 
     list.mockResolvedValue({ items: [], total: 0, pages: 0 })
     getStats.mockResolvedValue({
@@ -510,6 +555,44 @@ describe('admin UsageView handleUserClick', () => {
     await flushPromises()
 
     expect(getById).toHaveBeenCalledWith(2, true)
+  })
+
+  it('filters by account and echoes the account name when clicking a usage row account', async () => {
+    const wrapper = mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: UsageTableStub,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          AuditLogModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: true,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: true,
+          GroupDistributionChart: true,
+          EndpointDistributionChart: true,
+          UserTokenRanking: true,
+        },
+      },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    list.mockClear()
+
+    await wrapper.find('[data-test="usage-table"] .account-click').trigger('click')
+    await flushPromises()
+
+    expect((wrapper.vm as any).filters.account_id).toBe(7)
+    expect(wrapper.find('[data-test="account-filter-label"]').text()).toBe('acc-seven')
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ account_id: 7 }), expect.anything())
+    // 账号下钻不需要再查账号详情（名称已随行数据带回）
+    expect(accountGetById).not.toHaveBeenCalled()
   })
 })
 
