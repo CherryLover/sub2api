@@ -1145,40 +1145,6 @@ func TestValidateAbsoluteHTTPURL(t *testing.T) {
 	}
 }
 
-func TestValidateServerFrontendURL(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	cfg.Server.FrontendURL = "https://example.com"
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() frontend_url valid error: %v", err)
-	}
-
-	cfg.Server.FrontendURL = "https://example.com/path"
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() frontend_url with path valid error: %v", err)
-	}
-
-	cfg.Server.FrontendURL = "https://example.com?utm=1"
-	if err := cfg.Validate(); err == nil {
-		t.Fatalf("Validate() should reject server.frontend_url with query")
-	}
-
-	cfg.Server.FrontendURL = "https://user:pass@example.com"
-	if err := cfg.Validate(); err == nil {
-		t.Fatalf("Validate() should reject server.frontend_url with userinfo")
-	}
-
-	cfg.Server.FrontendURL = "/relative"
-	if err := cfg.Validate(); err == nil {
-		t.Fatalf("Validate() should reject relative server.frontend_url")
-	}
-}
-
 func TestValidateFrontendRedirectURL(t *testing.T) {
 	if err := ValidateFrontendRedirectURL("/auth/callback"); err != nil {
 		t.Fatalf("ValidateFrontendRedirectURL relative error: %v", err)
@@ -1195,12 +1161,6 @@ func TestValidateFrontendRedirectURL(t *testing.T) {
 	if err := ValidateFrontendRedirectURL("javascript:alert(1)"); err == nil {
 		t.Fatalf("ValidateFrontendRedirectURL should reject javascript scheme")
 	}
-}
-
-func TestWarnIfInsecureURL(t *testing.T) {
-	warnIfInsecureURL("test", "http://example.com")
-	warnIfInsecureURL("test", "bad://url")
-	warnIfInsecureURL("test", "://invalid")
 }
 
 func TestGenerateJWTSecretDefaultLength(t *testing.T) {
@@ -1308,10 +1268,6 @@ func TestValidateFrontendRedirectURLInvalidChars(t *testing.T) {
 	if err := ValidateFrontendRedirectURL("mailto:user@example.com"); err == nil {
 		t.Fatalf("ValidateFrontendRedirectURL should reject mailto")
 	}
-}
-
-func TestWarnIfInsecureURLHTTPS(t *testing.T) {
-	warnIfInsecureURL("secure", "https://example.com")
 }
 
 func TestValidateJWTSecret_UTF8Bytes(t *testing.T) {

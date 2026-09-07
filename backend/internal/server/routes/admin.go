@@ -103,7 +103,7 @@ func RegisterAdminRoutes(
 		registerPromptAuditRoutes(admin, h)
 
 		// 操作审计日志
-		registerAuditLogRoutes(admin, h, stepUpAuth)
+		registerAuditLogRoutes(admin, h)
 	}
 }
 
@@ -123,7 +123,7 @@ func registerPromptAuditRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
-func registerAuditLogRoutes(admin *gin.RouterGroup, h *handler.Handlers, _ middleware.StepUpAuthMiddleware) {
+func registerAuditLogRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	auditLogs := admin.Group("/audit-logs")
 	{
 		auditLogs.GET("", h.Admin.AuditLog.List)

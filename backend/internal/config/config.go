@@ -268,7 +268,6 @@ type ServerConfig struct {
 	Port                     int       `mapstructure:"port"`
 	Mode                     string    `mapstructure:"mode"`                  // debug/release
 	EnableServerTiming       bool      `mapstructure:"enable_server_timing"`  // Admin UI Server-Timing response header
-	FrontendURL              string    `mapstructure:"frontend_url"`          // 前端基础 URL，用于生成邮件中的外部链接
 	ReadHeaderTimeout        int       `mapstructure:"read_header_timeout"`   // 读取请求头超时（秒）
 	MaxHeaderBytes           int       `mapstructure:"max_header_bytes"`      // 请求头最大字节数（HTTP/2 映射为 header-list 上限）
 	IdleTimeout              int       `mapstructure:"idle_timeout"`          // 空闲连接超时（秒）
@@ -1477,7 +1476,6 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	if cfg.Server.Mode == "" {
 		cfg.Server.Mode = "debug"
 	}
-	cfg.Server.FrontendURL = strings.TrimSpace(cfg.Server.FrontendURL)
 	cfg.JWT.Secret = strings.TrimSpace(cfg.JWT.Secret)
 	cfg.Dashboard.KeyPrefix = strings.TrimSpace(cfg.Dashboard.KeyPrefix)
 	cfg.CORS.AllowedOrigins = normalizeStringSlice(cfg.CORS.AllowedOrigins)
@@ -1598,7 +1596,6 @@ func setDefaults() {
 	viper.SetDefault("server.port", 8080)
 	viper.SetDefault("server.mode", "release")
 	viper.SetDefault("server.enable_server_timing", false)
-	viper.SetDefault("server.frontend_url", "")
 	viper.SetDefault("server.read_header_timeout", 10) // 10秒读取请求头
 	viper.SetDefault("server.max_header_bytes", 64*1024)
 	viper.SetDefault("server.idle_timeout", 120) // 120秒空闲超时
@@ -2218,22 +2215,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("gemini.oauth.client_id and gemini.oauth.client_secret must be both set or both empty")
 	}
 
-	if strings.TrimSpace(c.Server.FrontendURL) != "" {
-		if err := ValidateAbsoluteHTTPURL(c.Server.FrontendURL); err != nil {
-			return fmt.Errorf("server.frontend_url invalid: %w", err)
-		}
-		u, err := url.Parse(strings.TrimSpace(c.Server.FrontendURL))
-		if err != nil {
-			return fmt.Errorf("server.frontend_url invalid: %w", err)
-		}
-		if u.RawQuery != "" || u.ForceQuery {
-			return fmt.Errorf("server.frontend_url invalid: must not include query")
-		}
-		if u.User != nil {
-			return fmt.Errorf("server.frontend_url invalid: must not include userinfo")
-		}
-		warnIfInsecureURL("server.frontend_url", c.Server.FrontendURL)
-	}
 	if c.WebAuthn.Enabled {
 		c.WebAuthn.RPDisplayName = strings.TrimSpace(c.WebAuthn.RPDisplayName)
 		c.WebAuthn.RPID = strings.ToLower(strings.TrimSpace(c.WebAuthn.RPID))
@@ -3051,14 +3032,4 @@ func ValidateFrontendRedirectURL(raw string) error {
 // isHTTPScheme 检查是否为 HTTP 或 HTTPS 协议
 func isHTTPScheme(scheme string) bool {
 	return strings.EqualFold(scheme, "http") || strings.EqualFold(scheme, "https")
-}
-
-func warnIfInsecureURL(field, raw string) {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return
-	}
-	if strings.EqualFold(u.Scheme, "http") {
-		slog.Warn("url uses http scheme; use https in production to avoid token leakage", "field", field)
-	}
 }
