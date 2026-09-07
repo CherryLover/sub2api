@@ -2,33 +2,23 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClipboard } from '@/composables/useClipboard'
-import type { CustomEndpoint } from '@/types'
-
-const props = defineProps<{
-  customEndpoints: CustomEndpoint[]
-}>()
 
 const { t } = useI18n()
-// 自定义 API 端点地址已裁剪，默认端点恒为当前站点。
+// 自定义端点列表已随批次 6 / 包 D 整体删除（api_base_url 更早在批次 2 删除），
+// 这里只剩当前站点这一个内置端点，复制 / 测速按钮照旧。
 const apiBaseUrl = window.location.origin
 const { copyToClipboard } = useClipboard()
 const copiedEndpoint = ref<string | null>(null)
 
 let copiedResetTimer: number | undefined
 
-const allEndpoints = computed(() => {
-  const items: Array<{ name: string; endpoint: string; description: string; isDefault: boolean }> = []
-  items.push({
+const allEndpoints = computed(() => [
+  {
     name: t('keys.endpoints.title'),
     endpoint: apiBaseUrl,
-    description: '',
     isDefault: true,
-  })
-  for (const ep of props.customEndpoints) {
-    items.push({ ...ep, isDefault: false })
-  }
-  return items
-})
+  },
+])
 
 async function copy(url: string) {
   const success = await copyToClipboard(url, t('keys.endpoints.copied'))
@@ -63,7 +53,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="allEndpoints.length > 0" class="flex flex-wrap gap-2">
+  <div class="flex flex-wrap gap-2">
     <div
       v-for="(item, index) in allEndpoints"
       :key="index"
@@ -82,14 +72,7 @@ onBeforeUnmount(() => {
           class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 w-max max-w-[24rem] -translate-x-1/2 translate-y-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left opacity-0 shadow-[0_14px_36px_-20px_rgba(15,23,42,0.35)] ring-1 ring-slate-200/80 transition-all duration-150 group-hover/endpoint:translate-y-0 group-hover/endpoint:opacity-100 group-focus-within/endpoint:translate-y-0 group-focus-within/endpoint:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:ring-slate-700/70"
         >
           <p
-            v-if="item.description"
-            class="max-w-[24rem] break-words text-xs leading-5 text-slate-600 dark:text-slate-200"
-          >
-            {{ item.description }}
-          </p>
-          <p
             class="flex items-center gap-1.5 text-[11px] leading-4 text-primary-600 dark:text-primary-300"
-            :class="item.description ? 'mt-1.5' : ''"
           >
             <span class="h-1.5 w-1.5 rounded-full bg-primary-500 dark:bg-primary-300"></span>
             {{ tooltipHint(item.endpoint) }}

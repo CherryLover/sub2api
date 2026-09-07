@@ -97,17 +97,10 @@ export interface LoginRequest {
   password: string
 }
 
-export interface CustomEndpoint {
-  name: string
-  endpoint: string
-  description: string
-}
-
 export interface PublicSettings {
   passkey_enabled?: boolean
   doc_url: string
   risk_control_enabled: boolean
-  custom_endpoints: CustomEndpoint[]
   backend_mode_enabled: boolean
   /**
    * 登录入口是否公开（来自后端本地配置文件的 web 分组）。

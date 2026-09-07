@@ -275,7 +275,6 @@ export const useAppStore = defineStore('app', () => {
       }
       return Promise.resolve({
         doc_url: docUrl.value,
-        custom_endpoints: [],
         backend_mode_enabled: false,
         passkey_enabled: false,
         version: siteVersion.value,

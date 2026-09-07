@@ -308,7 +308,6 @@ const baseSettingsResponse = {
   default_concurrency: 1,
   doc_url: "",
   backend_mode_enabled: false,
-  custom_endpoints: [],
   api_key_acl_trust_forwarded_ip: true,
   forwarded_client_ip_headers: [],
   enable_model_fallback: false,

@@ -4,7 +4,6 @@
  */
 
 import { apiClient } from "../client";
-import type { CustomEndpoint } from "@/types";
 
 // ── 平台限额类型 ──────────────────────────────────────────────────
 export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok"
@@ -115,7 +114,6 @@ export interface SystemSettings {
   // OEM settings
   doc_url: string;
   backend_mode_enabled: boolean;
-  custom_endpoints: CustomEndpoint[];
   api_key_acl_trust_forwarded_ip: boolean;
   forwarded_client_ip_headers: string[];
 
@@ -238,7 +236,6 @@ export interface UpdateSettingsRequest {
   default_platform_quotas?: DefaultPlatformQuotasMap;
   doc_url?: string;
   backend_mode_enabled?: boolean;
-  custom_endpoints?: CustomEndpoint[];
   api_key_acl_trust_forwarded_ip?: boolean;
   forwarded_client_ip_headers?: string[];
   enable_model_fallback?: boolean;

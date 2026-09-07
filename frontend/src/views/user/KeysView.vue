@@ -23,7 +23,7 @@
               @update:model-value="onStatusFilterChange"
             />
           </div>
-          <EndpointPopover :custom-endpoints="publicSettings?.custom_endpoints || []" />
+          <EndpointPopover />
         </div>
       </template>
 
