@@ -599,9 +599,12 @@ type UsageCleanupTask struct {
 
 // AccountSummary is a minimal account info for usage log display.
 // It intentionally excludes sensitive fields like Credentials, Proxy, etc.
+// Platform is included so the usage table can show the account's platform badge
+// without an extra account lookup.
 type AccountSummary struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
 }
 
 type Setting struct {

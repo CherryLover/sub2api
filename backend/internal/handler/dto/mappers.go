@@ -545,14 +545,15 @@ func ProxyAccountSummaryFromService(a *service.ProxyAccountSummary) *ProxyAccoun
 }
 
 // AccountSummaryFromService returns a minimal AccountSummary for usage log display.
-// Only includes ID and Name - no sensitive fields like Credentials, Proxy, etc.
+// Only includes ID, Name and Platform - no sensitive fields like Credentials, Proxy, etc.
 func AccountSummaryFromService(a *service.Account) *AccountSummary {
 	if a == nil {
 		return nil
 	}
 	return &AccountSummary{
-		ID:   a.ID,
-		Name: a.Name,
+		ID:       a.ID,
+		Name:     a.Name,
+		Platform: a.Platform,
 	}
 }
 
