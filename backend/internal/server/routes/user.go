@@ -38,7 +38,6 @@ func RegisterUserRoutes(
 			totp := user.Group("/totp")
 			{
 				totp.GET("/status", h.Totp.GetStatus)
-				totp.GET("/verification-method", h.Totp.GetVerificationMethod)
 				totp.POST("/setup", h.Totp.InitiateSetup)
 				totp.POST("/enable", h.Totp.Enable)
 				totp.POST("/disable", h.Totp.Disable)

@@ -501,17 +501,3 @@ func generateRandomToken(byteLength int) (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
-
-// VerificationMethod represents the method required for TOTP operations
-type VerificationMethod struct {
-	Method string `json:"method"` // "email" or "password"
-}
-
-// GetVerificationMethod returns the verification method for TOTP operations.
-// 与 verifyIdentity 保持同一判定：恒为 password。
-func (s *TotpService) GetVerificationMethod(ctx context.Context, userID int64) (*VerificationMethod, error) {
-	if _, err := s.userRepo.GetByID(ctx, userID); err != nil {
-		return nil, fmt.Errorf("get user: %w", err)
-	}
-	return &VerificationMethod{Method: "password"}, nil
-}

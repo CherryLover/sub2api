@@ -218,6 +218,9 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		"/api/v1/user/account-bindings/email",
 		"/api/v1/user/account-bindings/email/send-code",
 		"/api/v1/user/totp/send-code",
+		// TOTP 验证方式查询（批次 6 C2）：邮件体系删除后恒返回 password，
+		// 前端零调用，整条端点连同 handler / service 一并移除。
+		"/api/v1/user/totp/verification-method",
 		// 应用内更新检查/在线升级/回滚（内部部署由镜像或部署脚本升级）
 		"/api/v1/admin/system/check-updates",
 		"/api/v1/admin/system/rollback-versions",
@@ -350,6 +353,7 @@ func TestTrimmedSaaSRoutesAreAbsent(t *testing.T) {
 		{http.MethodDelete, "/api/v1/user/account-bindings/linuxdo"},
 		{http.MethodPost, "/api/v1/admin/users/1/auth-identities"},
 		{http.MethodPost, "/api/v1/user/totp/send-code"},
+		{http.MethodGet, "/api/v1/user/totp/verification-method"},
 		{http.MethodGet, "/api/v1/admin/system/check-updates"},
 		{http.MethodPost, "/api/v1/admin/system/update"},
 		{http.MethodPost, "/api/v1/admin/system/rollback"},
