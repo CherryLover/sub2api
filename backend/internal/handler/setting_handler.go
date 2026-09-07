@@ -36,7 +36,6 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		TotpEnabled:        settings.TotpEnabled,
 		PasskeyEnabled:     settings.PasskeyEnabled,
 		DocURL:             settings.DocURL,
-		CustomEndpoints:    dto.ParseCustomEndpoints(settings.CustomEndpoints),
 		BackendModeEnabled: settings.BackendModeEnabled,
 		LoginEntryPublic:   settings.LoginEntryPublic,
 		DefaultHomePath:    settings.DefaultHomePath,

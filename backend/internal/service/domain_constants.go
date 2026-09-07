@@ -198,8 +198,7 @@ const (
 	SettingKeyAuditLogRetentionDays = "audit_log_retention_days" // 审计日志保留天数（<=0 永久保留），默认 180
 
 	// OEM设置
-	SettingKeyDocURL          = "doc_url"          // 文档链接
-	SettingKeyCustomEndpoints = "custom_endpoints" // 自定义端点列表（JSON 数组）
+	SettingKeyDocURL = "doc_url" // 文档链接
 
 	// 默认配置
 	SettingKeyDefaultConcurrency  = "default_concurrency"    // 新用户默认并发量

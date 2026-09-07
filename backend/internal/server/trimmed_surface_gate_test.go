@@ -568,7 +568,7 @@ func TestRegistrationSurfaceIsAbsent(t *testing.T) {
 }
 
 func TestPublicSettingsHasNoPaymentKey(t *testing.T) {
-	router, _ := newTrimmedSurfaceRouter(t)
+	router, repo := newTrimmedSurfaceRouter(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
@@ -670,6 +670,10 @@ func TestPublicSettingsHasNoPaymentKey(t *testing.T) {
 	} {
 		require.NotContainsf(t, resp.Data, key, "公开设置不应再包含已裁剪设置键 %s", key)
 	}
+	// 批次 6 / 包 D：自定义端点列表整键删除（生产值一直是空数组，Keys 页只剩当前站点这一个内置端点），
+	// 公开设置与默认种子里都不许回流。
+	require.NotContains(t, resp.Data, "custom_endpoints")
+	require.NotContains(t, repo.values, "custom_endpoints", "默认设置种子不应再写入 custom_endpoints")
 	// 模型广场（批次 3）：两个公开开关键随广场页一并移除，不许回流。
 	for _, key := range []string{
 		"model_plaza_enabled",

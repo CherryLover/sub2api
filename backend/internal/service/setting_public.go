@@ -2,10 +2,8 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
@@ -17,7 +15,6 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyPasskeyEnabled,
 		SettingKeyAPIKeyACLTrustForwardedIP,
 		SettingKeyDocURL,
-		SettingKeyCustomEndpoints,
 		SettingKeyBackendModeEnabled,
 		SettingKeyChannelMonitorEnabled,
 		SettingKeyChannelMonitorHideThroughput,
@@ -40,7 +37,6 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		TotpEnabled:        settings[SettingKeyTotpEnabled] == "true",
 		PasskeyEnabled:     s.passkeyConfigured() && s.passkeySettingEnabled(settings),
 		DocURL:             settings[SettingKeyDocURL],
-		CustomEndpoints:    settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled: settings[SettingKeyBackendModeEnabled] == "true",
 
 		ChannelMonitorEnabled:        !isFalseSettingValue(settings[SettingKeyChannelMonitorEnabled]),
@@ -136,12 +132,11 @@ func (s *SettingService) IsUserErrorViewAllowed(ctx context.Context) bool {
 // A unit test diffs this struct's JSON keys against dto.PublicSettings to catch
 // drift automatically (see setting_service_injection_test.go).
 type PublicSettingsInjectionPayload struct {
-	TotpEnabled        bool            `json:"totp_enabled"`
-	PasskeyEnabled     bool            `json:"passkey_enabled"`
-	DocURL             string          `json:"doc_url"`
-	CustomEndpoints    json.RawMessage `json:"custom_endpoints"`
-	BackendModeEnabled bool            `json:"backend_mode_enabled"`
-	Version            string          `json:"version"`
+	TotpEnabled        bool   `json:"totp_enabled"`
+	PasskeyEnabled     bool   `json:"passkey_enabled"`
+	DocURL             string `json:"doc_url"`
+	BackendModeEnabled bool   `json:"backend_mode_enabled"`
+	Version            string `json:"version"`
 	// 服务器全局时区（IANA 名称与当前 UTC 偏移），高峰时段等服务端本地时间窗口的展示标注用
 	ServerTimezone  string `json:"server_timezone"`
 	ServerUTCOffset string `json:"server_utc_offset"`
@@ -178,7 +173,6 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		TotpEnabled:        settings.TotpEnabled,
 		PasskeyEnabled:     settings.PasskeyEnabled,
 		DocURL:             settings.DocURL,
-		CustomEndpoints:    safeRawJSONArray(settings.CustomEndpoints),
 		BackendModeEnabled: settings.BackendModeEnabled,
 		Version:            s.version,
 		ServerTimezone:     timezone.Name(),
@@ -192,16 +186,4 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		RiskControlEnabled:           settings.RiskControlEnabled,
 		AllowUserViewErrorRequests:   settings.AllowUserViewErrorRequests,
 	}, nil
-}
-
-// safeRawJSONArray returns raw as json.RawMessage if it's valid JSON, otherwise "[]".
-func safeRawJSONArray(raw string) json.RawMessage {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return json.RawMessage("[]")
-	}
-	if json.Valid([]byte(raw)) {
-		return json.RawMessage(raw)
-	}
-	return json.RawMessage("[]")
 }

@@ -57,7 +57,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAPIKeyACLTrustForwardedIP: "true",
 		SettingKeyForwardedClientIPHeaders:  string(forwardedClientIPHeadersJSON),
 		settingKeyForwardedClientIPModeV2:   "true",
-		SettingKeyCustomEndpoints:           "[]",
 		SettingKeyDefaultConcurrency:        strconv.Itoa(s.cfg.Default.UserConcurrency),
 		SettingKeyDefaultUserRPMLimit:       "0",
 		// Model fallback defaults
@@ -189,7 +188,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		APIKeyACLTrustForwardedIP: apiKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:  forwardedClientIPHeaders,
 		DocURL:                    settings[SettingKeyDocURL],
-		CustomEndpoints:           settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled:        settings[SettingKeyBackendModeEnabled] == "true",
 	}
 

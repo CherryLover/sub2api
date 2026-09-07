@@ -99,7 +99,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// OEM设置
 	updates[SettingKeyDocURL] = settings.DocURL
-	updates[SettingKeyCustomEndpoints] = settings.CustomEndpoints
 
 	// 默认配置
 	updates[SettingKeyDefaultConcurrency] = strconv.Itoa(settings.DefaultConcurrency)
