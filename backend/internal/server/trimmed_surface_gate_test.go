@@ -520,6 +520,28 @@ func TestNotificationBarkSurfaceRegistered(t *testing.T) {
 	}
 }
 
+// TestAdminAPIKeySurfaceRegistered 管理端密钥总表三条路由必须齐：跨用户列表、改状态/IP 名单、删除。
+// 列表只回掩码 Key，故只允许挂在 /admin 下，不能出现在用户侧 /api/v1/keys 之外的公开前缀。
+func TestAdminAPIKeySurfaceRegistered(t *testing.T) {
+	router, _ := newTrimmedSurfaceRouter(t)
+
+	routes := make(map[string]struct{})
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = struct{}{}
+	}
+	for _, want := range []string{
+		"GET /api/v1/admin/api-keys",
+		"PUT /api/v1/admin/api-keys/:id",
+		"DELETE /api/v1/admin/api-keys/:id",
+	} {
+		_, exists := routes[want]
+		require.Truef(t, exists, "管理端密钥总表路由 %s 应已注册", want)
+	}
+	// 不新增管理员换用量令牌接口：总表「查用量」直接跳 /admin/usage?api_key_id=。
+	_, tokenRoute := routes["POST /api/v1/admin/api-keys/:id/usage-session"]
+	require.False(t, tokenRoute, "不应存在管理员用 Key 换用量令牌的接口")
+}
+
 // TestPublicSettingsKeepsRiskControlSwitch risk_control_enabled 是提示词审计的
 // 总开关，内容安全审计删除后仍必须出现在公开设置里，否则前端菜单与路由守卫会失效。
 func TestPublicSettingsKeepsRiskControlSwitch(t *testing.T) {
