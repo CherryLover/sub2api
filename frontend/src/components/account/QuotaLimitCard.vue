@@ -2,9 +2,17 @@
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import QuotaDimensionRow from './QuotaDimensionRow.vue'
+import { useAppStore } from '@/stores/app'
+import { QUOTA_WEEKLY_DEFAULT_RESET_DAY, QUOTA_WEEKLY_DEFAULT_RESET_HOUR, defaultQuotaResetTimezone } from '@/constants/account'
 import type { QuotaThresholdType, QuotaResetMode } from '@/constants/account'
 
 const { t } = useI18n()
+const appStore = useAppStore()
+
+// 固定重置的缺省时区跟服务器项目时区走，拿不到时退回 UTC（与 QuotaDimensionRow / 后端一致）
+const defaultTimezone = computed(() =>
+  defaultQuotaResetTimezone(appStore.cachedPublicSettings?.server_timezone)
+)
 
 const props = withDefaults(defineProps<{
   totalLimit: number | null
@@ -91,12 +99,19 @@ watch(localEnabled, (val) => {
 })
 
 // Common timezone options
-const timezoneOptions = [
+const commonTimezoneOptions = [
   'UTC', 'Asia/Shanghai', 'Asia/Tokyo', 'Asia/Seoul', 'Asia/Singapore', 'Asia/Kolkata',
   'Asia/Dubai', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Moscow',
   'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
   'America/Sao_Paulo', 'Australia/Sydney', 'Pacific/Auckland',
 ]
+
+// 服务器时区是缺省值，必须出现在下拉里，否则 <select> 会显示成空白
+const timezoneOptions = computed(() =>
+  commonTimezoneOptions.includes(defaultTimezone.value)
+    ? commonTimezoneOptions
+    : [defaultTimezone.value, ...commonTimezoneOptions]
+)
 
 // Hours for dropdown (0-23)
 const hourOptions = Array.from({ length: 24 }, (_, i) => i)
@@ -114,18 +129,18 @@ const dayOptions = [
 
 // Precomputed hint strings for the weekly fixed mode
 const weeklyFixedHint = computed(() => {
-  const dayKey = dayOptions.find(d => d.value === (props.weeklyResetDay ?? 1))?.key || 'monday'
+  const dayKey = dayOptions.find(d => d.value === (props.weeklyResetDay ?? QUOTA_WEEKLY_DEFAULT_RESET_DAY))?.key || 'monday'
   return t('admin.accounts.quotaWeeklyLimitHintFixed', {
     day: t('admin.accounts.dayOfWeek.' + dayKey),
-    hour: String(props.weeklyResetHour ?? 0).padStart(2, '0'),
-    timezone: props.resetTimezone || 'UTC',
+    hour: String(props.weeklyResetHour ?? QUOTA_WEEKLY_DEFAULT_RESET_HOUR).padStart(2, '0'),
+    timezone: props.resetTimezone || defaultTimezone.value,
   })
 })
 
 const dailyFixedHint = computed(() =>
   t('admin.accounts.quotaDailyLimitHintFixed', {
     hour: String(props.dailyResetHour ?? 0).padStart(2, '0'),
-    timezone: props.resetTimezone || 'UTC',
+    timezone: props.resetTimezone || defaultTimezone.value,
   })
 )
 </script>
@@ -147,6 +162,7 @@ const dailyFixedHint = computed(() =>
         </div>
         <button
           type="button"
+          data-testid="quota-limit-toggle"
           @click="localEnabled = !localEnabled"
           :class="[
             'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',

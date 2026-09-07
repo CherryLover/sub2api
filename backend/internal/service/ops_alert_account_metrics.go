@@ -302,6 +302,9 @@ func anthropicWindowCandidate(account *Account, window string) *accountSchedulin
 }
 
 // readAccountQuotaUsedPercent 读取额度已用百分比 = used / limit × 100；limit ≤ 0（未启用）视为无数据。
+// 日 / 周额度的周期已过期（滚动窗口走完、或固定重置点已过而计费尚未惰性清零）时，
+// extra 里残留的是上一周期的旧值，此时按 0 计——与展示层 dto/mappers.go 的口径一致，
+// 否则跨周后告警会拿着上周的用量继续报"超阈值"。
 func readAccountQuotaUsedPercent(account *Account, dimension string) (float64, bool) {
 	if account == nil {
 		return 0, false
@@ -309,9 +312,15 @@ func readAccountQuotaUsedPercent(account *Account, dimension string) (float64, b
 	var limit, used float64
 	switch strings.TrimSpace(dimension) {
 	case opsAlertQuotaDimensionDaily:
-		limit, used = account.GetQuotaDailyLimit(), account.GetQuotaDailyUsed()
+		limit = account.GetQuotaDailyLimit()
+		if !account.IsDailyQuotaPeriodExpired() {
+			used = account.GetQuotaDailyUsed()
+		}
 	case opsAlertQuotaDimensionWeekly:
-		limit, used = account.GetQuotaWeeklyLimit(), account.GetQuotaWeeklyUsed()
+		limit = account.GetQuotaWeeklyLimit()
+		if !account.IsWeeklyQuotaPeriodExpired() {
+			used = account.GetQuotaWeeklyUsed()
+		}
 	case opsAlertQuotaDimensionTotal:
 		limit, used = account.GetQuotaLimit(), account.GetQuotaUsed()
 	default:

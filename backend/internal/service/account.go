@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
@@ -2527,12 +2528,22 @@ func (a *Account) GetQuotaWeeklyResetHour() int {
 	return a.getExtraInt("quota_weekly_reset_hour")
 }
 
-// GetQuotaResetTimezone 获取固定重置的时区名（IANA），默认 "UTC"
+// GetQuotaResetTimezone 获取固定重置的时区名（IANA），缺省跟项目时区走（见 defaultQuotaResetTimezone）
 func (a *Account) GetQuotaResetTimezone() string {
 	if tz := a.getExtraString("quota_reset_timezone"); tz != "" {
 		return tz
 	}
-	return "UTC"
+	return defaultQuotaResetTimezone()
+}
+
+// defaultQuotaResetTimezone 返回固定重置模式下 quota_reset_timezone 缺省时采用的时区名。
+//
+// 批次 6 / A3 把账号周额度锚到自然周（周一 00:00）之后，"缺省时区" 必须与站长感知的
+// "本周" 一致，所以跟项目时区（config timezone，即 timezone.Init 传入的 TZ）走，
+// 而不再是硬编码 UTC。迁移 239 给存量账号显式写入了 quota_reset_timezone，
+// 这里的缺省只兜"键缺失"的边角（例如直接调 API 建的账号）。
+func defaultQuotaResetTimezone() string {
+	return timezone.Name()
 }
 
 // --- Quota Notification Getters ---
@@ -2680,7 +2691,7 @@ func ComputeQuotaResetAt(extra map[string]any) {
 	now := time.Now()
 	tzName, _ := extra["quota_reset_timezone"].(string)
 	if tzName == "" {
-		tzName = "UTC"
+		tzName = defaultQuotaResetTimezone()
 	}
 	tz, err := time.LoadLocation(tzName)
 	if err != nil {
@@ -2732,7 +2743,7 @@ func NormalizeFixedQuotaWindows(extra map[string]any) {
 	now := time.Now()
 	tzName, _ := extra["quota_reset_timezone"].(string)
 	if tzName == "" {
-		tzName = "UTC"
+		tzName = defaultQuotaResetTimezone()
 	}
 	tz, err := time.LoadLocation(tzName)
 	if err != nil {
