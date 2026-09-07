@@ -27,8 +27,7 @@ type SystemSettings struct {
 	APIKeyACLTrustForwardedIP bool
 	ForwardedClientIPHeaders  []string
 
-	DocURL          string
-	CustomEndpoints string // JSON array of custom endpoints
+	DocURL string
 
 	DefaultConcurrency          int
 	RiskControlEnabled          bool
@@ -143,8 +142,6 @@ type PublicSettings struct {
 	TotpEnabled    bool // TOTP 双因素认证
 	PasskeyEnabled bool
 	DocURL         string
-
-	CustomEndpoints string // JSON array of custom endpoints
 
 	BackendModeEnabled bool
 	Version            string

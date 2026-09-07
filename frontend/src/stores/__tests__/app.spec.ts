@@ -22,7 +22,6 @@ function createPublicSettings(overrides: Partial<PublicSettings> = {}): PublicSe
     turnstile_site_key: '',
     doc_url: '',
     risk_control_enabled: false,
-    custom_endpoints: [],
     backend_mode_enabled: false,
     version: '1.0.0',
     channel_monitor_enabled: true,

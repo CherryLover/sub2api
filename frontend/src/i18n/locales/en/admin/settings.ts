@@ -535,18 +535,6 @@ export default {
         backendMode: 'Backend Mode',
         backendModeDescription:
           'Disables user registration, public site, and self-service features. Only admin can log in and manage the platform.',
-        customEndpoints: {
-          title: 'Custom Endpoints',
-          description: 'Add additional API endpoint URLs for users to quickly copy on the API Keys page',
-          itemLabel: 'Endpoint #{n}',
-          name: 'Name',
-          namePlaceholder: 'e.g., OpenAI Compatible',
-          endpointUrl: 'Endpoint URL',
-          endpointUrlPlaceholder: 'https://api2.example.com',
-          descriptionLabel: 'Description',
-          descriptionPlaceholder: 'e.g., Supports OpenAI format requests',
-          add: 'Add Endpoint',
-        },
         docUrl: 'Documentation URL',
         docUrlPlaceholder: 'https://docs.example.com',
         docUrlHint: 'Link to your documentation site. Leave empty to hide the documentation link.',

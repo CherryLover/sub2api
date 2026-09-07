@@ -543,7 +543,6 @@ func TestAPIContracts(t *testing.T) {
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
-					"custom_endpoints": [],
 					"account_scheduling_thresholds": {"anthropic":100,"grok":100,"openai":100},
 					"channel_monitor_enabled": true,
 					"channel_monitor_hide_throughput": true,

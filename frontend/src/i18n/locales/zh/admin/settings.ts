@@ -531,18 +531,6 @@ export default {
         backendMode: 'Backend 模式',
         backendModeDescription:
           '禁用用户注册、公开页面和自助服务功能。仅管理员可以登录和管理平台。',
-        customEndpoints: {
-          title: '自定义端点',
-          description: '添加额外的 API 端点地址，用户可在「API Keys」页面快速复制',
-          itemLabel: '端点 #{n}',
-          name: '名称',
-          namePlaceholder: '如：OpenAI Compatible',
-          endpointUrl: '端点地址',
-          endpointUrlPlaceholder: 'https://api2.example.com',
-          descriptionLabel: '介绍',
-          descriptionPlaceholder: '如：支持 OpenAI 格式请求',
-          add: '添加端点',
-        },
         docUrl: '文档链接',
         docUrlHint: '文档网站的链接。留空则隐藏文档链接。',
         docUrlPlaceholder: 'https://docs.example.com',

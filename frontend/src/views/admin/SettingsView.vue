@@ -3936,137 +3936,6 @@
 	                <Toggle v-model="form.backend_mode_enabled" />
 	              </div>
 
-              <!-- Custom Endpoints -->
-              <div>
-                <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {{ t("admin.settings.site.customEndpoints.title") }}
-                </label>
-                <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t("admin.settings.site.customEndpoints.description") }}
-                </p>
-
-                <div class="space-y-3">
-                  <div
-                    v-for="(ep, index) in form.custom_endpoints"
-                    :key="index"
-                    class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
-                  >
-                    <div class="mb-3 flex items-center justify-between">
-                      <span
-                        class="text-sm font-medium text-gray-700 dark:text-gray-300"
-                      >
-                        {{
-                          t("admin.settings.site.customEndpoints.itemLabel", {
-                            n: index + 1,
-                          })
-                        }}
-                      </span>
-                      <button
-                        type="button"
-                        class="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                        @click="removeEndpoint(index)"
-                      >
-                        <svg
-                          class="h-4 w-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          stroke-width="2"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div>
-                        <label
-                          class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
-                        >
-                          {{ t("admin.settings.site.customEndpoints.name") }}
-                        </label>
-                        <input
-                          v-model="ep.name"
-                          type="text"
-                          class="input text-sm"
-                          :placeholder="
-                            t(
-                              'admin.settings.site.customEndpoints.namePlaceholder',
-                            )
-                          "
-                        />
-                      </div>
-                      <div>
-                        <label
-                          class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
-                        >
-                          {{
-                            t("admin.settings.site.customEndpoints.endpointUrl")
-                          }}
-                        </label>
-                        <input
-                          v-model="ep.endpoint"
-                          type="url"
-                          class="input font-mono text-sm"
-                          :placeholder="
-                            t(
-                              'admin.settings.site.customEndpoints.endpointUrlPlaceholder',
-                            )
-                          "
-                        />
-                      </div>
-                      <div class="sm:col-span-2">
-                        <label
-                          class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
-                        >
-                          {{
-                            t(
-                              "admin.settings.site.customEndpoints.descriptionLabel",
-                            )
-                          }}
-                        </label>
-                        <input
-                          v-model="ep.description"
-                          type="text"
-                          class="input text-sm"
-                          :placeholder="
-                            t(
-                              'admin.settings.site.customEndpoints.descriptionPlaceholder',
-                            )
-                          "
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  class="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 px-4 py-2.5 text-sm text-gray-500 transition-colors hover:border-primary-400 hover:text-primary-600 dark:border-dark-600 dark:text-gray-400 dark:hover:border-primary-500 dark:hover:text-primary-400"
-                  @click="addEndpoint"
-                >
-                  <svg
-                    class="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M12 4v16m8-8H4"
-                    />
-                  </svg>
-                  {{ t("admin.settings.site.customEndpoints.add") }}
-                </button>
-              </div>
-
               <!-- Doc URL -->
               <div>
                 <label
@@ -4967,11 +4836,6 @@ const form = reactive<SettingsForm>({
   risk_control_enabled: false,
   cyber_session_block_enabled: false,
   cyber_session_block_ttl_seconds: 3600,
-  custom_endpoints: [] as Array<{
-    name: string;
-    endpoint: string;
-    description: string;
-  }>,
   api_key_acl_trust_forwarded_ip: true,
   forwarded_client_ip_headers: [],
   // Model fallback
@@ -5465,16 +5329,6 @@ function handleForwardedClientIpHeaderPaste(event: ClipboardEvent) {
 const currentOrigin =
   typeof window !== "undefined" ? window.location.origin : "";
 
-// Custom endpoint management
-function addEndpoint() {
-  form.custom_endpoints.push({ name: "", endpoint: "", description: "" });
-}
-
-function removeEndpoint(index: number) {
-  form.custom_endpoints.splice(index, 1);
-}
-
-
 // ── codex_cli_only 黑/白名单结构化编辑（行 ↔ JSON）──
 interface CodexClientRow {
   originator: string;
@@ -5899,7 +5753,6 @@ async function saveSettings() {
       default_user_rpm_limit: form.default_user_rpm_limit,
       doc_url: form.doc_url,
       backend_mode_enabled: form.backend_mode_enabled,
-      custom_endpoints: form.custom_endpoints,
       api_key_acl_trust_forwarded_ip: form.api_key_acl_trust_forwarded_ip,
       forwarded_client_ip_headers: form.forwarded_client_ip_headers,
       enable_model_fallback: form.enable_model_fallback,

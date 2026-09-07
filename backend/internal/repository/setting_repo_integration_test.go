@@ -127,13 +127,12 @@ func (s *SettingRepoSuite) TestSetMultiple_WithEmptyValues() {
 		"identity_patch_prompt":      "", // 用户未设置身份补丁提示词
 		"min_codex_version":          "", // 用户未设置最低 Codex 版本
 		"doc_url":                    "", // 用户未设置文档链接
-		"custom_endpoints":           "", // 用户未添加自定义端点
 	}
 
 	s.Require().NoError(s.repo.SetMultiple(s.ctx, settings), "SetMultiple with empty values should succeed")
 
 	// 验证所有值都正确保存
-	result, err := s.repo.GetMultiple(s.ctx, []string{"grok_default_text_model", "grok_default_base_url_mode", "identity_patch_prompt", "min_codex_version", "doc_url", "custom_endpoints"})
+	result, err := s.repo.GetMultiple(s.ctx, []string{"grok_default_text_model", "grok_default_base_url_mode", "identity_patch_prompt", "min_codex_version", "doc_url"})
 	s.Require().NoError(err, "GetMultiple after SetMultiple with empty values")
 
 	s.Require().Equal("grok-4.6", result["grok_default_text_model"])
@@ -141,7 +140,6 @@ func (s *SettingRepoSuite) TestSetMultiple_WithEmptyValues() {
 	s.Require().Equal("", result["identity_patch_prompt"], "empty identity_patch_prompt should be preserved")
 	s.Require().Equal("", result["min_codex_version"], "empty min_codex_version should be preserved")
 	s.Require().Equal("", result["doc_url"], "empty doc_url should be preserved")
-	s.Require().Equal("", result["custom_endpoints"], "empty custom_endpoints should be preserved")
 }
 
 // TestSetMultiple_UpdateToEmpty 测试将已有值更新为空字符串

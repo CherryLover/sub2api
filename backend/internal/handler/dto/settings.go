@@ -1,18 +1,8 @@
 package dto
 
 import (
-	"encoding/json"
-	"strings"
-
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
-
-// CustomEndpoint represents an admin-configured API endpoint for quick copy.
-type CustomEndpoint struct {
-	Name        string `json:"name"`
-	Endpoint    string `json:"endpoint"`
-	Description string `json:"description"`
-}
 
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
@@ -40,8 +30,7 @@ type SystemSettings struct {
 	APIKeyACLTrustForwardedIP bool     `json:"api_key_acl_trust_forwarded_ip"`
 	ForwardedClientIPHeaders  []string `json:"forwarded_client_ip_headers"`
 
-	DocURL          string           `json:"doc_url"`
-	CustomEndpoints []CustomEndpoint `json:"custom_endpoints"`
+	DocURL string `json:"doc_url"`
 
 	DefaultConcurrency  int `json:"default_concurrency"`
 	DefaultUserRPMLimit int `json:"default_user_rpm_limit"`
@@ -161,12 +150,11 @@ type SystemSettings struct {
 }
 
 type PublicSettings struct {
-	TotpEnabled        bool             `json:"totp_enabled"` // TOTP 双因素认证
-	PasskeyEnabled     bool             `json:"passkey_enabled"`
-	DocURL             string           `json:"doc_url"`
-	CustomEndpoints    []CustomEndpoint `json:"custom_endpoints"`
-	BackendModeEnabled bool             `json:"backend_mode_enabled"`
-	Version            string           `json:"version"`
+	TotpEnabled        bool   `json:"totp_enabled"` // TOTP 双因素认证
+	PasskeyEnabled     bool   `json:"passkey_enabled"`
+	DocURL             string `json:"doc_url"`
+	BackendModeEnabled bool   `json:"backend_mode_enabled"`
+	Version            string `json:"version"`
 	// 服务器全局时区（IANA 名称与当前 UTC 偏移，如 "Asia/Shanghai" / "+08:00"）。
 	// 高峰时段等按服务器本地时间判定的窗口，前端展示时据此标注，避免用户按浏览器本地时间误读。
 	ServerTimezone  string `json:"server_timezone"`
@@ -260,18 +248,4 @@ type OpenAIFastPolicyRule struct {
 // OpenAIFastPolicySettings OpenAI fast 策略配置 DTO
 type OpenAIFastPolicySettings struct {
 	Rules []OpenAIFastPolicyRule `json:"rules"`
-}
-
-// ParseCustomEndpoints parses a JSON string into a slice of CustomEndpoint.
-// Returns empty slice on empty/invalid input.
-func ParseCustomEndpoints(raw string) []CustomEndpoint {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || raw == "[]" {
-		return []CustomEndpoint{}
-	}
-	var items []CustomEndpoint
-	if err := json.Unmarshal([]byte(raw), &items); err != nil {
-		return []CustomEndpoint{}
-	}
-	return items
 }

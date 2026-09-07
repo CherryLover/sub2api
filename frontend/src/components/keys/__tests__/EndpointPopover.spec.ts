@@ -31,31 +31,20 @@ describe('EndpointPopover', () => {
     vi.clearAllMocks()
   })
 
-  it('将说明提示渲染到 URL 上方而不是旧的 title 图标上', () => {
-    const wrapper = mount(EndpointPopover, {
-      props: {
-        customEndpoints: [
-          {
-            name: '备用线路',
-            endpoint: 'https://backup.example.com/v1',
-            description: '自定义说明',
-          },
-        ],
-      },
-    })
+  it('只渲染当前站点这一个内置端点，并标注为默认', () => {
+    const wrapper = mount(EndpointPopover)
 
-    expect(wrapper.text()).toContain('自定义说明')
+    const endpoints = wrapper.findAll('[role="button"]')
+    expect(endpoints).toHaveLength(1)
+    expect(endpoints[0].text()).toBe(window.location.origin)
+    expect(wrapper.text()).toContain('默认')
     expect(wrapper.text()).toContain('点击可复制此端点')
-    expect(wrapper.find('[role="button"]').attributes('title')).toBeUndefined()
-    expect(wrapper.find('[title="自定义说明"]').exists()).toBe(false)
+    expect(endpoints[0].attributes('title')).toBeUndefined()
+    expect(wrapper.find('a[href^="https://www.tcptest.cn/http/"]').exists()).toBe(true)
   })
 
   it('点击 URL 后会复制并切换为已复制提示', async () => {
-    const wrapper = mount(EndpointPopover, {
-      props: {
-        customEndpoints: [],
-      },
-    })
+    const wrapper = mount(EndpointPopover)
 
     await wrapper.find('[role="button"]').trigger('click')
     await flushPromises()

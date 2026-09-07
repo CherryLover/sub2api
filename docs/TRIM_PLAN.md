@@ -37,7 +37,7 @@
 A7 文档改写（README/DEV_GUIDE 内部化）+ 压测 + 备份恢复演练 + Key 泄露演练（未开始；演练涉及服务器，须遵守下方新纪律）。
 **站长待办**：在生产「系统设置 → 通知」填一次 Bark 配置（配置按环境分别存储，way-rc 上填的不会带到生产）。
 **尚未完成、需站长决策**：迁移基线重置**维持不做**（A5 内，方案见第四节「⛔ 未完成项 1」）；
-`security.url_allowlist.enabled=false`、`server.trusted_proxies` 未配置、`custom_endpoints` 设置去留**三项仍未决**
+`security.url_allowlist.enabled=false`、`server.trusted_proxies` 未配置**两项仍未决**（`custom_endpoints` 已于 2026-09-07 批次 6 / 包 D 整键删除，迁移 240 清库）
 （批次 2 验收起累计，生产上线后保持原状，见第四节台账）。第四节「后续候选项台账」的未勾项与 FEATURE_CHECKLIST 的 P1 / P2 残留均未处理。
 **关口**：auto-release 保持现状不动（批次 6 的三个版本都是 ff 合并 `fork/main` 后自动发出的，内部版本线继续走 main）。
 
@@ -914,7 +914,7 @@ CI 全绿但镜像构建必然失败。
 - [x] **`registration_email_domain_quota_enabled`**（批次 3 已处理）：整键删除 + 迁移 233 清库。**核实结论修正**：兄弟键 `registration_email_suffix_whitelist` 的邮箱绑定校验路径已随批次 3 邮件体系整删消失（`AuthService.validateRegistrationEmailPolicy` 零调用点，已一并删除），但该键**必须保留**——它是 `InitializeDefaultSettings` 判断"是否已种过默认设置"的探测键，删掉会导致每次启动重跑种子
 - [ ] **`LOGIN_ENTRY_RESERVED_PREFIXES` 的 `/legal`、`/custom`**（前端 SettingsView 与后端 `config/web_entry.go` 镜像）：对应路由已删，但**刻意保留**——这是自定义登录入口的保留字黑名单，删条目只会放宽允许集，属安全收紧项而非裁剪项。若要收窄需前后端同步改并调整 `web_entry_test.go` 用例。批次 3 删模型广场时同理保留了 `/model-plaza`（但把它从**默认落地页白名单** `allowedDefaultHomePaths` 里删掉了，那是白名单，留着等于允许把首页指到已删页面）
 - [x] **支付遗留文档**（批次 3 已处理）：三份文档删除，三个 README 里指向它们的「内置支付系统」条目与生态表格行一并删掉
-- [ ] **`custom_endpoints` 设置**：与已删的 `api_base_url` 在设置页相邻但语义不同，本批未动，待站长确认是否一并删除
+- [x] **`custom_endpoints` 设置**（批次 6 / 包 D 已处理，2026-09-07）：站长确认生产值自上线起一直是空数组 `[]`，决定整键删除——站点设置卡片、Keys 页 `EndpointPopover` 的自定义端点渲染、后端读写校验 / 审计比对 / 公开设置输出 / 默认种子一并移除，迁移 240 清库（幂等 DELETE）。Keys 页只剩当前站点 origin 这一条内置端点（复制 / 测速保留）。门禁加反向断言（公开设置与默认种子都不含该键）；管理端保存带该键按未知字段**忽略**而非 400（旧前端全量保存不致失败），有用例锁定
 - [x] **ent 中的支付实体**（`payment_orders`/`payment_provider_instances` 等）（批次 5 已处理）：连同另外 14 个死实体一并删除，**用官方生成器重跑 ent generate**，配套迁移 235 DROP 了对应的 21 张表。历史迁移文件本身**未删**（删了会让停在中间版本的老库升不上来），见「⛔ 未完成项 1」
 - [ ] **余额变动记录入口仍指向已删接口**（批次 3 新发现）：`UsageTable.vue` 与 `OpsErrorLogTable.vue` 的余额 tooltip 仍用 `admin.usage.clickToViewBalance`（「点击查看充值记录」），而 `/api/v1/admin/users/:id/balance-history` 已在批次 1 删除；`admin.users.balanceHistory*` 一整组文案同理。点击行为需要复核后再决定是改文案还是去掉入口
 - [ ] **`SettingsView.spec.ts` 的 vue-i18n mock 字典与 `baseSettingsResponse` 仍带已删字段**（批次 3 新发现）：`admin.settings.wechatConnect.*`、`admin.settings.payment*`、`admin.settings.site.*`、`registration_enabled` / `promo_code_enabled` 等。只存在于测试桩里，不进产物，但会让基于关键字 grep 的裁剪审计继续误报

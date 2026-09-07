@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -37,8 +36,7 @@ type UpdateSettingsRequest struct {
 	ForwardedClientIPHeaders  *[]string `json:"forwarded_client_ip_headers"`
 
 	// OEM设置
-	DocURL          string                `json:"doc_url"`
-	CustomEndpoints *[]dto.CustomEndpoint `json:"custom_endpoints"`
+	DocURL string `json:"doc_url"`
 
 	// 默认配置
 	DefaultConcurrency  int `json:"default_concurrency"`
@@ -318,54 +316,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
-	// 自定义端点验证
-	const (
-		maxCustomEndpoints        = 10
-		maxEndpointNameLen        = 50
-		maxEndpointURLLen         = 2048
-		maxEndpointDescriptionLen = 200
-	)
-
-	customEndpointsJSON := previousSettings.CustomEndpoints
-	if req.CustomEndpoints != nil {
-		endpoints := *req.CustomEndpoints
-		if len(endpoints) > maxCustomEndpoints {
-			response.BadRequest(c, "Too many custom endpoints (max 10)")
-			return
-		}
-		for _, ep := range endpoints {
-			if strings.TrimSpace(ep.Name) == "" {
-				response.BadRequest(c, "Custom endpoint name is required")
-				return
-			}
-			if len(ep.Name) > maxEndpointNameLen {
-				response.BadRequest(c, "Custom endpoint name is too long (max 50 characters)")
-				return
-			}
-			if strings.TrimSpace(ep.Endpoint) == "" {
-				response.BadRequest(c, "Custom endpoint URL is required")
-				return
-			}
-			if len(ep.Endpoint) > maxEndpointURLLen {
-				response.BadRequest(c, "Custom endpoint URL is too long (max 2048 characters)")
-				return
-			}
-			if err := config.ValidateAbsoluteHTTPURL(strings.TrimSpace(ep.Endpoint)); err != nil {
-				response.BadRequest(c, "Custom endpoint URL must be an absolute http(s) URL")
-				return
-			}
-			if len(ep.Description) > maxEndpointDescriptionLen {
-				response.BadRequest(c, "Custom endpoint description is too long (max 200 characters)")
-				return
-			}
-		}
-		endpointBytes, err := json.Marshal(endpoints)
-		if err != nil {
-			response.BadRequest(c, "Failed to serialize custom endpoints")
-			return
-		}
-		customEndpointsJSON = string(endpointBytes)
-	}
 
 	// Ops metrics collector interval validation (seconds).
 	if req.OpsMetricsIntervalSeconds != nil {
@@ -483,7 +433,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}(),
 		ForwardedClientIPHeaders:    forwardedClientIPHeaders,
 		DocURL:                      req.DocURL,
-		CustomEndpoints:             customEndpointsJSON,
 		DefaultConcurrency:          req.DefaultConcurrency,
 		DefaultUserRPMLimit:         req.DefaultUserRPMLimit,
 		EnableModelFallback:         req.EnableModelFallback,
@@ -754,7 +703,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		APIKeyACLTrustForwardedIP:                              updatedSettings.APIKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:                               updatedSettings.ForwardedClientIPHeaders,
 		DocURL:                                                 updatedSettings.DocURL,
-		CustomEndpoints:                                        dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		DefaultConcurrency:                                     updatedSettings.DefaultConcurrency,
 		DefaultUserRPMLimit:                                    updatedSettings.DefaultUserRPMLimit,
 		EnableModelFallback:                                    updatedSettings.EnableModelFallback,
