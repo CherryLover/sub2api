@@ -142,37 +142,6 @@ export interface CurrentUserResponse extends User {
   run_mode?: 'standard' | 'simple'
 }
 
-// ==================== Subscription Types ====================
-
-export interface Subscription {
-  id: number
-  user_id: number
-  name: string
-  url: string
-  type: 'clash' | 'v2ray' | 'surge' | 'quantumult' | 'shadowrocket'
-  update_interval: number // in hours
-  last_updated: string | null
-  node_count: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-}
-
-export interface CreateSubscriptionRequest {
-  name: string
-  url: string
-  type: Subscription['type']
-  update_interval?: number
-}
-
-export interface UpdateSubscriptionRequest {
-  name?: string
-  url?: string
-  type?: Subscription['type']
-  update_interval?: number
-  is_active?: boolean
-}
-
 // ==================== Proxy Node Types ====================
 
 export interface ProxyNode {
@@ -303,8 +272,6 @@ export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 
 
 export type VideoModelPrices = Record<string, Record<string, number>>
 
-export type SubscriptionType = 'standard' | 'subscription'
-
 export interface OpenAIMessagesDispatchModelConfig {
   opus_mapped_model?: string
   sonnet_mapped_model?: string
@@ -328,8 +295,6 @@ export interface Group {
   reasoning_effort_mappings?: ReasoningEffortMapping[]
   is_exclusive: boolean
   status: 'active' | 'inactive'
-  /** @deprecated 订阅体系已拆除（A4），后端不再返回；仅为兼容历史代码保留可选字段。 */
-  subscription_type?: SubscriptionType
   long_context_pricing_enabled: boolean
   // 图片生成计费配置
   allow_image_generation: boolean

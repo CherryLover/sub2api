@@ -55,11 +55,6 @@ export default {
     checkDetailedLogs: 'Check detailed usage logs',
   },
 
-  // Groups (shared)
-  groups: {
-    subscription: 'Sub'
-  },
-
   // API Keys
   keys: {
     title: 'API Keys',
