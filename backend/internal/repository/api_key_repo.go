@@ -19,6 +19,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
@@ -632,9 +633,15 @@ func (r *apiKeyRepository) ListByGroupID(ctx context.Context, groupID int64, par
 	return outKeys, paginationResultFromTotal(int64(total), params), nil
 }
 
+// apiKeySortTodayCost 是密钥列表按「今日用量」排序的 sort_by 取值，前端「用量」列表头对应此参数。
+const apiKeySortTodayCost = "today_cost"
+
 func apiKeyListOrder(params pagination.PaginationParams) []func(*entsql.Selector) {
 	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
 	sortOrder := params.NormalizedSortOrder(pagination.SortOrderDesc)
+	if sortBy == apiKeySortTodayCost {
+		return apiKeyTodayCostOrder(timezone.Today(), sortOrder)
+	}
 
 	var field string
 	switch sortBy {
@@ -666,6 +673,33 @@ func apiKeyListOrder(params pagination.PaginationParams) []func(*entsql.Selector
 		orders = append(orders, dbent.Desc(apikey.FieldID))
 	}
 	return orders
+}
+
+// apiKeyTodayCostOrder 按「今日用量」排序。口径与 usageLogRepository.GetBatchAPIKeyUsageStats 里的
+// today_cost 完全一致：usage_logs.actual_cost 按 api_key_id 汇总，只算 created_at >= 配置时区今日零点
+// （timezone.Today）的记录；没有用量的 Key 记 0，同值再按 id 稳定排序。
+// 用关联子查询而不是先 GROUP BY 全表再 JOIN，是让每把 Key 只走一次 (api_key_id, created_at) 索引区间扫描，
+// 不受其他用户当天日志量影响。
+func apiKeyTodayCostOrder(todayStart time.Time, sortOrder string) []func(*entsql.Selector) {
+	direction := "DESC"
+	tieOrder := entsql.Desc
+	if sortOrder == pagination.SortOrderAsc {
+		direction = "ASC"
+		tieOrder = entsql.Asc
+	}
+	return []func(*entsql.Selector){func(s *entsql.Selector) {
+		keyID := s.C(apikey.FieldID)
+		// 不能用 s.OrderExprFunc：它只保留 SQL 文本、会丢掉绑定参数；ExprFunc 会随主查询续接占位符序号。
+		s.OrderExpr(entsql.ExprFunc(func(b *entsql.Builder) {
+			b.WriteString("COALESCE((SELECT SUM(ul.actual_cost) FROM usage_logs AS ul WHERE ul.api_key_id = ")
+			b.WriteString(keyID)
+			b.WriteString(" AND ul.created_at >= ")
+			b.Arg(todayStart)
+			b.WriteString("), 0) ")
+			b.WriteString(direction)
+		}))
+		s.OrderBy(tieOrder(keyID))
+	}}
 }
 
 // SearchAPIKeys searches API keys by user ID and/or keyword (name)

@@ -1096,7 +1096,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'key', label: t('keys.apiKey'), sortable: false },
   { key: 'group', label: t('keys.group'), sortable: false },
   { key: 'current_concurrency', label: t('keys.currentConcurrency'), sortable: true },
-  { key: 'usage', label: t('keys.usage'), sortable: false },
+  { key: 'usage', label: t('keys.usage'), sortable: true },
   { key: 'rate_limit', label: t('keys.rateLimitColumn'), sortable: false },
   { key: 'expires_at', label: t('keys.expiresAt'), sortable: true },
   { key: 'status', label: t('common.status'), sortable: true },
@@ -1107,13 +1107,17 @@ const allColumns = computed<Column[]>(() => [
 ])
 
 const ALWAYS_VISIBLE_COLUMNS = new Set(['name', 'actions'])
-const DEFAULT_HIDDEN_COLUMNS = ['id', 'rate_limit', 'last_used_at', 'last_used_ip']
+const DEFAULT_HIDDEN_COLUMNS = ['id', 'rate_limit', 'last_used_ip']
 const HIDDEN_COLUMNS_KEY = 'api-key-hidden-columns'
 const COLUMN_SETTINGS_VERSION_KEY = 'api-key-column-settings-version'
-const COLUMN_SETTINGS_VERSION = 3
+const COLUMN_SETTINGS_VERSION = 4
 const VERSION_NEW_HIDDEN_COLUMNS: Record<number, string[]> = {
   2: ['last_used_ip'],
   3: ['id']
+}
+// v4：「最后使用时间」改为默认显示，老用户保存过的隐藏列里把它放出来一次（之后仍可在列设置里再隐藏）
+const VERSION_REVEALED_COLUMNS: Record<number, string[]> = {
+  4: ['last_used_at']
 }
 
 const toggleableColumns = computed(() =>
@@ -1152,6 +1156,9 @@ const loadSavedColumns = () => {
             if (validColumnKeys.has(key) && !ALWAYS_VISIBLE_COLUMNS.has(key)) {
               hiddenColumns.add(key)
             }
+          }
+          for (const key of VERSION_REVEALED_COLUMNS[v] ?? []) {
+            hiddenColumns.delete(key)
           }
         }
         saveColumnsToStorage()
@@ -1461,8 +1468,11 @@ const handlePageSizeChange = (pageSize: number) => {
   loadApiKeys()
 }
 
+// 表头列 key 与后端 sort_by 不同名的映射：「用量」列按今日用量排序
+const SORT_BY_COLUMN: Record<string, string> = { usage: 'today_cost' }
+
 const handleSort = (key: string, order: 'asc' | 'desc') => {
-  sortState.value.sort_by = key
+  sortState.value.sort_by = SORT_BY_COLUMN[key] ?? key
   sortState.value.sort_order = order
   pagination.value.page = 1
   loadApiKeys()

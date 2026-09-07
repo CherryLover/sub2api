@@ -174,6 +174,10 @@ const DataTableStub = {
       <button data-test="sort-current-concurrency" @click="$emit('sort', 'current_concurrency', 'asc')">
         Sort Current Concurrency
       </button>
+      <button data-test="sort-usage" @click="$emit('sort', 'usage', 'desc')">Sort Usage</button>
+      <button data-test="sort-last-used-at" @click="$emit('sort', 'last_used_at', 'asc')">
+        Sort Last Used
+      </button>
       <div v-for="row in data" :key="row.id">
         <div
           v-if="columns.some((col) => col.key === 'id')"
@@ -184,6 +188,12 @@ const DataTableStub = {
         <slot name="cell-name" :value="row.name" :row="row" />
         <div data-test="current-concurrency">
           <slot name="cell-current_concurrency" :value="row.current_concurrency" :row="row" />
+        </div>
+        <div
+          v-if="columns.some((col) => col.key === 'last_used_at')"
+          data-test="last-used-at"
+        >
+          <slot name="cell-last_used_at" :value="row.last_used_at" :row="row" />
         </div>
         <div
           v-if="columns.some((col) => col.key === 'last_used_ip')"
@@ -327,13 +337,14 @@ describe('user KeysView column settings', () => {
       'usage',
       'expires_at',
       'status',
+      'last_used_at',
       'created_at',
       'actions',
     ])
     expect(visibleColumnKeys(wrapper)).not.toContain('rate_limit')
-    expect(visibleColumnKeys(wrapper)).not.toContain('last_used_at')
     expect(visibleColumnKeys(wrapper)).not.toContain('last_used_ip')
     expect(visibleColumnKeys(wrapper)).not.toContain('id')
+    expect(wrapper.get('[data-test="last-used-at"]').text()).toBe('-')
   })
 
   it('shows a hidden column when toggled and persists the preference', async () => {
@@ -345,9 +356,9 @@ describe('user KeysView column settings', () => {
 
     expect(visibleColumnKeys(wrapper)).toContain('rate_limit')
     expect(localStorage.getItem('api-key-hidden-columns')).toBe(
-      JSON.stringify(['id', 'last_used_at', 'last_used_ip'])
+      JSON.stringify(['id', 'last_used_ip'])
     )
-    expect(localStorage.getItem('api-key-column-settings-version')).toBe('3')
+    expect(localStorage.getItem('api-key-column-settings-version')).toBe('4')
   })
 
   it('shows the API key ID column when toggled', async () => {
@@ -400,7 +411,80 @@ describe('user KeysView column settings', () => {
     expect(localStorage.getItem('api-key-hidden-columns')).toBe(
       JSON.stringify(['group', 'created_at', 'last_used_ip', 'id'])
     )
-    expect(localStorage.getItem('api-key-column-settings-version')).toBe('3')
+    expect(localStorage.getItem('api-key-column-settings-version')).toBe('4')
+  })
+
+  it('reveals the last used time column once for users who saved column settings before v4', async () => {
+    localStorage.setItem(
+      'api-key-hidden-columns',
+      JSON.stringify(['id', 'rate_limit', 'last_used_at', 'last_used_ip'])
+    )
+    localStorage.setItem('api-key-column-settings-version', '3')
+
+    const wrapper = await mountView()
+
+    expect(visibleColumnKeys(wrapper)).toContain('last_used_at')
+    expect(localStorage.getItem('api-key-hidden-columns')).toBe(
+      JSON.stringify(['id', 'rate_limit', 'last_used_ip'])
+    )
+    expect(localStorage.getItem('api-key-column-settings-version')).toBe('4')
+  })
+
+  it('keeps the last used time column hidden when the user hid it after v4', async () => {
+    localStorage.setItem('api-key-hidden-columns', JSON.stringify(['last_used_at']))
+    localStorage.setItem('api-key-column-settings-version', '4')
+
+    const wrapper = await mountView()
+
+    expect(visibleColumnKeys(wrapper)).not.toContain('last_used_at')
+  })
+
+  it('renders the last used time and marks usage and last used time as sortable', async () => {
+    listKeys.mockResolvedValueOnce({
+      items: [{ ...createApiKey(), last_used_at: '2026-06-27T08:30:00Z' }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    const wrapper = await mountView()
+
+    const lastUsedAt = wrapper.get('[data-test="last-used-at"]').text()
+    expect(lastUsedAt).not.toBe('-')
+    expect(lastUsedAt).toContain('2026')
+    const meta = visibleColumnMeta(wrapper)
+    expect(meta.find((column) => column.key === 'usage')?.sortable).toBe(true)
+    expect(meta.find((column) => column.key === 'last_used_at')?.sortable).toBe(true)
+  })
+
+  it("sorts by today's usage on the server when the usage header is clicked", async () => {
+    const wrapper = await mountView()
+    listKeys.mockClear()
+
+    await wrapper.get('[data-test="sort-usage"]').trigger('click')
+    await flushPromises()
+
+    expect(listKeys).toHaveBeenLastCalledWith(
+      1,
+      expect.any(Number),
+      expect.objectContaining({ sort_by: 'today_cost', sort_order: 'desc' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
+  })
+
+  it('passes the last used time sort through to the server', async () => {
+    const wrapper = await mountView()
+    listKeys.mockClear()
+
+    await wrapper.get('[data-test="sort-last-used-at"]').trigger('click')
+    await flushPromises()
+
+    expect(listKeys).toHaveBeenLastCalledWith(
+      1,
+      expect.any(Number),
+      expect.objectContaining({ sort_by: 'last_used_at', sort_order: 'asc' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
   })
 
   it('does not include always-visible columns in the toggleable menu', async () => {
