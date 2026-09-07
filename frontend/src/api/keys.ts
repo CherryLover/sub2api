@@ -36,16 +36,6 @@ export async function list(
 }
 
 /**
- * Get API key by ID
- * @param id - API key ID
- * @returns API key details
- */
-export async function getById(id: number): Promise<ApiKey> {
-  const { data } = await apiClient.get<ApiKey>(`/keys/${id}`)
-  return data
-}
-
-/**
  * Create new API key
  * @param name - Key name
  * @param groupId - Optional group ID
@@ -128,7 +118,6 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
 
 export const keysAPI = {
   list,
-  getById,
   create,
   update,
   delete: deleteKey,

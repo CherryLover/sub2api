@@ -82,25 +82,6 @@ export interface ModelStatsResponse {
   end_date: string
 }
 
-export interface ApiKeyDailyUsagePoint {
-  date: string
-  requests: number
-  input_tokens: number
-  output_tokens: number
-  cache_read_tokens: number
-  cache_write_tokens: number
-  total_tokens: number
-  cost: number
-  actual_cost: number
-}
-
-export interface ApiKeyDailyUsageResponse {
-  items: ApiKeyDailyUsagePoint[]
-  days: number
-  start_date: string
-  end_date: string
-}
-
 export interface UsageDashboardSnapshotV2Params extends TrendParams {
   include_trend?: boolean
   include_model_stats?: boolean
@@ -173,33 +154,6 @@ export async function getStats(
   const params: Record<string, unknown> = typeof paramsOrPeriod === 'string'
     ? { period: paramsOrPeriod }
     : { ...paramsOrPeriod }
-
-  if (apiKeyId !== undefined) {
-    params.api_key_id = apiKeyId
-  }
-
-  const { data } = await apiClient.get<UsageStatsResponse>('/usage/stats', {
-    params
-  })
-  return data
-}
-
-/**
- * Get usage statistics for a date range
- * @param startDate - Start date (YYYY-MM-DD format)
- * @param endDate - End date (YYYY-MM-DD format)
- * @param apiKeyId - Optional API key ID filter
- * @returns Usage statistics
- */
-export async function getStatsByDateRange(
-  startDate: string,
-  endDate: string,
-  apiKeyId?: number
-): Promise<UsageStatsResponse> {
-  const params: Record<string, unknown> = {
-    start_date: startDate,
-    end_date: endDate
-  }
 
   if (apiKeyId !== undefined) {
     params.api_key_id = apiKeyId
@@ -293,23 +247,6 @@ export async function getDashboardModels(params?: {
   return data
 }
 
-/**
- * Get daily usage details for one API key owned by the current user.
- * @param apiKeyId - API key ID
- * @param days - Number of days to include (1-90)
- * @returns Daily usage detail rows
- */
-export async function getMyApiKeyDailyUsage(
-  apiKeyId: number,
-  days: number = 30
-): Promise<ApiKeyDailyUsageResponse> {
-  const { data } = await apiClient.get<ApiKeyDailyUsageResponse>(
-    `/user/api-keys/${apiKeyId}/usage/daily`,
-    { params: { days } }
-  )
-  return data
-}
-
 export async function getDashboardSnapshotV2(
   params?: UsageDashboardSnapshotV2Params
 ): Promise<UsageDashboardSnapshotV2Response> {
@@ -372,14 +309,12 @@ export const usageAPI = {
   list,
   query,
   getStats,
-  getStatsByDateRange,
   getByDateRange,
   getById,
   // Dashboard
   getDashboardStats,
   getDashboardTrend,
   getDashboardModels,
-  getMyApiKeyDailyUsage,
   getDashboardSnapshotV2,
   getDashboardApiKeysUsage,
   // Error requests

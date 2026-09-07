@@ -10,8 +10,7 @@ import type {
   TotpSetupResponse,
   TotpEnableRequest,
   TotpEnableResponse,
-  TotpDisableRequest,
-  TotpVerificationMethod
+  TotpDisableRequest
 } from '@/types'
 
 /**
@@ -20,15 +19,6 @@ import type {
  */
 export async function getStatus(): Promise<TotpStatus> {
   const { data } = await apiClient.get<TotpStatus>('/user/totp/status')
-  return data
-}
-
-/**
- * Get verification method for TOTP operations
- * @returns Method required for setup/disable（邮件体系移除后恒为 password）
- */
-export async function getVerificationMethod(): Promise<TotpVerificationMethod> {
-  const { data } = await apiClient.get<TotpVerificationMethod>('/user/totp/verification-method')
   return data
 }
 
@@ -82,7 +72,6 @@ export async function stepUp(code: string): Promise<TotpStepUpResponse> {
 
 export const totpAPI = {
   getStatus,
-  getVerificationMethod,
   initiateSetup,
   enable,
   disable,

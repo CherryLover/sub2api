@@ -122,16 +122,6 @@ export async function deleteUser(id: number): Promise<{ message: string }> {
   return data
 }
 
-/**
- * Update user concurrency
- * @param id - User ID
- * @param concurrency - New concurrency limit
- * @returns Updated user
- */
-export async function updateConcurrency(id: number, concurrency: number): Promise<AdminUser> {
-  return update(id, { concurrency })
-}
-
 /** Overwrite concurrency and/or RPM limits for multiple users in one request. */
 export async function batchUpdateLimits(
   request: BatchUpdateUserLimitsRequest
@@ -160,30 +150,6 @@ export async function toggleStatus(id: number, status: 'active' | 'disabled'): P
  */
 export async function getUserApiKeys(id: number): Promise<PaginatedResponse<ApiKey>> {
   const { data } = await apiClient.get<PaginatedResponse<ApiKey>>(`/admin/users/${id}/api-keys`)
-  return data
-}
-
-/**
- * Get user's usage statistics
- * @param id - User ID
- * @param period - Time period
- * @returns User usage statistics
- */
-export async function getUserUsageStats(
-  id: number,
-  period: string = 'month'
-): Promise<{
-  total_requests: number
-  total_cost: number
-  total_tokens: number
-}> {
-  const { data } = await apiClient.get<{
-    total_requests: number
-    total_cost: number
-    total_tokens: number
-  }>(`/admin/users/${id}/usage`, {
-    params: { period }
-  })
   return data
 }
 
@@ -284,11 +250,9 @@ export const usersAPI = {
   create,
   update,
   delete: deleteUser,
-  updateConcurrency,
   batchUpdateLimits,
   toggleStatus,
   getUserApiKeys,
-  getUserUsageStats,
   replaceGroup,
   getPlatformQuotas,
   updatePlatformQuotas,

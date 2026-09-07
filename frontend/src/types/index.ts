@@ -1876,10 +1876,6 @@ export interface TotpDisableRequest {
   password?: string
 }
 
-export interface TotpVerificationMethod {
-  method: 'password'
-}
-
 export interface TotpLoginResponse {
   requires_2fa: boolean
   temp_token?: string

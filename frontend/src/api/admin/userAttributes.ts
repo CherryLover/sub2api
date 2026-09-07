@@ -63,16 +63,6 @@ export async function deleteDefinition(id: number): Promise<{ message: string }>
 }
 
 /**
- * Reorder attribute definitions
- */
-export async function reorderDefinitions(ids: number[]): Promise<{ message: string }> {
-  const { data } = await apiClient.put<{ message: string }>('/admin/user-attributes/reorder', {
-    ids
-  })
-  return data
-}
-
-/**
  * Get user's attribute values
  */
 export async function getUserAttributeValues(userId: number): Promise<UserAttributeValue[]> {
@@ -122,7 +112,6 @@ export const userAttributesAPI = {
   createDefinition,
   updateDefinition,
   deleteDefinition,
-  reorderDefinitions,
   getUserAttributeValues,
   updateUserAttributeValues,
   getBatchUserAttributes
