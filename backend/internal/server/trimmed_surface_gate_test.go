@@ -542,6 +542,24 @@ func TestAdminAPIKeySurfaceRegistered(t *testing.T) {
 	require.False(t, tokenRoute, "不应存在管理员用 Key 换用量令牌的接口")
 }
 
+// TestAccountRecentRequestsSurfaceRegistered 账号「容量负载」抽屉的最近请求接口必须挂在 /admin 下：
+// 它会回明细里的用户邮箱与 Key 名称，只能给管理员看，不允许出现在用户侧前缀。
+func TestAccountRecentRequestsSurfaceRegistered(t *testing.T) {
+	router, _ := newTrimmedSurfaceRouter(t)
+
+	routes := make(map[string]struct{})
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = struct{}{}
+	}
+	_, exists := routes["GET /api/v1/admin/accounts/:id/recent-requests"]
+	require.True(t, exists, "账号最近请求路由 GET /api/v1/admin/accounts/:id/recent-requests 应已注册")
+	for _, route := range router.Routes() {
+		if strings.HasSuffix(route.Path, "/recent-requests") {
+			require.Truef(t, strings.HasPrefix(route.Path, "/api/v1/admin/"), "最近请求接口只能挂在 /admin 下，发现 %s", route.Path)
+		}
+	}
+}
+
 // TestPublicSettingsKeepsRiskControlSwitch risk_control_enabled 是提示词审计的
 // 总开关，内容安全审计删除后仍必须出现在公开设置里，否则前端菜单与路由守卫会失效。
 func TestPublicSettingsKeepsRiskControlSwitch(t *testing.T) {

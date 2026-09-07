@@ -256,3 +256,35 @@ func TestUsageLogFromService_PreservesHistoricalMissingImageSize(t *testing.T) {
 func f64Ptr(value float64) *float64 {
 	return &value
 }
+
+func TestUsageLogFromServiceAdmin_AccountSummaryCarriesPlatformOnly(t *testing.T) {
+	t.Parallel()
+
+	log := &service.UsageLog{
+		RequestID: "req_platform",
+		Model:     "gpt-5",
+		Account: &service.Account{
+			ID:          2,
+			Name:        "openai-main",
+			Platform:    service.PlatformOpenAI,
+			Credentials: map[string]any{"api_key": "sk-must-not-leak"},
+		},
+	}
+
+	adminDTO := UsageLogFromServiceAdmin(log)
+	require.NotNil(t, adminDTO.Account)
+	require.Equal(t, int64(2), adminDTO.Account.ID)
+	require.Equal(t, "openai-main", adminDTO.Account.Name)
+	require.Equal(t, service.PlatformOpenAI, adminDTO.Account.Platform)
+
+	adminJSON, err := json.Marshal(adminDTO)
+	require.NoError(t, err)
+	require.Contains(t, string(adminJSON), `"account":{"id":2,"name":"openai-main","platform":"openai"}`)
+	require.NotContains(t, string(adminJSON), "credentials")
+	require.NotContains(t, string(adminJSON), "sk-must-not-leak")
+
+	// 用户侧 DTO 依旧不带账号。
+	userJSON, err := json.Marshal(UsageLogFromService(log))
+	require.NoError(t, err)
+	require.NotContains(t, string(userJSON), `"account"`)
+}
