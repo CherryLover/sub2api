@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -60,7 +61,20 @@ type stubAdminService struct {
 		sortOrder string
 		calls     int
 	}
-	lastListProxies struct {
+	lastListAPIKeys struct {
+		params  pagination.PaginationParams
+		filters service.AdminAPIKeyListFilters
+		calls   int
+	}
+	listAPIKeysErr        error
+	lastAdminUpdateAPIKey struct {
+		keyID int64
+		input service.AdminUpdateAPIKeyInput
+		calls int
+	}
+	deletedAPIKeyIDs []int64
+	deleteAPIKeyErr  error
+	lastListProxies  struct {
 		protocol  string
 		status    string
 		search    string
@@ -627,10 +641,87 @@ func (s *stubAdminService) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 					k.GroupID = &gid
 				}
 			}
+			s.apiKeys[i] = k
 			return &service.AdminUpdateAPIKeyGroupIDResult{APIKey: &k}, nil
 		}
 	}
 	return nil, service.ErrAPIKeyNotFound
+}
+
+// AdminListAPIKeys 记录透传的分页/排序/筛选参数，按 UserID / GroupID / Status / Search 过滤内存里的 Key。
+func (s *stubAdminService) AdminListAPIKeys(ctx context.Context, params pagination.PaginationParams, filters service.AdminAPIKeyListFilters) ([]service.APIKey, *pagination.PaginationResult, error) {
+	s.lastListAPIKeys.params = params
+	s.lastListAPIKeys.filters = filters
+	s.lastListAPIKeys.calls++
+	if s.listAPIKeysErr != nil {
+		return nil, nil, s.listAPIKeysErr
+	}
+	out := make([]service.APIKey, 0, len(s.apiKeys))
+	for _, k := range s.apiKeys {
+		if filters.UserID != nil && k.UserID != *filters.UserID {
+			continue
+		}
+		if filters.GroupID != nil {
+			if *filters.GroupID == 0 && k.GroupID != nil {
+				continue
+			}
+			if *filters.GroupID > 0 && (k.GroupID == nil || *k.GroupID != *filters.GroupID) {
+				continue
+			}
+		}
+		if filters.Status != "" && k.Status != filters.Status {
+			continue
+		}
+		if filters.Search != "" && !strings.Contains(k.Name, filters.Search) && !strings.Contains(k.Key, filters.Search) {
+			continue
+		}
+		out = append(out, k)
+	}
+	return out, &pagination.PaginationResult{Total: int64(len(out)), Page: params.Page, PageSize: params.PageSize}, nil
+}
+
+// AdminUpdateAPIKey 只改内存里对应 Key 的 status / IP 名单，记录入参供断言。
+func (s *stubAdminService) AdminUpdateAPIKey(ctx context.Context, keyID int64, input service.AdminUpdateAPIKeyInput) (*service.APIKey, error) {
+	s.lastAdminUpdateAPIKey.keyID = keyID
+	s.lastAdminUpdateAPIKey.input = input
+	s.lastAdminUpdateAPIKey.calls++
+	if input.Status != nil {
+		if err := service.ValidateAdminAPIKeyStatus(*input.Status); err != nil {
+			return nil, err
+		}
+	}
+	for i := range s.apiKeys {
+		if s.apiKeys[i].ID != keyID {
+			continue
+		}
+		if input.Status != nil {
+			s.apiKeys[i].Status = *input.Status
+		}
+		if input.IPWhitelist != nil {
+			s.apiKeys[i].IPWhitelist = *input.IPWhitelist
+		}
+		if input.IPBlacklist != nil {
+			s.apiKeys[i].IPBlacklist = *input.IPBlacklist
+		}
+		k := s.apiKeys[i]
+		return &k, nil
+	}
+	return nil, service.ErrAPIKeyNotFound
+}
+
+// AdminDeleteAPIKey 从内存里移除对应 Key；不存在返回 ErrAPIKeyNotFound。
+func (s *stubAdminService) AdminDeleteAPIKey(ctx context.Context, keyID int64) error {
+	if s.deleteAPIKeyErr != nil {
+		return s.deleteAPIKeyErr
+	}
+	for i := range s.apiKeys {
+		if s.apiKeys[i].ID == keyID {
+			s.apiKeys = append(s.apiKeys[:i], s.apiKeys[i+1:]...)
+			s.deletedAPIKeyIDs = append(s.deletedAPIKeyIDs, keyID)
+			return nil
+		}
+	}
+	return service.ErrAPIKeyNotFound
 }
 
 func (s *stubAdminService) AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*service.APIKey, error) {

@@ -418,8 +418,12 @@ func (r *apiKeyRepository) deleteWithTombstone(ctx context.Context, exec *dbent.
 }
 
 func (r *apiKeyRepository) apiKeyListByUserIDQuery(userID int64, filters service.APIKeyListFilters) *dbent.APIKeyQuery {
-	q := r.activeQuery().Where(apikey.UserIDEQ(userID))
+	return applyAPIKeyListFilters(r.activeQuery().Where(apikey.UserIDEQ(userID)), filters)
+}
 
+// applyAPIKeyListFilters 把 search / status / group_id 三项筛选叠到查询上。
+// 用户侧列表与管理端密钥总表共用这一段，保证两边「未分组」「按名字或 Key 片段搜索」语义一致。
+func applyAPIKeyListFilters(q *dbent.APIKeyQuery, filters service.APIKeyListFilters) *dbent.APIKeyQuery {
 	if filters.Search != "" {
 		q = q.Where(apikey.Or(
 			apikey.NameContainsFold(filters.Search),
@@ -449,6 +453,46 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 	}
 
 	keysQuery := q.
+		WithGroup().
+		Offset(params.Offset()).
+		Limit(params.Limit())
+	for _, order := range apiKeyListOrder(params) {
+		keysQuery = keysQuery.Order(order)
+	}
+
+	keys, err := keysQuery.All(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outKeys := make([]service.APIKey, 0, len(keys))
+	for i := range keys {
+		outKeys = append(outKeys, *apiKeyEntityToService(keys[i]))
+	}
+	if err := r.attachLastUsedIPs(ctx, outKeys); err != nil {
+		return nil, nil, err
+	}
+
+	return outKeys, paginationResultFromTotal(int64(total), params), nil
+}
+
+// ListAllForAdmin 跨用户分页列出全站 API Key，供管理端密钥总表使用。
+// 筛选块与 ListByUserID 完全一致，只是 user_id 从必填变成可选；排序白名单同 apiKeyListOrder。
+// 每行预载 User 与 Group（总表要显示归属用户），并像用户侧一样补最近使用 IP。
+func (r *apiKeyRepository) ListAllForAdmin(ctx context.Context, params pagination.PaginationParams, filters service.AdminAPIKeyListFilters) ([]service.APIKey, *pagination.PaginationResult, error) {
+	q := r.activeQuery()
+	if filters.UserID != nil && *filters.UserID > 0 {
+		q = q.Where(apikey.UserIDEQ(*filters.UserID))
+	}
+	q = applyAPIKeyListFilters(q, filters.APIKeyListFilters())
+
+	total, err := q.Count(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	keysQuery := q.
+		WithUser().
 		WithGroup().
 		Offset(params.Offset()).
 		Limit(params.Limit())

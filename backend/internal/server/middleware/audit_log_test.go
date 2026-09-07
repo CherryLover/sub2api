@@ -25,6 +25,8 @@ func TestDeriveAuditAction(t *testing.T) {
 		{"DELETE", "/api/v1/admin/backups/:id", "admin.backups.delete"},
 		{"GET", "/api/v1/admin/users/:id/api-keys", "admin.users.api_keys.read"},
 		{"POST", "/api/v1/admin/accounts/batch", "admin.accounts.batch.create"},
+		{"PUT", "/api/v1/admin/api-keys/:id", "admin.api_keys.update"},
+		{"DELETE", "/api/v1/admin/api-keys/:id", "admin.api_keys.delete"},
 	}
 	for _, tc := range cases {
 		if got := deriveAuditAction(tc.method, tc.path); got != tc.want {
@@ -128,6 +130,48 @@ func TestPromptAuditAdminOperationsUseOmittedBodiesAndAllowlistedDetails(t *test
 	require.Equal(t, "success", probe.Extra["result"])
 	require.Equal(t, "guard-1", probe.Extra["guard_endpoint_id"])
 	require.Equal(t, true, probe.Extra["token_applied"])
+}
+
+// 管理端密钥总表是跨用户读取，虽然只回掩码也必须像「某用户的 Key 列表」一样记审计；
+// PUT / DELETE 由中间件按方法自动记录，这里只需锁住 GET 的登记。
+func TestAdminAPIKeyListIsAuditedAsSensitiveRead(t *testing.T) {
+	require.Equal(t, "admin.api_keys.read", auditSensitiveReads["GET /api/v1/admin/api-keys"])
+
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyUser), AuthSubject{UserID: 77})
+		c.Set(string(ContextKeyUserRole), "admin")
+		c.Next()
+	})
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	router.GET("/api/v1/admin/api-keys", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	router.GET("/api/v1/admin/groups", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	router.DELETE("/api/v1/admin/api-keys/:id", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/api/v1/admin/api-keys?page=1&search=sk-", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/admin/groups", nil),
+		httptest.NewRequest(http.MethodDelete, "/api/v1/admin/api-keys/10", nil),
+	} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+	}
+	auditService.Stop()
+
+	repository.mu.Lock()
+	logs := append([]*service.AuditLog(nil), repository.logs...)
+	repository.mu.Unlock()
+
+	actions := make([]string, 0, len(logs))
+	for _, entry := range logs {
+		actions = append(actions, entry.Action)
+	}
+	require.ElementsMatch(t, []string{"admin.api_keys.read", "admin.api_keys.delete"}, actions, "总表 GET 与删除都要入审计，普通 GET 不记")
 }
 
 func TestPromptAuditMutationAuditRoutesHaveStableActionsAndOmitBodies(t *testing.T) {

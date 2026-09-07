@@ -7,6 +7,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
 // AdminService interface defines admin management operations
@@ -58,6 +59,12 @@ type AdminService interface {
 	// API Key management (admin)
 	AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error)
 	AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*APIKey, error)
+	// AdminListAPIKeys 跨用户分页列出全站 API Key（带 User / Group），供管理端密钥总表使用。
+	AdminListAPIKeys(ctx context.Context, params pagination.PaginationParams, filters AdminAPIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error)
+	// AdminUpdateAPIKey 管理员改某把 Key 的状态与 IP 名单；只写显式给出的列。
+	AdminUpdateAPIKey(ctx context.Context, keyID int64, input AdminUpdateAPIKeyInput) (*APIKey, error)
+	// AdminDeleteAPIKey 管理员删除任意用户的 Key（软删 + 墓碑），删完清认证缓存。
+	AdminDeleteAPIKey(ctx context.Context, keyID int64) error
 
 	// ReplaceUserGroup 替换用户的专属分组：授予新分组权限、迁移 Key、移除旧分组权限
 	ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error)
