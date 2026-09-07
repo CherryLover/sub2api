@@ -74,7 +74,7 @@ type stubAdminService struct {
 	}
 	deletedAPIKeyIDs []int64
 	deleteAPIKeyErr  error
-	lastListProxies struct {
+	lastListProxies  struct {
 		protocol  string
 		status    string
 		search    string
