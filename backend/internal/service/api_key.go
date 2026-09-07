@@ -9,6 +9,7 @@ import (
 // API Key status constants
 const (
 	StatusAPIKeyActive         = "active"
+	StatusAPIKeyInactive       = "inactive"
 	StatusAPIKeyDisabled       = "disabled"
 	StatusAPIKeyQuotaExhausted = "quota_exhausted"
 	StatusAPIKeyExpired        = "expired"
@@ -142,4 +143,18 @@ type APIKeyListFilters struct {
 	Search  string
 	Status  string
 	GroupID *int64 // nil=不筛选, 0=无分组, >0=指定分组
+}
+
+// AdminAPIKeyListFilters 管理端跨用户密钥总表的筛选条件。
+// 比用户侧多一个 UserID（nil=全站，>0=只看该用户），其余三项语义与 APIKeyListFilters 完全一致。
+type AdminAPIKeyListFilters struct {
+	UserID  *int64 // nil=不按用户筛选, >0=指定用户
+	GroupID *int64 // nil=不筛选, 0=无分组, >0=指定分组
+	Status  string
+	Search  string
+}
+
+// APIKeyListFilters 把总表筛选降级成用户侧的三项筛选，供仓储层复用同一段筛选逻辑。
+func (f AdminAPIKeyListFilters) APIKeyListFilters() APIKeyListFilters {
+	return APIKeyListFilters{Search: f.Search, Status: f.Status, GroupID: f.GroupID}
 }
