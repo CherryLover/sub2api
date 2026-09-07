@@ -13,7 +13,7 @@
         <div v-for="key in apiKeys" :key="key.id" class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-600 dark:bg-dark-800">
           <div class="flex items-start justify-between">
             <div class="min-w-0 flex-1">
-              <div class="mb-1 flex items-center gap-2"><span class="font-medium text-gray-900 dark:text-white">{{ key.name }}</span><span :class="['badge text-xs', key.status === 'active' ? 'badge-success' : 'badge-danger']">{{ key.status }}</span></div>
+              <div class="mb-1 flex items-center gap-2"><span class="font-medium text-gray-900 dark:text-white">{{ key.name }}</span><span :class="['badge text-xs', statusBadgeClass(key.status)]" :data-test="`key-status-${key.id}`">{{ t('keys.status.' + key.status) }}</span><svg v-if="hasIpRules(key)" class="h-3.5 w-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><title>{{ t('admin.apiKeys.ipRestrictionEnabled') }}</title><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg></div>
               <p class="truncate font-mono text-sm text-gray-500">{{ key.key.substring(0, 20) }}...{{ key.key.substring(key.key.length - 8) }}</p>
             </div>
           </div>
@@ -43,10 +43,101 @@
             </div>
             <div class="flex items-center gap-1"><span>{{ t('admin.users.columns.created') }}: {{ formatDateTime(key.created_at) }}</span></div>
           </div>
+
+          <!-- 操作：启停 / IP 规则 / 删除 -->
+          <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3 dark:border-dark-700">
+            <button
+              type="button"
+              :class="[
+                'rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-60',
+                key.status === 'active'
+                  ? 'bg-orange-50 text-orange-700 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-300 dark:hover:bg-orange-900/30'
+                  : 'bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-300 dark:hover:bg-green-900/30'
+              ]"
+              :disabled="updatingKeyIds.has(key.id)"
+              :data-test="`key-toggle-${key.id}`"
+              @click="toggleKeyStatus(key)"
+            >
+              {{ key.status === 'active' ? t('admin.apiKeys.disable') : t('admin.apiKeys.enable') }}
+            </button>
+            <button
+              type="button"
+              :class="[
+                'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                ipEditorKeyId === key.id
+                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600'
+              ]"
+              :data-test="`key-ip-rules-${key.id}`"
+              @click="toggleIpEditor(key)"
+            >
+              {{ t('admin.apiKeys.ipRules') }}
+            </button>
+            <button
+              type="button"
+              class="rounded-md bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
+              :data-test="`key-delete-${key.id}`"
+              @click="confirmDelete(key)"
+            >
+              {{ t('common.delete') }}
+            </button>
+          </div>
+
+          <!-- IP 白/黑名单编辑（每行一个 IP 或 CIDR，留空表示不限制） -->
+          <div v-if="ipEditorKeyId === key.id" class="mt-3 space-y-3" :data-test="`ip-editor-${key.id}`">
+            <div>
+              <label class="input-label">{{ t('admin.apiKeys.ipWhitelist') }}</label>
+              <textarea
+                v-model="ipForm.ip_whitelist"
+                rows="3"
+                class="input font-mono text-sm"
+                :placeholder="t('admin.apiKeys.ipWhitelistPlaceholder')"
+                data-test="ip-whitelist-input"
+              />
+              <p class="input-hint">{{ t('admin.apiKeys.ipWhitelistHint') }}</p>
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.apiKeys.ipBlacklist') }}</label>
+              <textarea
+                v-model="ipForm.ip_blacklist"
+                rows="3"
+                class="input font-mono text-sm"
+                :placeholder="t('admin.apiKeys.ipBlacklistPlaceholder')"
+                data-test="ip-blacklist-input"
+              />
+              <p class="input-hint">{{ t('admin.apiKeys.ipBlacklistHint') }}</p>
+            </div>
+            <div class="flex justify-end gap-2">
+              <button type="button" class="btn btn-secondary btn-sm" @click="closeIpEditor">
+                {{ t('common.cancel') }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="updatingKeyIds.has(key.id)"
+                data-test="ip-rules-save"
+                @click="saveIpRules(key)"
+              >
+                {{ t('admin.apiKeys.saveIpRules') }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </BaseDialog>
+
+  <!-- 删除确认 -->
+  <ConfirmDialog
+    :show="deletingKey !== null"
+    :title="t('admin.apiKeys.deleteKey')"
+    :message="t('admin.apiKeys.deleteConfirmMessage', { name: deletingKey?.name ?? '', email: user?.email ?? '' })"
+    :confirm-text="t('common.delete')"
+    :cancel-text="t('common.cancel')"
+    :danger="true"
+    @confirm="handleDelete"
+    @cancel="deletingKey = null"
+  />
 
   <!-- Group Selector Dropdown -->
   <Teleport to="body">
@@ -111,6 +202,7 @@ import { adminAPI } from '@/api/admin'
 import { formatDateTime } from '@/utils/format'
 import type { AdminUser, AdminGroup, ApiKey } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 
@@ -148,6 +240,8 @@ watch(() => props.show, (v) => {
     loadGroups()
   } else {
     closeGroupSelector()
+    closeIpEditor()
+    deletingKey.value = null
   }
 })
 
@@ -221,6 +315,101 @@ const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
     appStore.showError(error?.message || t('admin.users.groupChangeFailed'))
   } finally {
     updatingKeyIds.value.delete(key.id)
+  }
+}
+
+// ---------- 启停 / IP 规则 / 删除 ----------
+const statusBadgeClass = (status: ApiKey['status']) => {
+  if (status === 'active') return 'badge-success'
+  if (status === 'quota_exhausted') return 'badge-warning'
+  if (status === 'expired') return 'badge-danger'
+  return 'badge-gray'
+}
+
+const hasIpRules = (key: ApiKey) =>
+  (key.ip_whitelist?.length ?? 0) > 0 || (key.ip_blacklist?.length ?? 0) > 0
+
+const replaceKey = (updated: ApiKey) => {
+  const idx = apiKeys.value.findIndex((k) => k.id === updated.id)
+  if (idx !== -1) {
+    apiKeys.value[idx] = updated
+  }
+}
+
+const toggleKeyStatus = async (key: ApiKey) => {
+  const newStatus = key.status === 'active' ? 'inactive' : 'active'
+  updatingKeyIds.value.add(key.id)
+  try {
+    const result = await adminAPI.apiKeys.update(key.id, { status: newStatus })
+    replaceKey(result.api_key)
+    appStore.showSuccess(
+      newStatus === 'active' ? t('admin.apiKeys.keyEnabled') : t('admin.apiKeys.keyDisabled')
+    )
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.apiKeys.failedToUpdate'))
+  } finally {
+    updatingKeyIds.value.delete(key.id)
+  }
+}
+
+const ipEditorKeyId = ref<number | null>(null)
+const ipForm = ref({ ip_whitelist: '', ip_blacklist: '' })
+
+const toggleIpEditor = (key: ApiKey) => {
+  if (ipEditorKeyId.value === key.id) {
+    closeIpEditor()
+    return
+  }
+  closeGroupSelector()
+  ipForm.value = {
+    ip_whitelist: (key.ip_whitelist || []).join('\n'),
+    ip_blacklist: (key.ip_blacklist || []).join('\n')
+  }
+  ipEditorKeyId.value = key.id
+}
+
+const closeIpEditor = () => {
+  ipEditorKeyId.value = null
+}
+
+const parseIPList = (text: string): string[] =>
+  text.split('\n').map((ip) => ip.trim()).filter((ip) => ip.length > 0)
+
+const saveIpRules = async (key: ApiKey) => {
+  updatingKeyIds.value.add(key.id)
+  try {
+    const result = await adminAPI.apiKeys.update(key.id, {
+      ip_whitelist: parseIPList(ipForm.value.ip_whitelist),
+      ip_blacklist: parseIPList(ipForm.value.ip_blacklist)
+    })
+    replaceKey(result.api_key)
+    appStore.showSuccess(t('admin.apiKeys.keyUpdated'))
+    closeIpEditor()
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.apiKeys.failedToUpdate'))
+  } finally {
+    updatingKeyIds.value.delete(key.id)
+  }
+}
+
+const deletingKey = ref<ApiKey | null>(null)
+
+const confirmDelete = (key: ApiKey) => {
+  closeGroupSelector()
+  deletingKey.value = key
+}
+
+const handleDelete = async () => {
+  const key = deletingKey.value
+  if (!key) return
+  try {
+    await adminAPI.apiKeys.remove(key.id)
+    apiKeys.value = apiKeys.value.filter((k) => k.id !== key.id)
+    if (ipEditorKeyId.value === key.id) closeIpEditor()
+    appStore.showSuccess(t('admin.apiKeys.keyDeleted'))
+    deletingKey.value = null
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.apiKeys.failedToDelete'))
   }
 }
 
