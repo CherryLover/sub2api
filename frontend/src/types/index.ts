@@ -425,6 +425,13 @@ export interface CompositeRouteDecision {
   reason?: string
 }
 
+/** 管理端接口回填的密钥所属用户摘要 */
+export interface ApiKeyOwner {
+  id: number
+  email: string
+  username: string
+}
+
 export interface ApiKey {
   id: number
   user_id: number
@@ -442,6 +449,8 @@ export interface ApiKey {
   updated_at: string
   current_concurrency: number
   group?: Group
+  /** 仅管理端密钥总表 / 用户密钥接口填充：所属用户 */
+  user?: ApiKeyOwner
   rate_limit_5h: number
   rate_limit_1d: number
   rate_limit_7d: number

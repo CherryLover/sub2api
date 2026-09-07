@@ -117,6 +117,7 @@ export default {
     usage: '使用记录',
     profile: '个人资料',
     users: '用户管理',
+    adminApiKeys: '密钥总表',
     groups: '分组管理',
     channels: '渠道管理',
     availableChannels: '可用渠道',

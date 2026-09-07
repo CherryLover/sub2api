@@ -307,6 +307,8 @@ const applyRouteQueryFilters = () => {
   const queryStartDate = getSingleQueryValue(route.query.start_date)
   const queryEndDate = getSingleQueryValue(route.query.end_date)
   const queryUserId = getNumericQueryValue(route.query.user_id)
+  // 密钥总表「查用量」以 ?api_key_id=<id> 跳过来，直接落到密钥筛选
+  const queryApiKeyId = getNumericQueryValue(route.query.api_key_id)
 
   if (queryStartDate) {
     startDate.value = queryStartDate
@@ -318,10 +320,29 @@ const applyRouteQueryFilters = () => {
   filters.value = {
     ...filters.value,
     user_id: queryUserId,
+    api_key_id: queryApiKeyId,
     start_date: startDate.value,
     end_date: endDate.value
   }
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
+}
+
+// 路由带来的 api_key_id 只是个数字，回显时尽量换成密钥名；查不到就显示 #id
+const loadRouteApiKeyFilterLabel = async () => {
+  const requestedApiKeyId = filters.value.api_key_id
+  if (!requestedApiKeyId) return
+  const fallbackLabel = `#${requestedApiKeyId}`
+  const routeApiKeyFilterIsCurrent = () => filters.value.api_key_id === requestedApiKeyId
+
+  try {
+    const keys = await adminAPI.usage.searchApiKeys(filters.value.user_id, '')
+    if (!routeApiKeyFilterIsCurrent()) return
+    const matched = keys.find((k) => k.id === requestedApiKeyId)
+    usageFiltersRef.value?.setApiKeyKeyword?.(matched?.name || fallbackLabel)
+  } catch {
+    if (!routeApiKeyFilterIsCurrent()) return
+    usageFiltersRef.value?.setApiKeyKeyword?.(fallbackLabel)
+  }
 }
 
 const loadRouteUserFilterLabel = async () => {
@@ -844,6 +865,7 @@ const handleColumnClickOutside = (event: MouseEvent) => {
 onMounted(() => {
   applyRouteQueryFilters()
   void loadRouteUserFilterLabel()
+  void loadRouteApiKeyFilterLabel()
   loadLogs()
   loadStats()
   loadModelStats(modelDistributionSource.value, true)

@@ -15,6 +15,7 @@ import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
+import { resolveAdminEquivalentPath } from './adminRedirect'
 import { resolveRouteDocumentTitle } from './title'
 import {
   captureLoginEntryPath,
@@ -199,6 +200,18 @@ const routes: RouteRecordRaw[] = [
       title: 'User Management',
       titleKey: 'admin.users.title',
       descriptionKey: 'admin.users.description'
+    }
+  },
+  {
+    path: '/admin/api-keys',
+    name: 'AdminApiKeys',
+    component: () => import('@/views/admin/ApiKeysView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'API Keys',
+      titleKey: 'admin.apiKeys.title',
+      descriptionKey: 'admin.apiKeys.description'
     }
   },
   {
@@ -504,6 +517,16 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
+  // 管理员访问用户端的仪表盘/用量页时送到管理端对应页：这两页对管理员只是
+  // 重复入口（侧栏"我的账户"区也不再列出它们）。查询串原样带过去，例如
+  // /usage?api_key_id=1 → /admin/usage?api_key_id=1。/keys 管理员自己也用，不在此列。
+  if (authStore.isAdmin) {
+    const adminTarget = resolveAdminEquivalentPath(to.path)
+    if (adminTarget) {
+      next({ path: adminTarget, query: to.query })
+      return
+    }
+  }
 
   // 公共设置可能尚未加载（App.vue 的 onMounted 异步拉取晚于首次导航，且纯静态部署
   // 无 __APP_CONFIG__ 注入）。此时 cachedPublicSettings 为空会把 risk_control
