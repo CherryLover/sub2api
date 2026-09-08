@@ -1292,6 +1292,13 @@ func (a *Account) IsOpenAIOAuth() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeOAuth
 }
 
+// UsesOpenAICodexProtocol reports OpenAI credentials that use the
+// ChatGPT/Codex inference protocol. Setup tokens share that forwarding
+// contract but do not participate in OAuth token refresh.
+func (a *Account) UsesOpenAICodexProtocol() bool {
+	return a != nil && a.IsOpenAI() && a.IsOAuth()
+}
+
 func (a *Account) IsOpenAIChatGPTSubscription() bool {
 	if !a.IsOpenAIOAuth() {
 		return false

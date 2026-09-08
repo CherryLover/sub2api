@@ -6,6 +6,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAccount_UsesOpenAICodexProtocol(t *testing.T) {
+	tests := []struct {
+		name    string
+		account *Account
+		want    bool
+	}{
+		{"OpenAI OAuth", &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}, true},
+		{"OpenAI setup token", &Account{Platform: PlatformOpenAI, Type: AccountTypeSetupToken}, true},
+		{"OpenAI API key", &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, false},
+		{"other platform OAuth", &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, tt.account.UsesOpenAICodexProtocol())
+		})
+	}
+}
+
 func TestAccount_IsOpenAIPassthroughEnabled(t *testing.T) {
 	t.Run("新字段开启", func(t *testing.T) {
 		account := &Account{
