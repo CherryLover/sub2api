@@ -324,6 +324,28 @@ func TestPatchGrokResponsesBodyDropsNestedUnsupportedFields(t *testing.T) {
 	require.True(t, json.Valid(patched))
 	require.False(t, strings.Contains(string(patched), "external_web_access"))
 	require.Equal(t, "kept_fn", gjson.GetBytes(patched, "tools.0.name").String())
+	require.False(t, gjson.GetBytes(patched, "metadata").Exists())
+}
+
+func TestSanitizeGrokResponsesToolsSimplifiesInvalidRootUnion(t *testing.T) {
+	body := []byte(`{"tools":[
+		{"type":"function","name":"invalid_union","strict":true,"parameters":{"oneOf":[{"type":"object","properties":{"id":{"type":"string"}}},{"type":"null"}]}},
+		{"type":"function","name":"object_only","strict":true,"parameters":{"type":"object","anyOf":[{"type":"object"},{"type":"object"}]}}
+	]}`)
+
+	patched, err := sanitizeGrokResponsesTools(body)
+	require.NoError(t, err)
+
+	invalid := gjson.GetBytes(patched, `tools.#(name=="invalid_union")`)
+	require.Equal(t, "object", invalid.Get("parameters.type").String())
+	require.True(t, invalid.Get("parameters.properties").IsObject())
+	require.True(t, invalid.Get("parameters.additionalProperties").Bool())
+	require.False(t, invalid.Get("parameters.oneOf").Exists())
+	require.Equal(t, gjson.False, invalid.Get("strict").Type)
+
+	objectOnly := gjson.GetBytes(patched, `tools.#(name=="object_only")`)
+	require.True(t, objectOnly.Get("parameters.anyOf").Exists())
+	require.Equal(t, gjson.True, objectOnly.Get("strict").Type)
 }
 
 func TestPatchGrokResponsesBodyFlattensNamespaceTools(t *testing.T) {
