@@ -13,6 +13,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -911,23 +912,31 @@ func sanitizeAnthropicBodyForBetaTokens(body []byte, anthropicBetaHeader string)
 	if len(body) == 0 {
 		return body, false
 	}
-	if !gjson.GetBytes(body, "context_management").Exists() {
-		return body, false
+	changed := false
+	if gjson.GetBytes(body, "context_management").Exists() &&
+		!anthropicBetaTokensContains(anthropicBetaHeader, anthropicBetaContextManagementToken) {
+		if b, err := sjson.DeleteBytes(body, "context_management"); err == nil {
+			body, changed = b, true
+		} else {
+			logger.LegacyPrintf("service.gateway",
+				"[CtxMgmtSanitize] sjson.DeleteBytes failed unexpectedly: %v (body len=%d). "+
+					"body and final anthropic-beta header may be out of sync.", err, len(body))
+		}
 	}
-	if anthropicBetaTokensContains(anthropicBetaHeader, anthropicBetaContextManagementToken) {
-		return body, false
+
+	// thinking.block_binding requires thinking-binding-controls beta. Keep this
+	// symmetric with context_management so clients without the beta do not send
+	// a body field Anthropic will reject.
+	if gjson.GetBytes(body, "thinking.block_binding").Exists() &&
+		!anthropicBetaTokensContains(anthropicBetaHeader, claude.BetaThinkingBindingControls) {
+		if b, err := sjson.DeleteBytes(body, "thinking.block_binding"); err == nil {
+			body, changed = b, true
+		} else {
+			logger.LegacyPrintf("service.gateway",
+				"[ThinkingBindingSanitize] sjson.DeleteBytes failed unexpectedly: %v (body len=%d)", err, len(body))
+		}
 	}
-	if b, err := sjson.DeleteBytes(body, "context_management"); err == nil {
-		return b, true
-	} else {
-		// 不应发生：gjson 刚验证过字段存在 + body 是合法 JSON。如果 sjson 仍报错，
-		// 调用方会拿到 (body, false)，但此前 computeFinalAnthropicBeta 已按“strip 后”
-		// 计算了 finalBeta——两侧会不一致。记录 warning 最小限度提醒运维。
-		logger.LegacyPrintf("service.gateway",
-			"[CtxMgmtSanitize] sjson.DeleteBytes failed unexpectedly: %v (body len=%d). "+
-				"body and final anthropic-beta header may be out of sync.", err, len(body))
-	}
-	return body, false
+	return body, changed
 }
 
 // anthropicBetaTokensContains 检测逗号分隔的 anthropic-beta header 是否含指定 token。
