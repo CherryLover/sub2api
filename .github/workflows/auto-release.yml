@@ -159,27 +159,24 @@ jobs:
 
           SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
 
-          # 已有的最大正式版本 tag（排除 v1.2.3-rc1 这类预发布）
-          LATEST="$(git tag -l 'v[0-9]*' \
+          # 以正式 tag 与仓库 VERSION 中较大的语义版本为基线。精简版是长期 Fork，
+          # 会有已发布但不在本仓库 tag 历史中的上游版本同步；只看旧 Lite tag 会把
+          # 0.2.3 错误地回退成 0.1.187。
+          TAG_LATEST="$(git tag -l 'v[0-9]*' \
             | sed 's/^v//' \
             | grep -E "${SEMVER_RE}" \
             | sort -V \
             | tail -n1 || true)"
-
-          if [ -z "${LATEST}" ]; then
-            # 本 fork 目前一个 tag 都没有：以仓库内 VERSION 文件为起点。
-            # VERSION 正是运行中的二进制自报的版本号（backend/cmd/server/main.go
-            # 通过 //go:embed 读它），从它 +1 patch 起步，已部署实例才能立刻
-            # 检查到"有新版本"，而不是先看到一个比自己旧的版本号。
-            LATEST="$(tr -d ' \r\n' < backend/cmd/server/VERSION)"
-            echo "仓库暂无版本 tag，以 VERSION 文件为起点：${LATEST}"
-            if ! echo "${LATEST}" | grep -qE "${SEMVER_RE}"; then
-              echo "::error::VERSION 文件内容不是 x.y.z：${LATEST}"
-              exit 1
-            fi
-          else
-            echo "当前最大版本 tag：v${LATEST}"
+          FILE_LATEST="$(tr -d ' \r\n' < backend/cmd/server/VERSION)"
+          if ! echo "${FILE_LATEST}" | grep -qE "${SEMVER_RE}"; then
+            echo "::error::VERSION 文件内容不是 x.y.z：${FILE_LATEST}"
+            exit 1
           fi
+          LATEST="$(printf '%s\n%s\n' "${TAG_LATEST}" "${FILE_LATEST}" \
+            | grep -E "${SEMVER_RE}" \
+            | sort -V \
+            | tail -n1)"
+          echo "版本基线：tag=${TAG_LATEST:-无}，VERSION=${FILE_LATEST}，采用=${LATEST}"
 
           if [ -n "${INPUT_VERSION}" ]; then
             NEXT="${INPUT_VERSION#v}"
