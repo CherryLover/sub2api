@@ -490,33 +490,62 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "deepseek v4 pro",
 			model:             "deepseek-v4-pro",
-			expectedInput:     4.35e-7,
-			expectedOutput:    floatPtr(8.7e-7),
-			expectedCacheRead: floatPtr(3.625e-9),
+			expectedInput:     6.6e-7,
+			expectedOutput:    floatPtr(1.98e-6),
+			expectedCacheRead: floatPtr(2.2e-8),
 		},
 		{
 			name:              "deepseek v4 flash",
 			model:             "deepseek-v4-flash",
-			expectedInput:     1.4e-7,
-			expectedOutput:    floatPtr(2.8e-7),
-			expectedCacheRead: floatPtr(2.8e-9),
+			expectedInput:     2.2e-7,
+			expectedOutput:    floatPtr(6.6e-7),
+			expectedCacheRead: floatPtr(7e-9),
 		},
 		{
-			name:              "deepseek chat alias → flash",
+			name:              "deepseek v4 flash vision exp",
+			model:             "deepseek-v4-flash-vision-exp",
+			expectedInput:     2.2e-7,
+			expectedOutput:    floatPtr(6.6e-7),
+			expectedCacheRead: floatPtr(7e-9),
+		},
+		{
+			// deepseek-chat / deepseek-reasoner 已停止服务，统一按 flash 价兜底。
+			name:              "deepseek chat discontinued maps to flash",
 			model:             "deepseek-chat",
-			expectedInput:     1.4e-7,
-			expectedOutput:    floatPtr(2.8e-7),
-			expectedCacheRead: floatPtr(2.8e-9),
+			expectedInput:     2.2e-7,
+			expectedOutput:    floatPtr(6.6e-7),
+			expectedCacheRead: floatPtr(7e-9),
 		},
 		{
-			name:              "deepseek reasoner alias → flash",
+			name:              "deepseek reasoner discontinued maps to flash",
 			model:             "deepseek-reasoner",
-			expectedInput:     1.4e-7,
-			expectedOutput:    floatPtr(2.8e-7),
-			expectedCacheRead: floatPtr(2.8e-9),
+			expectedInput:     2.2e-7,
+			expectedOutput:    floatPtr(6.6e-7),
+			expectedCacheRead: floatPtr(7e-9),
+		},
+		{
+			name:              "unknown deepseek maps to flash",
+			model:             "deepseek-foo",
+			expectedInput:     2.2e-7,
+			expectedOutput:    floatPtr(6.6e-7),
+			expectedCacheRead: floatPtr(7e-9),
 		},
 
 		// ---- 智谱 GLM（z.ai USD 口径）----
+		{
+			name:              "glm 5.3 flagship",
+			model:             "glm-5.3",
+			expectedInput:     1.4e-6,
+			expectedOutput:    floatPtr(4.4e-6),
+			expectedCacheRead: floatPtr(0.26e-6),
+		},
+		{
+			name:              "glm 5.3 flash",
+			model:             "glm-5.3-flash",
+			expectedInput:     0.15e-6,
+			expectedOutput:    floatPtr(0.5e-6),
+			expectedCacheRead: floatPtr(0.03e-6),
+		},
 		{
 			name:              "glm 5.2 flagship",
 			model:             "glm-5.2",
@@ -607,7 +636,21 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedInput:  0.1e-6,
 			expectedOutput: floatPtr(0.1e-6),
 		},
-		// 关键：5.1 / 5.2 必须先于 5 匹配（避免被 glm-5 抢走）
+		// 关键：5.1 / 5.2 / 5.3 必须先于 5 匹配（避免被 glm-5 抢走）
+		{
+			name:              "glm 5.3-flash vs glm 5.3 ordering (verbatim 5.3-flash)",
+			model:             "glm-5.3-flash",
+			expectedInput:     0.15e-6, // = glm-5.3-flash 价格（不是 glm-5.3 的 1.4e-6，更不是 glm-5 的 1e-6）
+			expectedOutput:    floatPtr(0.5e-6),
+			expectedCacheRead: floatPtr(0.03e-6),
+		},
+		{
+			name:              "glm 5.3 vs glm 5 ordering (verbatim 5.3)",
+			model:             "glm-5.3",
+			expectedInput:     1.4e-6, // = glm-5.3 价格（不是 glm-5 的 1e-6）
+			expectedOutput:    floatPtr(4.4e-6),
+			expectedCacheRead: floatPtr(0.26e-6),
+		},
 		{
 			name:              "glm 5.1 vs glm 5 ordering (verbatim 5.1)",
 			model:             "glm-5.1",
