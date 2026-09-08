@@ -1,8 +1,21 @@
 # 内部部署裁剪：计划·进度·验证
 
-> 目标：将 sub2api 裁剪为**单管理员、内部部署**的 API 转发网关。
+> 目标：将 sub2api 裁剪为**内部部署、自用多用户**的 API 转发网关。
+> **2026-09-08 调整**：原表述为「单管理员、内部部署」。站长要给其他人创建多个用户使用，**包括多个管理员**，
+> 因此目标改为「内部部署、自用多用户」；正文与第三～五节已同步改写，第六节各轮历史记录保留当时的「单管理员」表述。
+>
+> **保留面（不再裁）**：用户管理（创建 / 编辑 / 停用 / 删除用户）、用户角色与类型（`admin` / `user` 及现有的用户属性、
+> 分组授权 `user_allowed_groups`、每用户平台额度 `user_platform_quotas`）、每用户各自的 API Key、
+> 用户侧 `/keys` `/usage` `/dashboard` `/profile` 四个页面、审计日志、Passkey / TOTP。
+> 管理端「用户管理」的新建 / 编辑弹窗都能把角色设为 `admin`，后端 `POST/PUT /api/v1/admin/users` 接受 `role=admin`
+> （2026-09-08 读码核实，依据见第三节 A 组表下方「多管理员核实」）——**创建第二个管理员已支持，无需新增待办**。
+>
+> **仍然裁掉 / 保持关闭**（已删的不恢复）：注册（管理员建号，`registration_enabled=false` 不变）、支付 / 订阅 / 余额 / 兑换码 / 推广、
+> 第三方登录、邮件体系、内容审计、批量生图、公告、模型广场。
+> 已交付的 A6 各切片（A6-1 / A6-2 / A6-3 / 甲 / 乙 / 丙）在多用户下语义成立，**不回退**。
+>
 > 约定：转发链路（全部上游平台、全部入站协议、协议转换层、Codex 版本同步）**全量保留**；
-> SaaS 商业化与多用户外围逐批删除。每批：拆包 → 多 Agent 并行实施 → 逐包验证 →
+> SaaS 商业化外围逐批删除，多用户基础面保留。每批：拆包 → 多 Agent 并行实施 → 逐包验证 →
 > 合并后统一验证 → CI 全绿 → RC 镜像 → 内网部署验证 → 合并 main。
 >
 > 维护说明：本文档由裁剪工程随批次更新，是唯一权威的计划、进度与部署验证记录（验证清单见第五节，问题追踪见第六节）。
@@ -15,14 +28,15 @@
 |---|---|---|
 | 1. Fork 与范围冻结 | ✅ 完成（批次 1 + 2） | 范围与协议决策已定（转发面全保留）；应用内更新检查/在线升级/回滚整删；A1 尾款（install.sh 的 update/rollback 子命令、compose/`.env.example`/README 过时注释）批次 2 交付完毕 |
 | 2. 数据模型收敛 | ✅ 完成（批次 4 + 5） | 订阅/余额语义改造 = 批次 4；ent 17 个死实体删除 + 21 张死表 + 3 个死列 + 50 多个孤儿设置键 = 批次 5。**迁移基线重置未做**，实测数据不支持该改造，见第四节 |
-| 3. Key 认证与额度引擎 | 🟢 大部分完成 | 防爆破/IP ACL/幂等结算/惰性窗口/时区均已存在；额度已在批次 4 统一到 `api_keys.quota`；**A3 周额度自然周锚点已交付（批次 6，待 RC 验证）** |
+| 3. Key 认证与额度引擎 | 🟢 大部分完成 | 防爆破/IP ACL/幂等结算/惰性窗口/时区均已存在；额度已在批次 4 统一到 `api_keys.quota`；**A3 周额度自然周锚点已交付（批次 6 第二轮，迁移 239），已在 way-rc `internal-ae47e55` 验证、待站长验收；生产与 way-rc 均无设过周额度的账号，迁移在两边都是空操作** |
 | 4. 网关与上游账户池 | ✅ 完成（按决策零改动） | 全量保留 |
-| 5. 最小管理员后台 | 🔵 进行中 | 商业化入口、登录条款、通用设置冗余项、订阅/余额面均已拆；**A6-1（Keys 列表「查用量」入口，v0.1.184）与 A6-2 两步（Bark 推送通道 v0.1.185、账号用量阈值提醒规则 v0.1.186）已上线生产（2026-09-07）**，密钥列表今日用量排序 + 「最后使用时间」列（A6-3）随 v0.1.186 一并上线；**A6 剩余范围待定**（Keys/用量页单管理员语义中除 A6-1 / A6-2 / A6-3 之外的部分） |
+| 5. 最小管理员后台 | 🔵 进行中 | 商业化入口、登录条款、通用设置冗余项、订阅/余额面均已拆；**A6-1（Keys 列表「查用量」入口，v0.1.184）与 A6-2 两步（Bark 推送通道 v0.1.185、账号用量阈值提醒规则 v0.1.186）已上线生产（2026-09-07）**，密钥列表今日用量排序 + 「最后使用时间」列（A6-3）随 v0.1.186 一并上线；**A6 已于 2026-09-08 改名「管理后台多用户直管」并标记 ✅ 完成**：A6-甲（管理端跨用户密钥总表）/ 乙（管理员访问 `/dashboard` `/usage` 转到管理端，`/keys` 保留）/ 丙（用户密钥弹窗补启停 / 删除 / IP 名单）随批次 6 第三轮交付，已 RC 验证、待站长验收 |
 | 6. 删除 SaaS 外围 | ✅ 完成（批次 1–5） | 批次 1 支付/卡密/第三方 OAuth；批次 2 注册体系/人机验证；批次 3 邮件体系/内容审计/批量生图/渠道监控 V1/公告/模型广场；批次 4 订阅与余额。A2 全部落地 |
-| 7. 安全与上线验证 | 🟢 批次 1–5 与批次 6（A6-1 / A6-2 / A6-3）已上线生产 | 批次 1 三轮、批次 2 一轮、批次 3+4+5 一轮（internal-498f780，2026-08-29）RC 镜像内网验证全部通过；**v0.1.183 已于 2026-09-04 切换到生产 `way.flyooo.uk`**（切换步骤、数据核对与上线后实证见第六节「v0.1.183 正式上线」）；**批次 6 三次发版、三次生产升级（v0.1.184 / v0.1.185 / v0.1.186；其中 0.1.185 未单独切换生产、随 0.1.186 一起生效）全部通过**（2026-09-04 → 0.1.184，2026-09-07 → 0.1.186，见第六节「批次 6 发版记录」）；压测与备份恢复演练仍未做（A7，批次 6）；⚠️ 2026-09-05 验证期间发生服务器事故，见第四节 |
+| 7. 安全与上线验证 | 🟢 批次 1–5 与批次 6（A6-1 / A6-2 / A6-3）已上线生产 | 批次 1 三轮、批次 2 一轮、批次 3+4+5 一轮（internal-498f780，2026-08-29）RC 镜像内网验证全部通过；**v0.1.183 已于 2026-09-04 切换到生产 `way.flyooo.uk`**（切换步骤、数据核对与上线后实证见第六节「v0.1.183 正式上线」）；**批次 6 三次发版、三次生产升级（v0.1.184 / v0.1.185 / v0.1.186；其中 0.1.185 未单独切换生产、随 0.1.186 一起生效）全部通过**（2026-09-04 → 0.1.184，2026-09-07 → 0.1.186，见第六节「批次 6 发版记录」）；**批次 6 第二～四轮（way-rc `internal-ae47e55`，2026-09-07 部署核对通过）待站长登录验收**（见第六节最上方小节）；压测与备份恢复演练仍未做（A7，批次 6）；⚠️ 2026-09-05 验证期间发生服务器事故，见第四节 |
 
-**当前位置**（2026-09-07 更新）：**批次 1–5 与批次 6 的 A6-1 / A6-2 / A6-3 已全部合并 `fork/main` 并上线生产。**
-生产 `way.flyooo.uk` 与 way-rc 同为正式 tag **`0.1.186`**；`fork/main` = `6fd50990f`（v0.1.186 的 `VERSION` 同步提交，父提交 `81836e9c8`），本地 `main` 已同步。
+**当前位置**（2026-09-08 更新）：**批次 1–5 与批次 6 的 A6-1 / A6-2 / A6-3 已全部合并 `fork/main` 并上线生产；批次 6 第二～四轮已在 way-rc 完成部署核对，等站长登录验收。**
+生产 `way.flyooo.uk` 仍为正式 tag **`0.1.186`**（**未含第二～四轮**）；way-rc 跑 **`internal-ae47e55`**（含第二～四轮）；
+`fork/main` 现为 `306bcf291`（docs 提交，标 `[skip release]`）；`batch6/round4` HEAD `ae47e5564` 含第二～四轮全部代码。
 批次 1–5 是 2026-09-01 合并、2026-09-04 以 v0.1.183 上线生产的（见第六节「v0.1.183 正式上线」）；批次 6 至今三次发版、三次生产升级全部通过（细节见第六节「批次 6 发版记录」）：
 
 - **v0.1.184**（2026-09-04 09:16Z 发版）：A6-1 密钥列表「查用量」入口 + 用量页订阅 / 余额残留清理 + TRIM_PLAN 补记 v0.1.183 上线；同日 09:20Z 生产 0.1.183 → 0.1.184。
@@ -33,12 +47,20 @@
 
 0.1.184 → 0.1.186 之间**没有任何数据库迁移**（迁移头始终 `238_drop_registration_email_suffix_whitelist_setting.sql`，77 张表）；
 生产 compose 自 09-04 起钉固定版本 tag，不再跟随 `:latest`。
-**下一步**：A3 已交付、待 RC 验证；A6 剩余部分（Keys/用量页单管理员语义中除 A6-1 / A6-2 / A6-3 之外的部分，**范围待定**）；
-A7 文档改写（README/DEV_GUIDE 内部化）+ 压测 + 备份恢复演练 + Key 泄露演练（未开始；演练涉及服务器，须遵守下方新纪律）。
+
+**批次 6 第二～四轮**（2026-09-07 交付，三轮各自 CI 全绿、各出验证镜像并依次部署到 way-rc；范围说明见第三节，RC 验证记录见第六节最上方）：
+
+- **第二轮**（`batch6/round2`，HEAD `e394a90a1`，镜像 `internal-e394a90`）：WP-C2 后端残留清理 + WP-C1 前端残留清理 + **A3 上游账号周额度改自然周（迁移 239）**。
+- **第三轮**（`batch6/round3`，HEAD `b68971a24`，镜像 `internal-b68971a`）：A6-甲 管理端跨用户密钥总表 + A6-乙 管理员 `/dashboard` `/usage` 转到管理端 + A6-丙 用户密钥弹窗扩展 + **`custom_endpoints` 整键删除（迁移 240）**。
+- **第四轮**（`batch6/round4`，HEAD `ae47e5564`，镜像 `internal-ae47e55`）：使用记录账号可点 / 按账号筛选 + 账号「容量」格负载抽屉（甲方案，基于使用记录的「最近请求」）。
+
+way-rc 现在的迁移头是 `240_drop_custom_endpoints_setting.sql`（记录 280、表 77）；**迁移 239 / 240 在生产同样是空操作**（生产没有设过周额度的账号，`custom_endpoints` 值为 `[]`），但升级仍照旧备份 + 导回验证。
+**下一步**：站长登录 way-rc 按第六节该小节末尾的清单验收 → 通过后 `batch6/round4` ff 合并 `fork/main` → auto-release（预期 **v0.1.187**）→ 生产升级 → way-rc 切回正式 tag。
+**批次 6 剩余**：A7 文档改写（README/DEV_GUIDE 内部化）+ 压测 + 备份恢复演练 + Key 泄露演练（未开始；方案要点见第三节 A7 行，演练涉及服务器、须遵守下方新纪律）；
+乙方案「真正的在途请求登记」（候选，排下一批）；第四节「后续候选项台账」的未勾项与 FEATURE_CHECKLIST 的 P1 / P2 残留；两条 CI 维护项（docker actions Node 20 弃用告警、`internal-rc-*` 标签重复触发 CI）。
 **站长待办**：在生产「系统设置 → 通知」填一次 Bark 配置（配置按环境分别存储，way-rc 上填的不会带到生产）。
-**尚未完成、需站长决策**：迁移基线重置**维持不做**（A5 内，方案见第四节「⛔ 未完成项 1」）；
-`security.url_allowlist.enabled=false`、`server.trusted_proxies` 未配置**两项仍未决**（`custom_endpoints` 已于 2026-09-07 批次 6 / 包 D 整键删除，迁移 240 清库）
-（批次 2 验收起累计，生产上线后保持原状，见第四节台账）。第四节「后续候选项台账」的未勾项与 FEATURE_CHECKLIST 的 P1 / P2 残留均未处理。
+**决策状态**：批次 2 验收起累计的三项未决决策已于 2026-09-07 **全部拍板**——`custom_endpoints` 整键删除（迁移 240）、`security.url_allowlist.enabled` **保持关闭**、`server.trusted_proxies` **暂不配置**（见第四节「三个决策结论」）；
+迁移基线重置**维持不做**（A5 内，方案见第四节「⛔ 未完成项 1」）。
 **关口**：auto-release 保持现状不动（批次 6 的三个版本都是 ff 合并 `fork/main` 后自动发出的，内部版本线继续走 main）。
 
 > **⚠️ 2026-09-05 服务器事故与新纪律**（详细条目见第四节「⛔ 2026-09-05 事故：并行重任务压垮生产机」）：
@@ -169,11 +191,24 @@ A7 文档改写（README/DEV_GUIDE 内部化）+ 压测 + 备份恢复演练 + K
 |---|---|---|---|
 | A1 | 应用内更新检查/在线升级/回滚整删（版本号展示与 restart 保留；`update.proxy_url` 因定价表与 Codex 同步仍消费而保留原键名）；尾款 = install.sh 的 update/rollback 子命令、docker-deploy.sh、compose/`.env.example`/README 过时注释。auto-release.yml 经站长决策**保持现状不动** | 批次 1 + 2 | ✅ 已交付 |
 | A2 | 公告、模型广场、邮件营销面删除；内容安全审计删除、批量生图删除、渠道监控删 V1 留 V2（并把 `channel_monitor_mode` 切到 `v2`） | 批次 3 | ✅ 已交付 |
-| A3 | 周额度改自然周（周一 00:00）锚点 | 批次 6 | ✅ **已交付，待 RC 验证**（分支 `batch6/a3-account-weekly-anchor`）。实际范围只动**上游账号**的周限额：迁移 239 把「设了周限额、没选过重置方式」的账号一次性改成固定 / 周一 / 00:00 / 项目时区并写好下次重置点，前后端缺省时区从 UTC 改为项目时区；用户平台额度早已按自然周（`timezone.StartOfWeek`）无需改；Key 的 `rate_limit_7d` 是 168h 限速而非额度，刻意不动 |
+| A3 | 周额度改自然周（周一 00:00）锚点 | 批次 6 第二轮 | ✅ **已交付（round2，`ce429bd1e` / `208aa0d96` / `dd0844ae1` / `d6525764e`，原分支 `batch6/a3-account-weekly-anchor`），迁移 239；生产与 way-rc 均无设过周额度的账号，迁移在两边都是空操作（已 psql 核实）；已在 way-rc `internal-ae47e55` 验证，待站长验收**。实际范围只动**上游账号**的周限额：迁移 239 把「设了周限额、没选过重置方式」的账号一次性改成固定 / 周一 / 00:00 / 项目时区并写好下次重置点，前后端缺省时区从 UTC 改为项目时区；用户平台额度早已按自然周（`timezone.StartOfWeek`）无需改；Key 的 `rate_limit_7d` 是 168h 限速而非额度，刻意不动 |
 | A4 | 订阅/余额拆除与 Key 额度直绑改造（最难一刀，单独里程碑） | 批次 4 | ✅ 已交付 |
 | A5 | 数据库压平：删除死实体（payment/redeem/promo/subscription_plan 等）、**迁移基线重置**、支持全新初始化 | 批次 5 | 🟡 **部分交付** —— 死实体/死表/死列/孤儿键全部清完，**迁移基线重置未做**（见第四节「⛔ 未完成项 1」） |
-| A6 | 管理后台单管理员化（Keys/用量页直管语义） | 批次 6 | 🔵 进行中：A6-1（v0.1.184）、A6-2 第一步（v0.1.185）、A6-2 第二步 + A6-3 密钥页排序（v0.1.186）已上线生产（2026-09-07）；**A6 剩余范围待定** |
-| A7 | 部署文档改写（README/DEV_GUIDE 内部化）+ 压测、备份恢复、Key 泄露演练 | 批次 6 | ⚪ 未开始 |
+| A6 | **管理后台多用户直管**（2026-09-08 改名；原标题「管理后台单管理员化（Keys/用量页直管语义）」作废） | 批次 6 | ✅ **已完成**：A6-1（v0.1.184）、A6-2 第一步（v0.1.185）、A6-2 第二步 + A6-3 密钥页排序（v0.1.186）已上线生产（2026-09-07）；A6-甲 / 乙 / 丙 随批次 6 第三轮交付（下方三行），已 RC 验证、待站长验收。所有切片在多用户下语义成立，**不回退** |
+| A6-甲 | 管理端跨用户密钥总表：`/admin/api-keys` 页 + `GET/PUT/DELETE /api/v1/admin/api-keys*`（列表掩码、排序 / 筛选、启停、分组与 IP 名单、删除、查用量跳 `/admin/usage`） | 批次 6 第三轮 | ✅ 已交付（后端 `ab12794cc` / `be97dc3af` / `88a34fb2f` / `0ba5641a0`，前端 `c076942f2`），已 RC 验证、待站长验收 |
+| A6-乙 | 管理员访问 `/dashboard` → `/admin/dashboard`、`/usage` → `/admin/usage`（`router/adminRedirect.ts`），「我的账户」侧栏去掉 `/usage`；**管理员自己的 `/keys` 保留** | 批次 6 第三轮 | ✅ 已交付（`da4be4549`），已 RC 验证、待站长验收 |
+| A6-丙 | `UserApiKeysModal`（用户管理 → 「API 密钥」弹窗）补启停 / 删除 / IP 名单编辑 | 批次 6 第三轮 | ✅ 已交付（`f255ac71f`），已 RC 验证、待站长验收 |
+| （第四轮） | 使用记录账号可点 + 按账号筛选 + 账号页「查看用量」；账号「容量」格负载抽屉（**甲方案**：基于使用记录的「最近请求」，`GET /admin/accounts/:id/recent-requests`）。**乙方案「真正的在途请求登记」排下一批** | 批次 6 第四轮 | ✅ 已交付（后端 `f3bcbd9a1` / `396ca2137` / `03b5d7906`，前端 `3403abe39` / `ec05c82c3`），已 RC 验证、待站长验收 |
+| A7 | 部署文档改写（README/DEV_GUIDE 内部化）+ 压测、备份恢复、Key 泄露演练 | 批次 6 | ⚪ 未开始。方案要点（2026-09-08 记录）：压测用 `workflow_dispatch` 触发的 k6 打 way-rc；备份恢复在隔离栈演练；Key 泄露演练在 way-rc；全部受第四节「⛔ 2026-09-05 事故」新纪律约束（服务器上只做部署与轻量核对） |
+
+**多管理员核实（2026-09-08 读码，结论：已支持创建第二个管理员，不需要 A8）**：
+前端新建用户弹窗 `frontend/src/components/admin/user/UserCreateModal.vue:30-32` 的角色下拉含 `user` / `admin` 两项；
+编辑弹窗 `UserEditModal.vue:95-97` 的 `roleOptions` 同样含 `admin`。
+后端 `backend/internal/handler/admin/user_handler.go:75` / `:88` 的 `CreateUserRequest` / `UpdateUserRequest` 对 `role` 的校验是 `oneof=admin user`；
+`Create`（`:212`）在 `role=admin` 时先走 step-up 2FA（`:220-224`），`Update`（`:247`）把普通用户提升为管理员时同样要 step-up（`:269-279`），目标已是管理员时不打断；
+服务层 `backend/internal/service/admin_user.go:104-111` `normalizeUserRole` 只接受 `admin` / `user`，`CreateUser`（`:114-141`）按传入角色建号并对建管理员落审计日志。
+配套的防锁死保护：管理员不能把自己降为普通用户（handler `:262-265`），不能降级系统里最后一个管理员（service `ensureNotLastAdmin`，`:146-160` / `:225-229`），
+不能禁用 / 删除管理员（service `:178` / `:303`；前端 `UsersView.vue:565` / `:658` 对 admin 行直接隐藏停用与删除按钮）。**多个管理员并存是现有代码本来就支持的路径**，FEATURE_CHECKLIST 第 1 节已加「创建第二个管理员」验收行。
 
 排序建议（**已被 2026-08-28 决策取代**，保留原文供追溯）：B1–B4 与 A1 合并为批次 2 首发 → A2 → A3 → A4 → A5 → A6 → A7。B5 待决策后并入。
 
@@ -205,7 +240,10 @@ A7 文档改写（README/DEV_GUIDE 内部化）+ 压测 + 备份恢复演练 + K
 | **批次 3** | B5 邮件体系整删（+ `adminpass` 密码重置工具）、内容安全审计删除、批量生图删除、渠道监控 V1 删除（模式切 V2）、A2 剩余（公告 / 模型广场 / 邮件营销文案）、第四节「后续候选项」里的小尾巴（CSP 失效白名单、支付遗留文档、`registration_email_domain_quota_enabled`）、批次 2 验收发现的两条部署侧隐患 | ✅ **已交付，RC 验收通过（internal-498f780），已随 v0.1.183 上线生产（2026-09-04）** |
 | **批次 4** | A4 订阅/余额拆除 + Key 额度直绑；**注册用户默认值随本批消失** | ✅ **已交付，RC 验收通过（internal-498f780），已随 v0.1.183 上线生产（2026-09-04）**（最难一刀；两项行为变更已在隔离栈真实计费补验与生产实证，见第六节） |
 | **批次 5** | A5 数据库压平：ent 17 个死实体 + 21 张死表 + 3 个死列 + 50 多个孤儿设置键；**充值兑换残留已清干净**；顺带修好批次 3/4 遗留的编译与格式问题 | ✅ **已交付，RC 验收通过（internal-498f780），已随 v0.1.183 上线生产（2026-09-04）**；⛔ **迁移基线重置未做**（维持不做），见第四节 |
-| **批次 6** | A3 周额度自然周锚点、A6 后台单管理员化、A7 文档改写 + 压测 / 备份恢复 / Key 泄露演练 | 🔵 **进行中：A6-1（v0.1.184）、A6-2 第一步（v0.1.185）、A6-2 第二步 + 密钥页排序（v0.1.186）已上线**（2026-09-07 生产与 way-rc 均在 0.1.186，发版与升级记录见第六节「批次 6 发版记录」）；**A3 已交付待 RC 验证；A7 / A6 剩余未开始** |
+| **批次 6** | A3 周额度自然周锚点、A6 管理后台多用户直管（2026-09-08 改名，原「后台单管理员化」）、A7 文档改写 + 压测 / 备份恢复 / Key 泄露演练 | 🔵 **进行中：A6-1（v0.1.184）、A6-2 第一步（v0.1.185）、A6-2 第二步 + 密钥页排序（v0.1.186）已上线**（生产仍在 0.1.186，发版与升级记录见第六节「批次 6 发版记录」）；**第二～四轮（下方三行）已 RC 验证、待站长验收；A7 未开始** |
+| **批次 6 第二轮** | WP-C2 后端残留清理（审计路由白收参数、`server.frontend_url`、`GET /user/totp/verification-method` 死端点）/ WP-C1 前端残留清理 / **A3 上游账号周额度改自然周（迁移 239）** | ✅ **已交付**：集成分支 `batch6/round2`（HEAD `e394a90a1`，基于 `306bcf291`），集成 CI 34090219404 ✓、Security Scan 34090219309 ✓，镜像 `internal-e394a90`；**已 RC 验证（2026-09-07），待站长验收** |
+| **批次 6 第三轮** | A6-甲 管理端跨用户密钥总表 / A6-乙 管理员 `/dashboard` `/usage` 转到管理端 / A6-丙 用户密钥弹窗扩展 / **`custom_endpoints` 整键删除（迁移 240）** | ✅ **已交付**：`batch6/round3`（HEAD `b68971a24`，基于 round2），集成 CI 34098887841 ✓、Security Scan 34098887797 ✓，镜像 `internal-b68971a`；**已 RC 验证（2026-09-07），待站长验收** |
+| **批次 6 第四轮** | 使用记录账号可点 + 按账号筛选 + 账号页「查看用量」/ 账号「容量」格负载抽屉（甲方案） | ✅ **已交付**：`batch6/round4`（HEAD `ae47e5564`，基于 round3），集成 CI 34103833981 ✓、Security Scan 34103834034 ✓，镜像 `internal-ae47e55`；**已 RC 验证（2026-09-07），待站长验收** |
 
 **A6-1 范围说明（Keys 列表「查用量」入口，✅ 已上线 v0.1.184，2026-09-04）**：`/keys` 每行新增「查用量」按钮——点击时先同步开一个空白标签页，
 用原始 Key 向 `POST /api/v1/key-usage/session` 换只读令牌后再把该标签页导航到 `/key-usage?t=<令牌>`（原始 Key 不进网址）；弹窗被浏览器拦截时退化为当前页打开；
@@ -257,6 +295,51 @@ CI run 34077780372 一次全绿。发现：「最后使用时间」列定义早�
 后端 `api_key_repo.go` 的 `apiKeyListOrder` 新增 `today_cost`：ORDER BY 关联子查询汇总 `usage_logs.actual_cost`（`created_at >= timezone.Today()`，与列表「今日用量」显示同口径），id 作次序键；
 用 `entsql.ExprFunc` 保住绑定参数（`OrderExprFunc` 会丢参数）；走 `idx_usage_logs_api_key_created_at`，无迁移。SQLite 单测 + Postgres 集成测试。
 前端「用量」列 `sortable: true`，映射 `sort_by=today_cost`。way-rc 验收随 v0.1.186 合并镜像 `internal-022f98c` 一起做，站长登录实测密钥页排序通过（见第六节）。
+
+**批次 6 第二～四轮范围说明（2026-09-07 交付，2026-09-08 记录；RC 验证事实见第六节最上方小节）**：三轮各自由三条并行分支合成一个集成分支，
+每条分支 CI 全绿后合并，第二、四轮无冲突，第三轮只在 Makefile 关键 vitest 名单一处冲突（三条 spec 全保留）。
+
+- **第二轮 `batch6/round2`（`e394a90a1`，基于 `306bcf291`）**
+  - **WP-C2 后端残留清理（`55734db0e`）**：删审计日志路由白收的 step-up 参数；删 `server.frontend_url` 配置项（含 viper 默认值、URL 校验、`warnIfInsecureURL` 死 helper、
+    config_test、`deploy/config.example.yaml`）；删 `GET /api/v1/user/totp/verification-method` 死端点（handler + service + 门禁缺席断言）。CI 34086811737 ✓。
+  - **WP-C1 前端残留清理（`20e6d5193` / `7e63d296c` / `1ad0bf6f6`）**：余额记录 tooltip 改为「点击下钻筛选」新键、删充值记录一组 12 个文案；`SettingsView.spec` 删 59 个已删字段与 payment 桩；
+    删 `claudeMaxSimulation` 中英整块；`subscription_type` 整字段删除（后端 DTO 已不返回）含 `GroupBadge` / `GroupOptionItem` 订阅分支与三个 prop、三个订阅死类型；
+    删 Key 脚本 `response?.balance` 兜底；删 9 个失效 `admin.users.*` 键；删 `views/auth/{README,VISUAL_GUIDE,USAGE_EXAMPLES}.md`；删 25 个零调用 API 封装及其类型。
+    FEATURE_CHECKLIST 勾 6 行。CI 34087617890 ✓。**顺手发现未动**：`types/index.ts` 里 `ProxyNode / ConversionRequest / ConversionResult / SubscriptionStats / UserStats` 零引用；
+    `admin.users` 下 `depositSuccess / withdrawSuccess / failedToDeposit / failedToWithdraw / useDepositWithdrawButtons / amountRequired` 零引用（已记入第四节台账）。
+  - **WP-A3 账号周额度改自然周（`ce429bd1e` / `208aa0d96` / `dd0844ae1` / `d6525764e`）**：规划核实——用户平台额度早已是自然周（`timezone.StartOfWeek`）；Key 的 `rate_limit_7d` 是滚动 168h 限速，刻意不动；
+    唯一改的是上游账号 `quota_weekly_*`。**迁移 239** `account_weekly_quota_natural_week.sql`：对 `quota_weekly_limit>0` 且无 `reset_mode` 的存活账号写 `fixed` / 周一 / 00:00、
+    `quota_reset_timezone=current_setting('TimeZone')`、必写 `quota_weekly_reset_at`（否则计费把缺失当 1970 首笔清零）、`quota_weekly_start` 早于本周一则清零 used；
+    已 fixed / rolling / limit=0 / 软删不动；幂等。后端 `account.go` 三处 `UTC` 默认改项目时区；`ops_alert_account_metrics.go` 周额度过期按 0（顺带修）。
+    前端弹窗周限额默认 fixed / 周一 / 00:00、时区默认 `server_timezone`；`QuotaLimitCard.weeklyNaturalWeek.spec.ts` 9 例进 CI 名单。
+    第一轮 CI 一条 spec 红（清空唯一限额时卡片自动关闭）修后全绿（CI 34088345142）。**生产与 way-rc 均无设过周额度的账号，迁移在两边都是空操作**（已 psql 核实）。
+    跳变说明：命中账号旧窗口跨周一会清零本周花费（少扣不多扣）。
+- **第三轮 `batch6/round3`（`b68971a24`，基于 round2）**
+  - **A6-甲 + 丙 后端（`ab12794cc` / `be97dc3af` / `88a34fb2f` / `0ba5641a0`）**：`GET /api/v1/admin/api-keys`（分页、`sort_by` 复用 `apiKeyListOrder` 含 today_cost / last_used_at、
+    筛选 user_id / group_id(0=无分组) / status / search，`key` 掩码前 6 + 后 4，登记审计敏感 GET）；`PUT /admin/api-keys/:id` 扩为 `{group_id?, reset_rate_limit_usage?, status?, ip_whitelist?, ip_blacklist?}`
+    （IP 走 `ip.ValidateIPPatterns`）；`DELETE /admin/api-keys/:id`（`GetKeyAndOwnerID → DeleteWithAudit → InvalidateAuthCacheByKey`）；
+    门禁 `TestAdminAPIKeySurfaceRegistered`（含「不许出现管理员换用量令牌接口」）。第一轮 golangci-lint gofmt 对齐红，修后全绿（CI 34097154880）。
+  - **A6-乙 + 甲 + 丙 前端（`da4be4549` / `c076942f2` / `f255ac71f`）**：乙——管理员「我的账户」侧栏去掉 `/usage`，`router/adminRedirect.ts` 把管理员访问 `/dashboard` → `/admin/dashboard`、
+    `/usage` → `/admin/usage`（放在 admin 校验之后、backend_mode 之前，`/keys` 不动）；甲——新页 `/admin/api-keys`「密钥总表」（列：名称 / 所属用户 / 密钥掩码 / 分组 / 用量 / 状态 / 最后使用 / 创建 / 操作；
+    排序透传；筛选；操作：查用量跳 `/admin/usage?api_key_id=&user_id=`、启停、编辑分组与 IP 名单、删除确认）；丙——`UserApiKeysModal` 加启停 / 删除 / IP 名单。
+    `ApiKeysView.spec`（12 例）、`UserApiKeysModal.spec`（5 例）进 CI 名单。CI 34096248631 ✓。
+  - **`custom_endpoints` 删除（`bc4b4dc86` / `8e209c54b` / `3bc38c90e`）**：站长决策（生产值为 `[]`）。**迁移 240** `drop_custom_endpoints_setting.sql`（幂等 DELETE）；后端 15 处 + 前端 12 处整键删除
+    （含 `safeRawJSONArray` 死 helper、`CustomEndpoint` 类型、设置页卡片 −147 行）；`EndpointPopover` 退化为只显示内置端点；门禁：公开设置反向断言 + 管理端 PUT 带该键**忽略**
+    （非 400，依据 gin 不启用 DisallowUnknownFields 且升级窗口旧前端仍会带该键）；`EndpointPopover.spec.ts` 补进 CI 名单。CI 34095380932 ✓。
+- **第四轮 `batch6/round4`（`ae47e5564`，基于 round3）**——站长新需求（2026-09-07）：① 使用记录显示每条请求实际走的上游账号；② 账号「容量」格的负载明细（选了甲方案：基于使用记录的「最近请求」抽屉；
+  乙方案「真正的在途请求登记」排下一批）。规划核实：管理端使用记录**早已**带账号名列、导出与筛选，只缺「账号格可点、网址参数生效、账号页入口」；
+  并发槽位 Redis ZSET 只有开始时间无元数据，系统无逐条在途登记。
+  - **后端（`f3bcbd9a1` / `396ca2137` / `03b5d7906`）**：`GET /api/v1/admin/accounts/:id/recent-requests?minutes=15(1..1440)&limit=50(≤200)`（非法 400，账号不存在 404）→
+    `{account_id, window_minutes, current_concurrency, max_concurrency, waiting_count(真实的账号等待队列计数), total_requests, items[...], by_api_key[], by_model[]}`；
+    聚合走 SQL GROUP BY 整窗、走 `idx_usage_logs_account_created_at`；`by_*.cost` 为账号口径（含账号倍率）；空切片序列化为 `[]`；不含凭据；
+    `request_type` 值域 `sync / stream / ws_v2 / cyber / live / unknown`；`upstream_model` omitempty。`AccountSummary` 加 `platform`。门禁 `TestAccountRecentRequestsSurfaceRegistered`。
+    FEATURE_CHECKLIST 第 3 节「账号容量负载明细」、第 4 节「使用记录账号可点 / 按账号筛选」两行。CI 34102510497 ✓ 一次全绿。
+  - **前端（`3403abe39` / `ec05c82c3`）**：需求 1——`UsageTable` 账号格改按钮 emit `accountClick`，`UsageView` 按账号筛选并回显名称、`applyRouteQueryFilters` 读 `account_id`
+    （mount 后 `adminAPI.accounts.getById` 回填名，兜底 `#id`）、`UsageFilters` expose `setAccountKeyword`、账号操作菜单「查看用量」；
+    需求 2——通用 `SideDrawer.vue`、`AccountLoadDrawer.vue`（并发 / 等待、5 / 15 / 60 分钟、按密钥 / 按模型 chips、请求表、同期错误段用 `listErrorLogs` 传精确 `start_time / end_time`——
+    因为 `parseOpsDuration` 不认 `15m` 会静默退回 1h、延迟提示、刷新）、`AccountCapacityCell` 徽标改按钮（hover 300ms 防抖拉 `minutes=15&limit=1`、30 秒缓存、
+    简版「并发 x/y · 最近 15 分钟 N 次 · 最活跃密钥」，点击 emit `openLoad`）、`AccountsView` 接线并把抽屉加入「弹窗打开时暂停自动刷新」清单。
+    `AccountCapacityCell.spec`（5）、`AccountLoadDrawer.spec`（8）、`UsageTable.spec`（+2）、`UsageView.spec`（+4）进 CI 名单。CI 34101114427 / 34101935036 ✓。
 
 #### 本轮执行方式（站长指定）
 
@@ -689,6 +772,8 @@ IsPasswordResetEnabled = email_verify_enabled==true
   发版核对时**不要**再去 `/api/v1/settings/public` 或 `settings` 表里找这个键。
 - 本地仓库状态（2026-09-04）：本地 `main` 原停在上游 `Wei-Shaw/sub2api` 的老提交 `e866ff6ec`（比 `fork/main` 多 257 个上游提交，且全部都在 `origin/main` 里、无本地私有提交），已 `reset --hard fork/main`（`7341cce56`）并把上游跟踪改为 `fork/main`；`merge-to-main` 与 `claude/project-trim-internal-deploy-7jnynw` 均已包含在 `main` 内
 - 本地仓库状态（2026-09-07）：`fork/main` = `6fd50990f`（v0.1.186 的 `VERSION` 同步提交，父 `81836e9c8`），本地 `main` 已同步；生产与 way-rc 均在正式 tag `0.1.186`
+- 本地仓库状态（2026-09-08）：`fork/main` = `306bcf291`（docs 提交，标 `[skip release]`）；`batch6/round4` HEAD `ae47e5564` 含第二～四轮全部代码，待站长验收后 ff 合并；生产 `0.1.186`，way-rc `internal-ae47e55`
+- **裁剪目标已于 2026-09-08 调整为「内部部署、自用多用户」**（多个用户、多个管理员），保留面与仍裁掉的清单见文首目标声明。本节及以下各处早期备注里的「单管理员」是当时表述，不再逐条改写
 - ⚠️ **验证方式变更（自 2026-09-05 起）**：编译 / 测试 / lint / 装依赖 / 无头浏览器视觉走查一律走 GitHub CI（backend-ci "CI" + Security Scan 全绿后推 `internal-rc-<sha>` 标签出验证镜像）；服务器 `oci-free` 上只做拉镜像、重建容器、curl / psql 级核对；任何时刻最多一个实施者操作服务器，操作前先看负载。起因见下方「⛔ 2026-09-05 事故」。本节「✅ 本机其实拿得到 Go / golangci-lint / PostgreSQL」讲的是本机 scratchpad 工具链，与这条针对服务器的纪律不冲突
 
 ---
@@ -713,6 +798,22 @@ v0.1.185 的发版本身已完成（02:22Z），但生产升级步骤在事故�
 - 任何时刻最多一个实施者操作服务器，操作前先看负载。
 
 此后的 A6-2 第二步与密钥页改动全部只用 CI 验证，视觉走查取消。第五节的验证清单与 A7 的压测 / 备份恢复 / Key 泄露演练都涉及这台机器，同样受此约束。
+
+### 2026-09-07 三次实施者中断与接力
+
+批次 6 第二～四轮实施期间（2026-09-07 下午），三次实施者因 API 会话限额（15:10 重置）或流式停顿被中断。
+工作通过 worktree 与分块提交保留，由后续实施者接力完成，没有丢失已写好的代码；三轮集成分支的 CI 与 RC 记录见第六节最上方小节。
+全程遵守 2026-09-05 事故后的新纪律，**未再发生服务器负载事故**（全程负载 < 1.1）。
+
+### 三个决策结论（2026-09-07 站长拍板）
+
+批次 2 验收起累计的三项未决决策至此全部拍板，第一节「当前位置」与下方台账同步改为已决：
+
+| 决策项 | 结论 | 落点 |
+|---|---|---|
+| **`custom_endpoints` 设置** | **整键删除**（生产值自上线起一直是 `[]`） | 批次 6 第三轮，迁移 240 清库；后端 15 处 + 前端 12 处一并删 |
+| **`security.url_allowlist.enabled`** | **保持关闭**（不开启，启动 WARN 照旧） | 不改代码、不改配置 |
+| **`server.trusted_proxies`** | **暂不配置** | 不改配置；真实客户端 IP 的准确性问题接受现状 |
 
 ### ⛔ 未完成项 1：迁移基线重置（A5 内，留给站长决策）
 
@@ -908,7 +1009,7 @@ CI 全绿但镜像构建必然失败。
 **结论**：批次 3 开工前**没有需要合并的主线**，`fork/main` 就是分支的直接祖先。
 「验的镜像 = 合并后的产物」这个前提**成立**。
 
-### 后续候选项台账（批次 2 起累加，2026-08-29 按批次 3–5 实际交付更新；2026-09-07 追加两条 CI 维护项，其余未勾项状态未变）
+### 后续候选项台账（批次 2 起累加，2026-08-29 按批次 3–5 实际交付更新；2026-09-07 追加两条 CI 维护项；2026-09-08 按批次 6 第二～四轮实际交付勾选并补新发现项）
 
 - [x] **CSP 白名单失效条目**（批次 3 已处理）：强制注入表从 27 条收敛为 1 条，只留 Cloudflare Web Analytics；天御国内/国际站、Turnstile、阿里云验证码、Stripe、Airwallex 的条目与默认策略里的对应域名全部删除，`frame-src` 收紧为 `'none'`。新增防回归用例锁死这批主机不许回流
 - [x] **`registration_email_domain_quota_enabled`**（批次 3 已处理）：整键删除 + 迁移 233 清库。**核实结论修正**：兄弟键 `registration_email_suffix_whitelist` 的邮箱绑定校验路径已随批次 3 邮件体系整删消失（`AuthService.validateRegistrationEmailPolicy` 零调用点，已一并删除），但该键**必须保留**——它是 `InitializeDefaultSettings` 判断"是否已种过默认设置"的探测键，删掉会导致每次启动重跑种子
@@ -916,18 +1017,23 @@ CI 全绿但镜像构建必然失败。
 - [x] **支付遗留文档**（批次 3 已处理）：三份文档删除，三个 README 里指向它们的「内置支付系统」条目与生态表格行一并删掉
 - [x] **`custom_endpoints` 设置**（批次 6 / 包 D 已处理，2026-09-07）：站长确认生产值自上线起一直是空数组 `[]`，决定整键删除——站点设置卡片、Keys 页 `EndpointPopover` 的自定义端点渲染、后端读写校验 / 审计比对 / 公开设置输出 / 默认种子一并移除，迁移 240 清库（幂等 DELETE）。Keys 页只剩当前站点 origin 这一条内置端点（复制 / 测速保留）。门禁加反向断言（公开设置与默认种子都不含该键）；管理端保存带该键按未知字段**忽略**而非 400（旧前端全量保存不致失败），有用例锁定
 - [x] **ent 中的支付实体**（`payment_orders`/`payment_provider_instances` 等）（批次 5 已处理）：连同另外 14 个死实体一并删除，**用官方生成器重跑 ent generate**，配套迁移 235 DROP 了对应的 21 张表。历史迁移文件本身**未删**（删了会让停在中间版本的老库升不上来），见「⛔ 未完成项 1」
-- [ ] **余额变动记录入口仍指向已删接口**（批次 3 新发现）：`UsageTable.vue` 与 `OpsErrorLogTable.vue` 的余额 tooltip 仍用 `admin.usage.clickToViewBalance`（「点击查看充值记录」），而 `/api/v1/admin/users/:id/balance-history` 已在批次 1 删除；`admin.users.balanceHistory*` 一整组文案同理。点击行为需要复核后再决定是改文案还是去掉入口
-- [ ] **`SettingsView.spec.ts` 的 vue-i18n mock 字典与 `baseSettingsResponse` 仍带已删字段**（批次 3 新发现）：`admin.settings.wechatConnect.*`、`admin.settings.payment*`、`admin.settings.site.*`、`registration_enabled` / `promo_code_enabled` 等。只存在于测试桩里，不进产物，但会让基于关键字 grep 的裁剪审计继续误报
-- [ ] **`admin.groups.claudeMaxSimulation` 中英键路径不一致**（批次 3 新发现，非本轮引入）：zh 挂在 `admin.groups.modelRouting.claudeMaxSimulation`，en 挂在 `admin.groups.claudeMaxSimulation`，两边有一边取不到值
-- [ ] **`config` 层的 `server.frontend_url` 是纯死配置项**（批次 3 新发现）：邮件体系整删后已无任何读取方，但 `config.go` 的字段、viper 默认值、URL 校验与 `config_test` 的用例都还在。留着是为了不动 `config_test`，清理时要连测试一起改
+- [x] **余额变动记录入口仍指向已删接口**（批次 3 新发现；**批次 6 第二轮 WP-C1 已处理**，`20e6d5193`）：复核结论是点击行为本来就是按用户下钻筛选，与充值记录无关——tooltip 改为「点击下钻筛选」新键 `admin.usage.clickToFilterByUser`，`admin.users.balanceHistory*` 充值记录一组 12 个文案整组删除
+- [x] **`SettingsView.spec.ts` 的 vue-i18n mock 字典与 `baseSettingsResponse` 仍带已删字段**（批次 3 新发现；**批次 6 第二轮 WP-C1 已处理**）：删掉 59 个已删字段与 payment 桩，测试桩不再携带已删功能的键
+- [x] **`admin.groups.claudeMaxSimulation` 中英键路径不一致**（批次 3 新发现；**批次 6 第二轮 WP-C1 已处理**）：不是修路径，而是核实零引用后把中英整块删除
+- [x] **`config` 层的 `server.frontend_url` 是纯死配置项**（批次 3 新发现；**批次 6 第二轮 WP-C2 已处理**，`55734db0e`）：字段、viper 默认值、URL 校验、`warnIfInsecureURL` 死 helper、`config_test` 用例与 `deploy/config.example.yaml` 一并删除
+- [x] **审计日志路由白收一个 step-up 参数 + `GET /user/totp/verification-method` 死端点**（FEATURE_CHECKLIST 残留表原有项；**批次 6 第二轮 WP-C2 已处理**，`55734db0e`）：`registerAuditLogRoutes` 去掉被 `_` 忽略的参数；死端点删 handler + service，并加门禁缺席断言（way-rc 实测 404，对照 `/user/totp/status` 401）
 - [ ] **ops 告警规则的 `notify_email` 与告警事件的 `email_sent` 字段仍在**（批次 3 新发现）：后端结构体（`ops_alert_models.go`）与 DB 列都保留，只是前端不再提供勾选、新建默认 `false`，且永远不会再被写成 `true`。存量为 `true` 的行不会被改写，但已无任何消费方
 - [ ] **`usage_logs.subscription_id` / `groups.subscription_type` / `users.balance` 家族三处刻意保留**（批次 5 决策）：分别因为 repository 裸 SQL 与 DTO 仍在读、migration 193 的 auth cache 触发器函数引用了该列、以及"列还在但 service 层已不读"。都不是漏删，要动需连带改触发器与 DTO 契约
 - [ ] **`registration_enabled` 与 `channel_monitor_mode` 两个键刻意不删**（批次 5 决策）：它们分别是迁移 229 与 231 留下的**回滚兜底**（回滚到旧镜像后旧代码读到这两个值才不会退化成"开放注册"和"重开主动探测"）。等回滚窗口过去后可以单独清理
 - [x] **`Makefile` 的 `FRONTEND_CRITICAL_VITEST` 名单失效**（批次 5 已处理）：5 条指向已删测试文件。vitest 把条目当过滤词，指向已删文件**不报错、只是静默少跑**——实测 13 条里只有 8 条真正生效。已清死条目、补进 4 条，并加了存在性校验，下次再删测试会直接 exit 1
-- [ ] **`security.url_allowlist.enabled=false`**（批次 2 验收发现，仍未决策）：SSRF / URL 白名单校验整体关闭，只剩最小格式校验，启动日志有 WARN。不是裁剪引入的，但**生产上线前需要明确决策是否开启**
-- [ ] **`server.trusted_proxies` 未配置**（批次 2 验收发现，仍未处理）：way-rc 前面是 Cloudflare + Traefik 两层代理，不配这个拿不到可靠的真实客户端 IP，影响 IP 管理 / 风控 / 限流的准确性
+- [x] **`security.url_allowlist.enabled=false`**（批次 2 验收发现；**2026-09-07 站长拍板：保持关闭**，决策项关闭）：SSRF / URL 白名单校验整体关闭，只剩最小格式校验，启动日志有 WARN。不是裁剪引入的；决策是不开启，不改代码不改配置
+- [x] **`server.trusted_proxies` 未配置**（批次 2 验收发现；**2026-09-07 站长拍板：暂不配置**，决策项关闭）：way-rc 前面是 Cloudflare + Traefik 两层代理，不配这个拿不到可靠的真实客户端 IP，影响 IP 管理 / 风控 / 限流的准确性；接受现状
 - [ ] **CI：`docker/*` actions 目标 Node 20 弃用告警**（批次 6 发现，2026-09-07 记录，未处理）
 - [ ] **CI：推 `internal-rc-*` 标签会重复触发 CI 与 Security Scan**（批次 6 发现，2026-09-07 记录，未处理）
+- [ ] **前端零引用的死类型与文案**（批次 6 第二轮 WP-C1 顺手发现，2026-09-08 记录，未处理）：`types/index.ts` 里 `ProxyNode / ConversionRequest / ConversionResult / SubscriptionStats / UserStats` 零引用；`admin.users` 下 `depositSuccess / withdrawSuccess / failedToDeposit / failedToWithdraw / useDepositWithdrawButtons / amountRequired` 零引用
+- [ ] **`KeysView.vue` 里只写不读的 `publicSettings` / `loadPublicSettings()`**（批次 6 第三轮删自定义端点后暴露，2026-09-08 记录，未处理）：`custom_endpoints` 删除后 `EndpointPopover` 不再需要公开设置，但 `KeysView.vue` 仍在 mount 时拉一次 `getPublicSettings()` 存进 `publicSettings`，全文件无读取方
+- [ ] **FEATURE_CHECKLIST 的 P1 / P2 未勾项仍未处理**（状态未变，此处只做索引）：ops 三开关无 UI、`OpsRuntimeSettingsCard` 孤儿组件、`revoke-all-sessions` / `system/restart` / `ws/qps` 无 UI、data-management 14 条接口无前端、`ProfileIdentityBindingsSection` 只读
+- [ ] **乙方案：真正的在途请求登记**（批次 6 第四轮候选，2026-09-08 记录）：现在并发槽位的 Redis ZSET 只有开始时间、无元数据，系统没有逐条在途登记；甲方案（基于使用记录的「最近请求」抽屉）已交付，乙方案排下一批
 
 ---
 
@@ -937,7 +1043,7 @@ CI 全绿但镜像构建必然失败。
 > 按本清单部署 / 核对时遵守第四节「⛔ 2026-09-05 事故」定下的新纪律：服务器上只做拉镜像、重建容器、curl / psql 级核对；
 > 编译、测试、lint、装依赖、无头浏览器一律走 GitHub CI；任何时刻最多一个人操作服务器，操作前先看负载。
 
-本清单面向站长，用于在内网实际部署验证"单管理员内部部署"裁剪分支的镜像。
+本清单面向站长，用于在内网实际部署验证"内部部署（自用多用户）"裁剪分支的镜像（2026-09-08 起的表述；此前写作"单管理员内部部署"）。
 镜像由 `.github/workflows/branch-docker-image.yml`（手动触发）构建，只推 GHCR：
 
 - 浮动标签：`ghcr.io/cherrylover/sub2api:internal-rc`（每次分支构建会顶掉，验证期 compose 固定引用它）
@@ -1340,7 +1446,7 @@ Key 额度成为唯一闸门后，`CheckBillingEligibility` 不再做额度预�
 ```bash
 # 建一个额度很小的 Key（比如 quota 只够 1-2 次请求），连续发 10 条：
 # 预期：前几条成功，之后开始返回额度耗尽错误
-# 可接受：超出配额一点点（这就是上面说的超支窗口，内部单管理员部署下可接受）
+# 可接受：超出配额一点点（这就是上面说的超支窗口，内部自用部署下可接受）
 # 不可接受：一直不拒绝，或者额度还有很多就开始拒绝
 ```
 
@@ -1570,6 +1676,7 @@ docker compose up -d sub2api
 
 ## 六、验证问题追踪（按镜像版本累加）
 
+> 目标已于 2026-09-08 调整为「内部部署、自用多用户」，以下历史记录中的「单管理员」为当时表述，原文保留不改。
 
 使用约定：
 
@@ -1585,6 +1692,55 @@ docker compose up -d sub2api
 > 登录/认证错误 i18n 补齐、profile 绑定文案、新手引导整删（含 driver.js 依赖）、上游 GitHub 链接移除
 > （合规弹窗内法律文档"查看原文"链接刻意保留，随 B1 整删）。
 > checkbox 待站长在新 RC 镜像上复验通过后勾选。
+
+### 批次 6 第二～四轮 RC 验证记录（2026-09-07，way-rc）
+
+三轮依次部署到 way-rc（同一天 06:42Z → 08:27Z → 09:33Z），每轮都做了不登录可做的核对；**站长登录验收尚未做**（清单见本小节末尾）。
+生产 `way.flyooo.uk` 全程未动，仍是 `0.1.186`。以下数字全部为 CI 记录与 way-rc 实测，没列出的验证就是没做。范围说明见第三节「批次 6 第二～四轮范围说明」。
+
+#### 第二轮 `internal-e394a90`（`batch6/round2`，HEAD `e394a90a1`，基于 `306bcf291`）
+
+- [x] 三条分支各自 CI 全绿后合并，无冲突：WP-C2 后端 `55734db0e`（CI 34086811737）、WP-C1 前端 `20e6d5193` / `7e63d296c` / `1ad0bf6f6`（CI 34087617890）、
+      WP-A3 `ce429bd1e` / `208aa0d96` / `dd0844ae1` / `d6525764e`（第一轮一条 spec 红——清空唯一限额时卡片自动关闭——修后全绿，CI 34088345142）
+- [x] 集成 CI run 34090219404 ✓、Security Scan 34090219309 ✓；验证镜像 `internal-e394a90`（Branch Docker Image run 34091279607）
+- [x] 迁移 239 前置核实：生产与 way-rc **均无设过周额度的账号**，迁移在两边都是空操作（psql 核实）
+- [x] way-rc 部署（2026-09-07 06:42Z）：5 秒 healthy、零错误
+- [x] 迁移 239 前后对照：迁移头 238 → 239、记录 278 → 279、表 77；25 个账号的 `extra` md5 逐条相同（未命中、不变）
+- [x] 未登录验证：`/user/totp/verification-method` → 404（死端点已摘），`/user/totp/status` → 401（保留面对照）
+- [x] 产物 grep：87 个 JS 文件里 `subscription_type` / `clickToViewBalance` / `getVerificationMethod` / `claudeMaxSimulation` 零命中；语言包含「自然周」
+
+#### 第三轮 `internal-b68971a`（`batch6/round3`，HEAD `b68971a24`，基于 round2）
+
+- [x] 三条分支各自 CI 全绿：A6-甲 + 丙 后端 `ab12794cc` / `be97dc3af` / `88a34fb2f` / `0ba5641a0`（第一轮 golangci-lint gofmt 对齐红，修后全绿，CI 34097154880）、
+      A6-乙 + 甲 + 丙 前端 `da4be4549` / `c076942f2` / `f255ac71f`（CI 34096248631）、`custom_endpoints` 删除 `bc4b4dc86` / `8e209c54b` / `3bc38c90e`（CI 34095380932）
+- [x] 合并只在 Makefile 关键 vitest 名单一处冲突（三条 spec 全保留）；集成 CI 34098887841 ✓、Security Scan 34098887797 ✓；镜像 `internal-b68971a`（run 34099817202）
+- [x] way-rc 部署（2026-09-07 08:27Z）：11 秒 healthy、零错误
+- [x] 迁移 240 前后对照：迁移头 239 → 240、记录 279 → 280、表 77；`settings.custom_endpoints` 迁移前值 `[]`、迁移后不存在
+- [x] 未登录验证：三条 `admin/api-keys` 路由 401（对照不存在路由 404）；`/admin/api-keys` 前端路由 200
+- [x] 产物 grep：74 个 JS 分片里 `custom_endpoints` / `customEndpoints` /「自定义端点」零命中；语言包「密钥总表」×2
+- [x] 站长另两个决策同日拍板：`security.url_allowlist.enabled` 保持关闭、`server.trusted_proxies` 暂不配置（见第四节「三个决策结论」）
+
+#### 第四轮 `internal-ae47e55`（`batch6/round4`，HEAD `ae47e5564`，基于 round3）
+
+- [x] 两条分支各自 CI 全绿：后端 `f3bcbd9a1` / `396ca2137` / `03b5d7906`（CI 34102510497 一次全绿）、前端 `3403abe39` / `ec05c82c3`（CI 34101114427 / 34101935036）
+- [x] 合并无冲突；集成 CI 34103833981 ✓、Security Scan 34103834034 ✓；镜像 `internal-ae47e55`（run 34104661827）
+- [x] way-rc 部署（2026-09-07 09:33Z）：6 秒 healthy、零错误、心跳正常；**无迁移**（头仍 240、记录 280、表 77）
+- [x] 未登录验证：`recent-requests` → 401（对照 404）
+- [x] 产物 grep：73 个 JS 分片含 `recent-requests`、`AccountLoadDrawer`、`SideDrawer`、`accountClick`、`onAccountClick`、`query.account_id`、`setAccountKeyword`；
+      语言包 `viewUsageLogs:"查看用量"`、`summary:"并发 {current}/{max} · 最近 {minutes} 分钟 {count} 次 · 最活跃密钥 {key}"`
+
+#### 站长登录验收清单（way-rc `internal-ae47e55`，未做）
+
+- [ ] 周限额默认值：新建 / 编辑账号弹窗周限额一填数字，重置方式自动为 固定 / 周一 / 00:00 / 服务器时区（生产与 way-rc 都没有升级前设过周额度的账号，只能验新建路径）
+- [ ] 账号「容量」格：悬停出简版「并发 x/y · 最近 15 分钟 N 次 · 最活跃密钥」，点击打开右侧负载抽屉（并发 / 等待、5 / 15 / 60 分钟切换、按密钥 / 按模型、请求表、同期错误段、刷新）
+- [ ] 账号操作菜单「查看用量」→ 进入 `/admin/usage?account_id=` 且账号名回填
+- [ ] 使用记录账号可点：点账号名只剩该账号的记录、筛选栏回显账号名
+- [ ] 密钥总表 `/admin/api-keys` 全套：列表掩码、排序、筛选（用户 / 分组 / 状态 / 搜索）、查用量跳转、启停、编辑分组与 IP 名单、删除确认
+- [ ] 用户管理 → 「API 密钥」弹窗：启停 / 删除 / IP 名单
+- [ ] 管理员重定向：管理员访问 `/dashboard` → `/admin/dashboard`、`/usage` → `/admin/usage`；「我的账户」侧栏无「用量」；管理员自己的 `/keys` 照常
+- [ ] 自定义端点消失：设置页无该卡片；Keys 页端点弹层只剩当前站点内置端点（复制 / 测速仍在）
+- [ ] 回归页面：登录、用户管理、账号管理、分组、使用记录、设置各页无白屏、控制台无报错
+- [ ] 验收通过后：`batch6/round4` ff 合并 `fork/main` → auto-release（预期 v0.1.187）→ 生产升级（备份 + 导回验证照旧）→ way-rc 切回正式 tag
 
 ### 批次 6 发版记录：v0.1.184 / v0.1.185 / v0.1.186（2026-09-04 ～ 09-07）**通过**
 
