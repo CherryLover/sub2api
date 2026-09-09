@@ -1602,6 +1602,18 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	// pendingLines 在首个可见输出前保留前导事件，确保无输出失败仍可安全 failover。
 	pendingLines := make([]string, 0, 8)
+
+	// 首个可见输出之前的下游 keepalive：pendingLines 会扣住
+	// response.created / in_progress，下游连 HTTP 响应头都不会提交。
+	// 推理模型首字节前思考数百秒时，中间代理会按空闲超时判死连接。
+	// 用 startOpenAISSEKeepalive 而不是 StartOpenAICompactSSEKeepalive：
+	// 后者会检查 compact 标记，这里是普通 /v1/responses 透传。
+	stopKeepalive := func() {}
+	if s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0 {
+		stopKeepalive = startOpenAISSEKeepalive(c,
+			time.Duration(s.cfg.Gateway.StreamKeepaliveInterval)*time.Second)
+	}
+	defer stopKeepalive()
 	// flushPending 表示已写入但未到 SSE 空行边界的脏状态；defer 兜底函数退出前的残留，断连后不再 Flush。
 	flushPending := false
 	flushPendingOutput := func() {
@@ -1795,6 +1807,11 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			if !clientOutputStarted && !lineStartsClientOutput {
 				pendingLines = append(pendingLines, line)
 				continue
+			}
+			// 真实输出开始，心跳使命结束。停拍是幂等的，且会与心跳 goroutine
+			// 建立 happens-before —— 之后 ResponseWriter 由本循环独占。
+			if !clientOutputStarted {
+				stopKeepalive()
 			}
 			if !clientOutputStarted && len(pendingLines) > 0 {
 				if !writePendingLines() {
