@@ -1034,6 +1034,19 @@ export default {
           duplicate: 'This entry already exists'
         }
       },
+      codexModelsManifest: {
+        title: 'Pin accounts for Codex Model Manifest',
+        hint: 'When enabled, Codex /models for this group is fetched only from the selected accounts and merged by slug, bypassing the scheduler. Rate-limited or overloaded pinned accounts are still used.',
+        enable: 'Fetch the manifest from specific accounts',
+        enabledHint: 'Accounts must belong to this OpenAI group. Select up to 10.',
+        disabledHint: 'Disabled: manifest requests use the scheduler.',
+        accounts: 'Pinned accounts',
+        searchPlaceholder: 'Search accounts (OpenAI accounts in this group)',
+        searchEmpty: 'No matching accounts',
+        fallback: 'Fall back to the scheduler if no pinned account is usable',
+        fallbackHint: 'When off, return 503 / the upstream error. When on, fall back to the existing scheduler path.',
+        selectAtLeastOne: 'Select at least one account after enabling pinned accounts'
+      },
       compositeRoutes: {
         action: 'Routes',
         title: 'Composite Routes',
