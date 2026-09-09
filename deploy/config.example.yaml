@@ -1138,17 +1138,14 @@ pricing:
   # Local data directory for caching
   # 本地数据缓存目录
   data_dir: "./data"
-  # Fallback pricing file: fills in models missing from the catalog. Edits are
-  # detected by content hash at the next hash check and reloaded without restart.
-  # 备用定价文件：只补目录缺失的模型。修改后在下一次哈希检查时按内容哈希自动重载，无需重启。
+  # Fallback pricing file
+  # 备用定价文件
   fallback_file: "./resources/model-pricing/model_prices_and_context_window.json"
   # Update interval in hours
   # 更新间隔（小时）
   update_interval_hours: 24
-  # Hash check interval in minutes. Each check compares the remote catalog hash and
-  # the local fallback file contents. Deleting the local file drops its entries at
-  # the next check; a present but non-JSON file keeps the previous data.
-  # 哈希检查间隔（分钟）。每次检查同时比对远程目录哈希与本地 fallback 文件内容。
+  # Hash check interval in minutes
+  # 哈希检查间隔（分钟）
   hash_check_interval_minutes: 10
 
 # =============================================================================

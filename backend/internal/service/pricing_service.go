@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -188,8 +187,6 @@ type PricingService struct {
 	pricingData  map[string]*LiteLLMModelPricing
 	lastUpdated  time.Time
 	localHash    string
-	// fallback 文件在最近一次成功重建时的内容指纹，定时器据此判断是否需要热重载。
-	customFilesHash string
 
 	// 停止信号
 	stopCh chan struct{}
@@ -236,19 +233,14 @@ func (s *PricingService) Stop() {
 	logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Service stopped")
 }
 
+// startUpdateScheduler 启动定时更新调度器
 func (s *PricingService) startUpdateScheduler() {
-	if s == nil || s.cfg == nil {
-		return
-	}
-	remoteEnabled := strings.TrimSpace(s.cfg.Pricing.RemoteURL) != ""
-	watchCustom := s.hasCustomPricingFiles()
-	if !remoteEnabled {
+	if s == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Pricing.RemoteURL) == "" {
 		logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Remote sync disabled: pricing remote URL is empty")
-	}
-	if !remoteEnabled && !watchCustom {
 		return
 	}
 
+	// 定期检查哈希更新
 	hashInterval := time.Duration(s.cfg.Pricing.HashCheckIntervalMinutes) * time.Minute
 	if hashInterval < time.Minute {
 		hashInterval = 10 * time.Minute
@@ -263,13 +255,8 @@ func (s *PricingService) startUpdateScheduler() {
 		for {
 			select {
 			case <-ticker.C:
-				if remoteEnabled {
-					if err := s.syncWithRemote(); err != nil {
-						logger.LegacyPrintf("service.pricing", "[Pricing] Sync failed: %v", err)
-					}
-				}
-				if watchCustom {
-					s.reloadIfCustomFilesChanged()
+				if err := s.syncWithRemote(); err != nil {
+					logger.LegacyPrintf("service.pricing", "[Pricing] Sync failed: %v", err)
 				}
 			case <-s.stopCh:
 				return
@@ -277,7 +264,7 @@ func (s *PricingService) startUpdateScheduler() {
 		}
 	}()
 
-	logger.LegacyPrintf("service.pricing", "[Pricing] Update scheduler started (check every %v, remote sync=%t, custom file watch=%t)", hashInterval, remoteEnabled, watchCustom)
+	logger.LegacyPrintf("service.pricing", "[Pricing] Update scheduler started (check every %v)", hashInterval)
 }
 
 // checkAndUpdatePricing 检查并更新价格数据
@@ -378,110 +365,6 @@ func (s *PricingService) syncWithRemote() error {
 	return nil
 }
 
-func (s *PricingService) hasCustomPricingFiles() bool {
-	if s == nil || s.cfg == nil {
-		return false
-	}
-	return strings.TrimSpace(s.cfg.Pricing.FallbackFile) != ""
-}
-
-func (s *PricingService) customPricingFilesFingerprint() string {
-	if !s.hasCustomPricingFiles() {
-		return ""
-	}
-	h := sha256.New()
-	var body []byte
-	if p := strings.TrimSpace(s.cfg.Pricing.FallbackFile); p != "" {
-		body, _ = os.ReadFile(p)
-	}
-	var size [8]byte
-	binary.BigEndian.PutUint64(size[:], uint64(len(body)))
-	_, _ = h.Write(size[:])
-	_, _ = h.Write(body)
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-func (s *PricingService) validateCustomPricingFiles() error {
-	p := strings.TrimSpace(s.cfg.Pricing.FallbackFile)
-	if p == "" {
-		return nil
-	}
-	body, err := os.ReadFile(p)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var entries map[string]json.RawMessage
-	if err := json.Unmarshal(body, &entries); err != nil {
-		return fmt.Errorf("%s: %w", p, err)
-	}
-	return nil
-}
-
-func (s *PricingService) reloadIfCustomFilesChanged() {
-	fingerprint := s.customPricingFilesFingerprint()
-	s.mu.RLock()
-	unchanged := fingerprint == s.customFilesHash
-	s.mu.RUnlock()
-	if unchanged {
-		return
-	}
-	if err := s.reloadCustomPricingLayers(); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Custom pricing file changed but reload failed: %v", err)
-	}
-}
-
-func (s *PricingService) reloadCustomPricingLayers() error {
-	pricingFile := s.getPricingFilePath()
-	var data map[string]*LiteLLMModelPricing
-	var fingerprint string
-	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		if validateErr := s.validateCustomPricingFiles(); validateErr != nil {
-			return fmt.Errorf("validate custom pricing files: %w", validateErr)
-		}
-		before := s.customPricingFilesFingerprint()
-		body, readErr := os.ReadFile(pricingFile)
-		if readErr != nil {
-			return fmt.Errorf("read file failed: %w", readErr)
-		}
-		data, fingerprint, err = s.buildPricingData(body)
-		if err != nil {
-			return fmt.Errorf("parse pricing data: %w", err)
-		}
-		after := s.customPricingFilesFingerprint()
-		if validateErr := s.validateCustomPricingFiles(); validateErr != nil {
-			return fmt.Errorf("validate custom pricing files: %w", validateErr)
-		}
-		if before == after && after == fingerprint {
-			break
-		}
-		if attempt == 2 {
-			return fmt.Errorf("custom pricing files changed during reload")
-		}
-	}
-
-	s.mu.Lock()
-	s.pricingData = data
-	s.customFilesHash = fingerprint
-	s.mu.Unlock()
-
-	logger.LegacyPrintf("service.pricing", "[Pricing] Custom pricing files changed, reloaded %d models from %s", len(data), pricingFile)
-	return nil
-}
-
-func (s *PricingService) buildPricingData(body []byte) (map[string]*LiteLLMModelPricing, string, error) {
-	fingerprint := s.customPricingFilesFingerprint()
-	data, err := s.parsePricingData(body)
-	if err != nil {
-		return nil, "", err
-	}
-	data = s.mergeFallbackPricingData(data)
-	return data, fingerprint, nil
-}
-
 // downloadPricingData 从远程下载价格数据
 func (s *PricingService) downloadPricingData() error {
 	remoteURL, err := s.validatePricingURL(s.cfg.Pricing.RemoteURL)
@@ -516,10 +399,12 @@ func (s *PricingService) downloadPricingData() error {
 			remoteHash[:min(8, len(remoteHash))], dataHashStr[:8])
 	}
 
-	data, customFilesHash, err := s.buildPricingData(body)
+	// 解析JSON数据（使用灵活的解析方式）
+	data, err := s.parsePricingData(body)
 	if err != nil {
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
+	data = s.mergeFallbackPricingData(data)
 
 	// 保存到本地文件
 	pricingFile := s.getPricingFilePath()
@@ -543,7 +428,6 @@ func (s *PricingService) downloadPricingData() error {
 	s.pricingData = data
 	s.lastUpdated = time.Now()
 	s.localHash = syncHash
-	s.customFilesHash = customFilesHash
 	s.mu.Unlock()
 
 	logger.LegacyPrintf("service.pricing", "[Pricing] Downloaded %d models successfully", len(data))
@@ -654,10 +538,12 @@ func (s *PricingService) loadPricingData(filePath string) error {
 		return fmt.Errorf("read file failed: %w", err)
 	}
 
-	pricingData, customFilesHash, err := s.buildPricingData(data)
+	// 使用灵活的解析方式
+	pricingData, err := s.parsePricingData(data)
 	if err != nil {
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
+	pricingData = s.mergeFallbackPricingData(pricingData)
 
 	// 计算哈希
 	hash := sha256.Sum256(data)
@@ -666,7 +552,6 @@ func (s *PricingService) loadPricingData(filePath string) error {
 	s.mu.Lock()
 	s.pricingData = pricingData
 	s.localHash = hashStr
-	s.customFilesHash = customFilesHash
 
 	info, _ := os.Stat(filePath)
 	if info != nil {
