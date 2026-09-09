@@ -21,8 +21,8 @@ describe("groups models list layout", () => {
     expect(groupsViewSource).toContain(
       'platform === "gemini" ? "/v1beta/models" : "/v1/models"',
     );
-    expect(groupsViewSource).toContain("modelAllowlistEndpoint(createForm.platform)");
-    expect(groupsViewSource).toContain("modelAllowlistEndpoint(editForm.platform)");
+    expect(groupsViewSource).toContain("modelsListEndpoint(createForm.platform)");
+    expect(groupsViewSource).toContain("modelsListEndpoint(editForm.platform)");
   });
 
   it("uses a wide dialog and keeps model pricing controls responsive", () => {

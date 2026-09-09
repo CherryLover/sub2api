@@ -87,8 +87,8 @@ func customGeminiModelsList(group *service.Group) (gemini.ModelsListResponse, bo
 	if group == nil || !group.CustomModelsListEnabled() {
 		return gemini.ModelsListResponse{}, false
 	}
-	models := make([]gemini.Model, 0, len(group.ModelAllowlist.Models))
-	for _, modelID := range group.ModelAllowlist.Models {
+	models := make([]gemini.Model, 0, len(group.ModelsListConfig.Models))
+	for _, modelID := range group.ModelsListConfig.Models {
 		models = append(models, gemini.FallbackModel(modelID))
 	}
 	return gemini.ModelsListResponse{Models: models}, true

@@ -24,7 +24,7 @@ func TestGeminiV1BetaListModels_CustomGroupListUsesNativeResponse(t *testing.T) 
 	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
 		Group: &service.Group{
 			Platform: service.PlatformGemini,
-			ModelAllowlist: service.GroupModelAllowlist{
+			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
 				Models:  []string{"gemini-2.5-pro", "models/gemini-custom"},
 			},
@@ -50,7 +50,7 @@ func TestGeminiV1BetaListModels_ForcedAntigravityIgnoresCustomGroupList(t *testi
 	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
 		Group: &service.Group{
 			Platform: service.PlatformGemini,
-			ModelAllowlist: service.GroupModelAllowlist{
+			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
 				Models:  []string{"gemini-custom"},
 			},
@@ -68,7 +68,7 @@ func TestGeminiV1BetaListModels_ForcedAntigravityIgnoresCustomGroupList(t *testi
 
 func TestCustomGeminiModelsList_DisabledKeepsExistingFlow(t *testing.T) {
 	group := &service.Group{
-		ModelAllowlist: service.GroupModelAllowlist{
+		ModelsListConfig: service.GroupModelsListConfig{
 			Enabled: false,
 			Models:  []string{"gemini-2.5-pro"},
 		},

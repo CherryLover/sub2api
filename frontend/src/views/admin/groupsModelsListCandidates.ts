@@ -8,12 +8,12 @@ export interface ModelsListCandidatesRequest {
   platform: GroupPlatform;
 }
 
-export interface ModelAllowlistCandidatesTracker {
+export interface ModelsListCandidatesTracker {
   next(request: ModelsListCandidatesRequest): number;
   isCurrent(requestID: number, request: ModelsListCandidatesRequest): boolean;
 }
 
-export const createModelAllowlistCandidatesTracker = (): ModelAllowlistCandidatesTracker => {
+export const createModelsListCandidatesTracker = (): ModelsListCandidatesTracker => {
   let currentRequestID = 0;
   const currentByMode: Partial<Record<ModelsListCandidatesMode, {
     id: number;

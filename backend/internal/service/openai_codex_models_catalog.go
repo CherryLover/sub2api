@@ -106,7 +106,7 @@ type configuredCodexModelDescriptor struct {
 func FilterCodexModelIDsForGroup(modelIDs []string, group *Group) []string {
 	explicitlyEnabled := make(map[string]struct{})
 	if group != nil && group.CustomModelsListEnabled() {
-		for _, modelID := range group.ModelAllowlist.Models {
+		for _, modelID := range group.ModelsListConfig.Models {
 			modelID = strings.TrimSpace(modelID)
 			if strings.HasPrefix(modelID, codexAutoModelPrefix) {
 				explicitlyEnabled[modelID] = struct{}{}
@@ -131,7 +131,7 @@ func FilterCodexModelIDsForGroup(modelIDs []string, group *Group) []string {
 		filtered = append(filtered, modelID)
 	}
 	if group != nil && group.CustomModelsListEnabled() {
-		return filterCodexModelsByCustomList(filtered, group.ModelAllowlist.Models)
+		return filterCodexModelsByCustomList(filtered, group.ModelsListConfig.Models)
 	}
 	return filtered
 }

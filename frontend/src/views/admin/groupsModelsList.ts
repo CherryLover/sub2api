@@ -1,40 +1,38 @@
-export interface ModelAllowlistConfig {
+export interface ModelsListConfig {
   enabled: boolean
   models: string[]
 }
 
-export interface ModelAllowlistItem {
+export interface ModelsListItem {
   id: string
   selected: boolean
 }
 
-export interface ModelAllowlistState {
+export interface ModelsListState {
   enabled: boolean
   savedModels: string[]
-  items: ModelAllowlistItem[]
+  items: ModelsListItem[]
 }
 
-export type ModelAllowlistAddError = 'empty' | 'invalid_wildcard' | 'duplicate'
-
-export const createModelAllowlistState = (
-  config?: Partial<ModelAllowlistConfig> | null,
-): ModelAllowlistState => ({
+export const createModelsListState = (
+  config?: Partial<ModelsListConfig> | null,
+): ModelsListState => ({
   enabled: config?.enabled ?? false,
   savedModels: normalizeModels(config?.models ?? []),
   items: [],
 })
 
-export const hydrateModelAllowlistState = (
-  config: Partial<ModelAllowlistConfig> | null | undefined,
+export const hydrateModelsListState = (
+  config: Partial<ModelsListConfig> | null | undefined,
   candidates: string[],
-): ModelAllowlistState => {
-  const state = createModelAllowlistState(config)
-  setModelAllowlistCandidates(state, candidates)
+): ModelsListState => {
+  const state = createModelsListState(config)
+  setModelsListCandidates(state, candidates)
   return state
 }
 
-export const setModelAllowlistCandidates = (
-  state: ModelAllowlistState,
+export const setModelsListCandidates = (
+  state: ModelsListState,
   candidates: string[],
 ) => {
   const normalizedCandidates = normalizeModels(candidates)
@@ -64,30 +62,27 @@ export const setModelAllowlistCandidates = (
   })
 }
 
-export const toggleModelAllowlistItem = (
-  state: ModelAllowlistState,
-  modelID: string,
-) => {
+export const toggleModelsListItem = (state: ModelsListState, modelID: string) => {
   const item = state.items.find(item => item.id === modelID)
   if (item) {
     item.selected = !item.selected
   }
 }
 
-export const selectAllModelAllowlistItems = (state: ModelAllowlistState) => {
+export const selectAllModelsListItems = (state: ModelsListState) => {
   state.items.forEach(item => {
     item.selected = true
   })
 }
 
-export const invertModelAllowlistSelection = (state: ModelAllowlistState) => {
+export const invertModelsListSelection = (state: ModelsListState) => {
   state.items.forEach(item => {
     item.selected = !item.selected
   })
 }
 
-export const moveModelAllowlistItem = (
-  state: ModelAllowlistState,
+export const moveModelsListItem = (
+  state: ModelsListState,
   fromIndex: number,
   toIndex: number,
 ) => {
@@ -104,38 +99,12 @@ export const moveModelAllowlistItem = (
   state.items.splice(toIndex, 0, item)
 }
 
-export const addCustomModelAllowlistItem = (
-  state: ModelAllowlistState,
-  raw: string,
-): ModelAllowlistAddError | null => {
-  const entry = raw.trim()
-  if (!entry) {
-    return 'empty'
-  }
-  if (entry.slice(0, -1).includes('*')) {
-    return 'invalid_wildcard'
-  }
-  if (
-    state.items.some(item => item.id.toLowerCase() === entry.toLowerCase()) ||
-    state.savedModels.some(model => model.toLowerCase() === entry.toLowerCase())
-  ) {
-    return 'duplicate'
-  }
-  state.items.push({ id: entry, selected: true })
-  return null
-}
-
-export const buildModelAllowlistConfig = (
-  state: ModelAllowlistState,
-): ModelAllowlistConfig => ({
+export const buildModelsListConfig = (state: ModelsListState): ModelsListConfig => ({
   enabled: state.enabled,
   models: state.items.length > 0
     ? state.items.filter(item => item.selected).map(item => item.id)
     : [...state.savedModels],
 })
-
-export const selectedModelAllowlistCount = (state: ModelAllowlistState): number =>
-  state.items.filter(item => item.selected).length
 
 const normalizeModels = (models: string[]): string[] => {
   const seen = new Set<string>()

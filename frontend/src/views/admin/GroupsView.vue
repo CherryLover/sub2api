@@ -611,18 +611,18 @@
           <div class="mb-3 flex items-center justify-between gap-3">
             <div>
               <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {{ t("admin.groups.modelAllowlist.title", { endpoint: modelAllowlistEndpoint(createForm.platform) }) }}
+                {{ t("admin.groups.modelsList.title", { endpoint: modelsListEndpoint(createForm.platform) }) }}
               </label>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t("admin.groups.modelAllowlist.hint", { endpoint: modelAllowlistEndpoint(createForm.platform) }) }}
+                {{ t("admin.groups.modelsList.hint", { endpoint: modelsListEndpoint(createForm.platform) }) }}
               </p>
             </div>
             <button
               type="button"
-              @click="createModelAllowlistState.enabled = !createModelAllowlistState.enabled"
+              @click="createModelsListState.enabled = !createModelsListState.enabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors',
-                createModelAllowlistState.enabled
+                createModelsListState.enabled
                   ? 'bg-primary-500'
                   : 'bg-gray-300 dark:bg-dark-600',
               ]"
@@ -630,24 +630,24 @@
               <span
                 :class="[
                   'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
-                  createModelAllowlistState.enabled ? 'translate-x-6' : 'translate-x-1',
+                  createModelsListState.enabled ? 'translate-x-6' : 'translate-x-1',
                 ]"
               />
             </button>
           </div>
           <div
-            v-if="createModelAllowlistState.enabled"
+            v-if="createModelsListState.enabled"
             class="overflow-hidden rounded-lg border border-gray-200 bg-gray-50/50 dark:border-dark-600 dark:bg-dark-800/40"
           >
             <div
-              v-if="!createModelAllowlistLoading && createModelAllowlistState.items.length > 0"
+              v-if="!createModelsListLoading && createModelsListState.items.length > 0"
               class="flex items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-dark-600 dark:bg-dark-800"
             >
               <span class="text-gray-500 dark:text-gray-400">
                 {{
-                  t("admin.groups.modelAllowlist.selectedSummary", {
-                    selected: createModelAllowlistSelectedCount,
-                    total: createModelAllowlistState.items.length,
+                  t("admin.groups.modelsList.selectedSummary", {
+                    selected: createModelsListSelectedCount,
+                    total: createModelsListState.items.length,
                   })
                 }}
               </span>
@@ -655,33 +655,33 @@
                 <button
                   type="button"
                   class="rounded px-2 py-1 font-medium text-primary-600 transition-colors hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-900/20"
-                  @click="selectAllModelAllowlistItems(createModelAllowlistState)"
+                  @click="selectAllModelsListItems(createModelsListState)"
                 >
-                  {{ t("admin.groups.modelAllowlist.selectAll") }}
+                  {{ t("admin.groups.modelsList.selectAll") }}
                 </button>
                 <button
                   type="button"
                   class="rounded px-2 py-1 font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
-                  @click="invertModelAllowlistSelection(createModelAllowlistState)"
+                  @click="invertModelsListSelection(createModelsListState)"
                 >
-                  {{ t("admin.groups.modelAllowlist.invertSelection") }}
+                  {{ t("admin.groups.modelsList.invertSelection") }}
                 </button>
               </div>
             </div>
             <div
               class="max-h-64 space-y-2 overflow-y-auto p-2"
             >
-              <p v-if="createModelAllowlistLoading" class="text-xs text-gray-500 dark:text-gray-400">
-                {{ t("admin.groups.modelAllowlist.loading") }}
+              <p v-if="createModelsListLoading" class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.modelsList.loading") }}
               </p>
               <p
-                v-else-if="createModelAllowlistState.items.length === 0"
+                v-else-if="createModelsListState.items.length === 0"
                 class="text-xs text-gray-500 dark:text-gray-400"
               >
-                {{ t("admin.groups.modelAllowlist.empty") }}
+                {{ t("admin.groups.modelsList.empty") }}
               </p>
               <div
-                v-for="(item, index) in createModelAllowlistState.items"
+                v-for="(item, index) in createModelsListState.items"
                 :key="item.id"
                 class="flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 dark:border-dark-600 dark:bg-dark-800"
               >
@@ -697,15 +697,15 @@
                   type="button"
                   :disabled="index === 0"
                   class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40 dark:hover:bg-dark-600 dark:hover:text-gray-200"
-                  @click="moveCreateModelAllowlistItem(index, index - 1)"
+                  @click="moveCreateModelsListItem(index, index - 1)"
                 >
                   <Icon name="arrowUp" size="sm" />
                 </button>
                 <button
                   type="button"
-                  :disabled="index === createModelAllowlistState.items.length - 1"
+                  :disabled="index === createModelsListState.items.length - 1"
                   class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40 dark:hover:bg-dark-600 dark:hover:text-gray-200"
-                  @click="moveCreateModelAllowlistItem(index, index + 1)"
+                  @click="moveCreateModelsListItem(index, index + 1)"
                 >
                   <Icon name="arrowDown" size="sm" />
                 </button>
@@ -2222,18 +2222,18 @@
           <div class="mb-3 flex items-center justify-between gap-3">
             <div>
               <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {{ t("admin.groups.modelAllowlist.title", { endpoint: modelAllowlistEndpoint(editForm.platform) }) }}
+                {{ t("admin.groups.modelsList.title", { endpoint: modelsListEndpoint(editForm.platform) }) }}
               </label>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t("admin.groups.modelAllowlist.hint", { endpoint: modelAllowlistEndpoint(editForm.platform) }) }}
+                {{ t("admin.groups.modelsList.hint", { endpoint: modelsListEndpoint(editForm.platform) }) }}
               </p>
             </div>
             <button
               type="button"
-              @click="editModelAllowlistState.enabled = !editModelAllowlistState.enabled"
+              @click="editModelsListState.enabled = !editModelsListState.enabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors',
-                editModelAllowlistState.enabled
+                editModelsListState.enabled
                   ? 'bg-primary-500'
                   : 'bg-gray-300 dark:bg-dark-600',
               ]"
@@ -2241,24 +2241,24 @@
               <span
                 :class="[
                   'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
-                  editModelAllowlistState.enabled ? 'translate-x-6' : 'translate-x-1',
+                  editModelsListState.enabled ? 'translate-x-6' : 'translate-x-1',
                 ]"
               />
             </button>
           </div>
           <div
-            v-if="editModelAllowlistState.enabled"
+            v-if="editModelsListState.enabled"
             class="overflow-hidden rounded-lg border border-gray-200 bg-gray-50/50 dark:border-dark-600 dark:bg-dark-800/40"
           >
             <div
-              v-if="!editModelAllowlistLoading && editModelAllowlistState.items.length > 0"
+              v-if="!editModelsListLoading && editModelsListState.items.length > 0"
               class="flex items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-dark-600 dark:bg-dark-800"
             >
               <span class="text-gray-500 dark:text-gray-400">
                 {{
-                  t("admin.groups.modelAllowlist.selectedSummary", {
-                    selected: editModelAllowlistSelectedCount,
-                    total: editModelAllowlistState.items.length,
+                  t("admin.groups.modelsList.selectedSummary", {
+                    selected: editModelsListSelectedCount,
+                    total: editModelsListState.items.length,
                   })
                 }}
               </span>
@@ -2266,33 +2266,33 @@
                 <button
                   type="button"
                   class="rounded px-2 py-1 font-medium text-primary-600 transition-colors hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-900/20"
-                  @click="selectAllModelAllowlistItems(editModelAllowlistState)"
+                  @click="selectAllModelsListItems(editModelsListState)"
                 >
-                  {{ t("admin.groups.modelAllowlist.selectAll") }}
+                  {{ t("admin.groups.modelsList.selectAll") }}
                 </button>
                 <button
                   type="button"
                   class="rounded px-2 py-1 font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
-                  @click="invertModelAllowlistSelection(editModelAllowlistState)"
+                  @click="invertModelsListSelection(editModelsListState)"
                 >
-                  {{ t("admin.groups.modelAllowlist.invertSelection") }}
+                  {{ t("admin.groups.modelsList.invertSelection") }}
                 </button>
               </div>
             </div>
             <div
               class="max-h-64 space-y-2 overflow-y-auto p-2"
             >
-              <p v-if="editModelAllowlistLoading" class="text-xs text-gray-500 dark:text-gray-400">
-                {{ t("admin.groups.modelAllowlist.loading") }}
+              <p v-if="editModelsListLoading" class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.modelsList.loading") }}
               </p>
               <p
-                v-else-if="editModelAllowlistState.items.length === 0"
+                v-else-if="editModelsListState.items.length === 0"
                 class="text-xs text-gray-500 dark:text-gray-400"
               >
-                {{ t("admin.groups.modelAllowlist.empty") }}
+                {{ t("admin.groups.modelsList.empty") }}
               </p>
               <div
-                v-for="(item, index) in editModelAllowlistState.items"
+                v-for="(item, index) in editModelsListState.items"
                 :key="item.id"
                 class="flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 dark:border-dark-600 dark:bg-dark-800"
               >
@@ -2308,15 +2308,15 @@
                   type="button"
                   :disabled="index === 0"
                   class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40 dark:hover:bg-dark-600 dark:hover:text-gray-200"
-                  @click="moveEditModelAllowlistItem(index, index - 1)"
+                  @click="moveEditModelsListItem(index, index - 1)"
                 >
                   <Icon name="arrowUp" size="sm" />
                 </button>
                 <button
                   type="button"
-                  :disabled="index === editModelAllowlistState.items.length - 1"
+                  :disabled="index === editModelsListState.items.length - 1"
                   class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40 dark:hover:bg-dark-600 dark:hover:text-gray-200"
-                  @click="moveEditModelAllowlistItem(index, index + 1)"
+                  @click="moveEditModelsListItem(index, index + 1)"
                 >
                   <Icon name="arrowDown" size="sm" />
                 </button>
@@ -4135,14 +4135,14 @@ import {
   type MessagesDispatchMappingRow,
 } from "./groupsMessagesDispatch";
 import {
-  buildModelAllowlistConfig,
-  createModelAllowlistState as createInitialModelAllowlistState,
-  invertModelAllowlistSelection,
-  moveModelAllowlistItem,
-  selectAllModelAllowlistItems,
-  setModelAllowlistCandidates,
-} from "./groupModelAllowlist";
-import { createModelAllowlistCandidatesTracker } from "./groupModelAllowlistCandidates";
+  buildModelsListConfig,
+  createModelsListState as createInitialModelsListState,
+  invertModelsListSelection,
+  moveModelsListItem,
+  selectAllModelsListItems,
+  setModelsListCandidates,
+} from "./groupsModelsList";
+import { createModelsListCandidatesTracker } from "./groupsModelsListCandidates";
 import { normalizeSupportedModelScopesForPlatform } from "./groupsSupportedModelScopes";
 import {
   isProfitControlPlatform,
@@ -4663,24 +4663,24 @@ const compositeRouteForm = reactive<CompositeRouteFormState>({
 });
 const createMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const editMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
-const createModelAllowlistState = reactive(createInitialModelAllowlistState());
-const editModelAllowlistState = reactive(createInitialModelAllowlistState());
-const modelAllowlistEndpoint = (platform: string) =>
+const createModelsListState = reactive(createInitialModelsListState());
+const editModelsListState = reactive(createInitialModelsListState());
+const modelsListEndpoint = (platform: string) =>
   platform === "gemini" ? "/v1beta/models" : "/v1/models";
-const createModelAllowlistLoading = ref(false);
-const editModelAllowlistLoading = ref(false);
+const createModelsListLoading = ref(false);
+const editModelsListLoading = ref(false);
 type ReasoningEffortPolicyFieldsExpose = {
   validate: () => boolean;
   resetValidation: () => void;
 };
 const createReasoningEffortPolicyRef = ref<ReasoningEffortPolicyFieldsExpose | null>(null);
 const editReasoningEffortPolicyRef = ref<ReasoningEffortPolicyFieldsExpose | null>(null);
-const modelsListCandidatesTracker = createModelAllowlistCandidatesTracker();
-const createModelAllowlistSelectedCount = computed(
-  () => createModelAllowlistState.items.filter((item) => item.selected).length,
+const modelsListCandidatesTracker = createModelsListCandidatesTracker();
+const createModelsListSelectedCount = computed(
+  () => createModelsListState.items.filter((item) => item.selected).length,
 );
-const editModelAllowlistSelectedCount = computed(
-  () => editModelAllowlistState.items.filter((item) => item.selected).length,
+const editModelsListSelectedCount = computed(
+  () => editModelsListState.items.filter((item) => item.selected).length,
 );
 
 const createForm = reactive({
@@ -4945,11 +4945,11 @@ const removeEditRoutingRule = (rule: ModelRoutingRule) => {
   editModelRoutingRules.value.splice(index, 1);
 };
 
-const resetModelAllowlistState = (
-  state: typeof createModelAllowlistState,
-  config?: Parameters<typeof createInitialModelAllowlistState>[0],
+const resetModelsListState = (
+  state: typeof createModelsListState,
+  config?: Parameters<typeof createInitialModelsListState>[0],
 ) => {
-  const fresh = createInitialModelAllowlistState(config);
+  const fresh = createInitialModelsListState(config);
   state.enabled = fresh.enabled;
   state.savedModels = fresh.savedModels;
   state.items = fresh.items;
@@ -4962,15 +4962,15 @@ const loadModelsListCandidates = async (
 ) => {
   const request = { mode, groupID, platform };
   const requestID = modelsListCandidatesTracker.next(request);
-  const state = mode === "create" ? createModelAllowlistState : editModelAllowlistState;
-  const loadingRef = mode === "create" ? createModelAllowlistLoading : editModelAllowlistLoading;
+  const state = mode === "create" ? createModelsListState : editModelsListState;
+  const loadingRef = mode === "create" ? createModelsListLoading : editModelsListLoading;
   loadingRef.value = true;
   try {
-    const models = await adminAPI.groups.getModelAllowlistCandidates(groupID, platform);
+    const models = await adminAPI.groups.getModelsListCandidates(groupID, platform);
     if (!modelsListCandidatesTracker.isCurrent(requestID, request)) {
       return;
     }
-    setModelAllowlistCandidates(state, models);
+    setModelsListCandidates(state, models);
   } catch (error) {
     if (!modelsListCandidatesTracker.isCurrent(requestID, request)) {
       return;
@@ -4983,12 +4983,12 @@ const loadModelsListCandidates = async (
   }
 };
 
-const moveCreateModelAllowlistItem = (fromIndex: number, toIndex: number) => {
-  moveModelAllowlistItem(createModelAllowlistState, fromIndex, toIndex);
+const moveCreateModelsListItem = (fromIndex: number, toIndex: number) => {
+  moveModelsListItem(createModelsListState, fromIndex, toIndex);
 };
 
-const moveEditModelAllowlistItem = (fromIndex: number, toIndex: number) => {
-  moveModelAllowlistItem(editModelAllowlistState, fromIndex, toIndex);
+const moveEditModelsListItem = (fromIndex: number, toIndex: number) => {
+  moveModelsListItem(editModelsListState, fromIndex, toIndex);
 };
 
 // 将 UI 格式的路由规则转换为 API 格式
@@ -5494,7 +5494,7 @@ const closeCreateModal = () => {
   createForm.max_reasoning_effort_over_limit = reasoningEffortOverLimitDowngrade;
   createForm.reasoning_effort_mappings = [];
   createReasoningEffortPolicyRef.value?.resetValidation();
-  resetModelAllowlistState(createModelAllowlistState);
+  resetModelsListState(createModelsListState);
   createModelRoutingRules.value = [];
 };
 
@@ -5558,7 +5558,7 @@ const handleCreateGroup = async () => {
       model_routing: convertRoutingRulesToApiFormat(
         createModelRoutingRules.value,
       ),
-      model_allowlist: buildModelAllowlistConfig(createModelAllowlistState),
+      models_list_config: buildModelsListConfig(createModelsListState),
       supported_model_scopes: normalizeSupportedModelScopesForPlatform(
         createForm.platform,
         createForm.supported_model_scopes,
@@ -5718,7 +5718,7 @@ const handleEdit = async (group: AdminGroup) => {
     group.reasoning_effort_mappings,
     group.platform,
   );
-  resetModelAllowlistState(editModelAllowlistState, group.model_allowlist);
+  resetModelsListState(editModelsListState, group.models_list_config);
   // 加载模型路由规则（异步加载账号名称）
   editModelRoutingRules.value = await convertApiFormatToRoutingRules(
     group.model_routing,
@@ -5762,7 +5762,7 @@ const closeEditModal = () => {
   editForm.audio_stt_price_per_hour = null;
   resetMessagesDispatchFormState(editForm);
   editForm.allow_live = false;
-  resetModelAllowlistState(editModelAllowlistState);
+  resetModelsListState(editModelsListState);
 };
 
 const handleUpdateGroup = async () => {
@@ -5803,7 +5803,7 @@ const handleUpdateGroup = async () => {
       model_routing: convertRoutingRulesToApiFormat(
         editModelRoutingRules.value,
       ),
-      model_allowlist: buildModelAllowlistConfig(editModelAllowlistState),
+      models_list_config: buildModelsListConfig(editModelsListState),
       supported_model_scopes: normalizeSupportedModelScopesForPlatform(
         editForm.platform,
         editForm.supported_model_scopes,
@@ -6178,7 +6178,7 @@ watch(
       createForm.require_oauth_only = false;
       createForm.require_privacy_set = false;
     }
-    resetModelAllowlistState(createModelAllowlistState);
+    resetModelsListState(createModelsListState);
     loadModelsListCandidates("create", 0, newVal);
   },
 );
@@ -6221,7 +6221,7 @@ watch(
       editForm.require_privacy_set = false;
     }
     if (editingGroup.value) {
-      resetModelAllowlistState(editModelAllowlistState, editForm.platform === editingGroup.value.platform ? editingGroup.value.model_allowlist : undefined);
+      resetModelsListState(editModelsListState, editForm.platform === editingGroup.value.platform ? editingGroup.value.models_list_config : undefined);
       loadModelsListCandidates("edit", editingGroup.value.id, newVal);
     }
   },

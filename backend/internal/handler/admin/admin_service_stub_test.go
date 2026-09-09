@@ -216,7 +216,7 @@ func (s *stubAdminService) GetGroup(ctx context.Context, id int64) (*service.Gro
 	return &group, nil
 }
 
-func (s *stubAdminService) GetGroupModelAllowlistCandidates(ctx context.Context, id int64, platform string) ([]string, error) {
+func (s *stubAdminService) GetGroupModelsListCandidates(ctx context.Context, id int64, platform string) ([]string, error) {
 	if platform == service.PlatformOpenAI {
 		return []string{"gpt-5.5", "gpt-5.4"}, nil
 	}
