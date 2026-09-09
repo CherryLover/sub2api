@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { flushPromises, mount } from '@vue/test-utils'
+import { mount } from '@vue/test-utils'
 
 const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
@@ -314,34 +314,6 @@ function mountModal(account = buildAccount()) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
-  })
-
-  afterEach(() => vi.useRealTimers())
-
-  it('sets month and year expiry presets without submitting the account form', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-01-31T12:34:00'))
-    const account = buildAccount()
-    updateAccountMock.mockReset().mockResolvedValue(account)
-    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
-    const wrapper = mountModal(account)
-    const input = wrapper.get<HTMLInputElement>('input[type="datetime-local"]')
-
-    for (const [label, expected] of [
-      ['admin.accounts.expiresAtOneMonth', '2026-02-28T12:34'],
-      ['admin.accounts.expiresAtOneYear', '2027-01-31T12:34'],
-    ]) {
-      const button = wrapper.findAll('button').find((candidate) => candidate.text() === label)!
-      expect(button.attributes('type')).toBe('button')
-      await button.trigger('click')
-      expect(input.element.value).toBe(expected)
-      expect(updateAccountMock).not.toHaveBeenCalled()
-    }
-
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-    await flushPromises()
-    expect(updateAccountMock.mock.calls[0]?.[1]?.expires_at).toBe(new Date('2027-01-31T12:34:00').getTime() / 1000)
-    wrapper.unmount()
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
