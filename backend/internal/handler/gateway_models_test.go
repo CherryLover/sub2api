@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -237,6 +238,103 @@ func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T)
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Equal(t, []string{"gpt-5.4", "gpt-5.5"}, modelIDsForTest(got.Data))
+}
+
+func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const groupID int64 = 28
+	const sparkModel = "gpt-5.3-codex-spark"
+	const alias = "team-coder"
+	parentID := int64(1)
+	accounts := []service.Account{
+		{ID: parentID, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth},
+		{
+			ID: 2, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+			ParentAccountID: &parentID, QuotaDimension: "spark",
+			Credentials: map[string]any{"model_mapping": map[string]any{sparkModel: sparkModel}},
+		},
+		{
+			ID: 3, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+			Credentials: map[string]any{"model_mapping": map[string]any{alias: "gpt-5.6-sol"}},
+		},
+	}
+	tests := []struct {
+		name     string
+		accounts []service.Account
+		config   service.GroupModelsListConfig
+		want     []string
+	}{
+		{
+			name:     "unmapped parent and Spark shadow retain defaults and aliases",
+			accounts: accounts,
+			want:     append(openai.DefaultModelIDs(), alias),
+		},
+		{
+			name:     "unmapped API key account also contributes defaults",
+			accounts: append([]service.Account{{ID: 4, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey}}, accounts[1:]...),
+			want:     append(openai.DefaultModelIDs(), alias),
+		},
+		{
+			name:     "unmapped accounts alone retain default response shape",
+			accounts: accounts[:1],
+			want:     openai.DefaultModelIDs(),
+		},
+		{
+			name:     "custom list can select defaults and aliases",
+			accounts: accounts,
+			config:   service.GroupModelsListConfig{Enabled: true, Models: []string{alias, "gpt-5.6-sol", sparkModel, "unknown-model"}},
+			want:     []string{alias, "gpt-5.6-sol", sparkModel},
+		},
+		{
+			name:     "unavailable custom selection remains empty",
+			accounts: accounts,
+			config:   service.GroupModelsListConfig{Enabled: true, Models: []string{"unknown-model"}},
+			want:     []string{},
+		},
+		{
+			name:     "mapped accounts alone do not gain defaults",
+			accounts: accounts[1:],
+			want:     []string{sparkModel, alias},
+		},
+		{
+			name:     "unmapped accounts from another platform do not add defaults",
+			accounts: append([]service.Account{{ID: 4, Platform: service.PlatformAnthropic}}, accounts[1:]...),
+			want:     []string{sparkModel, alias},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+				byGroup: map[int64][]service.Account{groupID: tt.accounts},
+			})
+			for range 2 {
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+				c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+					Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI, ModelsListConfig: tt.config},
+				})
+				h.Models(c)
+				require.Equal(t, http.StatusOK, rec.Code)
+				var got gatewayModelsResponseForTest
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+				require.Equal(t, "list", got.Object)
+				require.ElementsMatch(t, tt.want, modelIDsForTest(got.Data))
+				for _, model := range got.Data {
+					require.Equal(t, "model", model.Object, model.ID)
+					require.Positive(t, model.Created, model.ID)
+					require.Equal(t, "openai", model.OwnedBy, model.ID)
+					require.Empty(t, model.CreatedAt, model.ID)
+				}
+				if tt.config.Enabled {
+					require.Equal(t, tt.want, modelIDsForTest(got.Data))
+				}
+			}
+		})
+	}
+	require.Empty(t, accounts[0].GetModelMapping())
+	require.True(t, accounts[0].IsModelSupported("gpt-future-model"))
+	require.False(t, accounts[1].IsModelSupported("gpt-5.6-sol"))
 }
 
 func TestGatewayModels_CustomModelsListFiltersAndOrdersMappedModels(t *testing.T) {
