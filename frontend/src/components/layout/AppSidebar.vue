@@ -233,11 +233,8 @@ const isDark = ref(document.documentElement.classList.contains('dark'))
 
 const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
 
-// Per-group expand/collapse overrides. A group with no entry follows the
-// automatic behavior (expanded while the active route is one of its children);
-// a chevron click records the user's choice, which wins over the automatic
-// state so an active group can still be collapsed manually.
-const groupExpandOverrides = ref<Map<string, boolean>>(new Map())
+// Track which parent nav groups are expanded
+const expandedGroups = ref<Set<string>>(new Set())
 
 const siteVersion = computed(() => appStore.siteVersion)
 
@@ -644,13 +641,15 @@ function isGroupActive(item: NavItem): boolean {
 }
 
 function isGroupExpanded(item: NavItem): boolean {
-  const override = groupExpandOverrides.value.get(item.path)
-  if (override !== undefined) return override
-  return isGroupActive(item)
+  return expandedGroups.value.has(item.path) || isGroupActive(item)
 }
 
 function toggleGroup(item: NavItem) {
-  groupExpandOverrides.value.set(item.path, !isGroupExpanded(item))
+  if (expandedGroups.value.has(item.path)) {
+    expandedGroups.value.delete(item.path)
+  } else {
+    expandedGroups.value.add(item.path)
+  }
 }
 
 /**
@@ -670,7 +669,9 @@ function handleGroupClick(item: NavItem) {
   if (route.path !== item.path) {
     router.push(item.path)
   }
-  groupExpandOverrides.value.set(item.path, true)
+  if (!expandedGroups.value.has(item.path)) {
+    expandedGroups.value.add(item.path)
+  }
 }
 
 // Initialize theme
