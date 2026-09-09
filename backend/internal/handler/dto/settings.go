@@ -203,10 +203,6 @@ type RateLimit429CooldownSettings struct {
 	CooldownSeconds int  `json:"cooldown_seconds"`
 }
 
-type OpenAIImagesOAuthUnavailableCooldownSettings struct {
-	CooldownMinutes int `json:"cooldown_minutes"`
-}
-
 // PanelRateLimitSettings 面板 API 限流配置 DTO
 type PanelRateLimitSettings struct {
 	Enabled     bool `json:"enabled"`
