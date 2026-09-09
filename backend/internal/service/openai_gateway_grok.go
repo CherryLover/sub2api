@@ -639,7 +639,7 @@ func normalizeGrokReasoningEffortValue(raw, model string) (string, bool) {
 	case "minimal":
 		return "low", true
 	case "xhigh", "extrahigh":
-		if grokSupportsXHighReasoningEffort(model) {
+		if GrokSupportsXHighReasoningEffort(model) {
 			return "xhigh", true
 		}
 		return "high", true
@@ -650,7 +650,9 @@ func normalizeGrokReasoningEffortValue(raw, model string) (string, bool) {
 	}
 }
 
-func grokSupportsXHighReasoningEffort(model string) bool {
+// GrokSupportsXHighReasoningEffort reports whether the model advertises and
+// forwards the xhigh reasoning effort (Grok 4.6 and its undated alias).
+func GrokSupportsXHighReasoningEffort(model string) bool {
 	model = strings.ToLower(xai.StripGrokProviderPrefix(strings.TrimSpace(model)))
 	return model == "grok-4.6" || model == "grok-4.6-latest"
 }
