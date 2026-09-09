@@ -6,7 +6,6 @@
 import { apiClient } from '../client'
 import type {
   Account,
-  AccountListItem,
   CreateAccountRequest,
   UpdateAccountRequest,
   PaginatedResponse,
@@ -54,8 +53,8 @@ export async function list(
   options?: {
     signal?: AbortSignal
   }
-): Promise<PaginatedResponse<AccountListItem>> {
-  const { data } = await apiClient.get<PaginatedResponse<AccountListItem>>('/admin/accounts', {
+): Promise<PaginatedResponse<Account>> {
+  const { data } = await apiClient.get<PaginatedResponse<Account>>('/admin/accounts', {
     params: {
       page,
       page_size: pageSize,
@@ -69,7 +68,7 @@ export async function list(
 export interface AccountListWithEtagResult {
   notModified: boolean
   etag: string | null
-  data: PaginatedResponse<AccountListItem> | null
+  data: PaginatedResponse<Account> | null
 }
 
 export interface AccountUpstreamBillingRatesWithEtagResult {
@@ -136,7 +135,7 @@ export async function listWithEtag(
     headers['If-None-Match'] = options.etag
   }
 
-  const response = await apiClient.get<PaginatedResponse<AccountListItem>>('/admin/accounts', {
+  const response = await apiClient.get<PaginatedResponse<Account>>('/admin/accounts', {
     params: {
       page,
       page_size: pageSize,
