@@ -438,6 +438,7 @@ const baseSettingsResponse = {
   min_claude_code_version: "",
   max_claude_code_version: "",
   allow_ungrouped_key_scheduling: false,
+  openai_ttft_mode: "semantic",
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   enable_cch_signing: false,
@@ -525,6 +526,16 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
 
   expect(usersTabButton).toBeDefined();
   await usersTabButton?.trigger("click");
+  await flushPromises();
+}
+
+async function openGatewayTab(wrapper: ReturnType<typeof mountView>) {
+  const gatewayTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.gateway"));
+
+  expect(gatewayTabButton).toBeDefined();
+  await gatewayTabButton?.trigger("click");
   await flushPromises();
 }
 
@@ -963,6 +974,62 @@ describe("admin SettingsView login entry controls", () => {
 });
 
 // 后台的这几句文案是要给站长看的，别把"隐藏登录入口"写成"保证安全"。
+describe("admin SettingsView OpenAI TTFT mode", () => {
+  beforeEach(() => {
+    getSettings.mockReset();
+    updateSettings.mockReset();
+    getWebSearchEmulationConfig.mockReset();
+    getAdminApiKey.mockReset();
+    getOverloadCooldownSettings.mockReset();
+    getRateLimit429CooldownSettings.mockReset();
+    getStreamTimeoutSettings.mockReset();
+    getRectifierSettings.mockReset();
+    getBetaPolicySettings.mockReset();
+    getGroups.mockReset();
+    listProxies.mockReset();
+    getProviders.mockReset();
+    showError.mockReset();
+    showSuccess.mockReset();
+
+    getSettings.mockResolvedValue({ ...baseSettingsResponse });
+    updateSettings.mockImplementation(async (payload) => ({
+      ...baseSettingsResponse,
+      ...payload,
+    }));
+    getWebSearchEmulationConfig.mockResolvedValue({ enabled: false, providers: [] });
+    getAdminApiKey.mockResolvedValue({ exists: false, masked_key: "" });
+    getOverloadCooldownSettings.mockResolvedValue({});
+    getRateLimit429CooldownSettings.mockResolvedValue({});
+    getStreamTimeoutSettings.mockResolvedValue({});
+    getRectifierSettings.mockResolvedValue({});
+    getBetaPolicySettings.mockResolvedValue({});
+    getGroups.mockResolvedValue([]);
+    listProxies.mockResolvedValue({ items: [] });
+    getProviders.mockResolvedValue({ data: [] });
+  });
+
+  it("loads and saves the OpenAI Responses first-token metric mode", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_ttft_mode: "visible",
+    });
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const modeSelect = wrapper.get('[data-testid="openai-ttft-mode"]');
+    expect((modeSelect.element as HTMLSelectElement).value).toBe("visible");
+
+    await modeSelect.setValue("semantic");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(payload.openai_ttft_mode).toBe("semantic");
+  });
+});
+
 describe("admin SettingsView login entry copy", () => {
   it("describes hidden login as an exposure reduction, not a security boundary", () => {
     for (const copy of [
