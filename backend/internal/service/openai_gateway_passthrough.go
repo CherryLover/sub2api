@@ -92,6 +92,17 @@ func openAIResponsesClientToolMapping(c *gin.Context) (apicompat.ResponsesClient
 	return mapping, ok && typed && hasOpenAIResponsesClientToolMapping(mapping)
 }
 
+func setOpenAIResponsesClientToolMapping(c *gin.Context, mapping apicompat.ResponsesClientToolMapping) {
+	if c == nil {
+		return
+	}
+	if !hasOpenAIResponsesClientToolMapping(mapping) {
+		clearOpenAIResponsesClientToolMapping(c)
+		return
+	}
+	c.Set(openAIResponsesClientToolMappingContextKey, mapping)
+}
+
 // clearOpenAIResponsesClientToolMapping removes mapping state from the prior
 // forwarding attempt. Forward retries accounts on the same Gin context.
 func clearOpenAIResponsesClientToolMapping(c *gin.Context) {
@@ -101,6 +112,15 @@ func clearOpenAIResponsesClientToolMapping(c *gin.Context) {
 	if _, exists := c.Get(openAIResponsesClientToolMappingContextKey); exists {
 		c.Set(openAIResponsesClientToolMappingContextKey, apicompat.ResponsesClientToolMapping{})
 	}
+}
+
+func restoreOpenAIResponsesClientToolPayload(c *gin.Context, payload []byte) ([]byte, error) {
+	mapping, ok := openAIResponsesClientToolMapping(c)
+	if !ok || !bytes.Contains(payload, []byte(`"function_call"`)) || !json.Valid(payload) {
+		return payload, nil
+	}
+	restored, _, err := apicompat.RestoreResponsesClientToolPayload(payload, mapping)
+	return restored, err
 }
 
 func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
@@ -190,7 +210,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			return nil, adaptErr
 		}
 		body = adaptedBody
-		c.Set(openAIResponsesClientToolMappingContextKey, mapping)
+		setOpenAIResponsesClientToolMapping(c, mapping)
 	}
 
 	sanitizedBody, sanitized, err := sanitizeEmptyBase64InputImagesInOpenAIBody(body)
@@ -1681,6 +1701,10 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 						return resultWithUsage(),
 							s.newOpenAIStreamFailoverError(c, account, true, upstreamRequestID, dataBytes, failedMessage, resp.Header)
 					}
+				} else {
+					// The stream cannot be replayed after semantic output. Preserve the
+					// terminal event, while making the upstream failure queryable.
+					s.recordOpenAIStreamUpstreamError(c, account, true, upstreamRequestID, "stream_failed", dataBytes, failedMessage)
 				}
 				forceFlushFailedEvent = true
 				sawFailedEvent = true
@@ -1860,11 +1884,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if err != nil {
 		return nil, fmt.Errorf("restore OpenAI passthrough namespace response: %w", err)
 	}
-	if mapping, ok := openAIResponsesClientToolMapping(c); ok && json.Valid(body) {
-		body, _, err = apicompat.RestoreResponsesClientToolPayload(body, mapping)
-		if err != nil {
-			return nil, fmt.Errorf("restore OpenAI Responses client tools: %w", err)
-		}
+	body, err = restoreOpenAIResponsesClientToolPayload(c, body)
+	if err != nil {
+		return nil, fmt.Errorf("restore OpenAI Responses client tools: %w", err)
 	}
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
