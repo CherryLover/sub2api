@@ -92,8 +92,7 @@ type APIKeyAuthGroupSnapshot struct {
 	AllowLive                   bool                              `json:"allow_live"`
 	DefaultMappedModel          string                            `json:"default_mapped_model,omitempty"`
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
-	ModelAllowlist              GroupModelAllowlist               `json:"model_allowlist,omitempty"`
-	CodexModelsManifestConfig   GroupCodexModelsManifestConfig    `json:"codex_models_manifest_config,omitempty"`
+	ModelAllowlist            GroupModelAllowlist             `json:"model_allowlist,omitempty"`
 
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制）；用于 billing_cache_service.checkRPM 级联判断。
 	RPMLimit int `json:"rpm_limit"`

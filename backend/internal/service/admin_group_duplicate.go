@@ -144,11 +144,6 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 			Enabled: source.ModelAllowlist.Enabled,
 			Models:  append([]string(nil), source.ModelAllowlist.Models...),
 		},
-		CodexModelsManifestConfig: GroupCodexModelsManifestConfig{
-			Enabled:             source.CodexModelsManifestConfig.Enabled,
-			AccountIDs:          append([]int64(nil), source.CodexModelsManifestConfig.AccountIDs...),
-			FallbackToScheduler: source.CodexModelsManifestConfig.FallbackToScheduler,
-		},
 		RPMLimit:                    source.RPMLimit,
 		MaxReasoningEffort:          source.MaxReasoningEffort,
 		MaxReasoningEffortOverLimit: source.MaxReasoningEffortOverLimit,

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -34,39 +33,6 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	}
 
 	ifNoneMatch := c.GetHeader("If-None-Match")
-	// 固定账号分支：开启后只用选定账号拉取 manifest，不经过调度器；
-	// 全部不可用/全部失败时按 FallbackToScheduler 决定回退调度器或返回错误。
-	// 显式固定账号优先于分组映射本地生成的 catalog。
-	if apiKey.Group.Platform == service.PlatformOpenAI &&
-		apiKey.Group.CodexModelsManifestConfig.Enabled &&
-		len(apiKey.Group.CodexModelsManifestConfig.AccountIDs) > 0 {
-		pinnedManifest, pinnedAccount, pinnedErr := h.gatewayService.FetchPinnedCodexModelsManifest(
-			c.Request.Context(),
-			apiKey.Group,
-			c.Query("client_version"),
-		)
-		if pinnedErr != nil {
-			if c.Request.Context().Err() != nil {
-				return
-			}
-			if !apiKey.Group.CodexModelsManifestConfig.FallbackToScheduler {
-				if errors.Is(pinnedErr, service.ErrNoPinnedCodexModelsAccounts) {
-					h.errorResponse(c, http.StatusServiceUnavailable, "upstream_error", "No available pinned OpenAI accounts")
-					return
-				}
-				h.errorResponse(c, infraerrors.Code(pinnedErr), "upstream_error", infraerrors.Message(pinnedErr))
-				return
-			}
-		} else {
-			setOpsSelectedAccount(c, pinnedAccount.ID, pinnedAccount.Platform)
-			if c.Request.Context().Err() != nil {
-				return
-			}
-			writeCodexModelsManifest(c, pinnedManifest)
-			return
-		}
-	}
-
 	if apiKey.Group.Platform == service.PlatformOpenAI {
 		configuredManifest, configured, err := h.gatewayService.BuildGroupConfiguredCodexModelsManifest(
 			c.Request.Context(),

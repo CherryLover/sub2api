@@ -164,12 +164,7 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 			HaikuMappedModel:   "gpt-5-mini",
 			ExactModelMappings: map[string]string{"claude-special": "gpt-special"},
 		},
-		ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"gpt-5.4", "gpt-5-mini"}},
-		CodexModelsManifestConfig: GroupCodexModelsManifestConfig{
-			Enabled:             true,
-			AccountIDs:          []int64{13, 17},
-			FallbackToScheduler: true,
-		},
+		ModelAllowlist:        GroupModelAllowlist{Enabled: true, Models: []string{"gpt-5.4", "gpt-5-mini"}},
 		RPMLimit:                99,
 		MaxReasoningEffort:      "medium",
 		ReasoningEffortMappings: []ReasoningEffortMapping{{From: "max", To: "xhigh"}},
@@ -206,7 +201,6 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 	require.Equal(t, source.ModelRouting, duplicate.ModelRouting)
 	require.Equal(t, source.MessagesDispatchModelConfig, duplicate.MessagesDispatchModelConfig)
 	require.Equal(t, source.ModelAllowlist, duplicate.ModelAllowlist)
-	require.Equal(t, source.CodexModelsManifestConfig, duplicate.CodexModelsManifestConfig)
 	require.Equal(t, source.RPMLimit, duplicate.RPMLimit)
 	require.Equal(t, source.MaxReasoningEffort, duplicate.MaxReasoningEffort)
 	require.Equal(t, source.ReasoningEffortMappings, duplicate.ReasoningEffortMappings)
@@ -224,14 +218,12 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 	duplicate.SupportedModelScopes[0] = "changed"
 	duplicate.MessagesDispatchModelConfig.ExactModelMappings["claude-special"] = "changed"
 	duplicate.ModelAllowlist.Models[0] = "changed"
-	duplicate.CodexModelsManifestConfig.AccountIDs[0] = 999
 	duplicate.ReasoningEffortMappings[0].To = "changed"
 	require.Equal(t, int64(13), source.ModelRouting["gpt-*"][0])
 	require.Equal(t, 0.14, source.VideoModelPrices[VideoPriceFamilyGrokImagineVideo15][VideoBillingResolution720P])
 	require.Equal(t, "claude", source.SupportedModelScopes[0])
 	require.Equal(t, "gpt-special", source.MessagesDispatchModelConfig.ExactModelMappings["claude-special"])
 	require.Equal(t, "gpt-5.4", source.ModelAllowlist.Models[0])
-	require.Equal(t, int64(13), source.CodexModelsManifestConfig.AccountIDs[0])
 	require.Equal(t, "xhigh", source.ReasoningEffortMappings[0].To)
 }
 
