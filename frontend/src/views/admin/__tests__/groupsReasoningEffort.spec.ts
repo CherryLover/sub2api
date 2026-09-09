@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   createReasoningEffortMappingRow,
   normalizeReasoningEffortForPlatform,
+  normalizeReasoningEffortOverLimit,
   reasoningEffortMappingsToAPI,
   reasoningEffortMappingsToRows,
   reasoningEffortOptionsForPlatform,
+  reasoningEffortOverLimitDeny,
+  reasoningEffortOverLimitDowngrade,
   supportsReasoningEffortPolicyPlatform,
   validateReasoningEffortMappings,
 } from "../groupsReasoningEffort";
@@ -44,13 +47,16 @@ describe("groupsReasoningEffort", () => {
       [
         { from: " max ", to: " xhigh " },
         { from: "ultra", to: "high" },
+        { from: "none", to: "low" },
+        { from: "high", to: "deny", match_type: "prefix", model: "gpt-5" },
       ],
       "openai",
     );
 
-    expect(rows).toHaveLength(1);
     expect(reasoningEffortMappingsToAPI(rows)).toEqual([
       { from: "max", to: "xhigh" },
+      { from: "none", to: "low" },
+      { from: "high", to: "deny", match_type: "prefix", model: "gpt-5" },
     ]);
   });
 
@@ -61,32 +67,46 @@ describe("groupsReasoningEffort", () => {
     );
     expect(normalizeReasoningEffortForPlatform("grok", "max")).toBe("");
     expect(normalizeReasoningEffortForPlatform("openai", "none")).toBe("");
+    expect(normalizeReasoningEffortOverLimit("deny")).toBe(
+      reasoningEffortOverLimitDeny,
+    );
+    expect(normalizeReasoningEffortOverLimit("")).toBe(
+      reasoningEffortOverLimitDowngrade,
+    );
   });
 
   it("requires both sides of every mapping", () => {
-    const first = createReasoningEffortMappingRow({ to: "low" });
-    const second = createReasoningEffortMappingRow({ from: "max" });
+    const row = createReasoningEffortMappingRow({ to: "low" });
+    row.pairs.push({
+      id: "pair-missing-to",
+      from: "max",
+      to: "",
+    });
 
-    expect(validateReasoningEffortMappings([first, second])).toEqual({
-      [first.id]: { from: "fromRequired" },
-      [second.id]: { to: "toRequired" },
+    expect(validateReasoningEffortMappings([row])).toEqual({
+      [row.pairs[0].id]: { from: "fromRequired" },
+      "pair-missing-to": { to: "toRequired" },
     });
   });
 
   it("rejects duplicate source values case insensitively", () => {
-    const first = createReasoningEffortMappingRow({ from: "MAX", to: "xhigh" });
-    const second = createReasoningEffortMappingRow({ from: " max ", to: "high" });
+    const row = createReasoningEffortMappingRow({ from: "MAX", to: "xhigh" });
+    row.pairs.push({
+      id: "pair-dup",
+      from: " max ",
+      to: "high",
+    });
 
-    expect(validateReasoningEffortMappings([first, second])).toEqual({
-      [first.id]: { from: "duplicateFrom" },
-      [second.id]: { from: "duplicateFrom" },
+    expect(validateReasoningEffortMappings([row])).toEqual({
+      [row.pairs[0].id]: { from: "duplicateFrom" },
+      "pair-dup": { from: "duplicateFrom" },
     });
   });
 
   it("rejects custom mappings", () => {
     const row = createReasoningEffortMappingRow({ from: "ultra", to: "high" });
     expect(validateReasoningEffortMappings([row], "openai")).toEqual({
-      [row.id]: { from: "unsupportedFrom" },
+      [row.pairs[0].id]: { from: "unsupportedFrom" },
     });
   });
 });
