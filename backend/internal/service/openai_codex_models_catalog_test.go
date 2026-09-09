@@ -153,7 +153,7 @@ func TestBuildGroupConfiguredCodexModelsManifestHonorsCustomList(t *testing.T) {
 	group := &Group{
 		ID:       45,
 		Platform: PlatformOpenAI,
-		ModelsListConfig: GroupModelsListConfig{
+		ModelAllowlist: GroupModelAllowlist{
 			Enabled: true,
 			Models:  []string{"gpt-5.6-sol", "unknown-model"},
 		},

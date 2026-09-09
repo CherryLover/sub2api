@@ -1,21 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildModelsListConfig,
-  createModelsListState,
-  hydrateModelsListState,
-  invertModelsListSelection,
-  moveModelsListItem,
-  selectAllModelsListItems,
-  setModelsListCandidates,
-  toggleModelsListItem,
-} from "../groupsModelsList";
+  buildModelAllowlistConfig,
+  createModelAllowlistState,
+  hydrateModelAllowlistState,
+  invertModelAllowlistSelection,
+  moveModelAllowlistItem,
+  selectAllModelAllowlistItems,
+  setModelAllowlistCandidates,
+  toggleModelAllowlistItem,
+} from "../groupModelAllowlist";
 
-describe("groupsModelsList", () => {
+describe("groupModelAllowlist", () => {
   it("selects all default candidates for a new disabled config", () => {
-    const state = createModelsListState();
+    const state = createModelAllowlistState();
 
-    setModelsListCandidates(state, ["gpt-5.5", "gpt-5.4"]);
+    setModelAllowlistCandidates(state, ["gpt-5.5", "gpt-5.4"]);
 
     expect(state.enabled).toBe(false);
     expect(state.items).toEqual([
@@ -25,12 +25,12 @@ describe("groupsModelsList", () => {
   });
 
   it("keeps saved selections and marks new candidates as unselected when editing", () => {
-    const state = createModelsListState({
+    const state = createModelAllowlistState({
       enabled: true,
       models: ["gpt-5.5", "gpt-5.4"],
     });
 
-    setModelsListCandidates(state, ["gpt-5.4", "legacy-gpt", "gpt-5.5"]);
+    setModelAllowlistCandidates(state, ["gpt-5.4", "legacy-gpt", "gpt-5.5"]);
 
     expect(state.enabled).toBe(true);
     expect(state.items).toEqual([
@@ -41,12 +41,12 @@ describe("groupsModelsList", () => {
   });
 
   it("preserves explicitly unselected saved candidates when candidates refresh", () => {
-    const state = createModelsListState({
+    const state = createModelAllowlistState({
       enabled: true,
       models: ["gpt-5.5"],
     });
 
-    setModelsListCandidates(state, ["gpt-5.5", "gpt-5.4"]);
+    setModelAllowlistCandidates(state, ["gpt-5.5", "gpt-5.4"]);
 
     expect(state.items).toEqual([
       { id: "gpt-5.5", selected: true },
@@ -55,51 +55,51 @@ describe("groupsModelsList", () => {
   });
 
   it("builds config with selected models in current display order", () => {
-    const state = hydrateModelsListState({
+    const state = hydrateModelAllowlistState({
       enabled: true,
       models: ["gpt-5.5", "gpt-5.4", "legacy-gpt"],
     }, ["gpt-5.5", "gpt-5.4", "legacy-gpt"]);
 
-    toggleModelsListItem(state, "legacy-gpt");
-    moveModelsListItem(state, 1, 0);
+    toggleModelAllowlistItem(state, "legacy-gpt");
+    moveModelAllowlistItem(state, 1, 0);
 
-    expect(buildModelsListConfig(state)).toEqual({
+    expect(buildModelAllowlistConfig(state)).toEqual({
       enabled: true,
       models: ["gpt-5.4", "gpt-5.5"],
     });
   });
 
   it("keeps selected models in payload even when disabled so reopening can restore choices", () => {
-    const state = hydrateModelsListState({
+    const state = hydrateModelAllowlistState({
       enabled: false,
       models: ["gpt-5.5"],
     }, ["gpt-5.5", "gpt-5.4"]);
 
-    expect(buildModelsListConfig(state)).toEqual({
+    expect(buildModelAllowlistConfig(state)).toEqual({
       enabled: false,
       models: ["gpt-5.5"],
     });
   });
 
   it("preserves saved models when candidates have not loaded yet", () => {
-    const state = createModelsListState({
+    const state = createModelAllowlistState({
       enabled: true,
       models: ["gpt-5.5", "gpt-5.4"],
     });
 
-    expect(buildModelsListConfig(state)).toEqual({
+    expect(buildModelAllowlistConfig(state)).toEqual({
       enabled: true,
       models: ["gpt-5.5", "gpt-5.4"],
     });
   });
 
   it("selects all candidate models from the toolbar action", () => {
-    const state = hydrateModelsListState({
+    const state = hydrateModelAllowlistState({
       enabled: true,
       models: ["gpt-5.5"],
     }, ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]);
 
-    selectAllModelsListItems(state);
+    selectAllModelAllowlistItems(state);
 
     expect(state.items).toEqual([
       { id: "gpt-5.5", selected: true },
@@ -109,12 +109,12 @@ describe("groupsModelsList", () => {
   });
 
   it("inverts selected models from the toolbar action", () => {
-    const state = hydrateModelsListState({
+    const state = hydrateModelAllowlistState({
       enabled: true,
       models: ["gpt-5.5"],
     }, ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]);
 
-    invertModelsListSelection(state);
+    invertModelAllowlistSelection(state);
 
     expect(state.items).toEqual([
       { id: "gpt-5.5", selected: false },
