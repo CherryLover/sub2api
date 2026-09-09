@@ -220,11 +220,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			)
 		}
 		if hooks != nil && (hooks.MaxReasoningEffort != "" || len(hooks.ReasoningEffortMappings) > 0) {
-			capped, err := applyOpenAIWSReasoningEffortPolicy(normalized, hooks)
-			if err != nil {
-				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
+			if capped, changed := ApplyOpenAIReasoningEffortPolicy(normalized, hooks.MaxReasoningEffort, hooks.ReasoningEffortMappings); changed {
+				normalized = capped
 			}
-			normalized = capped
 		}
 
 		originalModel := strings.TrimSpace(values[1].String())

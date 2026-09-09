@@ -418,10 +418,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
 	}
-	if cappedBody, changed, err := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); err != nil {
-		respondOpenAIReasoningEffortPolicyError(c, err, h.errorResponse)
-		return
-	} else if changed {
+	if cappedBody, changed := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); changed {
 		body = cappedBody
 	}
 
@@ -2145,7 +2142,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			zap.Int("candidate_count", scheduleDecision.CandidateCount),
 		)
 
-		maxReasoningEffort, reasoningEffortMappings, maxReasoningEffortOverLimit, _ := openAIReasoningEffortPolicyForRequest(c, apiKey)
+		maxReasoningEffort, reasoningEffortMappings, _ := openAIReasoningEffortPolicyForRequest(c, apiKey)
 		var requestPayloadHash string
 		var turnStartsMu sync.Mutex
 		turnStarts := make(map[int]time.Time, 4)
@@ -2172,13 +2169,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号。
 		var turnPricing openAIWSTurnPricing
 		hooks := &service.OpenAIWSIngressHooks{
-			ClientLifecycleContext:      clientLifecycleCtx,
-			InitialRequestModel:         reqModel,
-			InitialTurnStartedAt:        firstTurnStartedAt,
-			MaxReasoningEffort:          maxReasoningEffort,
-			MaxReasoningEffortOverLimit: maxReasoningEffortOverLimit,
-			ReasoningEffortMappings:     reasoningEffortMappings,
-			TurnStarted:                 recordTurnStart,
+			ClientLifecycleContext:  clientLifecycleCtx,
+			InitialRequestModel:     reqModel,
+			InitialTurnStartedAt:    firstTurnStartedAt,
+			MaxReasoningEffort:      maxReasoningEffort,
+			ReasoningEffortMappings: reasoningEffortMappings,
+			TurnStarted:             recordTurnStart,
 			BeforeRequest: func(turn int, payload []byte, originalModel string) error {
 				c.Set(securityAuditWSTurnContextKey, turn)
 				if turn == 1 {

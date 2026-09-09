@@ -99,8 +99,6 @@ type APIKeyAuthGroupSnapshot struct {
 
 	// MaxReasoningEffort OpenAI/Codex 请求的推理强度上限，空字符串表示不限制。
 	MaxReasoningEffort string `json:"max_reasoning_effort,omitempty"`
-	// MaxReasoningEffortOverLimit controls ceiling overflow: downgrade or deny.
-	MaxReasoningEffortOverLimit string `json:"max_reasoning_effort_over_limit,omitempty"`
 	// ReasoningEffortMappings rewrites explicit effort values before the ceiling.
 	ReasoningEffortMappings []ReasoningEffortMapping `json:"reasoning_effort_mappings"`
 

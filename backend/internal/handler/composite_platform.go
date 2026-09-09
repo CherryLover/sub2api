@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -60,33 +59,25 @@ func effectiveAPIKeyPlatform(c *gin.Context, apiKey *service.APIKey) string {
 	return apiKey.Group.Platform
 }
 
-func openAIReasoningEffortPolicyForRequest(c *gin.Context, apiKey *service.APIKey) (string, []service.ReasoningEffortMapping, string, bool) {
+func openAIReasoningEffortPolicyForRequest(c *gin.Context, apiKey *service.APIKey) (string, []service.ReasoningEffortMapping, bool) {
 	if apiKey == nil || apiKey.Group == nil {
-		return "", nil, "", false
+		return "", nil, false
 	}
 	if apiKey.Group.Platform != service.PlatformOpenAI && apiKey.Group.Platform != service.PlatformComposite {
-		return "", nil, "", false
+		return "", nil, false
 	}
 	if effectiveAPIKeyPlatform(c, apiKey) != service.PlatformOpenAI {
-		return "", nil, "", false
+		return "", nil, false
 	}
-	return apiKey.Group.MaxReasoningEffort, apiKey.Group.ReasoningEffortMappings, apiKey.Group.MaxReasoningEffortOverLimit, true
+	return apiKey.Group.MaxReasoningEffort, apiKey.Group.ReasoningEffortMappings, true
 }
 
-func applyOpenAIReasoningEffortPolicyForRequest(c *gin.Context, apiKey *service.APIKey, body []byte) ([]byte, bool, error) {
-	maxEffort, mappings, overLimit, ok := openAIReasoningEffortPolicyForRequest(c, apiKey)
+func applyOpenAIReasoningEffortPolicyForRequest(c *gin.Context, apiKey *service.APIKey, body []byte) ([]byte, bool) {
+	maxEffort, mappings, ok := openAIReasoningEffortPolicyForRequest(c, apiKey)
 	if !ok {
-		return body, false, nil
+		return body, false
 	}
-	return service.ApplyOpenAIReasoningEffortPolicy(body, maxEffort, mappings, overLimit)
-}
-
-func respondOpenAIReasoningEffortPolicyError(c *gin.Context, err error, write func(*gin.Context, int, string, string)) {
-	if c == nil || err == nil || write == nil {
-		return
-	}
-	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
-	write(c, http.StatusForbidden, "permission_error", err.Error())
+	return service.ApplyOpenAIReasoningEffortPolicy(body, maxEffort, mappings)
 }
 
 func bindOpenAIReasoningEffortPolicyForMessagesRequest(c *gin.Context, apiKey *service.APIKey, body []byte) {
@@ -100,9 +91,9 @@ func bindOpenAIReasoningEffortPolicyForMessagesRequest(c *gin.Context, apiKey *s
 	if !effort.Exists() || effort.Type != gjson.String || strings.TrimSpace(effort.String()) == "" {
 		return
 	}
-	maxEffort, mappings, overLimit, ok := openAIReasoningEffortPolicyForRequest(c, apiKey)
+	maxEffort, mappings, ok := openAIReasoningEffortPolicyForRequest(c, apiKey)
 	if !ok {
 		return
 	}
-	c.Request = c.Request.WithContext(service.WithOpenAIReasoningEffortPolicy(c.Request.Context(), maxEffort, mappings, overLimit))
+	c.Request = c.Request.WithContext(service.WithOpenAIReasoningEffortPolicy(c.Request.Context(), maxEffort, mappings))
 }

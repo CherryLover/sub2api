@@ -682,11 +682,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		firstClientMessage = liteFirstMessage
 	}
 	if hooks != nil && (hooks.MaxReasoningEffort != "" || len(hooks.ReasoningEffortMappings) > 0) {
-		capped, err := applyOpenAIWSReasoningEffortPolicy(firstClientMessage, hooks)
-		if err != nil {
-			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
+		if capped, changed := ApplyOpenAIReasoningEffortPolicy(firstClientMessage, hooks.MaxReasoningEffort, hooks.ReasoningEffortMappings); changed {
+			firstClientMessage = capped
 		}
-		firstClientMessage = capped
 	}
 	requestModel := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "model").String())
 	requestPreviousResponseID := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "previous_response_id").String())
@@ -968,11 +966,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					payload = litePayload
 				}
 				if hooks != nil && (hooks.MaxReasoningEffort != "" || len(hooks.ReasoningEffortMappings) > 0) {
-					capped, err := applyOpenAIWSReasoningEffortPolicy(payload, hooks)
-					if err != nil {
-						return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
+					if capped, changed := ApplyOpenAIReasoningEffortPolicy(payload, hooks.MaxReasoningEffort, hooks.ReasoningEffortMappings); changed {
+						payload = capped
 					}
-					payload = capped
 				}
 			}
 			turnNo := int(completedTurns.Load()) + 1
