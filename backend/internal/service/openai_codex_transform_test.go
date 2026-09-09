@@ -363,6 +363,51 @@ func TestApplyCodexOAuthTransform_StringifiesNonStringMessageContentText(t *test
 	require.Equal(t, `["a","b"]`, part["text"])
 }
 
+func TestApplyCodexOAuthTransform_PreservesAllowedTools(t *testing.T) {
+	for _, placement := range []string{"top_level", "additional_tools"} {
+		for _, mode := range []string{"auto", "required"} {
+			t.Run(placement+"/"+mode, func(t *testing.T) {
+				decision := map[string]any{"type": "function", "name": "ProbeAccept"}
+				choice := map[string]any{
+					"type": "allowed_tools", "mode": mode,
+					"tools": []any{map[string]any{"type": "function", "name": "ProbeAccept"}},
+				}
+				tools := []any{
+					map[string]any{"type": "function", "name": "ProbeBase"},
+				}
+				input := []any{map[string]any{"type": "message", "role": "user", "content": "probe"}}
+				if placement == "top_level" {
+					tools = append(tools, decision)
+				} else {
+					input = append(input, map[string]any{
+						"type": "additional_tools", "role": "developer", "tools": []any{decision},
+					})
+				}
+				reqBody := map[string]any{"model": "gpt-6-astra", "tools": tools, "input": input, "tool_choice": choice}
+				applyCodexOAuthTransform(reqBody, true, false)
+				got, ok := reqBody["tool_choice"].(map[string]any)
+				require.True(t, ok)
+				require.Equal(t, "allowed_tools", got["type"])
+				require.Equal(t, mode, got["mode"])
+				require.NotEqual(t, "auto", reqBody["tool_choice"])
+			})
+		}
+	}
+}
+
+func TestNormalizeCodexToolChoice_InvalidAllowedToolsNeverBecomesAuto(t *testing.T) {
+	for _, choice := range []map[string]any{
+		{"type": "allowed_tools"},
+		{"type": "allowed_tools", "mode": "invalid", "tools": []any{}},
+		{"type": "allowed_tools", "mode": "required", "tools": "invalid"},
+		{"type": "allowed_tools", "mode": "required", "tools": []any{map[string]any{"type": "function", "name": "missing"}}},
+	} {
+		reqBody := map[string]any{"tool_choice": choice}
+		require.False(t, normalizeCodexToolChoice(reqBody))
+		require.Equal(t, choice, reqBody["tool_choice"])
+	}
+}
+
 func TestApplyCodexOAuthTransform_DowngradesUnknownToolChoice(t *testing.T) {
 	reqBody := map[string]any{
 		"model": "gpt-5.4",
