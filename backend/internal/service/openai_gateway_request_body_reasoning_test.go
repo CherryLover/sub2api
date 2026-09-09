@@ -199,3 +199,38 @@ func TestTrimOpenAIEncryptedReasoningItems_ContentNullDropsBareSkeleton(t *testi
 	_, hasInput := reqBody["input"]
 	assert.False(t, hasInput, "bare reasoning skeleton should be dropped, emptying input")
 }
+
+func TestNormalizeOpenAIResponsesReasoningContentReplayStripsCrossProviderArray(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-sol","input":[` +
+		`{"type":"message","role":"user","content":"one"},` +
+		`{"type":"message","role":"assistant","content":"two"},` +
+		`{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"call_1","output":"ok"},` +
+		`{"type":"message","role":"user","content":"five"},` +
+		`{"type":"reasoning","id":"rs_provider","summary":[{"type":"summary_text","text":"portable"}],"content":[{"type":"reasoning_text","text":"visible reasoning"}],"opaque":9007199254740993},` +
+		`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}` +
+		`]}`)
+
+	normalized, changed, err := normalizeOpenAIResponsesReasoningContentReplay(body)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "reasoning", gjson.GetBytes(normalized, "input.5.type").String())
+	require.False(t, gjson.GetBytes(normalized, "input.5.content").Exists())
+	require.Equal(t, "portable", gjson.GetBytes(normalized, "input.5.summary.0.text").String())
+	require.Equal(t, "9007199254740993", gjson.GetBytes(normalized, "input.5.opaque").Raw)
+	require.Equal(t, "answer", gjson.GetBytes(normalized, "input.6.content.0.text").String())
+}
+
+func TestNormalizeOpenAIResponsesReasoningContentReplayKeepsPortableShapes(t *testing.T) {
+	for _, body := range []string{
+		`{"input":[{"type":"reasoning","summary":[]}]}`,
+		`{"input":[{"type":"reasoning","content":[],"summary":[]}]}`,
+		`{"input":[{"type":"message","content":[{"type":"input_text","text":"keep"}]}]}`,
+	} {
+		normalized, changed, err := normalizeOpenAIResponsesReasoningContentReplay([]byte(body))
+		require.NoError(t, err)
+		require.False(t, changed)
+		require.JSONEq(t, body, string(normalized))
+	}
+}
