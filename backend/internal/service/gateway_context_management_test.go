@@ -133,6 +133,22 @@ func TestSanitizeAnthropicBodyForBetaTokens_ThinkingBlockBindingStrippedWhenBeta
 // ★ 关键回归断言：能力维度 sanitize 解决了 "真 CC + haiku" 路径的过度删除问题。
 // 真实 Claude Code CLI 2.1.87+ 客户端 header 含 context-management beta；
 // 即使 model 是 haiku，sanitize 也不应剥离功能字段。
+func TestSanitizeAnthropicBodyForBetaTokens_FallbacksStrippedWhenBetaMissing(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-6","fallbacks":[{"model":"claude-sonnet-4-6"}],"fallback_credit_token":"tok_1","messages":[]}`)
+	out, changed := sanitizeAnthropicBodyForBetaTokens(body, "oauth-2025-04-20")
+	require.True(t, changed)
+	require.False(t, gjson.GetBytes(out, "fallbacks").Exists())
+	require.False(t, gjson.GetBytes(out, "fallback_credit_token").Exists())
+}
+
+func TestSanitizeAnthropicBodyForBetaTokens_FallbacksKeptWhenBetaPresent(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-6","fallbacks":[{"model":"claude-sonnet-4-6"}],"fallback_credit_token":"tok_1","messages":[]}`)
+	out, changed := sanitizeAnthropicBodyForBetaTokens(body, claude.BetaServerSideFallback+","+claude.BetaFallbackCredit)
+	require.False(t, changed)
+	require.True(t, gjson.GetBytes(out, "fallbacks").Exists())
+	require.Equal(t, "tok_1", gjson.GetBytes(out, "fallback_credit_token").String())
+}
+
 func TestSanitizeAnthropicBodyForBetaTokens_HaikuRealCCClientPreservesField(t *testing.T) {
 	body := []byte(`{"model":"claude-haiku-4-5","context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"messages":[]}`)
 	// 真 Claude Code CLI 2.1.87+ 客户端 header 含 context-management beta

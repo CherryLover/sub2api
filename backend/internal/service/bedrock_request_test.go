@@ -1002,6 +1002,14 @@ func TestSanitizeBedrockCCFields(t *testing.T) {
 		assert.True(t, gjson.GetBytes(result, "messages").Exists())
 	})
 
+	t.Run("removes fallbacks and fallback_credit_token", func(t *testing.T) {
+		body := []byte(`{"model":"claude-opus-4-6","fallbacks":[{"model":"claude-sonnet-4-6"}],"fallback_credit_token":"tok_1","messages":[]}`)
+		result := sanitizeBedrockCCFields(body)
+		assert.False(t, gjson.GetBytes(result, "fallbacks").Exists())
+		assert.False(t, gjson.GetBytes(result, "fallback_credit_token").Exists())
+		assert.True(t, gjson.GetBytes(result, "messages").Exists())
+	})
+
 	t.Run("injects max_tokens when missing", func(t *testing.T) {
 		body := []byte(`{"model":"claude-opus-4-6","messages":[]}`)
 		result := sanitizeBedrockCCFields(body)

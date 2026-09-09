@@ -666,7 +666,13 @@ func convertOpenAIModelListToCodexManifestForAccount(body []byte, account *Accou
 	if len(modelIDs) == 0 {
 		return body
 	}
-	converted, err := buildCodexModelsManifest(modelIDs, imageInputModels)
+	searchToolModels := make(map[string]bool, len(modelIDs))
+	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+		for _, modelID := range modelIDs {
+			searchToolModels[modelID] = true
+		}
+	}
+	converted, err := buildCodexModelsManifest(modelIDs, imageInputModels, searchToolModels)
 	if err != nil {
 		return body
 	}

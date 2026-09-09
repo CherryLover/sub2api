@@ -543,16 +543,20 @@ func claudeCodexDisplayName(modelID string) string {
 
 func buildCodexModelsManifestForAccounts(modelIDs []string, accounts []Account) ([]byte, error) {
 	imageInputModels := make(map[string]bool, len(modelIDs))
+	searchToolModels := make(map[string]bool, len(modelIDs))
 	for _, modelID := range modelIDs {
 		modelID = strings.TrimSpace(modelID)
 		if groupCodexModelSupportsImageInput(modelID, accounts) {
 			imageInputModels[modelID] = true
 		}
+		if groupCodexModelSupportsSearchTool(modelID, accounts) {
+			searchToolModels[modelID] = true
+		}
 	}
-	return buildCodexModelsManifest(modelIDs, imageInputModels)
+	return buildCodexModelsManifest(modelIDs, imageInputModels, searchToolModels)
 }
 
-func buildCodexModelsManifest(modelIDs []string, imageInputModels map[string]bool) ([]byte, error) {
+func buildCodexModelsManifest(modelIDs []string, imageInputModels, searchToolModels map[string]bool) ([]byte, error) {
 	seen := make(map[string]struct{}, len(modelIDs))
 	models := make([]json.RawMessage, 0, len(modelIDs))
 	for _, modelID := range modelIDs {
@@ -565,6 +569,7 @@ func buildCodexModelsManifest(modelIDs []string, imageInputModels map[string]boo
 		}
 		seen[modelID] = struct{}{}
 		descriptor := newConfiguredCodexModelDescriptor(modelID)
+		descriptor.SupportsSearchTool = searchToolModels[modelID]
 		if imageInputModels[modelID] {
 			descriptor.InputModalities = []string{"text", "image"}
 		}
@@ -612,6 +617,39 @@ func groupCodexModelSupportsImageInput(modelID string, accounts []Account) bool 
 		return accountCodexModelSupportsImageInput(nil, modelID)
 	}
 	return false
+}
+
+func groupCodexModelSupportsSearchTool(modelID string, accounts []Account) bool {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return false
+	}
+	candidates := 0
+	for i := range accounts {
+		account := &accounts[i]
+		if account.Platform != PlatformOpenAI {
+			continue
+		}
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			if !account.IsModelSupported(modelID) {
+				continue
+			}
+			candidates++
+			if !shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+				return false
+			}
+			continue
+		}
+		if _, ok := mapping[modelID]; !ok {
+			continue
+		}
+		candidates++
+		if !shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+			return false
+		}
+	}
+	return candidates > 0
 }
 
 func accountCodexModelSupportsImageInput(account *Account, upstreamModel string) bool {

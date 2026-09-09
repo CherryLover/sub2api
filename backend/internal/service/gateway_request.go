@@ -912,31 +912,60 @@ func sanitizeAnthropicBodyForBetaTokens(body []byte, anthropicBetaHeader string)
 	if len(body) == 0 {
 		return body, false
 	}
+
 	changed := false
-	if gjson.GetBytes(body, "context_management").Exists() &&
-		!anthropicBetaTokensContains(anthropicBetaHeader, anthropicBetaContextManagementToken) {
-		if b, err := sjson.DeleteBytes(body, "context_management"); err == nil {
-			body, changed = b, true
-		} else {
-			logger.LegacyPrintf("service.gateway",
-				"[CtxMgmtSanitize] sjson.DeleteBytes failed unexpectedly: %v (body len=%d). "+
-					"body and final anthropic-beta header may be out of sync.", err, len(body))
-		}
+
+	if b, deleted := stripAnthropicBodyFieldUnlessBeta(
+		body, "context_management", anthropicBetaHeader, anthropicBetaContextManagementToken,
+	); deleted {
+		body, changed = b, true
 	}
 
-	// thinking.block_binding requires thinking-binding-controls beta. Keep this
-	// symmetric with context_management so clients without the beta do not send
-	// a body field Anthropic will reject.
-	if gjson.GetBytes(body, "thinking.block_binding").Exists() &&
-		!anthropicBetaTokensContains(anthropicBetaHeader, claude.BetaThinkingBindingControls) {
-		if b, err := sjson.DeleteBytes(body, "thinking.block_binding"); err == nil {
-			body, changed = b, true
-		} else {
-			logger.LegacyPrintf("service.gateway",
-				"[ThinkingBindingSanitize] sjson.DeleteBytes failed unexpectedly: %v (body len=%d)", err, len(body))
+	// thinking.block_binding requires thinking-binding-controls beta.
+	if b, deleted := stripAnthropicBodyFieldUnlessBeta(
+		body, "thinking.block_binding", anthropicBetaHeader, claude.BetaThinkingBindingControls,
+	); deleted {
+		body, changed = b, true
+	}
+
+	// fallbacks：server-side refusal fallback，仅接受 server-side-fallback beta。
+	if b, deleted := stripAnthropicBodyFieldUnlessBeta(
+		body, "fallbacks", anthropicBetaHeader, claude.BetaServerSideFallback,
+	); deleted {
+		body, changed = b, true
+	}
+
+	// fallback_credit_token：server-side-fallback 或（新旧任一）fallback-credit beta
+	// 任意一个即可保留。
+	if b, deleted := stripAnthropicBodyFieldUnlessBeta(
+		body, "fallback_credit_token", anthropicBetaHeader,
+		claude.BetaServerSideFallback, claude.BetaFallbackCredit, claude.BetaFallbackCreditLegacy,
+	); deleted {
+		body, changed = b, true
+	}
+
+	return body, changed
+}
+
+// stripAnthropicBodyFieldUnlessBeta 当 field 存在且 anthropic-beta header 不含
+// requiredTokens 中任何一个 token 时删除该字段。返回 (newBody, deleted)。
+func stripAnthropicBodyFieldUnlessBeta(body []byte, field, anthropicBetaHeader string, requiredTokens ...string) ([]byte, bool) {
+	if !gjson.GetBytes(body, field).Exists() {
+		return body, false
+	}
+	for _, token := range requiredTokens {
+		if anthropicBetaTokensContains(anthropicBetaHeader, token) {
+			return body, false
 		}
 	}
-	return body, changed
+	b, err := sjson.DeleteBytes(body, field)
+	if err != nil {
+		logger.LegacyPrintf("service.gateway",
+			"[BetaFieldSanitize] sjson.DeleteBytes(%s) failed unexpectedly: %v (body len=%d). "+
+				"body and final anthropic-beta header may be out of sync.", field, err, len(body))
+		return body, false
+	}
+	return b, true
 }
 
 // anthropicBetaTokensContains 检测逗号分隔的 anthropic-beta header 是否含指定 token。

@@ -84,6 +84,22 @@ func TestConvertOpenAIModelListToCodexManifestForAccountMarksImageInput(t *testi
 	require.Equal(t, []string{"text"}, envelope.Models[1].InputModalities)
 }
 
+func TestGroupCodexModelSupportsSearchToolRequiresAllOpenAICandidatesOnChatCompletions(t *testing.T) {
+	ccAccount := Account{
+		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Extra: map[string]any{"openai_responses_mode": "force_chat_completions"},
+	}
+	responsesAccount := Account{
+		ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Extra: map[string]any{"openai_responses_mode": "force_responses"},
+	}
+	require.True(t, groupCodexModelSupportsSearchTool("gpt-5.4", []Account{ccAccount}))
+	require.False(t, groupCodexModelSupportsSearchTool("gpt-5.4", []Account{ccAccount, responsesAccount}))
+	require.False(t, groupCodexModelSupportsSearchTool("gpt-5.4", []Account{
+		{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+	}))
+}
+
 func TestLoadCodexGroupCatalogAccountsUsesAvailabilityCandidates(t *testing.T) {
 	visible := []Account{{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Schedulable: true}}
 	catalog := []Account{

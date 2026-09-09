@@ -162,8 +162,47 @@ func TestNormalizeOpenAIResponsesLiteTools_KeepsSupportedTopLevelTools(t *testin
 	changed, err := normalizeOpenAIResponsesLiteTools(reqBody)
 
 	require.NoError(t, err)
-	require.False(t, changed)
+	require.True(t, changed, "Lite with tools must force parallel_tool_calls=false")
 	require.Len(t, reqBody["tools"], 4)
+	require.Equal(t, false, reqBody["parallel_tool_calls"])
+}
+
+func TestNormalizeOpenAIResponsesLiteTools_ForcesParallelToolCallsFalseWhenToolsPresent(t *testing.T) {
+	reqBody := map[string]any{
+		"reasoning": map[string]any{"context": "all_turns"},
+		"tools":     []any{map[string]any{"type": "function", "name": "shell"}},
+	}
+
+	changed, err := normalizeOpenAIResponsesLiteTools(reqBody)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, false, reqBody["parallel_tool_calls"])
+}
+
+func TestNormalizeOpenAIResponsesLiteTools_PreservesExplicitFalseParallelToolCalls(t *testing.T) {
+	reqBody := map[string]any{
+		"reasoning":           map[string]any{"context": "all_turns"},
+		"parallel_tool_calls": false,
+		"tools":               []any{map[string]any{"type": "function", "name": "shell"}},
+	}
+
+	changed, err := normalizeOpenAIResponsesLiteTools(reqBody)
+
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, false, reqBody["parallel_tool_calls"])
+}
+
+func TestNormalizeOpenAIResponsesLiteTools_RejectsNonBooleanParallelToolCalls(t *testing.T) {
+	reqBody := map[string]any{"parallel_tool_calls": "true"}
+
+	changed, err := normalizeOpenAIResponsesLiteTools(reqBody)
+
+	var validationErr *openAIResponsesLiteValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.Equal(t, "parallel_tool_calls", validationErr.param)
+	require.False(t, changed)
 }
 
 func TestNormalizeOpenAIResponsesLiteTools_EnsuresReasoningContext(t *testing.T) {

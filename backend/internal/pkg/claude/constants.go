@@ -26,6 +26,12 @@ const (
 	BetaContextManagement       = "context-management-2025-06-27"
 	BetaThinkingBindingControls = "thinking-binding-controls-2026-08-01"
 	BetaExtendedCacheTTL        = "extended-cache-ttl-2025-04-11"
+
+	// server-side refusal fallback beta 字段族（beta Messages API 专有）。
+	// 仅用于 sanitize 的条件判断（strip-or-keep），禁止加入默认 mimicry / Bedrock 白名单。
+	BetaServerSideFallback   = "server-side-fallback-2026-07-01"
+	BetaFallbackCredit       = "fallback-credit-2026-07-01"
+	BetaFallbackCreditLegacy = "fallback-credit-2026-06-01"
 )
 
 // DroppedBetas 是转发时需要从 anthropic-beta header 中移除的 beta token 列表。
