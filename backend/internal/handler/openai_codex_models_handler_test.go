@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -41,6 +42,14 @@ func (r codexModelsFailoverAccountRepo) ListSchedulableByPlatform(_ context.Cont
 		}
 	}
 	return accounts, nil
+}
+
+func (r codexModelsFailoverAccountRepo) ListSchedulableByGroupID(_ context.Context, _ int64) ([]service.Account, error) {
+	return append([]service.Account(nil), r.accounts...), nil
+}
+
+func (r codexModelsFailoverAccountRepo) ListModelAvailabilityCandidates(_ context.Context, _ *int64, _ []string, _ bool) ([]service.Account, error) {
+	return append([]service.Account(nil), r.accounts...), nil
 }
 
 type codexModelsFailoverHTTPUpstream struct {
@@ -114,6 +123,60 @@ func TestCodexModelsCanceledRequestDoesNotWriteResponse(t *testing.T) {
 	if c.Writer.Written() {
 		t.Fatalf("canceled request wrote an HTTP response: status=%d body=%q", recorder.Code, recorder.Body.String())
 	}
+}
+
+func TestCodexModelsUsesConfiguredCatalogWithoutUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(44)
+	repo := codexModelsFailoverAccountRepo{accounts: []service.Account{
+		{ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true},
+		{
+			ID: 2, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
+			Credentials: map[string]any{"api_key": "sk-test", "model_mapping": map[string]any{"glm-5.3": "glm-5.3"}},
+		},
+	}}
+	upstream := &codexModelsFailoverHTTPUpstream{firstStatus: http.StatusNotFound}
+	gatewayService := service.NewOpenAIGatewayService(
+		repo,
+		nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil, nil, nil, nil, nil,
+		upstream,
+		nil, nil, nil, nil, nil, nil, nil,
+	)
+	handler := &OpenAIGatewayHandler{gatewayService: gatewayService}
+	recorder := performCodexModelsRequest(t, handler, groupID)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var envelope struct {
+		Models []map[string]any `json:"models"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode body: %v; body=%s", err, recorder.Body.String())
+	}
+	slugs := make([]string, 0, len(envelope.Models))
+	for _, model := range envelope.Models {
+		slug, _ := model["slug"].(string)
+		slugs = append(slugs, slug)
+		if _, ok := model["supported_reasoning_levels"]; !ok {
+			t.Fatalf("configured model is missing the Codex descriptor contract: %v", model)
+		}
+	}
+	if !containsString(slugs, "gpt-5.6-sol") || !containsString(slugs, "glm-5.3") {
+		t.Fatalf("models: got %v, want gpt-5.6-sol and glm-5.3", slugs)
+	}
+	if got := upstream.calls(); len(got) != 0 {
+		t.Fatalf("configured catalog must not fetch upstream: calls=%v", got)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCompositeCodexModelsReusesExistingManifestSelection(t *testing.T) {
