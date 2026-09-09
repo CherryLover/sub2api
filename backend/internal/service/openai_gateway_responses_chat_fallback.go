@@ -88,6 +88,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		}
 		return nil, err
 	}
+	chatBody = clampOllamaCloudUpstreamMaxTokens(account, chatBody)
 	if serviceTier == nil {
 		serviceTier = extractOpenAIServiceTierFromBody(chatBody)
 	}

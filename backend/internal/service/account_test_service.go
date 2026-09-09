@@ -428,7 +428,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		req.Header.Set("Authorization", "Bearer "+authToken)
 	} else {
 		req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
-		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken)
+		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetBaseURL())
 	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头

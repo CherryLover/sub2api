@@ -295,7 +295,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 	if authHeaderName != "" {
 		req.Header.Set(authHeaderName, authHeaderValue)
 	} else {
-		setAnthropicAPIKeyAuthHeader(req.Header, account, apiKeyAuthToken)
+		setAnthropicAPIKeyAuthHeader(req.Header, account, apiKeyAuthToken, normalizedBaseURL)
 	}
 	// 账号级请求头覆写：模型列表探测与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
