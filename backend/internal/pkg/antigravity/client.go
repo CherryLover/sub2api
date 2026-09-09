@@ -656,9 +656,13 @@ type FetchAvailableModelsResponse struct {
 
 // FetchAvailableModels 获取可用模型和配额信息，返回解析后的结构体和原始 JSON
 // 支持 URL fallback：sandbox → daily → prod
-func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectID string) (*FetchAvailableModelsResponse, map[string]any, error) {
+func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectID string, bodyLimit ...int64) (*FetchAvailableModelsResponse, map[string]any, error) {
 	if c == nil || c.httpClient == nil {
 		return nil, nil, errors.New("antigravity client is not configured")
+	}
+	limit := fetchAvailableModelsBodyLimit
+	if len(bodyLimit) > 0 && bodyLimit[0] > 0 {
+		limit = bodyLimit[0]
 	}
 
 	reqBody := FetchAvailableModelsRequest{Project: projectID}
@@ -693,13 +697,13 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 			return nil, nil, lastErr
 		}
 
-		respBodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, fetchAvailableModelsBodyLimit+1))
+		respBodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 		_ = resp.Body.Close() // 立即关闭，避免循环内 defer 导致的资源泄漏
 		if err != nil {
 			return nil, nil, fmt.Errorf("读取响应失败: %w", err)
 		}
-		if int64(len(respBodyBytes)) > fetchAvailableModelsBodyLimit {
-			return nil, nil, fmt.Errorf("响应超过 %d 字节", fetchAvailableModelsBodyLimit)
+		if int64(len(respBodyBytes)) > limit {
+			return nil, nil, fmt.Errorf("响应超过 %d 字节", limit)
 		}
 
 		// 检查是否需要 URL 降级
