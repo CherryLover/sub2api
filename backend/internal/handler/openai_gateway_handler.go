@@ -60,6 +60,49 @@ func shouldReportOpenAIWSProxyAccountFailure(err error) bool {
 	return err != nil && !errors.Is(err, errOpenAIWSUnsupportedModelSwitch)
 }
 
+// openAIWSIngressEndedByClient reports whether a finished ingress WebSocket turn
+// ended the way a healthy client ends one, rather than through an upstream or
+// account fault.
+//
+// Three error shapes describe that same benign outcome and only the first was
+// recognised:
+//
+//   - *service.OpenAIWSClientCloseError carrying 1000 — the gateway closing the
+//     socket on its own terms, e.g. the inter-turn idle timeout.
+//   - a bare coderws.CloseError{Code: 1000} — what coder/websocket returns when
+//     the client closes cleanly. ReadOpenAIWSClientMessage hands conn.Read's
+//     error back verbatim, so nothing ever wraps it into the type above and an
+//     errors.As against that type cannot see it.
+//   - context.Canceled — the client went away mid-turn. That path closes with
+//     StatusGoingAway (1001) and carries the cancellation as its cause, so a
+//     check for 1000 alone never matched it either.
+//
+// The last two fell through to shouldReportOpenAIWSProxyAccountFailure, which
+// filters only model-switch errors. Everything else reaches
+// ReportOpenAIAccountScheduleResult(false), so a client that merely
+// disconnected counted against the upstream account's health and could trip it
+// out of scheduling.
+//
+// Deliberately narrow. StatusGoingAway is not matched on its own: the gateway
+// emits 1001 when it tears a session down for its own reasons too, and the
+// client-cancellation case is already covered by context.Canceled.
+// context.DeadlineExceeded is left out as well — the idle-timeout path wraps it
+// in a 1000 close error and stays benign through the first check, while any
+// other deadline is a genuine stall worth reporting.
+func openAIWSIngressEndedByClient(err error) bool {
+	if err == nil {
+		return true
+	}
+	var closeErr *service.OpenAIWSClientCloseError
+	if errors.As(err, &closeErr) && closeErr.StatusCode() == coderws.StatusNormalClosure {
+		return true
+	}
+	if coderws.CloseStatus(err) == coderws.StatusNormalClosure {
+		return true
+	}
+	return errors.Is(err, context.Canceled)
+}
+
 func openAIWSTurnBillingModel(result *service.OpenAIForwardResult, mapping service.ChannelMappingResult, requestedModel, upstreamModel string) string {
 	billingModel := ""
 	if result != nil {
@@ -127,6 +170,18 @@ func seedOpenAIForwardImageIntentHint(c *gin.Context, channelMapped bool, imageI
 		return
 	}
 	service.SetOpenAIImageIntentHint(c, imageIntent)
+}
+
+// openAIChannelForwardModel returns the model used for upstream capability
+// routing. The client-requested model remains separate for logs, billing, and
+// responses.
+func openAIChannelForwardModel(mapping service.ChannelMappingResult, requestedModel string) string {
+	if mapping.Mapped {
+		if mappedModel := strings.TrimSpace(mapping.MappedModel); mappedModel != "" {
+			return mappedModel
+		}
+	}
+	return requestedModel
 }
 
 func newOpenAIModelMappedBodyCache(body []byte, replace openAIModelBodyReplaceFunc) func(bool, string) []byte {
@@ -206,14 +261,13 @@ func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKe
 	}
 	// 国产供应商分组与 grok 同语义:/v1/messages 就是其主要服务形态(anthropic
 	// 协议账号原生直通 Claude Code),无需 allow_messages_dispatch 开关授权——
-	// 该开关对非 openai 平台恒被 sanitizeGroupMessagesDispatchFields 置 false,
+	// 该开关对非 openai/composite 平台恒被 sanitizeGroupMessagesDispatchFields 置 false,
 	// 若不豁免,CN 分组将永远 403。
 	if service.IsCNProvider(apiKey.Group.Platform) {
 		return true
 	}
-	// composite 分组解析到 grok/CN 目标时与对应独立分组同语义豁免：sanitize
-	// 对 composite 同样恒置 false,不豁免则这些目标的 /v1/messages 永远 403；
-	// 解析到 openai 目标仍受开关控制,维持现状。
+	// composite 分组解析到 grok/CN 目标时与对应独立分组同语义豁免；
+	// 解析到 openai 目标则受 composite 分组自身的可配置开关控制。
 	if apiKey.Group.Platform == service.PlatformComposite && c != nil && c.Request != nil {
 		if platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok &&
 			(platform == service.PlatformGrok || service.IsCNProvider(platform)) {
@@ -428,10 +482,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
-	forwardModel := reqModel
-	if channelMapping.Mapped {
-		forwardModel = channelMapping.MappedModel
-	}
+	forwardModel := openAIChannelForwardModel(channelMapping, reqModel)
 	c.Request = c.Request.WithContext(service.WithOpenAIForwardModel(
 		c.Request.Context(),
 		forwardModel,
@@ -519,7 +570,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			apiKey.GroupID,
 			previousResponseID,
 			sessionHash,
-			reqModel,
+			forwardModel,
 			failedAccountIDs,
 			service.OpenAIUpstreamTransportAny,
 			requiredCapability,
@@ -1058,7 +1109,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
-	sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel, body)
+	sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(c, sessionHash, promptCacheKey, reqModel, body)
 	if h.rejectIfCyberSessionBlocked(c, apiKey, body, reqModel, cyberBlockFormatAnthropic) {
 		return
 	}
@@ -1333,10 +1384,19 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	}
 }
 
-func resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel string, body []byte) (string, string) {
+func resolveOpenAIMessagesMetadataSession(c *gin.Context, sessionHash, promptCacheKey, reqModel string, body []byte) (string, string) {
 	// Anthropic metadata.user_id 只作为账号粘性信号。上游 GPT/Codex 缓存键
 	// 交给 ForwardAsAnthropic 从 cache_control 或完整消息 digest 派生，避免
 	// 固定 metadata key 压住后续 turn 的缓存滚动。
+	//
+	// Claude Code 的 X-Claude-Code-Session-Id 是比 body content fallback 更稳定的
+	// 会话边界，但它只用于本地账号粘性；不要把它提升为 prompt_cache_key 或上游
+	// session_id，否则会改变现有 Messages→Codex 缓存滚动语义。
+	if promptCacheKey == "" {
+		if claudeSessionID := service.ClaudeCodeSessionIDFromHeader(c); claudeSessionID != "" {
+			return service.DeriveSessionHashFromSeed(claudeSessionID), promptCacheKey
+		}
+	}
 	if sessionHash != "" {
 		return sessionHash, promptCacheKey
 	}
@@ -1470,10 +1530,10 @@ const (
 // 由 BeforeTurn 在每个 turn 开始时冻结，AfterTurn 的用量提交读取它；turn 在
 // 连接内串行推进，互斥锁只为跨用量提交 goroutine 的读取安全。
 //
-// ws_v2 passthrough ingress 没有 BeforeTurn，因此本值会保持零；AfterTurn 必须
-// 以 TurnStarted 已记录的所属 turn 开始时刻为回退，而不是用建连或记录时刻。
-// 这样每个 passthrough turn 都按自己的开始时刻计价，但不改变其仅在建连时执行
-// 准入门、没有 turn 级利润复核的既有行为。
+// 零值语义（重要）：首轮准入由握手路径完成，不调用 BeforeTurn，因此首轮保持
+// 零值并回退到 TurnStarted 记录的首轮开始时刻。后续 turn 在 response.create
+// 写入上游前调用 BeforeTurn，按当时的利润门复核并冻结定价。绝不能用建连时刻
+// 初始化，否则会把长连接的所有 turn 钉死在建连时的峰谷因子。
 type openAIWSTurnPricing struct {
 	mu sync.Mutex
 	at time.Time
@@ -1604,7 +1664,7 @@ func (h *OpenAIGatewayHandler) acquireResponsesAccountSlot(
 			zap.Int64("account_id", account.ID),
 			zap.Int("max_waiting", selection.WaitPlan.MaxWaiting),
 		)
-		h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "Too many pending requests, please retry later", *streamStarted)
+		h.handleStreamingAwareErrorWithCode(c, http.StatusTooManyRequests, "rate_limit_error", gatewayQueueFullCode, "Too many pending requests, please retry later", *streamStarted, false)
 		return nil, openAISlotAcquireFailed
 	}
 
@@ -1819,6 +1879,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
+	wsForwardModel := openAIChannelForwardModel(channelMappingWS, reqModel)
 
 	var currentUserRelease func()
 	var currentAccountRelease func()
@@ -1955,7 +2016,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			apiKey.GroupID,
 			previousResponseID,
 			sessionHash,
-			reqModel,
+			wsForwardModel,
 			failedAccountIDs,
 			requiredTransport,
 			requiredCapability,
@@ -2104,8 +2165,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// turn-tagged slot preserves the exact mapping used for the in-flight request.
 		var turnChannelMapping atomic.Pointer[openAIWSTurnChannelMappingSnapshot]
 		turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: 1, mapping: channelMappingWS})
-		// turn 级定价：BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号；
-		// passthrough 没有 BeforeTurn 时，AfterTurn 回退到 TurnStarted 的所属 turn 时刻。
+		// turn 级定价：首轮回退到 TurnStarted 的所属 turn 时刻；后续 turn 由
+		// BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号。
 		var turnPricing openAIWSTurnPricing
 		hooks := &service.OpenAIWSIngressHooks{
 			ClientLifecycleContext:  clientLifecycleCtx,
@@ -2347,12 +2408,23 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			}
 
 			var closeErr *service.OpenAIWSClientCloseError
-			if errors.As(err, &closeErr) && closeErr.StatusCode() == coderws.StatusNormalClosure {
-				reqLog.Info("openai.websocket_ingress_closed_normally",
-					zap.Int64("account_id", account.ID),
-					zap.String("reason", closeErr.Reason()),
-				)
-				closeOpenAIClientWS(wsConn, closeErr.StatusCode(), closeErr.Reason())
+			hasClientCloseErr := errors.As(err, &closeErr)
+			if openAIWSIngressEndedByClient(err) {
+				closedFields := []zap.Field{zap.Int64("account_id", account.ID)}
+				if hasClientCloseErr {
+					closedFields = append(closedFields, zap.String("reason", closeErr.Reason()))
+				} else {
+					closedFields = append(closedFields, zap.Error(err))
+				}
+				reqLog.Info("openai.websocket_ingress_closed_normally", closedFields...)
+				// A bare coderws.CloseError or a plain cancellation carries no
+				// gateway-chosen close frame; mirror the client's clean 1000
+				// rather than the 1011 the proxy-failure tail would have sent.
+				if hasClientCloseErr {
+					closeOpenAIClientWS(wsConn, closeErr.StatusCode(), closeErr.Reason())
+				} else {
+					closeOpenAIClientWS(wsConn, coderws.StatusNormalClosure, "")
+				}
 				return
 			}
 
@@ -2377,7 +2449,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				proxyFailedFields = append(proxyFailedFields, zap.Int64p("proxy_id", account.ProxyID))
 			}
 			reqLog.Warn("openai.websocket_proxy_failed", proxyFailedFields...)
-			if errors.As(err, &closeErr) {
+			if hasClientCloseErr {
 				closeOpenAIClientWS(wsConn, closeErr.StatusCode(), closeErr.Reason())
 				return
 			}
@@ -2575,14 +2647,14 @@ func (h *OpenAIGatewayHandler) acquireImageGenerationSlot(c *gin.Context, stream
 	if acquired {
 		return release, true
 	}
-	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "Image generation concurrency limit exceeded, please retry later", streamStarted)
+	h.handleStreamingAwareErrorWithCode(c, http.StatusTooManyRequests, "rate_limit_error", gatewayConcurrencyLimitCode, "Image generation concurrency limit exceeded, please retry later", streamStarted, false)
 	return nil, false
 }
 
 // handleConcurrencyError handles concurrency-related acquire errors.
 func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
-	status, errType, message := concurrencyErrorResponse(err, slotType)
-	h.handleStreamingAwareError(c, status, errType, message, streamStarted)
+	status, errType, code, message := concurrencyErrorResponse(err, slotType)
+	h.handleStreamingAwareErrorWithCode(c, status, errType, code, message, streamStarted, false)
 }
 
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
@@ -2609,6 +2681,12 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	}
 	statusCode := failoverErr.StatusCode
 	responseBody := failoverErr.ResponseBody
+	if statusCode == http.StatusBadRequest && service.IsOpenAICompatibleModelNotFound400(responseBody) && !streamStarted {
+		upstreamMsg := service.SanitizeUpstreamErrorMessage(service.ExtractUpstreamErrorMessage(responseBody))
+		service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
+		service.WriteOpenAIUpstreamClientError(c, statusCode, responseBody, upstreamMsg)
+		return
+	}
 	if service.IsOpenAISilentRefusalErrorBody(responseBody) {
 		service.SetOpsUpstreamError(c, statusCode, service.OpenAISilentRefusalClientMessage(), "")
 		h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage(), streamStarted)
@@ -2739,7 +2817,7 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
 		// 通用 `event: error` 帧不被识别为终止事件，会导致
 		// "stream closed before response.completed"。
 		if inboundIsResponses(c) {
-			if writeResponsesFailedSSE(c, errType, message) {
+			if writeResponsesFailedSSE(c, errType, code, message) {
 				return
 			}
 		}
@@ -2906,7 +2984,7 @@ func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType
 	// 提交的 SSE 流交错，必须降级为 response.failed 终止事件（#3887）。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
 		service.MarkOpsStreamError(c, errType, message, status)
-		if writeResponsesFailedSSE(c, errType, message) {
+		if writeResponsesFailedSSE(c, errType, "", message) {
 			return
 		}
 	}
@@ -3180,7 +3258,7 @@ func (h *OpenAIGatewayHandler) rejectIfCyberSessionBlocked(c *gin.Context, apiKe
 	// 写 JSON（#3887）。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
 		service.MarkOpsStreamError(c, "permission_error", cyberSessionBlockedClientMsg, http.StatusForbidden)
-		if writeResponsesFailedSSE(c, "permission_error", cyberSessionBlockedClientMsg) {
+		if writeResponsesFailedSSE(c, "permission_error", "", cyberSessionBlockedClientMsg) {
 			h.enqueueCyberSessionBlockedOpsEntry(c, apiKey, model, key)
 			return true
 		}

@@ -413,7 +413,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 	req.Header.Del("x-api-key")
 	req.Header.Del("x-goog-api-key")
 	req.Header.Del("cookie")
-	setAnthropicAPIKeyAuthHeader(req.Header, account, token)
+	setAnthropicAPIKeyAuthHeader(req.Header, account, token, account.GetBaseURL())
 
 	if req.Header.Get("content-type") == "" {
 		req.Header.Set("content-type", "application/json")
@@ -481,9 +481,13 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		}
 	}
 
-	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
-	if ctFingerprint != nil && ctEnableFP {
-		body = syncBillingHeaderVersion(body, ctFingerprint.UserAgent)
+	// Disabled fingerprint unification does not disable forced mimicry headers.
+	var billingFingerprint *Fingerprint
+	if ctEnableFP {
+		billingFingerprint = ctFingerprint
+	}
+	if billingUA := effectiveBillingUserAgent(tokenType, mimicClaudeCode, billingFingerprint); billingUA != "" {
+		body = syncBillingHeaderVersion(body, billingUA)
 	}
 
 	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
@@ -514,7 +518,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if tokenType == "oauth" {
 		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
 	} else {
-		setAnthropicAPIKeyAuthHeader(req.Header, account, token)
+		setAnthropicAPIKeyAuthHeader(req.Header, account, token, account.GetBaseURL())
 	}
 
 	// 白名单透传 headers（恢复真实 wire casing）

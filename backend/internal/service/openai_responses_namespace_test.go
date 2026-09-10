@@ -72,12 +72,14 @@ func TestShouldKeepOpenAIResponsesToolCallNamespaces(t *testing.T) {
 		Extra:    map[string]any{"openai_responses_flatten_namespaces": true},
 	}
 
+	namespaceTools := []byte(`{"tools":[{"type":"namespace","name":"collaboration"}]}`)
 	tests := []struct {
 		name               string
 		account            *Account
 		transport          OpenAIUpstreamTransport
 		passthroughEnabled bool
 		compactPath        bool
+		body               []byte
 		want               bool
 	}{
 		// 上游按 namespace 解析历史调用，缺字段会 400 "Missing namespace for function_call"。
@@ -92,15 +94,17 @@ func TestShouldKeepOpenAIResponsesToolCallNamespaces(t *testing.T) {
 		// WSv2 + compact 是唯一「不摊平但仍必须清理」的组合，钉住 compact 判定本身，
 		// 使其不会被误当成可由 shouldFlatten 推导出的冗余分支。
 		{name: "oauth_compact_wsv2_strips", account: oauth, transport: OpenAIUpstreamTransportResponsesWebsocketV2, compactPath: true, want: false},
-		// API Key 出口是标准 Responses API，不认识该字段。
+		// API Key 出口默认是标准 Responses API，不认识该字段。
 		{name: "apikey_strips", account: apiKey, transport: OpenAIUpstreamTransportHTTPSSE, want: false},
+		{name: "apikey_declared_namespace_keeps", account: apiKey, transport: OpenAIUpstreamTransportHTTPSSE, body: namespaceTools, want: true},
+		{name: "apikey_compact_declared_namespace_strips", account: apiKey, transport: OpenAIUpstreamTransportHTTPSSE, compactPath: true, body: namespaceTools, want: false},
 		{name: "setup_token_strips", account: setupToken, transport: OpenAIUpstreamTransportHTTPSSE, want: false},
 		{name: "nil_account", account: nil, transport: OpenAIUpstreamTransportHTTPSSE, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, shouldKeepOpenAIResponsesToolCallNamespaces(
-				tt.account, tt.transport, tt.passthroughEnabled, tt.compactPath,
+				tt.account, tt.transport, tt.passthroughEnabled, tt.compactPath, tt.body,
 			))
 		})
 	}

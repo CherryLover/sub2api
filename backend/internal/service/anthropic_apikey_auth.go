@@ -33,7 +33,15 @@ func (a *Account) GetAnthropicAPIKeyAuthScheme() string {
 	}
 }
 
-func setAnthropicAPIKeyAuthHeader(header http.Header, account *Account, token string) {
+func isOllamaCloudAnthropicAuthBaseURL(baseURL string) bool {
+	return isOllamaCloudBaseURL(strings.TrimRight(strings.TrimSpace(baseURL), "/"))
+}
+
+func setAnthropicAPIKeyAuthHeader(header http.Header, account *Account, token, baseURL string) {
+	if account != nil && account.Type == AccountTypeAPIKey && isOllamaCloudAnthropicAuthBaseURL(baseURL) {
+		header.Set("Authorization", "Bearer "+token)
+		return
+	}
 	if account.GetAnthropicAPIKeyAuthScheme() == AnthropicAPIKeyAuthSchemeAuthorizationBearer {
 		header.Set("Authorization", "Bearer "+token)
 		return

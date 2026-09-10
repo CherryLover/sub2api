@@ -638,6 +638,32 @@ Or set `GATEWAY_OPENAI_WS_MODE_ROUTER_V2_ENABLED=true` in the environment.
 Use `http_bridge` for client-WebSocket/upstream-HTTP operation when rolling out
 or mitigating upstream WebSocket issues.
 
+#### Force OpenAI upstream HTTP/SSE
+
+When an egress proxy or network repeatedly reconnects OpenAI Responses
+WebSockets, set the global fallback in the persisted deployment configuration:
+
+```yaml
+gateway:
+  openai_ws:
+    force_http: true
+```
+
+For Compose and Apple container deployments, the equivalent `.env` setting is:
+
+```bash
+GATEWAY_OPENAI_WS_FORCE_HTTP=true
+```
+
+This selects HTTP/SSE for OpenAI upstream Responses traffic that would
+otherwise use WebSocket. It does not change the client-facing protocol or force
+HTTP/1.1; configure `gateway.openai_http2.enabled` (or
+`GATEWAY_OPENAI_HTTP2_ENABLED=false`) separately when a proxy is incompatible
+with HTTP/2. Unlike the account-level `http_bridge` mode, this global fallback
+takes effect without enabling `mode_router_v2_enabled`. Keep the setting in the
+deployment's persisted `.env` or `config.yaml`, rather than inside a running
+container, so it is read again after an image update or container recreation.
+
 #### ⚠️ Important: Creating the Admin Account
 
 The initial admin account is **only created via the setup wizard** (served at `http://<host>:8080` on first run). The `default.admin_email` / `default.admin_password` fields in `config.yaml` are **not used** to create it — they exist in the template for historical reasons.
@@ -784,7 +810,7 @@ xAI quota is passive. Sub2API does not invent subscription quota values; it reco
 
 `401` responses temporarily remove accounts with invalid credentials from scheduling. `403` responses are treated as access or entitlement failures instead of token-refresh loops. `429` responses use `Retry-After` or a short cooldown to temporarily remove the account from scheduling.
 
-New Grok image and video generation requests use a media-specific eligibility check. API-key accounts remain eligible. OAuth accounts require positive paid-entitlement evidence from the xAI billing probe; Free, forbidden, missing, malformed, and inconclusive billing observations are excluded from new media generation. Unobserved OAuth accounts are probed before the first media request is forwarded, and imports run the billing-first quota probe proactively. Chat requests and video status lookups are not affected by this media-only quarantine. If no eligible account remains, the media endpoint returns HTTP `503` with error type `grok_media_no_eligible_account`.
+New Grok image and video generation requests use a media-specific eligibility check. API-key accounts remain eligible. OAuth accounts with explicit Free or forbidden billing evidence are excluded from new media generation. Missing or malformed observations are probed before dispatch; a successful but incomplete billing response is treated as `billing_inconclusive` and remains eligible for backwards compatibility, because an unknown billing schema is not proof that the account lacks media entitlement. Operators can quarantine a known-bad account with `extra.grok_media_eligible=false` or force-enable a verified account with `true`. Imports run the billing-first quota probe proactively. Chat requests and video status lookups are not affected by this media-only quarantine. If no eligible account remains, the media endpoint returns HTTP `503` with error type `grok_media_no_eligible_account`.
 
 Administrators can override automatic media eligibility through the account create/update API by setting `extra.grok_media_eligible` to `false` (exclude) or `true` (force eligible). On update, set it to `null` to remove the override and return to automatic probe-based behavior; omitting the field preserves the current override. A weekly allowance period alone is not treated as a paid tier signal. Successful image responses must contain at least one actual image output; empty HTTP `200` responses trigger account failover instead of being counted and returned as successful generations.
 

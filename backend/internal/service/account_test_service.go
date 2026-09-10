@@ -43,8 +43,9 @@ import (
 var sseDataPrefix = regexp.MustCompile(`^data:\s*`)
 
 const (
-	testClaudeAPIURL   = "https://api.anthropic.com/v1/messages?beta=true"
-	chatgptCodexAPIURL = "https://chatgpt.com/backend-api/codex/responses"
+	testClaudeAPIURL            = "https://api.anthropic.com/v1/messages?beta=true"
+	chatgptCodexAPIURL          = "https://chatgpt.com/backend-api/codex/responses"
+	defaultAntigravityTestModel = "claude-sonnet-4-6"
 )
 
 // TestEvent represents a SSE event for account testing
@@ -289,8 +290,12 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
+		case APIProtocolResponses:
+			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 		case APIProtocolChatCompletions:
 			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+		case APIProtocolAnthropic:
+			return s.testCNProviderAnthropicConnection(c, account, modelID)
 		}
 	}
 
@@ -423,7 +428,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		req.Header.Set("Authorization", "Bearer "+authToken)
 	} else {
 		req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
-		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken)
+		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetBaseURL())
 	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
@@ -688,7 +693,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		apiURL = chatgptCodexAPIURL
 	} else if credentialAccount.Type == "apikey" {
 		// API Key - use Platform API
-		authToken = credentialAccount.GetOpenAIApiKey()
+		authToken = credentialAccount.GetOpenAIProtocolAPIKey()
 		if authToken == "" {
 			return s.sendErrorAndEnd(c, "No API key available")
 		}
@@ -704,7 +709,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		if !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 			return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
 		}
-		apiURL = buildOpenAIResponsesURL(normalizedBaseURL)
+		apiURL = buildOpenAIResponsesURLForPlatform(credentialAccount.Platform, normalizedBaseURL)
 	} else {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Unsupported account type: %s", account.Type))
 	}
@@ -2038,7 +2043,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		}
 		apiURL = chatgptCodexAPIURL
 	case account.Type == AccountTypeAPIKey:
-		authToken = account.GetOpenAIApiKey()
+		authToken = account.GetOpenAIProtocolAPIKey()
 		if authToken == "" {
 			return s.sendErrorAndEnd(c, "No API key available")
 		}
@@ -2050,7 +2055,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 		}
-		apiURL = buildOpenAIResponsesURL(normalizedBaseURL)
+		apiURL = buildOpenAIResponsesURLForPlatform(account.Platform, normalizedBaseURL)
 	default:
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Unsupported account type: %s", account.Type))
 	}
@@ -2300,11 +2305,7 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string) error {
 	ctx := c.Request.Context()
 
-	// 默认模型：Claude 使用 claude-sonnet-4-5，Gemini 使用 gemini-3-pro-preview
-	testModelID := modelID
-	if testModelID == "" {
-		testModelID = "claude-sonnet-4-5"
-	}
+	testModelID := antigravityConnectionTestModel(modelID)
 
 	if s.antigravityGatewayService == nil {
 		return s.sendErrorAndEnd(c, "Antigravity gateway service not configured")
@@ -2333,6 +2334,13 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
+}
+
+func antigravityConnectionTestModel(modelID string) string {
+	if modelID == "" {
+		return defaultAntigravityTestModel
+	}
+	return modelID
 }
 
 // buildGeminiAPIKeyRequest builds request for Gemini API Key accounts

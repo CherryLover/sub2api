@@ -240,17 +240,45 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 	}
 }
 
-func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Account, statusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
 		return false
 	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, upstreamBody) {
 		return true
 	}
+	// A missing model is account/provider availability, not a malformed client
+	// request. Bare forwarding services without an account repository keep the
+	// deterministic upstream 400 instead of returning an unwritten retry signal.
+	if s != nil && s.accountRepo != nil && account != nil && account.IsOpenAICompatible() && statusCode == http.StatusBadRequest &&
+		isOpenAICompatibleModelNotFound400(upstreamBody) {
+		return true
+	}
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
 	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+}
+
+func isOpenAICompatibleModelNotFound400(respBody []byte) bool {
+	code := strings.TrimSpace(extractUpstreamErrorCode(respBody))
+	if code != "" {
+		return strings.EqualFold(code, "model_not_found")
+	}
+
+	msg := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
+	if msg == "" && !gjson.ValidBytes(respBody) {
+		msg = strings.ToLower(strings.TrimSpace(string(respBody)))
+	}
+	return strings.Contains(msg, "unknown provider for model") ||
+		strings.Contains(msg, "model not found") ||
+		strings.Contains(msg, "model is not supported")
+}
+
+// IsOpenAICompatibleModelNotFound400 reports whether an OpenAI-compatible 400
+// is an account-specific missing-model response eligible for failover.
+func IsOpenAICompatibleModelNotFound400(respBody []byte) bool {
+	return isOpenAICompatibleModelNotFound400(respBody)
 }
 
 // OpenAIRequestBodyTooLargeClientMessage is the fixed downstream message used

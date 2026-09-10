@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 )
 
 // resolveAccountStatsCost 计算账号统计定价费用。
@@ -17,6 +18,7 @@ import (
 // upstreamModel 是最终发往上游的模型 ID。
 // totalCost 是本次请求的客户计费（倍率前），用于优先级 2。
 // serviceTier 是最终参与用户计费的 OpenAI 服务层级，用于优先级 3。
+// pricingAt 与本次客户计费使用同一时刻，避免跨峰谷请求的成本与售价错位。
 func resolveAccountStatsCost(
 	ctx context.Context,
 	channelService *ChannelService,
@@ -28,6 +30,7 @@ func resolveAccountStatsCost(
 	requestCount int,
 	totalCost float64,
 	serviceTier string,
+	pricingAt time.Time,
 ) *float64 {
 	if channelService == nil || upstreamModel == "" {
 		return nil
@@ -55,36 +58,30 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier)
+		return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, pricingAt)
 	}
 
 	return nil
 }
 
 // tryModelFilePricing 使用模型定价文件（LiteLLM/fallback）中的价格计算费用。
-func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier string) *float64 {
-	pricing, err := billingService.GetModelPricing(model)
-	if err != nil || pricing == nil {
+// 与用户计费共用同一条定价管线，避免这里维护第二份"单价 × token 数"实现后，
+// 每加一个定价特性都要手工镜像一次。解析器不配置渠道或分组，保持优先级 3 的
+// 语义：只取模型定价文件，不引入自定义售价。
+func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier string, pricingAt time.Time) *float64 {
+	breakdown, err := billingService.CalculateCostUnified(CostInput{
+		Ctx:            context.Background(),
+		Model:          model,
+		Tokens:         tokens,
+		RateMultiplier: 1,
+		ServiceTier:    normalizeBillingServiceTier(serviceTier),
+		PricingAt:      pricingAt,
+		Resolver:       NewModelPricingResolver(nil, billingService),
+	})
+	if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 		return nil
 	}
-	normalizedTier := normalizeBillingServiceTier(serviceTier)
-	if normalizedTier == "priority" || normalizedTier == "fast" || normalizedTier == "flex" ||
-		billingService.shouldApplySessionLongContextPricing(tokens, pricing) {
-		breakdown, err := billingService.CalculateCostWithServiceTier(model, tokens, 1, normalizedTier)
-		if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
-			return nil
-		}
-		return &breakdown.TotalCost
-	}
-	cost := float64(tokens.InputTokens)*pricing.InputPricePerToken +
-		float64(tokens.OutputTokens)*pricing.OutputPricePerToken +
-		float64(tokens.CacheCreationTokens)*pricing.CacheCreationPricePerToken +
-		float64(tokens.CacheReadTokens)*pricing.CacheReadPricePerToken +
-		float64(tokens.ImageOutputTokens)*pricing.ImageOutputPricePerToken
-	if cost <= 0 {
-		return nil
-	}
-	return &cost
+	return &breakdown.TotalCost
 }
 
 // tryCustomRules 遍历自定义规则，按数组顺序先命中为准。
@@ -236,6 +233,7 @@ func applyAccountStatsCost(
 	upstreamModel, requestedModel string,
 	tokens UsageTokens,
 	totalCost float64,
+	pricingAt time.Time,
 ) {
 	model := upstreamModel
 	if model == "" {
@@ -250,6 +248,6 @@ func applyAccountStatsCost(
 		serviceTier = *usageLog.ServiceTier
 	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, serviceTier,
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, serviceTier, pricingAt,
 	)
 }

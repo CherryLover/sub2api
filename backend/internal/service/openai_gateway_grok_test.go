@@ -324,6 +324,28 @@ func TestPatchGrokResponsesBodyDropsNestedUnsupportedFields(t *testing.T) {
 	require.True(t, json.Valid(patched))
 	require.False(t, strings.Contains(string(patched), "external_web_access"))
 	require.Equal(t, "kept_fn", gjson.GetBytes(patched, "tools.0.name").String())
+	require.False(t, gjson.GetBytes(patched, "metadata").Exists())
+}
+
+func TestSanitizeGrokResponsesToolsSimplifiesInvalidRootUnion(t *testing.T) {
+	body := []byte(`{"tools":[
+		{"type":"function","name":"invalid_union","strict":true,"parameters":{"oneOf":[{"type":"object","properties":{"id":{"type":"string"}}},{"type":"null"}]}},
+		{"type":"function","name":"object_only","strict":true,"parameters":{"type":"object","anyOf":[{"type":"object"},{"type":"object"}]}}
+	]}`)
+
+	patched, err := sanitizeGrokResponsesTools(body)
+	require.NoError(t, err)
+
+	invalid := gjson.GetBytes(patched, `tools.#(name=="invalid_union")`)
+	require.Equal(t, "object", invalid.Get("parameters.type").String())
+	require.True(t, invalid.Get("parameters.properties").IsObject())
+	require.True(t, invalid.Get("parameters.additionalProperties").Bool())
+	require.False(t, invalid.Get("parameters.oneOf").Exists())
+	require.Equal(t, gjson.False, invalid.Get("strict").Type)
+
+	objectOnly := gjson.GetBytes(patched, `tools.#(name=="object_only")`)
+	require.True(t, objectOnly.Get("parameters.anyOf").Exists())
+	require.Equal(t, gjson.True, objectOnly.Get("strict").Type)
 }
 
 func TestPatchGrokResponsesBodyFlattensNamespaceTools(t *testing.T) {
@@ -371,6 +393,16 @@ func TestPatchGrokResponsesBodyDropsToolChoiceWhenNoSupportedToolsRemain(t *test
 	require.True(t, json.Valid(patched))
 	require.False(t, gjson.GetBytes(patched, "tools").Exists())
 	require.False(t, gjson.GetBytes(patched, "tool_choice").Exists())
+}
+
+func TestSanitizeGrokResponsesToolsRemovesDeferredFlagsWithToolSearch(t *testing.T) {
+	body := []byte(`{"tools":[{"type":"tool_search"},{"type":"function","name":"shell","defer_loading":true},{"type":"function","name":"apply_patch"}]}`)
+
+	patched, err := sanitizeGrokResponsesTools(body)
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(patched, `tools.#(type=="tool_search")`).Exists())
+	require.False(t, gjson.GetBytes(patched, `tools.#(name=="shell").defer_loading`).Exists())
+	require.True(t, gjson.GetBytes(patched, `tools.#(name=="apply_patch")`).Exists())
 }
 
 func TestSanitizeGrokResponsesToolsKeepsToolChoiceOnlyWithSupportedTools(t *testing.T) {
@@ -806,7 +838,7 @@ func TestBuildGrokResponsesRequestAllowsPublicAPIKeyBaseURLByDefault(t *testing.
 	require.Equal(t, "https://grok.example.test/v1/responses", req.URL.String())
 	require.Equal(t, "Bearer api-key", req.Header.Get("Authorization"))
 	require.Empty(t, req.Header.Get("X-Grok-Client-Version"))
-	require.NotEqual(t, grokUpstreamUserAgent, req.Header.Get("User-Agent"))
+	require.NotEqual(t, defaultGrokUpstreamUserAgent(), req.Header.Get("User-Agent"))
 }
 
 func TestBuildGrokResponsesRequestHonorsOAuthOfficialEndpointSwitch(t *testing.T) {
@@ -1110,7 +1142,7 @@ func TestForwardGrokMediaImagesGenerationNormalizesImagineAlias(t *testing.T) {
 	require.Equal(t, "Bearer api-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "application/json", upstream.lastReq.Header.Get("Content-Type"))
 	require.Empty(t, upstream.lastReq.Header.Get("X-Grok-Client-Version"))
-	require.NotEqual(t, grokUpstreamUserAgent, upstream.lastReq.Header.Get("User-Agent"))
+	require.NotEqual(t, defaultGrokUpstreamUserAgent(), upstream.lastReq.Header.Get("User-Agent"))
 	require.JSONEq(t, `{"model":"grok-imagine-image-quality","prompt":"draw a cat"}`, string(upstream.lastBody))
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.JSONEq(t, `{"data":[{"url":"https://images.test/cat.png"}]}`, recorder.Body.String())
@@ -1624,7 +1656,7 @@ func TestForwardGrokMediaVideoStatusUsesGETWithoutBody(t *testing.T) {
 	require.Equal(t, http.MethodGet, upstream.lastReq.Method)
 	require.Equal(t, "Bearer api-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Empty(t, upstream.lastReq.Header.Get("X-Grok-Client-Version"))
-	require.NotEqual(t, grokUpstreamUserAgent, upstream.lastReq.Header.Get("User-Agent"))
+	require.NotEqual(t, defaultGrokUpstreamUserAgent(), upstream.lastReq.Header.Get("User-Agent"))
 	require.Empty(t, upstream.lastReq.Header.Get("Content-Type"))
 	require.Empty(t, upstream.lastBody)
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -1960,7 +1992,7 @@ func TestForwardGrokResponsesAPIKeyUsesXAIResponses(t *testing.T) {
 	require.Equal(t, "https://api.x.ai/v1/responses", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer xai-test-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Empty(t, upstream.lastReq.Header.Get("X-Grok-Client-Version"))
-	require.NotEqual(t, grokUpstreamUserAgent, upstream.lastReq.Header.Get("User-Agent"))
+	require.NotEqual(t, defaultGrokUpstreamUserAgent(), upstream.lastReq.Header.Get("User-Agent"))
 	require.Equal(t, "grok-4.6", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, "resp_grok_api_key", result.ResponseID)
 	require.Equal(t, 2, result.Usage.InputTokens)
@@ -2031,8 +2063,8 @@ func TestForwardGrokResponsesRetriesInvalidEncryptedContentOnce(t *testing.T) {
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "input.0.encrypted_content").Exists())
 	require.Equal(t, "keep this summary", gjson.GetBytes(upstream.bodies[1], "input.0.summary.0.text").String())
 	require.Equal(t, "message", gjson.GetBytes(upstream.bodies[1], "input.1.type").String())
-	require.Equal(t, "9007199254740993", gjson.GetBytes(upstream.bodies[0], "metadata.large_id").Raw)
-	require.Equal(t, "9007199254740993", gjson.GetBytes(upstream.bodies[1], "metadata.large_id").Raw)
+	require.False(t, gjson.GetBytes(upstream.bodies[0], "metadata").Exists())
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "metadata").Exists())
 
 	firstIdentity := gjson.GetBytes(upstream.bodies[0], "prompt_cache_key").String()
 	secondIdentity := gjson.GetBytes(upstream.bodies[1], "prompt_cache_key").String()
@@ -2234,7 +2266,7 @@ func TestForwardAsChatCompletionsForGrokAPIKeyUsesConfiguredRawEndpointWithoutOA
 	require.Equal(t, "https://grok.example.test/v1/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer third-party-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Empty(t, upstream.lastReq.Header.Get("X-Grok-Client-Version"))
-	require.NotEqual(t, grokUpstreamUserAgent, upstream.lastReq.Header.Get("User-Agent"))
+	require.NotEqual(t, defaultGrokUpstreamUserAgent(), upstream.lastReq.Header.Get("User-Agent"))
 }
 
 func TestForwardAsChatCompletionsForGrokAPIKeyRejectsNonStreamingResponseWithoutUsage(t *testing.T) {

@@ -490,33 +490,62 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "deepseek v4 pro",
 			model:             "deepseek-v4-pro",
-			expectedInput:     4.35e-7,
-			expectedOutput:    floatPtr(8.7e-7),
-			expectedCacheRead: floatPtr(3.625e-9),
+			expectedInput:     6.6e-7,
+			expectedOutput:    floatPtr(1.98e-6),
+			expectedCacheRead: floatPtr(2.2e-8),
 		},
 		{
 			name:              "deepseek v4 flash",
 			model:             "deepseek-v4-flash",
-			expectedInput:     1.4e-7,
-			expectedOutput:    floatPtr(2.8e-7),
-			expectedCacheRead: floatPtr(2.8e-9),
+			expectedInput:     2.2e-7,
+			expectedOutput:    floatPtr(6.6e-7),
+			expectedCacheRead: floatPtr(7e-9),
 		},
 		{
-			name:              "deepseek chat alias → flash",
+			name:              "deepseek v4 flash vision exp",
+			model:             "deepseek-v4-flash-vision-exp",
+			expectedInput:     2.2e-7,
+			expectedOutput:    floatPtr(6.6e-7),
+			expectedCacheRead: floatPtr(7e-9),
+		},
+		{
+			// deepseek-chat / deepseek-reasoner 已停止服务，统一按 flash 价兜底。
+			name:              "deepseek chat discontinued maps to flash",
 			model:             "deepseek-chat",
-			expectedInput:     1.4e-7,
-			expectedOutput:    floatPtr(2.8e-7),
-			expectedCacheRead: floatPtr(2.8e-9),
+			expectedInput:     2.2e-7,
+			expectedOutput:    floatPtr(6.6e-7),
+			expectedCacheRead: floatPtr(7e-9),
 		},
 		{
-			name:              "deepseek reasoner alias → flash",
+			name:              "deepseek reasoner discontinued maps to flash",
 			model:             "deepseek-reasoner",
-			expectedInput:     1.4e-7,
-			expectedOutput:    floatPtr(2.8e-7),
-			expectedCacheRead: floatPtr(2.8e-9),
+			expectedInput:     2.2e-7,
+			expectedOutput:    floatPtr(6.6e-7),
+			expectedCacheRead: floatPtr(7e-9),
+		},
+		{
+			name:              "unknown deepseek maps to flash",
+			model:             "deepseek-foo",
+			expectedInput:     2.2e-7,
+			expectedOutput:    floatPtr(6.6e-7),
+			expectedCacheRead: floatPtr(7e-9),
 		},
 
 		// ---- 智谱 GLM（z.ai USD 口径）----
+		{
+			name:              "glm 5.3 flagship",
+			model:             "glm-5.3",
+			expectedInput:     1.4e-6,
+			expectedOutput:    floatPtr(4.4e-6),
+			expectedCacheRead: floatPtr(0.26e-6),
+		},
+		{
+			name:              "glm 5.3 flash",
+			model:             "glm-5.3-flash",
+			expectedInput:     0.15e-6,
+			expectedOutput:    floatPtr(0.5e-6),
+			expectedCacheRead: floatPtr(0.03e-6),
+		},
 		{
 			name:              "glm 5.2 flagship",
 			model:             "glm-5.2",
@@ -607,7 +636,21 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedInput:  0.1e-6,
 			expectedOutput: floatPtr(0.1e-6),
 		},
-		// 关键：5.1 / 5.2 必须先于 5 匹配（避免被 glm-5 抢走）
+		// 关键：5.1 / 5.2 / 5.3 必须先于 5 匹配（避免被 glm-5 抢走）
+		{
+			name:              "glm 5.3-flash vs glm 5.3 ordering (verbatim 5.3-flash)",
+			model:             "glm-5.3-flash",
+			expectedInput:     0.15e-6, // = glm-5.3-flash 价格（不是 glm-5.3 的 1.4e-6，更不是 glm-5 的 1e-6）
+			expectedOutput:    floatPtr(0.5e-6),
+			expectedCacheRead: floatPtr(0.03e-6),
+		},
+		{
+			name:              "glm 5.3 vs glm 5 ordering (verbatim 5.3)",
+			model:             "glm-5.3",
+			expectedInput:     1.4e-6, // = glm-5.3 价格（不是 glm-5 的 1e-6）
+			expectedOutput:    floatPtr(4.4e-6),
+			expectedCacheRead: floatPtr(0.26e-6),
+		},
 		{
 			name:              "glm 5.1 vs glm 5 ordering (verbatim 5.1)",
 			model:             "glm-5.1",
@@ -1382,6 +1425,122 @@ func TestCalculateCost_SupportsCacheBreakdown(t *testing.T) {
 	expected5m := float64(tokens.CacheCreation5mTokens) * 4e-6
 	expected1h := float64(tokens.CacheCreation1hTokens) * 5e-6
 	require.InDelta(t, expected5m+expected1h, cost.CacheCreationCost, 1e-10)
+}
+
+func TestComputeCacheCreationCost_CapsContradictoryBreakdownAtAggregate(t *testing.T) {
+	svc := &BillingService{}
+	pricing := &ModelPricing{
+		SupportsCacheBreakdown: true,
+		CacheCreation5mPrice:   1,
+		CacheCreation1hPrice:   1,
+	}
+
+	tokens := UsageTokens{
+		CacheCreationTokens:   463184,
+		CacheCreation5mTokens: 463184,
+		CacheCreation1hTokens: 463184,
+	}
+
+	cost := svc.computeCacheCreationCost(pricing, tokens, 0, 1)
+	require.Equal(t, float64(tokens.CacheCreationTokens), cost,
+		"billed cache-creation token equivalent must not exceed the positive aggregate")
+}
+
+func TestNormalizeCacheCreationBreakdown_BillingSafetyInvariant(t *testing.T) {
+	tests := []struct {
+		name   string
+		tokens UsageTokens
+		want5m int
+		want1h int
+	}{
+		{
+			name:   "preserves ratio when capping",
+			tokens: UsageTokens{CacheCreationTokens: 100, CacheCreation5mTokens: 90, CacheCreation1hTokens: 60},
+			want5m: 60,
+			want1h: 40,
+		},
+		{
+			name:   "details below aggregate unchanged",
+			tokens: UsageTokens{CacheCreationTokens: 100, CacheCreation5mTokens: 30, CacheCreation1hTokens: 60},
+			want5m: 30,
+			want1h: 60,
+		},
+		{
+			name:   "absent 5m detail unchanged",
+			tokens: UsageTokens{CacheCreationTokens: 100, CacheCreation1hTokens: 60},
+			want5m: 0,
+			want1h: 60,
+		},
+		{
+			name:   "absent 1h detail unchanged",
+			tokens: UsageTokens{CacheCreationTokens: 100, CacheCreation5mTokens: 30},
+			want5m: 30,
+			want1h: 0,
+		},
+		{
+			name:   "negative detail clamped",
+			tokens: UsageTokens{CacheCreationTokens: 100, CacheCreation5mTokens: -50, CacheCreation1hTokens: 60},
+			want5m: 0,
+			want1h: 60,
+		},
+		{
+			name:   "negative detail cannot hide oversized positive detail",
+			tokens: UsageTokens{CacheCreationTokens: 100, CacheCreation5mTokens: -50, CacheCreation1hTokens: 150},
+			want5m: 0,
+			want1h: 100,
+		},
+		{
+			name:   "integer boundary details capped without overflow",
+			tokens: UsageTokens{CacheCreationTokens: 100, CacheCreation5mTokens: int(^uint(0) >> 1), CacheCreation1hTokens: int(^uint(0) >> 1)},
+			want5m: 50,
+			want1h: 50,
+		},
+		{
+			name:   "integer boundary aggregate avoids float conversion overflow",
+			tokens: UsageTokens{CacheCreationTokens: int(^uint(0) >> 1), CacheCreation5mTokens: int(^uint(0) >> 1), CacheCreation1hTokens: 1},
+			want5m: int(^uint(0) >> 1),
+			want1h: 0,
+		},
+		{
+			name:   "zero aggregate unchanged",
+			tokens: UsageTokens{CacheCreation5mTokens: 90, CacheCreation1hTokens: 60},
+			want5m: 90,
+			want1h: 60,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got5m, got1h := normalizeCacheCreationBreakdown(tt.tokens)
+			require.Equal(t, tt.want5m, got5m)
+			require.Equal(t, tt.want1h, got1h)
+		})
+	}
+}
+
+func TestComputeCacheCreationCost_PreservesZeroDetailFallback(t *testing.T) {
+	svc := &BillingService{}
+	pricing := &ModelPricing{
+		SupportsCacheBreakdown: true,
+		CacheCreation5mPrice:   4e-6,
+		CacheCreation1hPrice:   5e-6,
+	}
+
+	tests := []struct {
+		name   string
+		tokens UsageTokens
+	}{
+		{name: "zero details", tokens: UsageTokens{CacheCreationTokens: 100}},
+		{name: "one negative detail", tokens: UsageTokens{CacheCreationTokens: 100, CacheCreation5mTokens: -25}},
+		{name: "both negative details", tokens: UsageTokens{CacheCreationTokens: 100, CacheCreation5mTokens: -25, CacheCreation1hTokens: -75}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cost := svc.computeCacheCreationCost(pricing, tt.tokens, 0, 1)
+			require.InDelta(t, 100*4e-6, cost, 1e-12)
+		})
+	}
 }
 
 func TestCalculateCost_LargeTokenCount(t *testing.T) {

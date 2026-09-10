@@ -53,6 +53,33 @@ func TestOpenAI429FastPath_SkipsSparkShadow(t *testing.T) {
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(normal), "normal OpenAI OAuth account should still be runtime-blocked")
 }
 
+func TestOpenAI429FastPath_OpenCodeGoUsageLimitUsesMessageResetDuration(t *testing.T) {
+	repo := &rateLimit429AccountRepoStub{}
+	rateLimitService := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &OpenAIGatewayService{rateLimitService: rateLimitService}
+	rateLimitService.SetAccountRuntimeBlocker(svc)
+	account := &Account{ID: 44, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	body := []byte(`{"type":"error","error":{"type":"GoUsageLimitError","message":"5-hour usage limit reached. Resets in 4hr 59min. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_test/go"},"metadata":{"workspace":"wrk_test","limitName":"5 hour"}}`)
+
+	before := time.Now()
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		http.Header{},
+		body,
+	)
+	after := time.Now()
+
+	require.False(t, shouldDisable)
+	require.Equal(t, 1, repo.rateLimitCalls)
+	require.Equal(t, account.ID, repo.lastRateLimitID)
+	expectedResetAfter := 4*time.Hour + 59*time.Minute
+	require.False(t, repo.lastRateLimitReset.Before(before.Add(expectedResetAfter-time.Second)))
+	require.False(t, repo.lastRateLimitReset.After(after.Add(expectedResetAfter)))
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
 func TestOpenAIRuntimeBlock_AppliesToOpenAIAPIKeyWhenRateLimitServiceStopsScheduling(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 44, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}

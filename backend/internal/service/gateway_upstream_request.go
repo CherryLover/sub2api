@@ -84,9 +84,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		}
 	}
 
-	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
-	if fingerprint != nil {
-		body = syncBillingHeaderVersion(body, fingerprint.UserAgent)
+	// Mimicry may override the cached User-Agent later, even without a fingerprint.
+	if billingUA := effectiveBillingUserAgent(tokenType, mimicClaudeCode, fingerprint); billingUA != "" {
+		body = syncBillingHeaderVersion(body, billingUA)
 	}
 
 	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
@@ -117,6 +117,8 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		body = sanitized
 	}
 
+	body = clampOllamaCloudAnthropicMessagesMaxTokens(account, account.GetBaseURL(), body)
+
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, err
@@ -126,7 +128,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if tokenType == "oauth" {
 		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
 	} else {
-		setAnthropicAPIKeyAuthHeader(req.Header, account, token)
+		setAnthropicAPIKeyAuthHeader(req.Header, account, token, account.GetBaseURL())
 	}
 
 	// 白名单透传 headers

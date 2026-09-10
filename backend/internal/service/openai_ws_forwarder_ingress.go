@@ -92,9 +92,13 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if wsDecision.Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
 				return fmt.Errorf("websocket ingress requires ws_v2 transport, got=%s", wsDecision.Transport)
 			}
-			// 透传 relay 通过 TurnStarted 记录每个 turn 的开始时刻，但不触发
-			// BeforeTurn；因此仍只有建连时的利润准入门，没有 turn 级复核。
-			// handler 计费在 turn 定价未冻结时回退到对应的 turn 开始时刻。
+			if s.shouldBridgeOpenAIWSPassthroughFirstMessage(account, firstClientMessage) {
+				forceHTTPBridge = true
+				break
+			}
+			// 首轮准入由握手路径完成；后续 response.create 会在写入上游前
+			// 依次回调 BeforeRequest 和 BeforeTurn，并在终止或失败时回调
+			// AfterTurn，从而覆盖 turn 级利润复核、定价冻结和并发槽位释放。
 			return s.proxyResponsesWebSocketV2Passthrough(
 				ctx,
 				c,
@@ -255,8 +259,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = next
 		}
-		if account.IsOpenAIOAuth() && isOpenAIResponsesLiteWebSocketPayload(normalized) {
-			litePayload, _, liteErr := normalizeOpenAIResponsesLiteToolsPayload(normalized)
+		if isOpenAIResponsesLiteWebSocketPayload(normalized) {
+			litePayload, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(normalized, account)
 			if liteErr != nil {
 				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
 					coderws.StatusPolicyViolation,
@@ -511,7 +515,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			bridgePayloadRaw := currentBridgePayload.payloadRaw
 			bridgePayloadBytes := currentBridgePayload.payloadBytes
-			needsBridgeReplay := currentBridgePayload.previousResponseID != "" || openAIWSRawPayloadHasToolCallOutput(currentBridgePayload.payloadRaw)
+			toolOutputCoverage := AnalyzeToolCallOutputContextCoverageBytes(currentBridgePayload.payloadRaw)
+			needsBridgeReplay := currentBridgePayload.previousResponseID != "" ||
+				(toolOutputCoverage.HasFunctionCallOutput && !toolOutputCoverage.ContextCoversAllCallIDs)
 			turnReplayInput, turnReplayInputExists, replayInputErr := buildOpenAIWSReplayInputSequence(
 				bridgeReplayInput,
 				bridgeReplayInputExists,
@@ -1022,7 +1028,20 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					}
 				}
 				replayCollector.AddEvent(eventType, upstreamMessage)
-				if err := writeClientMessage(upstreamMessage); err != nil {
+				// 客户端写出副本改写容量降载码：Codex 对 error/response.failed 中的
+				// server_is_overloaded / slow_down 判致命并终止会话，改写后走客户端
+				// 内置退避重试。HTTP/SSE 与 http_bridge 两条路径早已这么做，
+				// ctx_pool 的 ingress 直写路径是唯一漏掉的一条。
+				//
+				// 必须写进独立变量而不是原地改 upstreamMessage：下面的
+				// 账号状态判定仍要按未改写的原始 payload 工作。
+				clientMessage := upstreamMessage
+				if eventType == "error" || eventType == "response.failed" {
+					if rewritten, changed := sanitizeOpenAICapacityShedErrorCodeForClient(clientMessage); changed {
+						clientMessage = rewritten
+					}
+				}
+				if err := writeClientMessage(clientMessage); err != nil {
 					if isOpenAIWSClientDisconnectError(err) {
 						clientDisconnected = true
 						closeStatus, closeReason := summarizeOpenAIWSReadCloseError(err)

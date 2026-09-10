@@ -11,6 +11,7 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-6-astra":          "gpt-6-astra",
 	"gpt-5.6-sol":          "gpt-5.6-sol",
 	"gpt-5.6-terra":        "gpt-5.6-terra",
 	"gpt-5.6-luna":         "gpt-5.6-luna",
@@ -319,6 +320,12 @@ func normalizeCodexToolChoice(reqBody map[string]any) bool {
 	}
 	choiceType := strings.TrimSpace(firstNonEmptyString(choiceMap["type"]))
 	if choiceType == "" {
+		return false
+	}
+	if choiceType == "allowed_tools" {
+		// This is a selection policy, not a declared tool type. Preserve it for
+		// upstream validation (including references to input.additional_tools);
+		// falling back to auto would silently discard the caller's restriction.
 		return false
 	}
 	modified := false

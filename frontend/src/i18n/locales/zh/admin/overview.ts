@@ -450,6 +450,7 @@ export default {
       leaveEmptyToKeep: '留空则保持原密码不变',
       generatePassword: '生成随机密码',
       copyPassword: '复制密码',
+      passwordCopied: '密码已复制',
       creating: '创建中...',
       updating: '更新中...',
       columns: {
@@ -532,6 +533,8 @@ export default {
         statusLabel: '状态',
         selectStatus: '选择状态',
         rpmLimit: '每分钟请求数 (RPM)',
+        concurrencyPlaceholder: '0 表示不限制',
+        concurrencyHint: '该用户的最大并发请求数，0 = 不限制',
         rpmLimitPlaceholder: '0 表示不限制',
         rpmLimitHint: '该用户每分钟最大请求数，0 = 不限制；仅在所用分组未设置 rpm_limit 时作为兜底生效'
       },
@@ -552,7 +555,7 @@ export default {
       failedToSave: '保存用户失败',
       failedToAdjust: '调整失败',
       emailRequired: '请输入邮箱',
-      concurrencyMin: '并发数不能小于1',
+      concurrencyNonNegative: '并发数不能为负数，0 表示不限制',
       amountRequired: '请输入有效金额',
       // 用户分组配置
       groupConfig: '用户分组配置',
@@ -1022,8 +1025,8 @@ export default {
         sumTooHigh: '最低毛利率与安全缓冲之和必须小于 100%，否则将排除全部账号'
       },
       modelsList: {
-        title: '自定义 /v1/models 模型列表',
-        hint: '仅影响 /v1/models 展示结果，不影响白名单模型调用和账号调度。',
+        title: '自定义 {endpoint} 模型列表',
+        hint: '仅影响 {endpoint} 展示结果，不影响白名单模型调用和账号调度。',
         loading: '正在加载模型列表...',
         empty: '暂无可展示模型',
         selectedSummary: '已选 {selected} / {total}',

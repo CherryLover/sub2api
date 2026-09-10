@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -324,6 +325,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 
 	needModelReplace := originalModel != mappedModel
 	streamOutputAccumulator := apicompat.NewBufferedResponseAccumulator()
+	streamDoneItems := newResponsesStreamOutputItems()
 	streamImageOutputs := make([]json.RawMessage, 0, 1)
 	streamSeenImages := make(map[string]struct{})
 	searchCounter := 0
@@ -523,6 +525,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						streamEarlyErr = s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, dataBytes, failedMessage, resp.Header)
 						return
 					}
+				} else {
+					// Once semantic output is committed, failover replay is unsafe. Keep
+					// the terminal event on the existing stream, but retain the upstream
+					// request ID and payload for operations diagnostics.
+					s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "stream_failed", dataBytes, failedMessage)
 				}
 				forceFlushFailedEvent = true
 				sawFailedEvent = true
@@ -545,13 +552,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if imageOutput, ok := extractImageGenerationOutputFromSSEData(dataBytes, streamSeenImages); ok {
 				streamImageOutputs = append(streamImageOutputs, imageOutput)
 			}
+			streamDoneItems.Observe(dataBytes)
 			if responsesStreamEventMayContributeToOutput(eventType) {
 				var streamEvent apicompat.ResponsesStreamEvent
 				if err := json.Unmarshal(dataBytes, &streamEvent); err == nil {
 					streamOutputAccumulator.ProcessEvent(&streamEvent)
 				}
 			}
-			if normalizedData, normalized := normalizeResponsesStreamingTerminalOutput(dataBytes, streamOutputAccumulator, streamImageOutputs); normalized {
+			if normalizedData, normalized := normalizeResponsesStreamingTerminalOutput(dataBytes, streamOutputAccumulator, streamDoneItems, streamImageOutputs); normalized {
 				dataBytes = normalizedData
 				data = string(normalizedData)
 				line = "data: " + data
@@ -1318,6 +1326,10 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	if err != nil {
 		return nil, fmt.Errorf("restore Grok Responses client tool response: %w", err)
 	}
+	body, err = restoreOpenAIResponsesClientToolPayload(c, body)
+	if err != nil {
+		return nil, fmt.Errorf("restore OpenAI Responses client tool response: %w", err)
+	}
 	body, err = restoreOpenAIResponsesNamespacePayload(c, body)
 	if err != nil {
 		return nil, fmt.Errorf("restore OpenAI namespace response: %w", err)
@@ -1399,6 +1411,10 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		if restoreErr != nil {
 			return nil, fmt.Errorf("restore Grok Responses client tool response: %w", restoreErr)
 		}
+		restoredBody, restoreErr = restoreOpenAIResponsesClientToolPayload(c, restoredBody)
+		if restoreErr != nil {
+			return nil, fmt.Errorf("restore OpenAI Responses client tool response: %w", restoreErr)
+		}
 		restoredBody, restoreErr = restoreOpenAIResponsesNamespacePayload(c, restoredBody)
 		if restoreErr != nil {
 			return nil, fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
@@ -1406,10 +1422,13 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		body = restoredBody
 	} else {
 		terminalType, terminalPayload, terminalOK := extractOpenAISSETerminalEvent(bodyText)
-		if terminalOK && terminalType == "response.failed" {
+		if terminalOK && (terminalType == "response.failed" || terminalType == "error") {
 			msg := extractOpenAISSEErrorMessage(terminalPayload)
 			if msg == "" {
 				msg = "Upstream compact response failed"
+			}
+			if failoverErr := s.nonStreamingTerminalFailureFailover(c, resp, account, false, terminalType, terminalPayload, msg); failoverErr != nil {
+				return nil, failoverErr
 			}
 			return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 		}
@@ -1453,7 +1472,7 @@ func extractOpenAISSETerminalEvent(body string) (string, []byte, bool) {
 		}
 		eventType := strings.TrimSpace(gjson.GetBytes(data, "type").String())
 		switch eventType {
-		case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+		case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "error":
 			terminalType = eventType
 			terminalPayload = append([]byte(nil), data...)
 		}
@@ -1637,7 +1656,56 @@ func normalizeCompletedImageGenerationStatus(data []byte) ([]byte, bool) {
 	}
 }
 
-func normalizeResponsesStreamingTerminalOutput(data []byte, acc *apicompat.BufferedResponseAccumulator, imageOutputs []json.RawMessage) ([]byte, bool) {
+// responsesStreamOutputItems remembers the raw item carried by each
+// response.output_item.done event, keyed by output_index. Delta accumulation
+// cannot preserve item identity, status, ordering, or unknown item types.
+type responsesStreamOutputItems struct {
+	items map[int]json.RawMessage
+}
+
+func newResponsesStreamOutputItems() *responsesStreamOutputItems {
+	return &responsesStreamOutputItems{items: make(map[int]json.RawMessage)}
+}
+
+func (r *responsesStreamOutputItems) Observe(data []byte) {
+	if r == nil || len(data) == 0 || !gjson.ValidBytes(data) ||
+		strings.TrimSpace(gjson.GetBytes(data, "type").String()) != "response.output_item.done" {
+		return
+	}
+	item := gjson.GetBytes(data, "item")
+	if !item.Exists() || !item.IsObject() {
+		return
+	}
+	r.items[int(gjson.GetBytes(data, "output_index").Int())] = json.RawMessage(append([]byte(nil), item.Raw...))
+}
+
+func (r *responsesStreamOutputItems) HasItems() bool { return r != nil && len(r.items) > 0 }
+
+func (r *responsesStreamOutputItems) Count() int {
+	if r == nil {
+		return 0
+	}
+	return len(r.items)
+}
+
+func (r *responsesStreamOutputItems) BuildOutput() ([]byte, bool) {
+	if !r.HasItems() {
+		return nil, false
+	}
+	indexes := make([]int, 0, len(r.items))
+	for index := range r.items {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	ordered := make([]json.RawMessage, 0, len(indexes))
+	for _, index := range indexes {
+		ordered = append(ordered, r.items[index])
+	}
+	encoded, err := json.Marshal(ordered)
+	return encoded, err == nil
+}
+
+func normalizeResponsesStreamingTerminalOutput(data []byte, acc *apicompat.BufferedResponseAccumulator, doneItems *responsesStreamOutputItems, imageOutputs []json.RawMessage) ([]byte, bool) {
 	eventType := strings.TrimSpace(gjson.GetBytes(data, "type").String())
 	switch eventType {
 	case "response.completed", "response.done", "response.incomplete", "response.cancelled", "response.canceled":
@@ -1646,15 +1714,21 @@ func normalizeResponsesStreamingTerminalOutput(data []byte, acc *apicompat.Buffe
 	}
 
 	output := gjson.GetBytes(data, "response.output")
-	hasAccumulatedOutput := (acc != nil && acc.HasContent()) || len(imageOutputs) > 0
+	hasAccumulatedOutput := (acc != nil && acc.HasContent()) || len(imageOutputs) > 0 || doneItems.HasItems()
 	if output.Exists() && output.IsArray() {
-		if len(output.Array()) > 0 || !hasAccumulatedOutput {
+		terminalCount := len(output.Array())
+		if terminalCount > 0 && terminalCount >= doneItems.Count() {
+			return data, false
+		}
+		if terminalCount == 0 && !hasAccumulatedOutput {
 			return data, false
 		}
 	}
 
 	outputJSON := []byte("[]")
-	if reconstructed, ok := buildResponsesOutputJSON(acc, imageOutputs); ok {
+	if reconstructed, ok := doneItems.BuildOutput(); ok {
+		outputJSON = reconstructed
+	} else if reconstructed, ok := buildResponsesOutputJSON(acc, imageOutputs); ok {
 		outputJSON = reconstructed
 	}
 	updated, err := sjson.SetRawBytes(data, "response.output", outputJSON)

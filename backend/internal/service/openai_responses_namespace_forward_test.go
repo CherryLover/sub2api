@@ -66,6 +66,27 @@ func TestOpenAIGatewayService_OAuthPreservesCodexNamespaceTools(t *testing.T) {
 	require.Empty(t, openAIResponsesNamespaceNames(c))
 }
 
+func TestOpenAIGatewayService_APIKeyPreservesDeclaredNamespaceToolCalls(t *testing.T) {
+	body := []byte(codexNamespaceRequestBody)
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		newOpenAIRejectedFieldTestResponse(http.StatusOK, namespaceForwardOKResponse),
+	}}
+	c := newOpenAIRejectedFieldTestContext(body)
+
+	result, err := newOpenAIRejectedFieldTestService(upstream).Forward(
+		context.Background(), c, newOpenAIRejectedFieldTestAccount(), body,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.bodies, 1)
+	forwarded := upstream.bodies[0]
+
+	require.True(t, gjson.GetBytes(forwarded, `tools.#(type=="namespace")`).Exists())
+	require.Equal(t, "collaboration", gjson.GetBytes(forwarded, "input.0.namespace").String())
+	require.False(t, gjson.GetBytes(forwarded, "input.1.namespace").Exists())
+}
+
 // compact 端点 schema 更窄：input[].namespace 会 400 Unknown parameter（issue #4761），
 // 且没有证据表明它接受 namespace 工具声明。compact 只做历史摘要、不需要模型寻址工具，
 // 因此保持既有的摊平 + 全量清理行为，不随默认值翻转扩大风险面。

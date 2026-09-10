@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -191,12 +192,17 @@ func startPassthroughLifecycleServer(
 
 func dialPassthroughLifecycleClient(t *testing.T, server *httptest.Server) *coderws.Conn {
 	t.Helper()
+	return dialPassthroughLifecycleClientWithPayload(t, server, `{"type":"response.create","model":"gpt-5.1","stream":false}`)
+}
+
+func dialPassthroughLifecycleClientWithPayload(t *testing.T, server *httptest.Server, payload string) *coderws.Conn {
+	t.Helper()
 	dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
 	clientConn, _, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
 	cancelDial()
 	require.NoError(t, err)
 	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
-	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1","stream":false}`))
+	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(payload))
 	cancelWrite()
 	require.NoError(t, err)
 	return clientConn
@@ -218,6 +224,35 @@ func requirePassthroughUpstreamWrite(t *testing.T, upstream *stagedPassthroughCo
 	case <-time.After(timeout):
 		t.Fatal("passthrough request was not forwarded upstream")
 		return nil
+	}
+}
+
+func TestPassthroughLifecycle_ResponsesLiteFirstFramePinsParallelToolCalls(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	controlCtx, cancelControl := context.WithCancelCause(context.Background())
+	defer cancelControl(context.Canceled)
+	upstream := newStagedPassthroughConn()
+	upstream.Send(`{"type":"response.completed","response":{"id":"resp_lite","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)
+	server, serverErr := startPassthroughLifecycleServer(t, controlCtx, newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream), passthroughLifecycleAccount())
+	defer server.Close()
+	clientConn := dialPassthroughLifecycleClientWithPayload(t, server, `{
+		"type":"response.create","model":"gpt-5.1","stream":false,
+		"parallel_tool_calls":true,
+		"client_metadata":{"ws_request_header_x_openai_internal_codex_responses_lite":"true"}
+	}`)
+	defer func() { _ = clientConn.CloseNow() }()
+
+	upstreamBody := requirePassthroughUpstreamWrite(t, upstream, 3*time.Second)
+	require.Equal(t, gjson.False, gjson.GetBytes(upstreamBody, "parallel_tool_calls").Type, string(upstreamBody))
+
+	event, err := readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, "response.completed", gjson.GetBytes(event, "type").String())
+	require.NoError(t, clientConn.Close(coderws.StatusNormalClosure, "done"))
+	select {
+	case <-serverErr:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Lite 首帧测试等待 passthrough 退出超时")
 	}
 }
 
@@ -256,6 +291,61 @@ func TestOpenAIWSPassthroughTurnLifecycle_SerializesTerminalCommitAndNextTurn(t 
 		t.Error("failed terminal write must not commit idle state")
 	})
 	require.False(t, <-admitted, "failed terminal write must keep the current turn in flight")
+}
+
+func TestPassthroughLifecycle_LaterTurnPreOutputRateLimitRequestsReconnect(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	controlCtx, cancelControl := context.WithCancelCause(context.Background())
+	defer cancelControl(context.Canceled)
+	upstream := newStagedPassthroughConn()
+	account := passthroughLifecycleAccount()
+	repo := &openAIWSRateLimitSignalRepo{stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{*account}}}
+	svc := newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream)
+	svc.accountRepo = repo
+	svc.rateLimitService = &RateLimitService{accountRepo: repo}
+
+	server, serverErr := startPassthroughLifecycleServer(t, controlCtx, svc, account)
+	defer server.Close()
+	clientConn := dialPassthroughLifecycleClient(t, server)
+	defer func() { _ = clientConn.CloseNow() }()
+	firstRequest := requirePassthroughUpstreamWrite(t, upstream, time.Second)
+	require.Equal(t, "response.create", gjson.GetBytes(firstRequest, "type").String())
+
+	upstream.Send(`{"type":"response.completed","response":{"id":"resp_first","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)
+	completed, err := readPassthroughLifecycleFrame(t, clientConn, time.Second)
+	require.NoError(t, err)
+	require.Equal(t, "response.completed", gjson.GetBytes(completed, "type").String())
+
+	writeCtx, cancelWrite := context.WithTimeout(context.Background(), time.Second)
+	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1","stream":false}`))
+	cancelWrite()
+	require.NoError(t, err)
+	secondRequest := requirePassthroughUpstreamWrite(t, upstream, time.Second)
+	require.Equal(t, "response.create", gjson.GetBytes(secondRequest, "type").String())
+
+	resetAt := time.Now().Add(90 * time.Minute).Unix()
+	upstream.Send(fmt.Sprintf(`{"type":"error","error":{"code":"rate_limit_exceeded","type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":%d}}`, resetAt))
+	_, err = readPassthroughLifecycleFrame(t, clientConn, time.Second)
+	var websocketCloseErr coderws.CloseError
+	require.ErrorAs(t, err, &websocketCloseErr)
+	require.Equal(t, coderws.StatusTryAgainLater, websocketCloseErr.Code)
+	require.Equal(t, "upstream rate limit exceeded; please reconnect", websocketCloseErr.Reason)
+	require.Len(t, repo.rateLimitCalls, 1)
+	require.WithinDuration(t, time.Unix(resetAt, 0), repo.rateLimitCalls[0], 2*time.Second)
+
+	select {
+	case err := <-serverErr:
+		var closeErr *OpenAIWSClientCloseError
+		require.ErrorAs(t, err, &closeErr)
+		require.Equal(t, coderws.StatusTryAgainLater, closeErr.StatusCode())
+	case <-time.After(time.Second):
+		t.Fatal("later-turn rate limit did not terminate passthrough")
+	}
+	select {
+	case replay := <-upstream.writes:
+		t.Fatalf("later-turn reconnect must not replay the retained first request: %s", replay)
+	default:
+	}
 }
 
 func TestPassthroughLifecycle_LeaseLossSendsRetryClose(t *testing.T) {

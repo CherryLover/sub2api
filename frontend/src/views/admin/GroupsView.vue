@@ -371,7 +371,7 @@
     <BaseDialog
       :show="showCreateModal"
       :title="t('admin.groups.createGroup')"
-      width="normal"
+      width="wide"
       @close="closeCreateModal"
     >
       <form
@@ -610,10 +610,10 @@
           <div class="mb-3 flex items-center justify-between gap-3">
             <div>
               <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {{ t("admin.groups.modelsList.title") }}
+                {{ t("admin.groups.modelsList.title", { endpoint: modelsListEndpoint(createForm.platform) }) }}
               </label>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t("admin.groups.modelsList.hint") }}
+                {{ t("admin.groups.modelsList.hint", { endpoint: modelsListEndpoint(createForm.platform) }) }}
               </p>
             </div>
             <button
@@ -1285,12 +1285,12 @@
 
 
         <div class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400">
-          <div class="flex items-start justify-between gap-4">
-            <div>
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
               <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.title") }}</h4>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.modelPricing.description") }}</p>
             </div>
-            <button type="button" class="btn btn-secondary" @click="addGroupPricing(createForm.model_pricing)">
+            <button type="button" class="btn btn-secondary shrink-0 whitespace-nowrap" @click="addGroupPricing(createForm.model_pricing)">
               <Icon name="plus" size="sm" class="mr-1" />{{ t("admin.groups.modelPricing.add") }}
             </button>
           </div>
@@ -1398,9 +1398,9 @@
           </p>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- OpenAI Messages 调度配置（OpenAI 与 Composite 平台） -->
         <div
-          v-if="createForm.platform === 'openai'"
+          v-if="supportsMessagesDispatchPlatform(createForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1439,7 +1439,13 @@
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
 
-          <div v-if="createForm.allow_messages_dispatch" class="mt-3">
+          <div
+            v-if="
+              createForm.platform === 'openai' &&
+              createForm.allow_messages_dispatch
+            "
+            class="mt-3"
+          >
             <div
               class="relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-600 dark:bg-dark-800"
             >
@@ -1971,7 +1977,7 @@
     <BaseDialog
       :show="showEditModal"
       :title="t('admin.groups.editGroup')"
-      width="normal"
+      width="wide"
       @close="closeEditModal"
     >
       <form
@@ -2214,10 +2220,10 @@
           <div class="mb-3 flex items-center justify-between gap-3">
             <div>
               <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {{ t("admin.groups.modelsList.title") }}
+                {{ t("admin.groups.modelsList.title", { endpoint: modelsListEndpoint(editForm.platform) }) }}
               </label>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t("admin.groups.modelsList.hint") }}
+                {{ t("admin.groups.modelsList.hint", { endpoint: modelsListEndpoint(editForm.platform) }) }}
               </p>
             </div>
             <button
@@ -2885,12 +2891,12 @@
 
 
         <div class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400">
-          <div class="flex items-start justify-between gap-4">
-            <div>
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
               <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.title") }}</h4>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.modelPricing.description") }}</p>
             </div>
-            <button type="button" class="btn btn-secondary" @click="addGroupPricing(editForm.model_pricing)">
+            <button type="button" class="btn btn-secondary shrink-0 whitespace-nowrap" @click="addGroupPricing(editForm.model_pricing)">
               <Icon name="plus" size="sm" class="mr-1" />{{ t("admin.groups.modelPricing.add") }}
             </button>
           </div>
@@ -2998,9 +3004,9 @@
           </p>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- OpenAI Messages 调度配置（OpenAI 与 Composite 平台） -->
         <div
-          v-if="editForm.platform === 'openai'"
+          v-if="supportsMessagesDispatchPlatform(editForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -3039,7 +3045,12 @@
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
 
-          <div v-if="editForm.allow_messages_dispatch" class="mt-3">
+          <div
+            v-if="
+              editForm.platform === 'openai' && editForm.allow_messages_dispatch
+            "
+            class="mt-3"
+          >
             <div
               class="relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-600 dark:bg-dark-800"
             >
@@ -4118,6 +4129,7 @@ import {
   messagesDispatchConfigToFormState,
   messagesDispatchFormStateToConfig,
   resetMessagesDispatchFormState,
+  supportsMessagesDispatchPlatform,
   type MessagesDispatchMappingRow,
 } from "./groupsMessagesDispatch";
 import {
@@ -4649,6 +4661,8 @@ const createMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const editMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const createModelsListState = reactive(createInitialModelsListState());
 const editModelsListState = reactive(createInitialModelsListState());
+const modelsListEndpoint = (platform: string) =>
+  platform === "gemini" ? "/v1beta/models" : "/v1/models";
 const createModelsListLoading = ref(false);
 const editModelsListLoading = ref(false);
 type ReasoningEffortPolicyFieldsExpose = {
@@ -5609,7 +5623,7 @@ const handleCreateGroup = async () => {
     loadGroups();
   } catch (error: any) {
     appStore.showError(
-      error.response?.data?.detail || t("admin.groups.failedToCreate"),
+      extractApiErrorMessage(error, t("admin.groups.failedToCreate")),
     );
     console.error("Error creating group:", error);
   } finally {
@@ -5849,7 +5863,7 @@ const handleUpdateGroup = async () => {
     loadGroups();
   } catch (error: any) {
     appStore.showError(
-      error.response?.data?.detail || t("admin.groups.failedToUpdate"),
+      extractApiErrorMessage(error, t("admin.groups.failedToUpdate")),
     );
     console.error("Error updating group:", error);
   } finally {
@@ -6120,7 +6134,7 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!supportsMessagesDispatchPlatform(newVal)) {
       resetMessagesDispatchFormState(createForm);
     }
     if (!supportsLivePlatform(newVal)) {
@@ -6155,7 +6169,7 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!supportsMessagesDispatchPlatform(newVal)) {
       resetMessagesDispatchFormState(editForm);
     }
     if (!supportsLivePlatform(newVal)) {
@@ -6192,7 +6206,7 @@ watch(
     if (!['anthropic', 'antigravity'].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null
     }
-    if (newVal !== 'openai') {
+    if (!supportsMessagesDispatchPlatform(newVal)) {
       editForm.allow_messages_dispatch = false
       editForm.default_mapped_model = ''
     }

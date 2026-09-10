@@ -13,6 +13,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -911,23 +912,60 @@ func sanitizeAnthropicBodyForBetaTokens(body []byte, anthropicBetaHeader string)
 	if len(body) == 0 {
 		return body, false
 	}
-	if !gjson.GetBytes(body, "context_management").Exists() {
+
+	changed := false
+
+	if b, deleted := stripAnthropicBodyFieldUnlessBeta(
+		body, "context_management", anthropicBetaHeader, anthropicBetaContextManagementToken,
+	); deleted {
+		body, changed = b, true
+	}
+
+	// thinking.block_binding requires thinking-binding-controls beta.
+	if b, deleted := stripAnthropicBodyFieldUnlessBeta(
+		body, "thinking.block_binding", anthropicBetaHeader, claude.BetaThinkingBindingControls,
+	); deleted {
+		body, changed = b, true
+	}
+
+	// fallbacks：server-side refusal fallback，仅接受 server-side-fallback beta。
+	if b, deleted := stripAnthropicBodyFieldUnlessBeta(
+		body, "fallbacks", anthropicBetaHeader, claude.BetaServerSideFallback,
+	); deleted {
+		body, changed = b, true
+	}
+
+	// fallback_credit_token：server-side-fallback 或（新旧任一）fallback-credit beta
+	// 任意一个即可保留。
+	if b, deleted := stripAnthropicBodyFieldUnlessBeta(
+		body, "fallback_credit_token", anthropicBetaHeader,
+		claude.BetaServerSideFallback, claude.BetaFallbackCredit, claude.BetaFallbackCreditLegacy,
+	); deleted {
+		body, changed = b, true
+	}
+
+	return body, changed
+}
+
+// stripAnthropicBodyFieldUnlessBeta 当 field 存在且 anthropic-beta header 不含
+// requiredTokens 中任何一个 token 时删除该字段。返回 (newBody, deleted)。
+func stripAnthropicBodyFieldUnlessBeta(body []byte, field, anthropicBetaHeader string, requiredTokens ...string) ([]byte, bool) {
+	if !gjson.GetBytes(body, field).Exists() {
 		return body, false
 	}
-	if anthropicBetaTokensContains(anthropicBetaHeader, anthropicBetaContextManagementToken) {
-		return body, false
+	for _, token := range requiredTokens {
+		if anthropicBetaTokensContains(anthropicBetaHeader, token) {
+			return body, false
+		}
 	}
-	if b, err := sjson.DeleteBytes(body, "context_management"); err == nil {
-		return b, true
-	} else {
-		// 不应发生：gjson 刚验证过字段存在 + body 是合法 JSON。如果 sjson 仍报错，
-		// 调用方会拿到 (body, false)，但此前 computeFinalAnthropicBeta 已按“strip 后”
-		// 计算了 finalBeta——两侧会不一致。记录 warning 最小限度提醒运维。
+	b, err := sjson.DeleteBytes(body, field)
+	if err != nil {
 		logger.LegacyPrintf("service.gateway",
-			"[CtxMgmtSanitize] sjson.DeleteBytes failed unexpectedly: %v (body len=%d). "+
-				"body and final anthropic-beta header may be out of sync.", err, len(body))
+			"[BetaFieldSanitize] sjson.DeleteBytes(%s) failed unexpectedly: %v (body len=%d). "+
+				"body and final anthropic-beta header may be out of sync.", field, err, len(body))
+		return body, false
 	}
-	return body, false
+	return b, true
 }
 
 // anthropicBetaTokensContains 检测逗号分隔的 anthropic-beta header 是否含指定 token。
@@ -1339,6 +1377,9 @@ func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte,
 	}
 
 	mapped := normalizeGLMOpenAIReasoningEffort(raw)
+	if isGLM53Model(mappedModel) && mapped == "high" && normalizeEffortToken(raw) == "low" {
+		mapped = "low"
+	}
 	if mapped == "" || mapped == raw {
 		return body, false
 	}
@@ -1350,12 +1391,20 @@ func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte,
 	return modified, true
 }
 
-func normalizeGLMOpenAIReasoningEffort(raw string) string {
+func normalizeEffortToken(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
+	return strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
+}
+
+func isGLM53Model(model string) bool {
+	return strings.EqualFold(strings.TrimSpace(model), "glm-5.3")
+}
+
+func normalizeGLMOpenAIReasoningEffort(raw string) string {
+	value := normalizeEffortToken(raw)
 	if value == "" {
 		return ""
 	}
-	value = strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
 
 	switch value {
 	case "low", "medium", "high":
@@ -1365,6 +1414,42 @@ func normalizeGLMOpenAIReasoningEffort(raw string) string {
 	default:
 		return ""
 	}
+}
+
+// NormalizeGLM53AnthropicThinking maps explicit client thinking effort onto the
+// GLM-5.3 Anthropic-compatible scale. Requests without an effort or thinking
+// preference are left unchanged so the upstream default remains in effect.
+func NormalizeGLM53AnthropicThinking(body []byte, mappedModel string) ([]byte, bool) {
+	if !isGLM53Model(mappedModel) {
+		return body, false
+	}
+
+	raw := gjson.GetBytes(body, "output_config.effort").String()
+	if strings.TrimSpace(raw) == "" {
+		raw = gjson.GetBytes(body, "thinking.type").String()
+	}
+
+	var effort string
+	switch normalizeEffortToken(raw) {
+	case "disabled", "off", "none", "minimal", "low":
+		effort = "low"
+	case "enabled", "adaptive", "medium", "high":
+		effort = "high"
+	case "xhigh", "max", "ultra":
+		effort = "max"
+	default:
+		return body, false
+	}
+
+	modified, err := sjson.SetBytes(body, "thinking.type", "enabled")
+	if err != nil {
+		return body, false
+	}
+	modified, err = sjson.SetBytes(modified, "output_config.effort", effort)
+	if err != nil {
+		return body, false
+	}
+	return modified, true
 }
 
 // =========================

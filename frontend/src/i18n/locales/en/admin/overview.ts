@@ -450,6 +450,7 @@ export default {
       leaveEmptyToKeep: 'Leave empty to keep current password',
       generatePassword: 'Generate random password',
       copyPassword: 'Copy password',
+      passwordCopied: 'Password copied',
       creating: 'Creating...',
       updating: 'Updating...',
       form: {
@@ -469,6 +470,8 @@ export default {
         statusLabel: 'Status',
         selectStatus: 'Select status',
         rpmLimit: 'Requests Per Minute (RPM)',
+        concurrencyPlaceholder: '0 = unlimited',
+        concurrencyHint: 'Max concurrent requests for this user; 0 = unlimited.',
         rpmLimitPlaceholder: '0 = unlimited',
         rpmLimitHint: 'Max requests per minute for this user; 0 = unlimited. Acts as a fallback only when the group has no rpm_limit set.'
       },
@@ -531,7 +534,7 @@ export default {
       failedToToggle: 'Failed to update user status',
       failedToLoadApiKeys: 'Failed to load user API keys',
       emailRequired: 'Please enter email',
-      concurrencyMin: 'Concurrency must be at least 1',
+      concurrencyNonNegative: 'Concurrency cannot be negative; 0 = unlimited',
       amountRequired: 'Please enter a valid amount',
       adjustBalance: 'Adjust Balance',
       adjustConcurrency: 'Adjust Concurrency',
@@ -805,7 +808,7 @@ export default {
       accountsAvailable: 'Avail:',
       accountsRateLimited: 'Limited:',
       accountsTotal: 'Total:',
-      accountsUnit: '',
+      accountsUnit: 'accounts',
       rateAndAccounts: '{rate}x rate · {count} accounts',
       accountsCount: '{count} accounts',
       rateLabel: 'rate',
@@ -1024,8 +1027,8 @@ export default {
         sumTooHigh: 'Min gross margin plus safety buffer must be less than 100%, otherwise every account would be excluded'
       },
       modelsList: {
-        title: 'Custom /v1/models Model List',
-        hint: 'Only changes the /v1/models response. Whitelist model calls and account routing are unchanged.',
+        title: 'Custom {endpoint} Model List',
+        hint: 'Only changes the {endpoint} response. Whitelist model calls and account routing are unchanged.',
         loading: 'Loading model list...',
         empty: 'No displayable models',
         selectedSummary: 'Selected {selected} / {total}',

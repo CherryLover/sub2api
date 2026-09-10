@@ -493,9 +493,8 @@ func TestFetchCodexModelsManifestAPIKeyConvertsStandardOpenAIModelList(t *testin
 	if err != nil {
 		t.Fatalf("FetchCodexModelsManifest returned error: %v", err)
 	}
-	if got, want := string(manifest.Body), `{"models":[{"slug":"gpt-5.6"},{"slug":"gpt-5.6-codex"}]}`; got != want {
-		t.Errorf("converted body: got %q, want %q", got, want)
-	}
+	require.Equal(t, []string{"gpt-5.6", "gpt-5.6-codex"}, decodeCodexManifestSlugs(t, manifest.Body))
+	require.Contains(t, string(manifest.Body), `"input_modalities":["text","image"]`)
 	require.Equal(t, codexModelsManifestBodyETag(manifest.Body), manifest.ETag)
 	require.Equal(t, `W/"openai-list"`, manifest.upstreamETag)
 }
@@ -616,7 +615,12 @@ func TestConvertOpenAIModelListToCodexManifest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := string(convertOpenAIModelListToCodexManifest([]byte(tt.body))); got != tt.want {
+			got := convertOpenAIModelListToCodexManifest([]byte(tt.body))
+			if tt.name == "standard list" {
+				require.Equal(t, []string{"m-1", "m-2"}, decodeCodexManifestSlugs(t, got))
+				return
+			}
+			if string(got) != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})

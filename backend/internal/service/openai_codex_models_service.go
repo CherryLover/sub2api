@@ -518,7 +518,7 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Cont
 	}
 	upstreamBody := body
 	if request.useAPIKeyUpstream {
-		body = convertOpenAIModelListToCodexManifest(body)
+		body = convertOpenAIModelListToCodexManifestForAccount(body, request.credentialAccount)
 	}
 	if err := validateCodexModelsManifestEnvelope(body); err != nil {
 		return nil, &codexModelsManifestUpstreamError{
@@ -630,6 +630,10 @@ func adjustAPIKeyCodexModelsManifest(body []byte) ([]byte, error) {
 // standard list shape, or yield no usable model IDs are returned unchanged so
 // envelope validation reports the original payload.
 func convertOpenAIModelListToCodexManifest(body []byte) []byte {
+	return convertOpenAIModelListToCodexManifestForAccount(body, nil)
+}
+
+func convertOpenAIModelListToCodexManifestForAccount(body []byte, account *Account) []byte {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil || envelope == nil {
 		return body
@@ -647,21 +651,28 @@ func convertOpenAIModelListToCodexManifest(body []byte) []byte {
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return body
 	}
-	type codexModelEntry struct {
-		Slug string `json:"slug"`
-	}
-	models := make([]codexModelEntry, 0, len(entries))
+	modelIDs := make([]string, 0, len(entries))
+	imageInputModels := make(map[string]bool, len(entries))
 	for _, entry := range entries {
 		id := strings.TrimSpace(entry.ID)
 		if id == "" {
 			continue
 		}
-		models = append(models, codexModelEntry{Slug: id})
+		modelIDs = append(modelIDs, id)
+		if accountCodexModelSupportsImageInput(account, id) {
+			imageInputModels[id] = true
+		}
 	}
-	if len(models) == 0 {
+	if len(modelIDs) == 0 {
 		return body
 	}
-	converted, err := json.Marshal(map[string][]codexModelEntry{"models": models})
+	searchToolModels := make(map[string]bool, len(modelIDs))
+	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+		for _, modelID := range modelIDs {
+			searchToolModels[modelID] = true
+		}
+	}
+	converted, err := buildCodexModelsManifest(modelIDs, imageInputModels, searchToolModels)
 	if err != nil {
 		return body
 	}

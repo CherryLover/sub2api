@@ -666,7 +666,7 @@ func TestOpenAIGatewayService_OAuthPassthrough_NamespaceNonStreamingResponse(t *
 	setOpenAIResponsesNamespaceNames(c, names)
 
 	result, err := (&OpenAIGatewayService{cfg: &config.Config{}}).handleNonStreamingResponsePassthrough(
-		context.Background(), resp, c, "gpt-5.5", "",
+		context.Background(), resp, c, nil, "gpt-5.5", "",
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -814,6 +814,52 @@ func TestOpenAIGatewayService_OAuthPassthrough_UpstreamRequestIgnoresClientCance
 	require.NotNil(t, result)
 	require.NotNil(t, upstream.lastReq)
 	require.NoError(t, upstream.lastReq.Context().Err())
+}
+
+func TestOpenAIGatewayService_OAuthForward_OmitsPromotedSystemMessagesExceptJSONObject(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	newForward := func() (*OpenAIGatewayService, *httpUpstreamRecorder, *gin.Context, *Account) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+		c.Request.Header.Set("User-Agent", "codex_cli_rs/0.98.0")
+		upstream := &httpUpstreamRecorder{resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+				`data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}`,
+				"", "data: [DONE]", "",
+			}, "\n"))),
+		}}
+		svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+		account := &Account{
+			ID: 123, Name: "acc", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
+			Credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-acc"},
+			Extra:       map[string]any{"openai_passthrough": false, "openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModeOff},
+			Status:      StatusActive, Schedulable: true, RateMultiplier: f64p(1),
+		}
+		return svc, upstream, c, account
+	}
+
+	t.Run("plain text system is omitted from input", func(t *testing.T) {
+		svc, upstream, c, account := newForward()
+		body := []byte(`{"model":"gpt-5.1-codex-max","stream":true,"input":[{"type":"message","role":"system","content":"Be concise"},{"type":"message","role":"user","content":"hi"}]}`)
+		_, err := svc.Forward(context.Background(), c, account, body)
+		require.NoError(t, err)
+		require.Contains(t, gjson.GetBytes(upstream.lastBody, "instructions").String(), "Be concise")
+		require.Equal(t, 1, int(gjson.GetBytes(upstream.lastBody, "input.#").Int()))
+		require.Equal(t, "user", gjson.GetBytes(upstream.lastBody, "input.0.role").String())
+	})
+
+	t.Run("json_object format keeps promoted system in input", func(t *testing.T) {
+		svc, upstream, c, account := newForward()
+		body := []byte(`{"model":"gpt-5.1-codex-max","stream":true,"text":{"format":{"type":"json_object"}},"input":[{"type":"message","role":"system","content":"Return JSON"},{"type":"message","role":"user","content":"hi"}]}`)
+		_, err := svc.Forward(context.Background(), c, account, body)
+		require.NoError(t, err)
+		require.Equal(t, 2, int(gjson.GetBytes(upstream.lastBody, "input.#").Int()))
+		require.Equal(t, "developer", gjson.GetBytes(upstream.lastBody, "input.0.role").String())
+	})
 }
 
 func TestOpenAIGatewayService_OAuthPassthrough_CodexMissingInstructionsGetsDefault(t *testing.T) {
@@ -2406,6 +2452,7 @@ func TestOpenAIGatewayService_APIKeyPassthrough_PreservesBodyAndUsesResponsesEnd
 	require.Equal(t, "flex", *result.ServiceTier)
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, originalBody, upstream.lastBody)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "instructions").Exists())
 	require.Equal(t, "https://api.openai.com/v1/responses", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer sk-api-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "curl/8.0", upstream.lastReq.Header.Get("User-Agent"))
