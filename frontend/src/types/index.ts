@@ -975,6 +975,67 @@ export interface AccountSchedulerGroupScore {
   sticky_weighted_enabled: boolean
 }
 
+// Account diagnostics (POST /admin/accounts/diagnostics/batch)
+// DB-derived sources are already visible through the status badges; the rest are in-process only.
+export type AccountSchedulingBlockSource =
+  | 'status'
+  | 'manual_unschedulable'
+  | 'expired'
+  | 'overloaded'
+  | 'rate_limited'
+  | 'temp_unschedulable'
+  | 'quota_exceeded'
+  | 'runtime_block'
+  | 'model_runtime_block'
+  | 'proxy_quarantine'
+  | 'quota_auto_pause'
+
+export interface AccountSchedulingBlock {
+  source: AccountSchedulingBlockSource
+  until?: string | null
+  model?: string
+  proxy_id?: number | null
+  window?: string
+  threshold?: number | null
+  utilization?: number | null
+}
+
+export interface AccountSchedulingDiagnosis {
+  schedulable: boolean
+  blocks: AccountSchedulingBlock[]
+}
+
+export interface AccountRecentErrorStatusCount {
+  status_code: number
+  count: number
+}
+
+export interface AccountRecentErrorLast {
+  at: string
+  status_code: number
+  upstream_status_code?: number | null
+  message?: string
+  model?: string
+}
+
+export interface AccountRecentErrors {
+  total: number
+  by_status: AccountRecentErrorStatusCount[]
+  last: AccountRecentErrorLast | null
+}
+
+export interface AccountDiagnosis {
+  scheduling: AccountSchedulingDiagnosis
+  /** null when monitoring data is unavailable */
+  recent_errors: AccountRecentErrors | null
+}
+
+export interface BatchAccountDiagnosticsResponse {
+  window_minutes: number
+  generated_at: string
+  diagnostics: Record<string, AccountDiagnosis>
+}
+
 // Account Usage types
 export interface WindowStats {
   requests: number

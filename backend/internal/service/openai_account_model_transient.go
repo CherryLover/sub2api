@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -160,6 +161,57 @@ func (s *openAIAccountModelTransientState) isBlocked(accountID int64, model stri
 	entry.lastTouched = now
 	s.entries[key] = entry
 	return !entry.blockUntil.IsZero() && now.Before(entry.blockUntil)
+}
+
+// openAIAccountModelTransientBlock is a read-only view of an active
+// account+model cooldown, used by scheduling diagnostics.
+type openAIAccountModelTransientBlock struct {
+	model      string
+	blockUntil time.Time
+}
+
+// activeBlocks lists, per account, the models whose cooldown is still active
+// at now (blockUntil in the future and the streak not past
+// openAIModelTransientStreakTTL). Unlike isBlocked it never deletes stale
+// entries and never refreshes lastTouched, so calling it cannot change what
+// the scheduler sees or which entry the LRU evicts next. Models are sorted.
+func (s *openAIAccountModelTransientState) activeBlocks(accountIDs []int64, now time.Time) map[int64][]openAIAccountModelTransientBlock {
+	if s == nil || len(accountIDs) == 0 {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	wanted := make(map[int64]struct{}, len(accountIDs))
+	for _, id := range accountIDs {
+		if id > 0 {
+			wanted[id] = struct{}{}
+		}
+	}
+
+	out := make(map[int64][]openAIAccountModelTransientBlock)
+	s.mu.Lock()
+	for key, entry := range s.entries {
+		if _, ok := wanted[key.AccountID]; !ok {
+			continue
+		}
+		if !entry.lastFailure.IsZero() && now.Sub(entry.lastFailure) > openAIModelTransientStreakTTL {
+			continue
+		}
+		if entry.blockUntil.IsZero() || !now.Before(entry.blockUntil) {
+			continue
+		}
+		out[key.AccountID] = append(out[key.AccountID], openAIAccountModelTransientBlock{
+			model:      key.Model,
+			blockUntil: entry.blockUntil,
+		})
+	}
+	s.mu.Unlock()
+
+	for _, blocks := range out {
+		sort.Slice(blocks, func(i, j int) bool { return blocks[i].model < blocks[j].model })
+	}
+	return out
 }
 
 func (s *openAIAccountModelTransientState) size() int {
