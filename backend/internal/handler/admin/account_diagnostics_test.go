@@ -129,6 +129,27 @@ func diagnosticsEntry(t *testing.T, data map[string]any, id string) map[string]a
 	return entry
 }
 
+func diagJSONObject(t *testing.T, v any) map[string]any {
+	t.Helper()
+	m, ok := v.(map[string]any)
+	require.True(t, ok, "expected JSON object, got %#v", v)
+	return m
+}
+
+func diagJSONArray(t *testing.T, v any) []any {
+	t.Helper()
+	a, ok := v.([]any)
+	require.True(t, ok, "expected JSON array, got %#v", v)
+	return a
+}
+
+func diagJSONString(t *testing.T, v any) string {
+	t.Helper()
+	s, ok := v.(string)
+	require.True(t, ok, "expected JSON string, got %#v", v)
+	return s
+}
+
 func TestAccountBatchDiagnostics_ReturnsDocumentedShape(t *testing.T) {
 	healthy := newDiagnosticsAccount(5)
 	blocked := newDiagnosticsAccount(6)
@@ -165,39 +186,41 @@ func TestAccountBatchDiagnostics_ReturnsDocumentedShape(t *testing.T) {
 	data := decodeAccountDiagnostics(t, rec)
 
 	require.EqualValues(t, 15, data["window_minutes"])
-	generatedAt, err := time.Parse(time.RFC3339Nano, data["generated_at"].(string))
+	generatedAt, err := time.Parse(time.RFC3339Nano, diagJSONString(t, data["generated_at"]))
 	require.NoError(t, err)
 	require.False(t, generatedAt.Before(before.Add(-time.Second)))
 	require.Equal(t, []int64{5, 6, 999}, adminSvc.requested, "ids are deduplicated, positive and sorted")
 
-	diagnostics := data["diagnostics"].(map[string]any)
+	diagnostics := diagJSONObject(t, data["diagnostics"])
 	require.Len(t, diagnostics, 2, "unknown account 999 gets no entry")
 
 	// Account 6: runtime-blocked in process, with recent errors.
 	entry6 := diagnosticsEntry(t, data, "6")
-	scheduling6 := entry6["scheduling"].(map[string]any)
+	scheduling6 := diagJSONObject(t, entry6["scheduling"])
 	require.Equal(t, false, scheduling6["schedulable"])
-	blocks6 := scheduling6["blocks"].([]any)
+	blocks6 := diagJSONArray(t, scheduling6["blocks"])
 	require.Len(t, blocks6, 1)
-	block := blocks6[0].(map[string]any)
+	block := diagJSONObject(t, blocks6[0])
 	require.Equal(t, "runtime_block", block["source"])
-	until, err := time.Parse(time.RFC3339Nano, block["until"].(string))
+	until, err := time.Parse(time.RFC3339Nano, diagJSONString(t, block["until"]))
 	require.NoError(t, err)
 	require.True(t, blockUntil.Equal(until))
 	for _, omitted := range []string{"model", "proxy_id", "window", "threshold", "utilization", "status", "reason"} {
 		require.NotContains(t, block, omitted, "empty optional field %q must be omitted", omitted)
 	}
 
-	errors6 := entry6["recent_errors"].(map[string]any)
+	errors6 := diagJSONObject(t, entry6["recent_errors"])
 	require.EqualValues(t, 18, errors6["total"])
-	byStatus := errors6["by_status"].([]any)
+	byStatus := diagJSONArray(t, errors6["by_status"])
 	require.Len(t, byStatus, 2)
-	require.EqualValues(t, 502, byStatus[0].(map[string]any)["status_code"])
-	require.EqualValues(t, 14, byStatus[0].(map[string]any)["count"])
-	require.EqualValues(t, 429, byStatus[1].(map[string]any)["status_code"])
-	require.EqualValues(t, 4, byStatus[1].(map[string]any)["count"])
-	last := errors6["last"].(map[string]any)
-	lastAtGot, err := time.Parse(time.RFC3339Nano, last["at"].(string))
+	status0 := diagJSONObject(t, byStatus[0])
+	status1 := diagJSONObject(t, byStatus[1])
+	require.EqualValues(t, 502, status0["status_code"])
+	require.EqualValues(t, 14, status0["count"])
+	require.EqualValues(t, 429, status1["status_code"])
+	require.EqualValues(t, 4, status1["count"])
+	last := diagJSONObject(t, errors6["last"])
+	lastAtGot, err := time.Parse(time.RFC3339Nano, diagJSONString(t, last["at"]))
 	require.NoError(t, err)
 	require.True(t, lastAt.Equal(lastAtGot))
 	require.EqualValues(t, 200, last["status_code"])
@@ -207,12 +230,12 @@ func TestAccountBatchDiagnostics_ReturnsDocumentedShape(t *testing.T) {
 
 	// Account 5: healthy, no errors in the window.
 	entry5 := diagnosticsEntry(t, data, "5")
-	scheduling5 := entry5["scheduling"].(map[string]any)
+	scheduling5 := diagJSONObject(t, entry5["scheduling"])
 	require.Equal(t, true, scheduling5["schedulable"])
 	blocks5, ok := scheduling5["blocks"].([]any)
 	require.True(t, ok, "blocks must be an empty array, not null")
 	require.Empty(t, blocks5)
-	errors5 := entry5["recent_errors"].(map[string]any)
+	errors5 := diagJSONObject(t, entry5["recent_errors"])
 	require.EqualValues(t, 0, errors5["total"])
 	byStatus5, ok := errors5["by_status"].([]any)
 	require.True(t, ok, "by_status must be an empty array, not null")
@@ -273,11 +296,11 @@ func TestAccountBatchDiagnostics_RecentErrorsNullWhenOpsUnavailable(t *testing.T
 			require.Equal(t, tc.wantCalls, repo.calls)
 
 			// Scheduling is still reported (persisted blocks only without a gateway).
-			scheduling := entry["scheduling"].(map[string]any)
+			scheduling := diagJSONObject(t, entry["scheduling"])
 			require.Equal(t, false, scheduling["schedulable"])
-			blocks := scheduling["blocks"].([]any)
+			blocks := diagJSONArray(t, scheduling["blocks"])
 			require.Len(t, blocks, 1)
-			require.Equal(t, "rate_limited", blocks[0].(map[string]any)["source"])
+			require.Equal(t, "rate_limited", diagJSONObject(t, blocks[0])["source"])
 		})
 	}
 }

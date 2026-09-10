@@ -132,7 +132,9 @@ func TestDiagnoseAccountScheduling_ExpiredRuntimeBlockIsNotReportedNorDeleted(t 
 
 	stored, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
 	require.True(t, ok, "diagnosis must not delete the expired entry")
-	require.True(t, expired.Equal(stored.(time.Time)))
+	storedUntil, isTime := stored.(time.Time)
+	require.True(t, isTime)
+	require.True(t, expired.Equal(storedUntil))
 	_, bumped := svc.openaiAccountRuntimeBlockGeneration.Load(account.ID)
 	require.False(t, bumped, "diagnosis must not bump the block generation")
 	require.Zero(t, svc.openaiAccountRuntimeBlockSequence.Load())
