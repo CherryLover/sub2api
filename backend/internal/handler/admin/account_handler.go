@@ -64,6 +64,8 @@ type AccountHandler struct {
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
+	openAIGatewayService    *service.OpenAIGatewayService
+	opsService              *service.OpsService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -73,6 +75,17 @@ func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamB
 
 func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUsageService) {
 	h.ollamaCloudUsage = usage
+}
+
+// SetOpenAIGatewayService attaches the OpenAI gateway whose in-process
+// scheduling state (runtime blocks, cooldowns) the diagnostics endpoint reads.
+func (h *AccountHandler) SetOpenAIGatewayService(gateway *service.OpenAIGatewayService) {
+	h.openAIGatewayService = gateway
+}
+
+// SetOpsService attaches the ops service used for per-account recent errors.
+func (h *AccountHandler) SetOpsService(ops *service.OpsService) {
+	h.opsService = ops
 }
 
 // NewAccountHandler creates a new admin account handler

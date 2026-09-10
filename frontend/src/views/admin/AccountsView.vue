@@ -288,13 +288,29 @@
           </template>
           <template #cell-status="{ row }">
             <div class="flex items-center gap-1.5">
-              <AccountStatusIndicator :account="row" @show-temp-unsched="handleShowTempUnsched" />
+              <AccountStatusIndicator
+                :account="row"
+                :diagnosis="diagnosticsByAccountId[String(row.id)] ?? null"
+                @show-temp-unsched="handleShowTempUnsched"
+              />
             </div>
           </template>
           <template #cell-schedulable="{ row }">
             <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-dark-800" :class="[row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-gray-200 hover:bg-gray-300 dark:bg-dark-600 dark:hover:bg-dark-500']" :title="row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
               <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
             </button>
+          </template>
+          <template #header-recent_errors="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.accounts.recentErrors.windowHint', { n: diagnosticsWindowMinutes })" width-class="w-max" />
+            </div>
+          </template>
+          <template #cell-recent_errors="{ row }">
+            <AccountRecentErrorsCell
+              :errors="diagnosticsByAccountId[String(row.id)]?.recent_errors ?? null"
+              :loading="isDiagnosisPending(row.id)"
+            />
           </template>
           <template #cell-today_stats="{ row }">
             <AccountTodayStatsCell
@@ -519,6 +535,7 @@ import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
+import AccountRecentErrorsCell from '@/components/account/AccountRecentErrorsCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
@@ -535,7 +552,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
-import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
+import type { Account, AccountDiagnosis, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -703,6 +720,11 @@ const todayStatsLoading = ref(false)
 const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
+// null = requested but the server returned nothing for this account
+const diagnosticsByAccountId = ref<Record<string, AccountDiagnosis | null>>({})
+const diagnosticsLoading = ref(false)
+const diagnosticsReqSeq = ref(0)
+const diagnosticsWindowMinutes = ref(15)
 const usageManualRefreshToken = ref(0)
 
 const desktopViewportQuery = '(min-width: 768px)'
@@ -907,6 +929,56 @@ const refreshTodayStatsBatch = async () => {
   }
 }
 
+const refreshDiagnosticsBatch = async () => {
+  // Diagnostics feed the status column (in-process scheduling blocks) and the recent_errors column,
+  // so we only skip fetching when BOTH columns are hidden.
+  if (hiddenColumns.has('status') && hiddenColumns.has('recent_errors')) {
+    diagnosticsLoading.value = false
+    return
+  }
+
+  const accountIDs = accounts.value.map(account => account.id)
+  const reqSeq = ++diagnosticsReqSeq.value
+  if (accountIDs.length === 0) {
+    diagnosticsByAccountId.value = {}
+    diagnosticsLoading.value = false
+    return
+  }
+
+  diagnosticsLoading.value = true
+
+  try {
+    const result = await adminAPI.accounts.getBatchDiagnostics(accountIDs)
+    if (reqSeq !== diagnosticsReqSeq.value) return
+    const serverDiagnostics = result?.diagnostics ?? {}
+    const nextDiagnostics: Record<string, AccountDiagnosis | null> = {}
+    for (const accountID of accountIDs) {
+      const key = String(accountID)
+      nextDiagnostics[key] = serverDiagnostics[key] ?? null
+    }
+    diagnosticsByAccountId.value = nextDiagnostics
+    if (typeof result?.window_minutes === 'number' && result.window_minutes > 0) {
+      diagnosticsWindowMinutes.value = result.window_minutes
+    }
+  } catch (error) {
+    // Advisory data only: keep the last snapshot and never break the list.
+    if (reqSeq !== diagnosticsReqSeq.value) return
+    console.error('Failed to load account diagnostics:', error)
+  } finally {
+    if (reqSeq === diagnosticsReqSeq.value) {
+      diagnosticsLoading.value = false
+    }
+  }
+}
+
+// Only rows that have never received a diagnosis show a skeleton; refreshes keep the last data on screen.
+const isDiagnosisPending = (accountID: number) =>
+  diagnosticsLoading.value && !(String(accountID) in diagnosticsByAccountId.value)
+
+const refreshTodayStatsAndDiagnostics = async () => {
+  await Promise.all([refreshTodayStatsBatch(), refreshDiagnosticsBatch()])
+}
+
 const autoRefreshIntervalLabel = (sec: number) => {
   if (sec === 5) return t('admin.accounts.refreshInterval5s')
   if (sec === 10) return t('admin.accounts.refreshInterval10s')
@@ -1049,6 +1121,9 @@ const toggleColumn = (key: string) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
   }
+  if ((key === 'status' || key === 'recent_errors') && wasHidden) {
+    void refreshDiagnosticsBatch()
+  }
   if (key === 'scheduler_score') {
     // The server only returns scheduler scores when this column is visible, so reload the current page immediately.
     syncAccountListDerivedParams()
@@ -1168,7 +1243,7 @@ const load = async (options: AccountLoadOptions = {}) => {
     isFirstLoad.value = false
     delete requestParams.lite
   }
-  if (options.refreshTodayStats !== false) await refreshTodayStatsBatch()
+  if (options.refreshTodayStats !== false) await refreshTodayStatsAndDiagnostics()
 }
 
 const reload = async () => {
@@ -1177,7 +1252,7 @@ const reload = async () => {
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
   await baseReload()
-  await refreshTodayStatsBatch()
+  await refreshTodayStatsAndDiagnostics()
 }
 
 const buildUpstreamBillingRateFilters = () => {
@@ -1339,7 +1414,7 @@ watch(loading, (isLoading, wasLoading) => {
   }
   if (wasLoading && !isLoading && pendingTodayStatsRefresh.value) {
     pendingTodayStatsRefresh.value = false
-    refreshTodayStatsBatch().catch((error) => {
+    refreshTodayStatsAndDiagnostics().catch((error) => {
       console.error('Failed to refresh account today stats after table load:', error)
     })
   }
@@ -1477,7 +1552,7 @@ const refreshAccountsIncrementally = async () => {
     }
     upstreamBillingNow.value = Date.now()
 
-    await refreshTodayStatsBatch()
+    await refreshTodayStatsAndDiagnostics()
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -1796,6 +1871,7 @@ const allColumns = computed(() => {
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
+    { key: 'recent_errors', label: t('admin.accounts.columns.recentErrors'), sortable: false },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
   ]
   if (!authStore.isSimpleMode) {

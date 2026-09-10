@@ -110,6 +110,7 @@ export default {
         schedulerScore: '调度权值',
         status: '状态',
         schedulable: '调度',
+        recentErrors: '上游错误',
         todayStats: '今日统计',
         groups: '分组',
         usageWindows: '用量窗口',
@@ -126,6 +127,21 @@ export default {
         hint: '显示格式为“分组名 / 基础分 / 粘性加分”。基础分按当前筛选条件限定的候选账号计算，包含优先级、负载、排队、错误率、首包延迟、重置窗口、额度余量、计费倍率等因子；粘性加分只在开启粘性加权时用于 previous_response_id 或 session_hash。分数越大越优先。'
       },
       usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非 sub2api 配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 sub2api 端解除该限制。',
+      schedulingBlock: {
+        runtimeBlockedUntil: '运行时停用至 {time}',
+        runtimeBlocked: '运行时停用',
+        modelBlockedUntil: '{model} 暂停至 {time}',
+        modelBlocked: '{model} 暂停',
+        proxyQuarantinedUntil: '代理 #{id} 隔离至 {time}',
+        proxyQuarantined: '代理 #{id} 隔离',
+        quotaAutoPaused: '{window} 用量 {utilization}% ≥ {threshold}%，已自动暂停',
+        quotaAutoPausedGeneric: '用量达到阈值，已自动暂停'
+      },
+      recentErrors: {
+        windowHint: '最近 {n} 分钟',
+        lastAt: '{time}',
+        upstreamStatus: '上游 {code}'
+      },
       ollamaCloud: {
         title: 'Ollama Cloud 用量',
         sessionSecurityHint: '浏览器会话会加密落库，且只发送到固定的 Ollama 官方设置页。',
@@ -428,6 +444,7 @@ export default {
         tempUnschedulable: '临时不可调度',
         quotaExceeded: '配额超限',
         unschedulable: '不可调度',
+        partiallyBlocked: '部分受限',
         rateLimitedUntil: '限流中，当前不参与调度，预计 {time} 自动恢复',
         rateLimitedAutoResume: '{time} 自动恢复',
         modelRateLimitedUntil: '{model} 限流至 {time}',

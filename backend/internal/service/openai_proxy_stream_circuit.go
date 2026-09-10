@@ -182,6 +182,22 @@ func (c *openAIProxyStreamCircuit) isBlocked(proxyID int64, now time.Time) bool 
 	return true
 }
 
+// peekBlockedUntil returns the quarantine deadline when proxyID is currently
+// quarantined. Unlike isBlocked it never deletes an expired entry, so it is
+// safe for read-only diagnostics.
+func (c *openAIProxyStreamCircuit) peekBlockedUntil(proxyID int64, now time.Time) (time.Time, bool) {
+	if c == nil || c.settings.disabled || proxyID <= 0 {
+		return time.Time{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[proxyID]
+	if !ok || entry.blockedUntil.IsZero() || !now.Before(entry.blockedUntil) {
+		return time.Time{}, false
+	}
+	return entry.blockedUntil, true
+}
+
 // activeBlockCount reports how many proxies are currently quarantined. It
 // gates the fail-open retry: a "no available accounts" selection result only
 // warrants a second, quarantine-blind pass when the circuit is actually

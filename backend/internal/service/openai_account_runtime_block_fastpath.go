@@ -267,6 +267,33 @@ func (s *OpenAIGatewayService) isOpenAIAccountRuntimeBlocked(account *Account) b
 	return false
 }
 
+// peekOpenAIAccountRuntimeBlockUntil returns the stored runtime block deadline
+// (which may already be in the past) without any side effect: unlike
+// isOpenAIAccountRuntimeBlocked it never deletes expired entries, never bumps
+// the block generation and never allocates a per-account lock. It only takes
+// the per-account lock when one already exists, so it observes a value that
+// is not mid-update by blockAccountSchedulingLocked.
+func (s *OpenAIGatewayService) peekOpenAIAccountRuntimeBlockUntil(accountID int64) (time.Time, bool) {
+	if s == nil || accountID <= 0 {
+		return time.Time{}, false
+	}
+	if actual, ok := s.openaiAccountRuntimeBlockLocks.Load(accountID); ok {
+		if mu, ok := actual.(*sync.Mutex); ok {
+			mu.Lock()
+			defer mu.Unlock()
+		}
+	}
+	value, ok := s.openaiAccountRuntimeBlockUntil.Load(accountID)
+	if !ok {
+		return time.Time{}, false
+	}
+	until, ok := value.(time.Time)
+	if !ok || until.IsZero() {
+		return time.Time{}, false
+	}
+	return until, true
+}
+
 func (s *OpenAIGatewayService) getOpenAIAccountModelTransientState() *openAIAccountModelTransientState {
 	if s == nil {
 		return nil

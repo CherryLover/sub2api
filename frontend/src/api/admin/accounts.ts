@@ -25,7 +25,8 @@ import type {
   UpstreamBillingProbeSettings,
   UpstreamBillingRatesResponse,
   OllamaCloudUsageSettings,
-  OllamaCloudUsageState
+  OllamaCloudUsageState,
+  BatchAccountDiagnosticsResponse
 } from '@/types'
 
 /**
@@ -626,6 +627,24 @@ export async function getBatchTodayStats(accountIds: number[]): Promise<BatchTod
 }
 
 /**
+ * 批量获取多个账号的诊断信息（调度拦截原因 + 最近上游错误）
+ * @param accountIds - 账号 ID 列表
+ * @param windowMinutes - 错误统计窗口（分钟），不传时后端默认 15
+ */
+export async function getBatchDiagnostics(
+  accountIds: number[],
+  windowMinutes?: number
+): Promise<BatchAccountDiagnosticsResponse> {
+  const payload: { account_ids: number[]; window_minutes?: number } = { account_ids: accountIds }
+  if (typeof windowMinutes === 'number') payload.window_minutes = windowMinutes
+  const { data } = await apiClient.post<BatchAccountDiagnosticsResponse>(
+    '/admin/accounts/diagnostics/batch',
+    payload
+  )
+  return data
+}
+
+/**
  * Set account schedulable status
  * @param id - Account ID
  * @param schedulable - Whether the account should participate in scheduling
@@ -1115,6 +1134,7 @@ export const accountsAPI = {
   getBatchUsage,
   getTodayStats,
   getBatchTodayStats,
+  getBatchDiagnostics,
   clearRateLimit,
   recoverState,
   resetAccountQuota,

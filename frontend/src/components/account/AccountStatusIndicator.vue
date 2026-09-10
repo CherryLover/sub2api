@@ -155,6 +155,31 @@
         ></div>
       </div>
     </div>
+
+    <!-- In-process scheduling blocks (not visible from DB fields). Teleported tooltip: multi-line text would be clipped by the table scroller. -->
+    <HelpTooltip
+      v-if="hiddenBlockLines.length > 0"
+      width-class="w-max max-w-[320px]"
+      class="!ml-0"
+      data-test="scheduling-block-badge"
+    >
+      <template #trigger>
+        <span
+          :class="[
+            'inline-flex cursor-help items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium',
+            isDiagnosedUnschedulable
+              ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+              : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+          ]"
+        >
+          <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
+          {{ isDiagnosedUnschedulable ? t('admin.accounts.status.unschedulable') : t('admin.accounts.status.partiallyBlocked') }}
+        </span>
+      </template>
+      <div class="space-y-0.5 text-left" data-test="scheduling-block-lines">
+        <div v-for="(line, index) in hiddenBlockLines" :key="index">{{ line }}</div>
+      </div>
+    </HelpTooltip>
   </div>
 </template>
 
@@ -162,8 +187,9 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import { useNowTick } from '@/composables/useNowTick'
-import type { Account } from '@/types'
+import type { Account, AccountDiagnosis, AccountSchedulingBlock } from '@/types'
 import { formatCountdown, formatDateTime, formatDateTimeToMinute, formatCountdownWithSuffix, formatTime } from '@/utils/format'
 
 const { t } = useI18n()
@@ -181,9 +207,14 @@ const isStillFuture = (value: string | null | undefined, nowMs: number): boolean
   return Number.isFinite(ts) && ts > nowMs
 }
 
-const props = defineProps<{
-  account: Account
-}>()
+const props = withDefaults(
+  defineProps<{
+    account: Account
+    /** Scheduler diagnosis from /admin/accounts/diagnostics/batch; optional */
+    diagnosis?: AccountDiagnosis | null
+  }>(),
+  { diagnosis: null }
+)
 
 const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
@@ -367,6 +398,67 @@ const statusText = computed(() => {
   }
   return t(`admin.accounts.status.${props.account.status}`)
 })
+
+// 只展示进程内的拦截原因；DB 字段能推出来的（状态、限流、过载、临时不可调度、配额、手动暂停、过期）
+// 上面的徽标已经展示过，不重复。
+const HIDDEN_BLOCK_SOURCES = new Set<AccountSchedulingBlock['source']>([
+  'runtime_block',
+  'model_runtime_block',
+  'proxy_quarantine',
+  'quota_auto_pause'
+])
+
+const toPercent = (value: number) => Math.round(value * 100)
+
+const describeBlock = (block: AccountSchedulingBlock): string => {
+  const time = block.until ? formatDateTimeToMinute(block.until) : ''
+  switch (block.source) {
+    case 'runtime_block':
+      return time
+        ? t('admin.accounts.schedulingBlock.runtimeBlockedUntil', { time })
+        : t('admin.accounts.schedulingBlock.runtimeBlocked')
+    case 'model_runtime_block': {
+      const model = block.model || '-'
+      return time
+        ? t('admin.accounts.schedulingBlock.modelBlockedUntil', { model, time })
+        : t('admin.accounts.schedulingBlock.modelBlocked', { model })
+    }
+    case 'proxy_quarantine': {
+      const id = block.proxy_id ?? '?'
+      return time
+        ? t('admin.accounts.schedulingBlock.proxyQuarantinedUntil', { id, time })
+        : t('admin.accounts.schedulingBlock.proxyQuarantined', { id })
+    }
+    case 'quota_auto_pause':
+      if (typeof block.utilization === 'number' && typeof block.threshold === 'number') {
+        return t('admin.accounts.schedulingBlock.quotaAutoPaused', {
+          window: block.window || '',
+          utilization: toPercent(block.utilization),
+          threshold: toPercent(block.threshold)
+        })
+      }
+      return t('admin.accounts.schedulingBlock.quotaAutoPausedGeneric')
+    default:
+      return ''
+  }
+}
+
+const NO_BLOCK_LINES: string[] = []
+
+// 过期的 until 随心跳自动剔除，与上面其它"到期即失效"徽标行为一致
+const hiddenBlockLines = computed<string[]>(() => {
+  const blocks = props.diagnosis?.scheduling?.blocks
+  if (!Array.isArray(blocks) || blocks.length === 0) return NO_BLOCK_LINES
+  const nowMs = now.value
+  const lines = blocks
+    .filter(block => HIDDEN_BLOCK_SOURCES.has(block.source))
+    .filter(block => !block.until || isStillFuture(block.until, nowMs))
+    .map(describeBlock)
+    .filter(line => line !== '')
+  return lines.length > 0 ? lines : NO_BLOCK_LINES
+})
+
+const isDiagnosedUnschedulable = computed(() => props.diagnosis?.scheduling?.schedulable === false)
 
 const handleTempUnschedClick = () => {
   if (!isTempUnschedulable.value) return
