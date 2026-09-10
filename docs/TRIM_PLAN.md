@@ -34,9 +34,10 @@
 | 6. 删除 SaaS 外围 | ✅ 完成（批次 1–5） | 批次 1 支付/卡密/第三方 OAuth；批次 2 注册体系/人机验证；批次 3 邮件体系/内容审计/批量生图/渠道监控 V1/公告/模型广场；批次 4 订阅与余额。A2 全部落地 |
 | 7. 安全与上线验证 | 🟢 批次 1–5 与批次 6（A6-1 / A6-2 / A6-3）已上线生产 | 批次 1 三轮、批次 2 一轮、批次 3+4+5 一轮（internal-498f780，2026-08-29）RC 镜像内网验证全部通过；**v0.1.183 已于 2026-09-04 切换到生产 `way.flyooo.uk`**（切换步骤、数据核对与上线后实证见第六节「v0.1.183 正式上线」）；**批次 6 三次发版、三次生产升级（v0.1.184 / v0.1.185 / v0.1.186；其中 0.1.185 未单独切换生产、随 0.1.186 一起生效）全部通过**（2026-09-04 → 0.1.184，2026-09-07 → 0.1.186，见第六节「批次 6 发版记录」）；**批次 6 第二～四轮（way-rc `internal-ae47e55`，2026-09-07 部署核对通过）待站长登录验收**（见第六节最上方小节）；压测与备份恢复演练仍未做（A7，批次 6）；⚠️ 2026-09-05 验证期间发生服务器事故，见第四节 |
 
-**当前位置**（2026-09-08 更新）：**批次 1–5 与批次 6 的 A6-1 / A6-2 / A6-3 已全部合并 `fork/main` 并上线生产；批次 6 第二～四轮已在 way-rc 完成部署核对，等站长登录验收。**
-生产 `way.flyooo.uk` 仍为正式 tag **`0.1.186`**（**未含第二～四轮**）；way-rc 跑 **`internal-ae47e55`**（含第二～四轮）；
-`fork/main` 现为 `306bcf291`（docs 提交，标 `[skip release]`）；`batch6/round4` HEAD `ae47e5564` 含第二～四轮全部代码。
+**当前位置**（2026-09-10 更新）：**批次 1–5 与批次 6 全部内容（含第二～四轮）已合并 `fork/main` 并上线生产；外部 PR #10（上游 v0.2.3 核心修复回移）也已审查后合入。**
+生产 `way.flyooo.uk` 与 way-rc **均为正式 tag `0.1.188`**；`fork/main` 现为 `8314ac7a5`（PR #10 合并提交，VERSION 已同步 0.1.188）。
+本轮先以 **v0.1.187** 发出批次 6 第二～四轮，再以 **v0.1.188** 发出 PR #10 回移，生产由 0.1.186 一次跨到 0.1.188（迁移头 238 → 240）。
+详见第六节最上方「v0.1.187 / v0.1.188 发版与上线记录」；**09-07 那份站长登录验收清单仍未逐项手点**，可直接在 0.1.188 上补做。
 批次 1–5 是 2026-09-01 合并、2026-09-04 以 v0.1.183 上线生产的（见第六节「v0.1.183 正式上线」）；批次 6 至今三次发版、三次生产升级全部通过（细节见第六节「批次 6 发版记录」）：
 
 - **v0.1.184**（2026-09-04 09:16Z 发版）：A6-1 密钥列表「查用量」入口 + 用量页订阅 / 余额残留清理 + TRIM_PLAN 补记 v0.1.183 上线；同日 09:20Z 生产 0.1.183 → 0.1.184。
@@ -1692,6 +1693,86 @@ docker compose up -d sub2api
 > 登录/认证错误 i18n 补齐、profile 绑定文案、新手引导整删（含 driver.js 依赖）、上游 GitHub 链接移除
 > （合规弹窗内法律文档"查看原文"链接刻意保留，随 B1 整删）。
 > checkbox 待站长在新 RC 镜像上复验通过后勾选。
+
+### v0.1.187 / v0.1.188 发版与上线记录（2026-09-10）**通过**
+
+一次会话内连做两件事：先把积压的 `batch6/round4` ff 合并 `fork/main` 发出 **v0.1.187**，
+再合并外部贡献者 PR #10（上游 v0.2.3 核心修复回移）发出 **v0.1.188**，最后 way-rc → 生产依次升级到 0.1.188。
+以下数字全部为 CI 记录与实测，没列出的验证就是没做。
+
+#### v0.1.187（2026-09-10 01:39Z 发版）— 批次 6 第二～四轮正式合并 main
+
+- [x] `batch6/round4`（HEAD `272ab37b8`）对 `fork/main` 是纯 ff，无冲突；推送后 CI run 34425165262 一次全绿（shell / golangci-lint / frontend / test），Security Scan 34425165163 ✓
+- [x] Auto Release 34425678381 ✓ → Release 34425691879 ✓（多架构镜像 + GitHub Release + VERSION 同步提交 `938eecfdc`）
+- [x] ⚠️ 站长登录验收清单（下方 09-07 小节末尾那 9 项）**当时仍未勾**，本次是按站长口头指示直接合并的；代码本身已在 way-rc `internal-ae47e55` 连跑两天零错误
+
+#### v0.1.188（2026-09-10 02:12Z 发版）— 合入 PR #10 上游 v0.2.3 核心修复回移
+
+**PR #10**（`xiaoguai1818`，`maintenance/upstream-review-v0.2.3`，72 commits / 390 文件 / +20721 −1331）合并前做了两路专项审查：
+
+- [x] **供应链审查通过**：workflows / `audit-exceptions.yml` / 4 个 compose / `.env.example` / `package.json` + `pnpm-lock.yaml` / Makefile / `backend/cmd` 全查；
+      无外发地址、无依赖替换或 typosquat、无 CI 提权、无凭据外泄路径。整个 PR 的依赖变更只有 **DOMPurify 3.3.1 → 3.4.14**（安全升级，
+      lockfile 的 sha512 已与 npm registry 实测逐字一致，无 tarball 覆写）。新增的唯一扫描例外是 `nanoid` / `GHSA-2v37-7h3g-55p8`
+      （已核实为真实公告，high，修复版 3.3.18）——**本仓库 nanoid 已经是 3.3.18，该例外实际不生效**，且带 `expires_on: 2026-10-13` 自动失效
+- [x] **裁剪面审查通过**：已裁域（支付 / 订阅 / 余额 / 兑换码 / 返佣 / 第三方登录 / 注册 / 邮件 / 内容审计 / 公告 / 模型广场 / 在线更新）零命中；
+      无被删文件被重新加回；前端路由零改动；`backend/ent/` 零改动；PR 内先加后撤的 9 个上游特性，逐一核对 revert 均为逐行逆操作
+- [x] **迁移零新增**：PR 中途加过 `239_group_reasoning_effort_over_limit.sql`，已被自己的 revert 删除，合并后迁移头仍为 `240_drop_custom_endpoints_setting.sql`，与本仓库 239 无编号冲突
+
+**合并时改了三处（合并提交 `8314ac7a5`）**：
+
+- 冲突 1 `frontend/src/i18n/locales/zh/admin/overview.ts`：保留本仓库的删除，**不恢复 `claudeMaxSimulation`**
+  （批次 6 第二轮已整块裁掉；全仓库零引用、en 语言包同样没有，补回反而会让语言包对不齐）
+- 冲突 2 `backend/cmd/server/VERSION`：保留 `0.1.187`，**拒绝 PR 改成 `0.2.3`**
+- 主动撤回 PR 对 `.github/workflows/auto-release.yml` 的版本基线改写（改回本仓库原「取最大正式 tag」逻辑）
+
+> **为什么不接受版本对齐 0.2.3**：`v0.2.3` 在本仓库没有对应 tag（`git ls-remote --tags fork` 中 0.2.x 计数为 0）。
+> 若采用 PR 的 `max(tag, VERSION)` 基线，下一次发版会跳到 **v0.2.4**，且因 `sort -V` 此后永久锁死在 0.2.x、无法回到 0.1.x；
+> 同时 `PREV_TAG=0.2.3` 指向一个不存在的 tag，会让变更日志区间失效、回落成「最近 20 条提交」；
+> 将来再同步到一个上游已打过的版本号还会以「tag 已存在」直接发版失败。
+> PR 自述也承认「版本对齐只表示完成了审查，并不声称功能等价」——精简版不该穿上游的版本号。
+
+- [x] 集成分支 `integrate/pr10-upstream-v0.2.3` CI run 34426659417 一次全绿，Security Scan 34426659425 ✓
+- [x] ff 合并 main 后 CI run 34427282865 ✓、Security Scan 34427282793 ✓；Auto Release 34427841257 ✓ 正确算出 **v0.1.188**（非 v0.2.4，验证：仓库 0.2.x tag 数仍为 0）；Release 34427858395 ✓
+- [x] GitHub 上 PR #10 已自动转为 MERGED
+
+#### way-rc 部署核对（2026-09-10 02:15Z，`internal-ae47e55` → `0.1.188`）
+
+- [x] 13 秒 healthy、日志零 error / panic；镜像标签 `org.opencontainers.image.revision` = `8314ac7a5…`，与 CI 验证过的合并提交一致
+- [x] 迁移零变化（头仍 240、记录 280、表 77）——round4 的代码 way-rc 早已在跑，本次只换成正式 tag
+- [x] 路由核对：已裁域 `/api/v1/payment/orders`、`/api/v1/user/balance`、`/api/v1/auth/register`、`/api/v1/redeem` 全部 404；
+      新增 `/api/v1/admin/accounts/upstream-billing-rates` 为 401（在鉴权组内，符合预期）
+- [x] 打包产物 grep（从线上抓下 88 个 JS 分片，共 4.0 MB）：
+      **应无**（8/8 通过）`claudeMaxSimulation` /「Claude Max 用量模拟」/ `walletBalance` / `subscription_type` / `custom_endpoints` / `customEndpoints` /「自定义端点」/ `insufficientBalance` 全部零命中；
+      **应有**（8/8 通过）`recent-requests`、`AccountLoadDrawer`、「查看用量」、「密钥总表」、「自然周」、「密码已复制」、「并发数不能为负数」、`upstream-billing-rates` 全部命中
+- [x] 无头浏览器：`/`（用量查询页）与 `/login` 均正常渲染、**控制台零报错**
+
+#### 生产升级（2026-09-10 02:28Z，`0.1.186` → `0.1.188`，跨过 0.1.187）
+
+- [x] 升级前基线：迁移头 `238`、记录 278、表 77、库 133 MB、8 账号 / 10 密钥 / 3 用户
+- [x] **迁移 239 / 240 生产空操作已独立核实**（不是照抄旧结论）：
+      按 239 的 WHERE 条件实测命中 **0 行**，且生产**没有任何账号带 `quota_weekly_limit` 键**（因此那个 `::numeric` 强转也不可能报错）；
+      240 目标键 `custom_endpoints` 存在且值为 `[]`
+- [x] 备份 `backups/sub2api-pre-0.1.188-20260910-022744.dump`（5.5 MB）；**导回临时库 `verify_restore` 验证通过**——
+      77 表 / 278 迁移 / 8 账号 / 10 密钥 / 3 用户，与线上逐项一致；验证后临时库已删除
+- [x] compose 已备份为 `docker-compose.yml.bak-pre-0.1.188`，只重建主体容器（postgres / redis 全程不停）
+- [x] 升级后：**39 秒内 healthy**；迁移头 238 → **240**、记录 278 → **280**（+2 即 239 / 240）、表数仍 77；
+      业务数据零变化（8 账号 / 10 密钥 / 3 用户）；`custom_endpoints` 已按 240 删除（0 行）
+- [x] 上线后 8 分钟：日志零 error / panic，28 次 200，无任何 5xx；服务器 load 0.71
+- [x] `way.flyooo.uk` 与自定义登录路径页面均正常渲染、控制台零报错
+      （生产 `web_login_entry_public=false` + 自定义登录路径 + 默认首页 `/key-usage` 均为既有配置，本次升级未改动，`/login` 跳用量页是预期行为）
+- [x] 生产 `data/config.yaml` 只有 server / database / redis / jwt / default / rate_limit / timezone，**没有 `gateway:` 段**，
+      因此 PR 新往 compose 里接的 22 个 `GATEWAY_*` 环境变量不会覆盖线上既有网关调参（这些变量本就都在 `.env.example` 里，只是此前被容器边界吞掉）
+- [x] way-rc 也已在正式 tag `0.1.188` 上（本轮不需要另外「切回正式 tag」）
+
+**本轮遗留 / 待站长关注**（都不是阻塞项）：
+
+- [ ] 09-07 那份「站长登录验收清单」9 项至今未逐项手点，现在可以直接在生产或 way-rc 的 0.1.188 上补做
+- [ ] **Antigravity 模型映射有行为变更**：`DefaultAntigravityModelMapping` 里 `claude-sonnet-4-5-thinking` 与
+      `claude-sonnet-4-5-20250929` 现在都指向 `claude-sonnet-4-6`（原先停在 4-5）。只影响 Antigravity 平台，
+      且与既有的 opus / haiku「迁移旧模型」写法一致，但客户端若钉着这两个 ID 会拿到不同（更贵）的模型
+- [ ] **Grok 媒体资格放宽**：`billing_inconclusive` 的 OAuth 账号现在仍保留图片 / 视频生成资格（上游认为「账单形态未知」不等于「没有权益」）
+- [ ] 生产「系统设置 → 通知」的 Bark 配置仍未填（配置分环境存储，way-rc 上填的不会带过来）
+- [ ] `nanoid` 那条扫描例外形同虚设（本仓库已是修复版 3.3.18），2026-10-13 到期后会让 Security Scan 失败，届时直接删掉该条即可
 
 ### 批次 6 第二～四轮 RC 验证记录（2026-09-07，way-rc）
 
