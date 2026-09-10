@@ -58,7 +58,8 @@
 way-rc 现在的迁移头是 `240_drop_custom_endpoints_setting.sql`（记录 280、表 77）；**迁移 239 / 240 在生产同样是空操作**（生产没有设过周额度的账号，`custom_endpoints` 值为 `[]`），但升级仍照旧备份 + 导回验证。
 **下一步**：站长登录 way-rc 按第六节该小节末尾的清单验收 → 通过后 `batch6/round4` ff 合并 `fork/main` → auto-release（预期 **v0.1.187**）→ 生产升级 → way-rc 切回正式 tag。
 **批次 6 剩余**：A7 文档改写（README/DEV_GUIDE 内部化）+ 压测 + 备份恢复演练 + Key 泄露演练（未开始；方案要点见第三节 A7 行，演练涉及服务器、须遵守下方新纪律）；
-乙方案「真正的在途请求登记」（候选，排下一批）；第四节「后续候选项台账」的未勾项与 FEATURE_CHECKLIST 的 P1 / P2 残留；两条 CI 维护项（docker actions Node 20 弃用告警、`internal-rc-*` 标签重复触发 CI）。
+乙方案「真正的在途请求登记」（候选，排下一批）；第四节「后续候选项台账」的未勾项与 FEATURE_CHECKLIST 的 P1 / P2 残留；
+两条 CI 维护项里 **docker actions Node 20 弃用告警已于 2026-09-10 处理完**（四个 action 全升到 Node 24 版本，见台账该行），只剩 `internal-rc-*` 标签重复触发 CI。
 **站长待办**：在生产「系统设置 → 通知」填一次 Bark 配置（配置按环境分别存储，way-rc 上填的不会带到生产）。
 **决策状态**：批次 2 验收起累计的三项未决决策已于 2026-09-07 **全部拍板**——`custom_endpoints` 整键删除（迁移 240）、`security.url_allowlist.enabled` **保持关闭**、`server.trusted_proxies` **暂不配置**（见第四节「三个决策结论」）；
 迁移基线重置**维持不做**（A5 内，方案见第四节「⛔ 未完成项 1」）。
@@ -1029,7 +1030,12 @@ CI 全绿但镜像构建必然失败。
 - [x] **`Makefile` 的 `FRONTEND_CRITICAL_VITEST` 名单失效**（批次 5 已处理）：5 条指向已删测试文件。vitest 把条目当过滤词，指向已删文件**不报错、只是静默少跑**——实测 13 条里只有 8 条真正生效。已清死条目、补进 4 条，并加了存在性校验，下次再删测试会直接 exit 1
 - [x] **`security.url_allowlist.enabled=false`**（批次 2 验收发现；**2026-09-07 站长拍板：保持关闭**，决策项关闭）：SSRF / URL 白名单校验整体关闭，只剩最小格式校验，启动日志有 WARN。不是裁剪引入的；决策是不开启，不改代码不改配置
 - [x] **`server.trusted_proxies` 未配置**（批次 2 验收发现；**2026-09-07 站长拍板：暂不配置**，决策项关闭）：way-rc 前面是 Cloudflare + Traefik 两层代理，不配这个拿不到可靠的真实客户端 IP，影响 IP 管理 / 风控 / 限流的准确性；接受现状
-- [ ] **CI：`docker/*` actions 目标 Node 20 弃用告警**（批次 6 发现，2026-09-07 记录，未处理）
+- [x] **CI：`docker/*` actions 目标 Node 20 弃用告警**（批次 6 发现，2026-09-07 记录；**2026-09-10 已处理**，合并提交 `1c704c105`，标 `[skip release]` 未发新版本）：
+      `login-action` v3 → v4（7 处）、`setup-buildx-action` v3 → v4（3 处）、`setup-qemu-action` v3 → v4（3 处）、`build-push-action` v6 → v7（2 处），
+      覆盖 release / main-docker-image / branch-docker-image 三个工作流。
+      **注意 `build-push-action` 容易漏**：发版工作流走 GoReleaser 构建、根本不用它，所以照着 Release 那次的告警名单改会只改三个；
+      实测第一次构建（run 34458691476）成功后告警才单独点名 `build-push-action@v6`，四个全升后第二次构建（run 34459230824）annotations 整块消失。
+      验证方式是手动 `workflow_dispatch` 跑 `branch-docker-image.yml`（单架构 `linux/arm64` 提速），镜像照常产出
 - [ ] **CI：推 `internal-rc-*` 标签会重复触发 CI 与 Security Scan**（批次 6 发现，2026-09-07 记录，未处理）
 - [ ] **前端零引用的死类型与文案**（批次 6 第二轮 WP-C1 顺手发现，2026-09-08 记录，未处理）：`types/index.ts` 里 `ProxyNode / ConversionRequest / ConversionResult / SubscriptionStats / UserStats` 零引用；`admin.users` 下 `depositSuccess / withdrawSuccess / failedToDeposit / failedToWithdraw / useDepositWithdrawButtons / amountRequired` 零引用
 - [ ] **`KeysView.vue` 里只写不读的 `publicSettings` / `loadPublicSettings()`**（批次 6 第三轮删自定义端点后暴露，2026-09-08 记录，未处理）：`custom_endpoints` 删除后 `EndpointPopover` 不再需要公开设置，但 `KeysView.vue` 仍在 mount 时拉一次 `getPublicSettings()` 存进 `publicSettings`，全文件无读取方
