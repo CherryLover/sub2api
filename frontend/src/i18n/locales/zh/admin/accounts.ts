@@ -1,5 +1,83 @@
 export default {
     accounts: {
+      // 「账号 × 模型」可用性矩阵（/admin/model-availability）
+      modelAvailability: {
+        title: '模型可用性',
+        description: '按「账号 × 模型」看清哪个账号的哪个模型正在被限流，以及哪些账号整号不可调度。',
+        refresh: '刷新',
+        refreshing: '刷新中…',
+        lastUpdated: '更新于 {time}',
+        delayNotice: '状态为查询时刻的快照，存在秒级延迟。',
+        modelSourceNotice: '模型清单来自各账号的模型映射配置（没配映射的账号取平台默认模型），再并上当前生效的限流记录。',
+        loading: '正在加载账号与模型状态…',
+        diagnosticsUnavailable: '调度诊断接口不可用，仅按数据库记录判断。',
+        modelListPartiallyUnavailable: '{count} 个账号的模型清单没取到，这些账号的格子显示为「?」。',
+        summary: {
+          accounts: '账号数',
+          models: '模型数',
+          blockedAccounts: '整号不可调度',
+          limitedCombos: '限流中的「账号 × 模型」'
+        },
+        filters: {
+          allPlatforms: '全部平台',
+          onlyIssues: '只看有问题的'
+        },
+        empty: {
+          title: '没有账号',
+          description: '当前筛选条件下没有任何账号。',
+          noIssuesTitle: '当前没有任何限流',
+          noIssuesDescription: '所有账号都可调度，也没有模型处于限流状态。'
+        },
+        error: {
+          title: '加载失败',
+          retry: '重试'
+        },
+        matrix: {
+          accountColumn: '账号',
+          accountBlocked: '整号停调',
+          accountBlockedHint: '整个账号不可调度',
+          available: '可用',
+          limited: '限流中',
+          limitedUntil: '限流至 {time}',
+          limitedAccounts: '{count} 个账号限流',
+          unsupportedHint: '该账号没有配置这个模型',
+          unknownHint: '该账号的模型清单没取到，无法判断是否支持',
+          modelListUnavailable: '模型清单未获取',
+          blockSourceLabel: '来源：{source}'
+        },
+        reasons: {
+          openaiDedicatedQuotaPool: 'Spark 独立额度池用完',
+          codexPlanGatedModel: '账号套餐不支持这个模型',
+          upstreamModelNotFound: '上游没有这个模型',
+          openaiImageRateLimited: '图片生成被上游限流',
+          openaiImageCapabilityLost: '账号暂时不能生图',
+          openaiImagesToolUnavailable: '账号的图片工具不可用',
+          anthropicWindowExhausted: '7 天用量窗口已用完',
+          anthropicFableCredits: 'Fable 需要额外积分'
+        },
+        pseudoModels: {
+          aiCredits: '账号积分',
+          imageGeneration: '图片生成'
+        },
+        accountBlocks: {
+          status: '账号状态不是「正常」',
+          manualUnschedulable: '被手动停止调度',
+          expired: '账号已过期',
+          overloaded: '上游过载（529）',
+          rateLimited: '整号限流（429）',
+          tempUnschedulable: '临时停调',
+          quotaExceeded: '配额用尽',
+          runtimeBlock: '网关进程内封锁',
+          proxyQuarantine: '代理被隔离',
+          quotaAutoPause: '配额阈值自动暂停'
+        },
+        modelBlocks: {
+          modelRateLimit: '落库的模型限流',
+          modelRuntimeBlock: '进程内模型封锁',
+          grokModelQuota: 'Grok 模型额度用尽',
+          grokTeamRateLimit: 'Grok 团队限流'
+        }
+      },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',
@@ -160,7 +238,42 @@ export default {
         windowHint: '最近 {n} 分钟',
         lastAt: '{time}',
         upstreamStatus: '上游 {code}',
-        unavailable: '取不到错误数据（运维监控未开启或查询失败），不代表没有错误'
+        unavailable: '取不到错误数据（运维监控未开启或查询失败），不代表没有错误',
+        chipRecovered: '{code} ×{count} 已恢复',
+        chipFailed: '{code} ×{count} 失败',
+        chipTotalRecovered: '×{count} 已恢复',
+        chipTotalFailed: '×{count} 失败',
+        summaryTotal: '共 {count} 次',
+        summaryRecovered: '{count} 已恢复',
+        summaryFailed: '{count} 最终失败',
+        recoveredExplainer: '已恢复 = 网关重试或换账号后最终成功，用户无感知；最终失败才是客户端真的收到了错误。',
+        chainHint: '点击状态码查看这次请求的完整链路。',
+        viewChain: '查看请求链路'
+      },
+      requestChain: {
+        title: '请求链路',
+        refresh: '刷新',
+        loadFailed: '加载请求链路失败',
+        retry: '重试',
+        outcomeRecovered: '已自动恢复',
+        outcomeFailed: '最终失败',
+        recoveredHint: '上游报错 {count} 次后由「{account}」成功返回，客户端无感知。',
+        recoveredHintNoFinal: '上游报错 {count} 次后最终成功，客户端无感知。',
+        failedHint: '{count} 次尝试全部失败，客户端收到 {code}。',
+        stream: '流式',
+        nonStream: '非流式',
+        requestedModel: '请求 {model}',
+        attempts: '尝试记录（{count}）',
+        noAttempts: '没有找到这次请求的尝试记录',
+        account: '账号 {id} {name}',
+        accountNoName: '账号 {id}',
+        noUpstreamStatus: '没拿到上游响应（连接或凭证阶段就失败了），不是状态码 0',
+        finalLabel: '最终',
+        finalSuccess: '成功',
+        finalFailed: '失败',
+        finalMissing: '未找到成功记录',
+        firstToken: '首字 {value}',
+        tokens: '{value} tokens'
       },
       ollamaCloud: {
         title: 'Ollama Cloud 用量',

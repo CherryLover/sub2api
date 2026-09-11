@@ -146,6 +146,11 @@ export default {
     securityAudit: '安全审计',
     promptAudit: '提示词审计',
     auditLogs: '操作日志',
+    modelAvailability: '模型可用性',
+    groupAccess: '接入配置',
+    groupUpstream: '上游资源',
+    groupRuntime: '运行状态',
+    groupSecurity: '安全与审计',
   },
 
   // Auth

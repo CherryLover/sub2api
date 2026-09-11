@@ -69,13 +69,20 @@
             >
               {{ t("admin.settings.notifications.bark.deviceKey") }}
             </label>
+            <!-- 后端只回设备数量，不回 Key 本身；解不开密时 count 为 0，退回「已配置」 -->
             <span
               v-if="hasDeviceKey"
               class="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-300"
               data-testid="bark-device-key-configured"
             >
               <Icon name="checkCircle" size="xs" />
-              {{ t("admin.settings.notifications.bark.deviceKeyConfigured") }}
+              {{
+                deviceKeyCount > 0
+                  ? t("admin.settings.notifications.bark.deviceKeyConfiguredCount", {
+                      count: deviceKeyCount,
+                    })
+                  : t("admin.settings.notifications.bark.deviceKeyConfigured")
+              }}
             </span>
           </div>
           <input
@@ -216,6 +223,28 @@
         <Icon :name="TEST_TONE_ICONS[lastTestTone]" size="sm" class="mt-0.5 shrink-0" />
         <div class="min-w-0 space-y-0.5">
           <p class="font-medium">{{ lastTestHeadline }}</p>
+          <!-- 多设备时先给一行「共 N 个，X 成功 Y 失败」，再逐个列出来 -->
+          <p
+            v-if="lastTestDeviceSummary"
+            class="text-xs opacity-80"
+            data-testid="bark-test-device-summary"
+          >
+            {{ lastTestDeviceSummary }}
+          </p>
+          <ul
+            v-if="lastTestDevices.length > 1"
+            class="space-y-0.5 text-xs opacity-80"
+            data-testid="bark-test-device-list"
+          >
+            <li
+              v-for="device in lastTestDevices"
+              :key="device.index"
+              class="break-all"
+              :data-ok="device.ok"
+            >
+              {{ deviceResultText(device) }}
+            </li>
+          </ul>
           <p v-if="lastTestDetail" class="break-all text-xs opacity-80">
             {{ lastTestDetail }}
           </p>
@@ -281,6 +310,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { adminAPI } from "@/api";
 import type {
+  BarkDevicePushOutcome,
   BarkLevel,
   BarkNotifyConfig,
   TestBarkNotifyRequest,
@@ -336,8 +366,9 @@ const saving = ref(false);
 const testing = ref<TestMode | null>(null);
 const busy = computed(() => saving.value || testing.value !== null);
 
-// 后端永远不回显设备 Key，只告诉我们「有没有」；输入框里只放这次要写入的新值
+// 后端永远不回显设备 Key，只告诉我们「有没有」和「几个」；输入框里只放这次要写入的新值
 const hasDeviceKey = ref(false);
+const deviceKeyCount = ref(0);
 const updatedAt = ref("");
 const lastTest = ref<TestOutcome | null>(null);
 
@@ -376,13 +407,24 @@ const lastSavedText = computed(() => {
   return Number.isNaN(date.getTime()) ? updatedAt.value : date.toLocaleString();
 });
 
+// 「有一部分设备没收到」：后端只要有一个设备成功就返回 ok=true，剩下几个失败靠 failure_count 体现。
+// 老接口（改造前的单设备响应）没有这些字段，所以这里全部按可选字段处理。
+function isPartialFailure(result: TestBarkNotifyResponse): boolean {
+  return result.ok && (result.failure_count ?? 0) > 0;
+}
+
 // 「测试连接」把探活 ping_ok 与推送 ok 两个维度合起来看（HTTP 200 的四种组合）；
 // 「发送测试通知」只看 ok。请求本身被拒（非 2xx）一律按 error。
+// 部分设备失败一律降级成 warning：一片绿会让人以为所有人都收到了。
 function testTone(outcome: TestOutcome): TestTone {
   if (outcome.error || !outcome.result) return "error";
   const { ok, ping_ok: pingOk } = outcome.result;
-  if (outcome.mode === "send") return ok ? "success" : "error";
-  if (pingOk && ok) return "success";
+  const partial = isPartialFailure(outcome.result);
+  if (outcome.mode === "send") {
+    if (!ok) return "error";
+    return partial ? "warning" : "success";
+  }
+  if (pingOk && ok) return partial ? "warning" : "success";
   if (pingOk) return "info"; // 服务器通了，只是还没配设备 Key，后端没推送
   if (ok) return "warning"; // 探活接口没响应（比如自建服务器没开 /ping），但推送成功
   return "error";
@@ -417,6 +459,10 @@ const lastTestHeadline = computed(() => {
   }
   const result = outcome.result;
   if (!result) return "";
+  // 有设备没收到时两个按钮说同一句话：重点是「谁没收到」，探活通没通已经不是主要矛盾
+  if (isPartialFailure(result)) {
+    return t("admin.settings.notifications.bark.resultPartial");
+  }
   if (outcome.mode === "connection") {
     return connectionHeadline(testTone(outcome), result);
   }
@@ -424,6 +470,35 @@ const lastTestHeadline = computed(() => {
     ? t("admin.settings.notifications.bark.resultSent")
     : t("admin.settings.notifications.bark.resultNotSent");
 });
+
+// 逐个设备的结果；后端按填写顺序返回，index 就是「第几个设备」
+const lastTestDevices = computed<BarkDevicePushOutcome[]>(
+  () => lastTest.value?.result?.devices ?? [],
+);
+
+// 只有真的推了多个设备才值得展开统计，单设备时沿用原来的一行式展示
+const lastTestDeviceSummary = computed(() => {
+  const result = lastTest.value?.result;
+  if (!result || (result.device_count ?? 0) <= 1) return "";
+  return t("admin.settings.notifications.bark.resultDeviceSummary", {
+    total: result.device_count ?? 0,
+    success: result.success_count ?? 0,
+    failed: result.failure_count ?? 0,
+  });
+});
+
+function deviceResultText(device: BarkDevicePushOutcome): string {
+  return device.ok
+    ? t("admin.settings.notifications.bark.deviceResultOk", {
+        index: device.index,
+        masked: device.masked_key,
+      })
+    : t("admin.settings.notifications.bark.deviceResultFailed", {
+        index: device.index,
+        masked: device.masked_key,
+        message: device.message,
+      });
+}
 
 const lastTestDetail = computed(() => {
   const outcome = lastTest.value;
@@ -470,6 +545,7 @@ function applyConfig(cfg: BarkNotifyConfig): void {
   form.click_url = cfg.click_url || "";
   form.notify_on_resolve = cfg.notify_on_resolve !== false;
   hasDeviceKey.value = Boolean(cfg.has_device_key);
+  deviceKeyCount.value = Number(cfg.device_key_count) || 0;
   updatedAt.value = cfg.updated_at || "";
 }
 
@@ -527,8 +603,22 @@ async function save(): Promise<void> {
   }
 }
 
+// 部分设备失败的弹出提示：两个测试按钮共用，直接报「成功几个、失败几个」
+function notifyPartialFailure(result: TestBarkNotifyResponse): void {
+  appStore.showWarning(
+    t("admin.settings.notifications.bark.sentPartial", {
+      success: result.success_count ?? 0,
+      failed: result.failure_count ?? 0,
+    }),
+  );
+}
+
 // 「测试连接」的弹出提示与结果条色调一一对应，见 testTone()
 function notifyConnectionResult(tone: TestTone, result: TestBarkNotifyResponse): void {
+  if (isPartialFailure(result)) {
+    notifyPartialFailure(result);
+    return;
+  }
   switch (tone) {
     case "success":
       appStore.showSuccess(
@@ -590,7 +680,11 @@ async function runTest(mode: TestMode): Promise<void> {
     if (mode === "connection") {
       notifyConnectionResult(testTone(outcome), result);
     } else if (result.ok) {
-      appStore.showSuccess(t("admin.settings.notifications.bark.sent"));
+      if (isPartialFailure(result)) {
+        notifyPartialFailure(result);
+      } else {
+        appStore.showSuccess(t("admin.settings.notifications.bark.sent"));
+      }
     } else {
       appStore.showError(
         result.message || t("admin.settings.notifications.bark.sendFailed"),

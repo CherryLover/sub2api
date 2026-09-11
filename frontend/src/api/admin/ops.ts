@@ -5,7 +5,7 @@
  */
 
 import { apiClient, buildGatewayUrl } from '../client'
-import type { PaginatedResponse } from '@/types'
+import type { PaginatedResponse, RequestChain } from '@/types'
 
 export type OpsQueryMode = 'auto' | 'raw' | 'preagg'
 
@@ -1135,6 +1135,23 @@ export async function listRequestDetails(params: OpsRequestDetailsParams): Promi
   return data
 }
 
+/**
+ * 一次客户端请求的完整上游链路：每次尝试（撞了哪个账号、什么状态码）+ 最终落地结果。
+ *
+ * 账号列的「上游错误」只能告诉你撞了几次，看不出网关重试/换账号之后到底救回来没有；
+ * 这个接口就是用来回答「这 5 次 502 是 5 次事故，还是 1 次自愈」的。
+ */
+export async function getRequestChain(
+  clientRequestId: string,
+  options: OpsRequestOptions = {}
+): Promise<RequestChain> {
+  const { data } = await apiClient.get<RequestChain>(
+    `/admin/ops/requests/${encodeURIComponent(clientRequestId)}/chain`,
+    { signal: options.signal }
+  )
+  return data
+}
+
 // Alert rules
 export async function listAlertRules(): Promise<AlertRule[]> {
   const { data } = await apiClient.get<AlertRule[]>('/admin/ops/alert-rules')
@@ -1313,6 +1330,7 @@ export const opsAPI = {
   listRequestErrorUpstreamErrors,
 
   listRequestDetails,
+  getRequestChain,
   listAlertRules,
   createAlertRule,
   updateAlertRule,

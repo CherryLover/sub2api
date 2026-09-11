@@ -1010,6 +1010,15 @@ export interface AccountSchedulingDiagnosis {
 export interface AccountRecentErrorStatusCount {
   status_code: number
   count: number
+  /**
+   * 这一档里最终客户端拿到 2xx 的次数（网关重试或换账号后成功，用户无感知）。
+   * 老后端不下发这两个字段，此时前端退回「只显示总数」的旧口径。
+   */
+  recovered?: number
+  /** 这一档里最终失败（客户端拿到错误）的次数 */
+  failed?: number
+  /** 这一档最近一次错误对应的 client_request_id，用于打开请求链路面板；后端可能不下发 */
+  last_client_request_id?: string
 }
 
 export interface AccountRecentErrorLast {
@@ -1018,12 +1027,57 @@ export interface AccountRecentErrorLast {
   upstream_status_code?: number | null
   message?: string
   model?: string
+  /** 用于打开请求链路面板；后端可能不下发 */
+  client_request_id?: string
 }
 
 export interface AccountRecentErrors {
   total: number
+  /** 最终客户端拿到 2xx 的错误数（重试/换账号后成功） */
+  recovered?: number
+  /** 最终失败的错误数 */
+  failed?: number
   by_status: AccountRecentErrorStatusCount[]
   last: AccountRecentErrorLast | null
+}
+
+// ==================== 请求链路（GET /admin/ops/requests/:clientRequestId/chain） ====================
+
+/** recovered = 客户端最终拿到 2xx；failed = 最终失败 */
+export type RequestChainOutcome = 'recovered' | 'failed'
+
+/** 一次上游尝试（每条都是一个上游错误；成功的那次落在 final 上） */
+export interface RequestChainAttempt {
+  seq: number
+  at: string
+  account_id: number
+  account_name: string
+  platform: string
+  upstream_status_code: number | null
+  message: string
+  kind: string
+}
+
+/** 最终落地的那次调用；关联不到成功记录时后端返回 null */
+export interface RequestChainFinal {
+  account_id: number
+  account_name: string
+  succeeded: boolean
+  time_to_first_token_ms: number | null
+  total_tokens: number | null
+  cost: number | null
+}
+
+export interface RequestChain {
+  client_request_id: string
+  created_at: string
+  model: string
+  requested_model: string
+  stream: boolean
+  outcome: RequestChainOutcome
+  client_status_code: number
+  attempts: RequestChainAttempt[]
+  final: RequestChainFinal | null
 }
 
 export interface AccountDiagnosis {

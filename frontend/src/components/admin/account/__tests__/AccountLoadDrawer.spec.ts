@@ -32,7 +32,7 @@ import AccountLoadDrawer from '../AccountLoadDrawer.vue'
 
 // 抽屉壳子只负责显示/关闭，这里用桩把三个插槽平铺出来便于断言内容
 const SideDrawerStub = {
-  props: ['show', 'title'],
+  props: ['show', 'title', 'width'],
   emits: ['close'],
   template: `
     <div v-if="show" data-test="drawer">
@@ -299,6 +299,97 @@ describe('AccountLoadDrawer', () => {
 
     expect(getRecentRequests).toHaveBeenLastCalledWith(2, { minutes: 15, limit: 50 })
     expect(wrapper.get('[data-testid="load-window-15"]').attributes('aria-pressed')).toBe('true')
+  })
+
+  it('opens wide enough to read the request table: responsive width, elastic model column, intact cost column', async () => {
+    const wrapper = mountDrawer({ show: true, account })
+    await flushPromises()
+
+    // 宽度：窄屏收在 96vw 内（不溢出），大屏至少 960px 并跟到 50vw（≥1920 正好半屏）
+    const width = wrapper.findComponent(SideDrawerStub).props('width') as string
+    expect(width).toBe('min(96vw, max(50vw, 960px))')
+    expect(width).toMatch(/min\(\s*9\d?vw/)
+    expect(width).toMatch(/50vw/)
+    expect(width).toMatch(/960px/)
+
+    // 列宽：table-fixed 下「定长列给 px + 次要列给百分比 + 模型列不写宽度吃掉剩余空间」。
+    // 旧断言钉的是模型盒子上的 min-w-[110px] / max-w-[200px]：那种每列钉死像素的分配会把模型和时间截得太狠，
+    // 次要的邮箱 / 密钥却占着不该占的宽度，所以改成下面这套弹性分配，断言也跟着换。
+    const table = wrapper.get('[data-testid="load-drawer-requests"] table')
+    expect(table.classes()).toContain('table-fixed')
+    expect(table.classes()).toContain('w-full')
+    // 窄屏不把模型列压没，宁可让表格在卡片里横向滚（≥sm 多出用户 / 首字两列，下限跟着抬高）
+    expect(table.classes()).toContain('min-w-[640px]')
+    expect(table.classes()).toContain('sm:min-w-[800px]')
+
+    const headers = wrapper.findAll('thead th')
+    const widthClass = (index: number) => headers[index].classes().find(cls => /^w-\[/.test(cls))
+    expect(widthClass(0)).toBe('w-[72px]') // 时间：HH:mm:ss 定长，够放不换行
+    expect(widthClass(1)).toBe('w-[12%]') // 用户：次要，弹性收窄
+    expect(widthClass(2)).toBe('w-[10%]') // 密钥：次要，弹性收窄
+    expect(widthClass(3)).toBeUndefined() // 模型：不写宽度，剩余空间全给它
+    expect(widthClass(4)).toBe('w-[74px]') // 耗时
+    expect(widthClass(5)).toBe('w-[74px]') // 首字
+    expect(widthClass(6)).toBe('w-[140px]') // tokens
+    expect(widthClass(7)).toBe('w-[88px]') // 费用
+
+    const firstRowCells = wrapper.findAll('[data-testid="load-request-row"]')[0].findAll('td')
+    // 时间列整格不换行
+    expect(firstRowCells[0].classes()).toContain('whitespace-nowrap')
+    expect(firstRowCells[0].text()).toMatch(/^\d{2}:\d{2}:\d{2}$/)
+
+    const modelCell = wrapper.findAll('[data-testid="load-request-model"]')[0]
+    const modelBox = modelCell.get('div')
+    // 模型名：单行截断 + title 显示全名，绝不逐字竖排；宽度交给列去分，不在盒子上钉像素
+    expect(modelBox.classes()).toContain('flex')
+    const modelName = modelBox.get('span')
+    expect(modelName.classes()).toContain('truncate')
+    expect(modelName.attributes('title')).toBe('grok-3-mini')
+    expect(modelCell.html()).not.toContain('break-all')
+    expect(modelCell.html()).not.toContain('max-w-[')
+    expect(modelCell.html()).not.toContain('min-w-[')
+    // 上游模型行同样不换行截断
+    const upstreamBox = modelCell.findAll('div')[1]
+    expect(upstreamBox.classes()).toContain('truncate')
+    expect(upstreamBox.attributes('title')).toBe('grok-4.3')
+    // stream 徽标不跟着模型名一起被截掉
+    const streamBadge = wrapper.findAll('[data-testid="load-request-model"]')[1].findAll('span').at(-1)!
+    expect(streamBadge.text()).toBe('stream')
+    expect(streamBadge.classes()).toContain('flex-shrink-0')
+
+    // 次要列（用户 / 密钥）交出宽度：更早截断，靠 title 悬停看全名
+    const userBox = firstRowCells[1].get('div')
+    expect(userBox.classes()).toContain('truncate')
+    expect(userBox.attributes('title')).toBe('u1@test.com')
+    const keyBox = firstRowCells[2].get('div')
+    expect(keyBox.classes()).toContain('truncate')
+    expect(keyBox.attributes('title')).toBe('jerry')
+
+    // tokens：输入/输出这段不换行，缓存命中放不下时才折到第二行（所以整格不再 whitespace-nowrap）
+    const tokensCell = firstRowCells[6]
+    expect(tokensCell.classes()).not.toContain('whitespace-nowrap')
+    expect(tokensCell.get('span').classes()).toContain('whitespace-nowrap')
+    const cacheSpan = wrapper.findAll('[data-testid="load-request-row"]')[1].findAll('td')[6].findAll('span')[1]
+    expect(cacheSpan.text()).toBe('(+5)')
+    expect(cacheSpan.classes()).toContain('whitespace-nowrap')
+
+    // 费用列：右对齐 + 不换行 + 吸附在右缘（横向滚动时也不会被裁掉）
+    const costCell = wrapper.findAll('[data-testid="load-request-cost"]')[0]
+    expect(costCell.classes()).toContain('whitespace-nowrap')
+    expect(costCell.classes()).toContain('text-right')
+    expect(costCell.classes()).toContain('pr-3')
+    expect(costCell.classes()).toContain('sticky')
+    expect(costCell.classes()).toContain('right-0')
+    expect(costCell.classes()).toContain('bg-white')
+    expect(costCell.text()).toBe('$0.000072')
+    const costHeader = headers.at(-1)!
+    expect(costHeader.classes()).toContain('sticky')
+    expect(costHeader.classes()).toContain('right-0')
+
+    // 次要列（用户 / 首字）在窄屏隐藏，其余列保持可读
+    const secondaryCells = wrapper.findAll('[data-testid="load-request-row"] td').filter(td => td.classes().includes('hidden'))
+    expect(secondaryCells).toHaveLength(4)
+    secondaryCells.forEach(td => expect(td.classes()).toContain('sm:table-cell'))
   })
 
   it('forwards close from the drawer shell', async () => {

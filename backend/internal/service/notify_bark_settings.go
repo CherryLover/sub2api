@@ -21,7 +21,12 @@ import (
 //
 // 存储照备份 S3 配置三件套的模式：整段 JSON 存 settings 表的 notify_bark_config 键，
 // device_key 字段落库前用 SecretEncryptor 加密；读取接口永远不回显 device_key，
-// 只用 has_device_key 表示"已配置"。该键只走管理端接口，绝不进 /api/v1/settings/public。
+// 只用 has_device_key / device_key_count 表示"已配置几个设备"。
+// 该键只走管理端接口，绝不进 /api/v1/settings/public。
+//
+// 多设备推送（站长要求「一条通知同时推给所有人」）刻意不新增字段、不做数据迁移：
+// device_key 仍是一个字符串，只是值允许写成逗号分隔的多个 key，整串照旧加密成一个值。
+// 老配置（没有逗号的单 key）就是这个规则的特例，升级后不需要任何处理。
 
 const (
 	settingKeyNotifyBarkConfig = "notify_bark_config"
@@ -40,8 +45,15 @@ const (
 
 var (
 	ErrBarkLevelInvalid                 = infraerrors.BadRequest("BARK_LEVEL_INVALID", "level must be one of: active, timeSensitive, passive, critical")
-	ErrBarkDeviceKeyRequiredWhenEnabled = infraerrors.BadRequest("BARK_DEVICE_KEY_REQUIRED", "device_key is required when Bark notification is enabled: provide one in the request or save it first")
+	ErrBarkDeviceKeyRequiredWhenEnabled = infraerrors.BadRequest("BARK_DEVICE_KEY_REQUIRED", "device_key is required when Bark notification is enabled: provide one (or a comma-separated list) in the request or save it first")
 	ErrBarkConfigCorrupt                = infraerrors.InternalServer("BARK_CONFIG_CORRUPT", "bark notification config data is corrupted")
+
+	// ErrBarkDeviceKeyTooMany 多设备推送的防呆上限，见 barkMaxDeviceKeys。
+	// 由 ParseBarkDeviceKeys 抛出，定义在这里是为了和其它 Bark 错误放在同一处。
+	ErrBarkDeviceKeyTooMany = infraerrors.BadRequest(
+		"BARK_DEVICE_KEY_TOO_MANY",
+		fmt.Sprintf("too many device keys: at most %d comma-separated device keys are allowed", barkMaxDeviceKeys),
+	)
 	// ErrBarkNotEnabled 手动试发要求 Bark 已启用且配置完整；未启用时明确报错而不是静默跳过。
 	ErrBarkNotEnabled = infraerrors.BadRequest("BARK_NOT_ENABLED", "Bark notification is not enabled or not fully configured")
 
@@ -53,7 +65,7 @@ var (
 	)
 )
 
-// BarkConfig 落库结构；DeviceKey 字段存的是密文。
+// BarkConfig 落库结构；DeviceKey 字段存的是密文，明文是一串逗号分隔的 device_key。
 type BarkConfig struct {
 	Enabled         bool      `json:"enabled"`
 	ServerURL       string    `json:"server_url"`
@@ -66,12 +78,17 @@ type BarkConfig struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
-// BarkConfigView 管理端 GET / PUT 的返回结构：device_key 永远为空串，用 has_device_key 表示已配置。
+// BarkConfigView 管理端 GET / PUT 的返回结构：device_key 永远为空串，
+// 用 has_device_key 表示已配置、device_key_count 表示配了几个设备。
 type BarkConfigView struct {
-	Enabled         bool       `json:"enabled"`
-	ServerURL       string     `json:"server_url"`
-	DeviceKey       string     `json:"device_key"`
+	Enabled   bool   `json:"enabled"`
+	ServerURL string `json:"server_url"`
+	DeviceKey string `json:"device_key"`
+	// HasDeviceKey 看的是"密文在不在"，DeviceKeyCount 看的是"解密后能切出几个"。
+	// 两者一般同进同退；加密密钥被换过导致解不开时会出现 has=true / count=0，
+	// 前端据此只显示"已配置"而不报设备数，比直接翻成"未配置"更贴近事实。
 	HasDeviceKey    bool       `json:"has_device_key"`
+	DeviceKeyCount  int        `json:"device_key_count"`
 	Group           string     `json:"group"`
 	Level           string     `json:"level"`
 	Sound           string     `json:"sound"`
@@ -81,6 +98,7 @@ type BarkConfigView struct {
 }
 
 // BarkConfigInput 管理端 PUT 的请求体。NotifyOnResolve 缺省（nil）按默认值 true 处理。
+// DeviceKey 允许写成逗号分隔的多个设备 Key（也接受中文逗号与换行）。
 type BarkConfigInput struct {
 	Enabled         bool   `json:"enabled"`
 	ServerURL       string `json:"server_url"`
@@ -99,13 +117,43 @@ type BarkTestInput struct {
 	Body  string `json:"body"`
 }
 
+// BarkPushOutcome 单个 device_key 的推送结果。
+//
+// Index 从 1 开始，按站长填写的顺序计数——"第几个设备失败了"就是靠它定位的；
+// MaskedKey 只有前缀 + ***，接口返回与日志里都绝不出现完整 key。
+type BarkPushOutcome struct {
+	Index      int    `json:"index"`
+	MaskedKey  string `json:"masked_key"`
+	OK         bool   `json:"ok"`
+	StatusCode int    `json:"status_code"`
+	Message    string `json:"message"`
+	LatencyMs  int64  `json:"latency_ms"`
+}
+
+// barkPushSummary 一次多设备推送的汇总。
+type barkPushSummary struct {
+	Total     int
+	Succeeded int
+	Failed    int
+	Outcomes  []BarkPushOutcome
+}
+
 // BarkTestResult 测试推送的返回。
+//
+// OK / StatusCode / Message / LatencyMs 取第一个成功设备的回执，保持单设备时代的语义不变；
+// 多设备的全貌看 DeviceCount / SuccessCount / FailureCount 与逐条的 Devices。
+// 只要有一个设备收到就算 OK——全部失败才会走 502 错误分支。
 type BarkTestResult struct {
 	OK         bool   `json:"ok"`
 	PingOK     bool   `json:"ping_ok"`
 	StatusCode int    `json:"status_code"`
 	Message    string `json:"message"`
 	LatencyMs  int64  `json:"latency_ms"`
+
+	DeviceCount  int               `json:"device_count"`
+	SuccessCount int               `json:"success_count"`
+	FailureCount int               `json:"failure_count"`
+	Devices      []BarkPushOutcome `json:"devices,omitempty"`
 }
 
 // OpsAlertNotification 评估器交给推送通道的一条告警摘要（触发 / 恢复 / 手动试发共用）。
@@ -169,12 +217,14 @@ func (s *BarkNotificationService) GetBarkConfig(ctx context.Context) (*BarkConfi
 		return nil, err
 	}
 	if stored == nil {
-		return toBarkConfigView(defaultBarkConfig()), nil
+		return toBarkConfigView(defaultBarkConfig(), 0), nil
 	}
-	return toBarkConfigView(stored), nil
+	return toBarkConfigView(stored, len(s.decryptDeviceKeys(stored.DeviceKey))), nil
 }
 
 // UpdateBarkConfig 保存配置：device_key 为空则保留已存的密文，非空则加密后覆盖。
+// 请求里的 device_key 可以是逗号分隔的多个设备，规范化（trim / 去空 / 去重 / 查上限）后
+// 拼回一串再整体加密，落库仍然只有一个值。
 func (s *BarkNotificationService) UpdateBarkConfig(ctx context.Context, in BarkConfigInput) (*BarkConfigView, error) {
 	next, err := normalizeBarkConfigInput(in, false)
 	if err != nil {
@@ -184,19 +234,28 @@ func (s *BarkNotificationService) UpdateBarkConfig(ctx context.Context, in BarkC
 	// 旧配置读不出来（含 JSON 损坏）时按"没有旧值"处理，保证坏数据能被这次保存覆盖掉。
 	old, _ := s.load(ctx)
 
-	deviceKey := strings.TrimSpace(in.DeviceKey)
+	// 只填了分隔符（例如 " , , "）解析后是空列表，等同于"这次没提供新 key"，走保留旧值分支；
+	// 否则会把一串逗号当成有效密钥存进去。
+	deviceKeys, err := ParseBarkDeviceKeys(in.DeviceKey)
+	if err != nil {
+		return nil, err
+	}
+
+	deviceKeyCount := 0
 	switch {
-	case deviceKey != "":
+	case len(deviceKeys) > 0:
 		if !s.encryptionKeyConfigured {
 			return nil, ErrBarkEncryptionKeyNotConfigured
 		}
-		encrypted, err := s.encryptor.Encrypt(deviceKey)
+		encrypted, err := s.encryptor.Encrypt(JoinBarkDeviceKeys(deviceKeys))
 		if err != nil {
 			return nil, fmt.Errorf("encrypt bark device key: %w", err)
 		}
 		next.DeviceKey = encrypted
+		deviceKeyCount = len(deviceKeys)
 	case old != nil:
 		next.DeviceKey = old.DeviceKey
+		deviceKeyCount = len(s.decryptDeviceKeys(old.DeviceKey))
 	}
 
 	if next.Enabled && next.DeviceKey == "" {
@@ -212,12 +271,15 @@ func (s *BarkNotificationService) UpdateBarkConfig(ctx context.Context, in BarkC
 		return nil, fmt.Errorf("save bark config: %w", err)
 	}
 	s.invalidateCache()
-	return toBarkConfigView(next), nil
+	return toBarkConfigView(next, deviceKeyCount), nil
 }
 
-// TestBark 用请求体里的配置直接发一条测试通知：先探活（失败不阻断），再 push。
+// TestBark 用请求体里的配置直接发一条测试通知：先探活（失败不阻断），再逐个设备 push。
 // 请求里没带 device_key、库里也没存时不算错误：只做探活，返回 ok=false + ping_ok，
 // 让前端能在还没填 Key 的阶段就验证服务器地址是否可达。
+//
+// 配了多个设备时每个都会收到测试通知，逐条结果放在 Devices 里回给前端；
+// 只要有一个成功就返回 200（部分失败靠 failure_count 体现），全部失败才是 502。
 func (s *BarkNotificationService) TestBark(ctx context.Context, in BarkTestInput) (*BarkTestResult, error) {
 	cfg, err := normalizeBarkConfigInput(in.BarkConfigInput, true)
 	if err != nil {
@@ -227,11 +289,11 @@ func (s *BarkNotificationService) TestBark(ctx context.Context, in BarkTestInput
 		return nil, errors.New("bark sender not initialized")
 	}
 
-	deviceKey := strings.TrimSpace(in.DeviceKey)
-	if deviceKey == "" {
-		deviceKey = s.storedDeviceKey(ctx)
+	deviceKeys, err := s.resolveTestDeviceKeys(ctx, in.DeviceKey)
+	if err != nil {
+		return nil, err
 	}
-	if deviceKey == "" {
+	if len(deviceKeys) == 0 {
 		pingOK, pingLatency := s.ping(ctx, cfg.ServerURL)
 		return &BarkTestResult{
 			OK:         false,
@@ -242,7 +304,7 @@ func (s *BarkNotificationService) TestBark(ctx context.Context, in BarkTestInput
 		}, nil
 	}
 
-	result := &BarkTestResult{}
+	result := &BarkTestResult{DeviceCount: len(deviceKeys)}
 	result.PingOK, _ = s.ping(ctx, cfg.ServerURL)
 
 	title := strings.TrimSpace(in.Title)
@@ -254,31 +316,57 @@ func (s *BarkNotificationService) TestBark(ctx context.Context, in BarkTestInput
 		body = fmt.Sprintf("这是一条来自 Sub2API 的测试通知。\n时间：%s\n服务器：%s", formatBarkTime(s.now()), cfg.ServerURL)
 	}
 
-	sendCtx, cancelSend := context.WithTimeout(ctx, barkHTTPTimeout)
-	defer cancelSend()
-	sent, err := s.sender.Send(sendCtx, BarkTarget{ServerURL: cfg.ServerURL, DeviceKey: deviceKey}, BarkMessage{
+	summary := s.pushToDevices(ctx, cfg.ServerURL, deviceKeys, BarkMessage{
 		Title: title,
 		Body:  body,
 		Group: cfg.Group,
 		Level: cfg.Level,
 		URL:   cfg.ClickURL,
 		Sound: cfg.Sound,
-	})
-	if err != nil {
-		var sendErr *BarkSendError
-		if errors.As(err, &sendErr) {
-			slog.Warn("bark_test_push_rejected", "server_url", cfg.ServerURL, "status_code", sendErr.StatusCode)
-			return nil, infraerrors.New(http.StatusBadGateway, "BARK_PUSH_FAILED", sendErr.Error())
-		}
-		slog.Warn("bark_test_push_failed", "server_url", cfg.ServerURL, "error", err)
-		return nil, infraerrors.New(http.StatusBadGateway, "BARK_PUSH_FAILED", "bark push failed: "+scrubBarkSecret(err, deviceKey).Error())
+	}, barkHTTPTimeout)
+	result.SuccessCount = summary.Succeeded
+	result.FailureCount = summary.Failed
+	result.Devices = summary.Outcomes
+
+	if summary.Succeeded == 0 {
+		slog.Warn("bark_test_push_failed",
+			"server_url", cfg.ServerURL,
+			"devices", summary.Total,
+			"failed_devices", barkFailedDeviceLabels(summary),
+		)
+		return nil, infraerrors.New(http.StatusBadGateway, "BARK_PUSH_FAILED", barkFailureMessage(summary))
+	}
+	if summary.Failed > 0 {
+		slog.Warn("bark_test_push_partial",
+			"server_url", cfg.ServerURL,
+			"succeeded", summary.Succeeded,
+			"failed", summary.Failed,
+			"failed_devices", barkFailedDeviceLabels(summary),
+		)
 	}
 
+	// OK / 状态码 / 延迟取第一个成功的设备：单设备配置下与旧版逐字一致。
+	first := firstSuccessfulBarkOutcome(summary)
 	result.OK = true
-	result.StatusCode = sent.StatusCode
-	result.Message = sent.Message
-	result.LatencyMs = sent.Latency.Milliseconds()
+	result.StatusCode = first.StatusCode
+	result.Message = first.Message
+	result.LatencyMs = first.LatencyMs
 	return result, nil
+}
+
+// resolveTestDeviceKeys 决定这次测试推给哪些设备：请求体里现填的优先（要过上限校验，
+// 因为这就是站长正要保存的内容），没填就退回库里已存的（宽松解析，历史数据不该读不出来）。
+func (s *BarkNotificationService) resolveTestDeviceKeys(ctx context.Context, requested string) ([]string, error) {
+	if strings.TrimSpace(requested) != "" {
+		keys, err := ParseBarkDeviceKeys(requested)
+		if err != nil {
+			return nil, err
+		}
+		if len(keys) > 0 {
+			return keys, nil
+		}
+	}
+	return s.storedDeviceKeys(ctx), nil
 }
 
 // ping 探活一次，返回是否成功与耗时；失败只记日志，不向上返回错误。
@@ -334,24 +422,151 @@ func (s *BarkNotificationService) NotifyOpsAlertManual(ctx context.Context, n Op
 	return s.push(ctx, cfg, strings.TrimSpace(title), buildOpsAlertManualBarkBody(n, hasData, breached))
 }
 
+// push 把一条告警推给配置里的每个设备。全部失败才向上返回错误：
+// 只要有一个人收到，告警就算送达，把它判成失败只会让评估器记错状态、白白重试。
 func (s *BarkNotificationService) push(ctx context.Context, cfg *BarkConfig, title, body string) error {
 	if s == nil || s.sender == nil {
 		return errors.New("bark sender not initialized")
 	}
-	sendCtx, cancel := context.WithTimeout(ctx, barkNotifyTimeout)
-	defer cancel()
-	_, err := s.sender.Send(sendCtx, BarkTarget{ServerURL: cfg.ServerURL, DeviceKey: cfg.DeviceKey}, BarkMessage{
+	// runtimeConfig 里的 DeviceKey 是解密后的整串，这里切回列表。
+	deviceKeys := splitBarkDeviceKeys(cfg.DeviceKey)
+	if len(deviceKeys) == 0 {
+		return errors.New("bark device_key is not configured")
+	}
+
+	summary := s.pushToDevices(ctx, cfg.ServerURL, deviceKeys, BarkMessage{
 		Title: title,
 		Body:  body,
 		Group: cfg.Group,
 		Level: cfg.Level,
 		URL:   cfg.ClickURL,
 		Sound: cfg.Sound,
-	})
-	if err != nil {
-		return scrubBarkSecret(err, cfg.DeviceKey)
+	}, barkNotifyTimeout)
+
+	if summary.Succeeded == 0 {
+		return errors.New(barkFailureMessage(summary))
+	}
+	if summary.Failed > 0 {
+		// 部分失败只记一条 warn：站长得知道是"第几个设备"掉了（多半是 key 注销或 App 卸载），
+		// 但日志里只放序号与打码前缀。
+		slog.Warn("bark_push_partial_failure",
+			"server_url", cfg.ServerURL,
+			"succeeded", summary.Succeeded,
+			"failed", summary.Failed,
+			"failed_devices", barkFailedDeviceLabels(summary),
+		)
 	}
 	return nil
+}
+
+// pushToDevices 把同一条消息逐个推给每个 device_key，并汇总逐条结果。
+//
+// 三条要求决定了这里的写法：
+//   - 互不影响：一个设备失败（key 被注销、App 被卸载）不能让别人收不到，所以不 fail-fast，
+//     每个结果都收下来再统一判断；
+//   - 独立计时：每个设备一个超时预算，避免第一个设备卡满 10 秒后把后面的额度吃光；
+//   - 全部失败才算整体失败：交给调用方按 Succeeded 判断。
+//
+// 设备数有 barkMaxDeviceKeys 上限，直接一个 key 起一个 goroutine 即可，不需要额外限流；
+// 每个 goroutine 只写自己那一格 Outcomes，所以不用加锁。
+func (s *BarkNotificationService) pushToDevices(
+	ctx context.Context,
+	serverURL string,
+	deviceKeys []string,
+	msg BarkMessage,
+	timeout time.Duration,
+) barkPushSummary {
+	summary := barkPushSummary{Total: len(deviceKeys), Outcomes: make([]BarkPushOutcome, len(deviceKeys))}
+
+	var wg sync.WaitGroup
+	for i, key := range deviceKeys {
+		wg.Add(1)
+		go func(idx int, deviceKey string) {
+			defer wg.Done()
+			sendCtx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+
+			outcome := BarkPushOutcome{Index: idx + 1, MaskedKey: MaskBarkDeviceKey(deviceKey)}
+			sent, err := s.sender.Send(sendCtx, BarkTarget{ServerURL: serverURL, DeviceKey: deviceKey}, msg)
+			switch {
+			case err != nil:
+				// 抹密钥时必须把整份列表都传进去，而不是只传当次这一个：
+				// 上游回显 / 代理错误里可能带上别的设备的 key，漏出去任意一个都是事故。
+				var sendErr *BarkSendError
+				if errors.As(err, &sendErr) {
+					outcome.StatusCode = sendErr.StatusCode
+					outcome.Message = scrubBarkSecretText(sendErr.Error(), deviceKeys)
+				} else {
+					// 网络层错误自己不带"推送失败"这层语境，补上前缀，与旧版单设备的返回一致。
+					outcome.Message = "bark push failed: " + scrubBarkSecretText(err.Error(), deviceKeys)
+				}
+			case sent != nil:
+				outcome.OK = true
+				outcome.StatusCode = sent.StatusCode
+				outcome.Message = sent.Message
+				outcome.LatencyMs = sent.Latency.Milliseconds()
+			default:
+				// 发送面既没报错也没给回执，按失败处理而不是静默当成功。
+				outcome.Message = "bark sender returned no result"
+			}
+			summary.Outcomes[idx] = outcome
+		}(i, key)
+	}
+	wg.Wait()
+
+	for _, outcome := range summary.Outcomes {
+		if outcome.OK {
+			summary.Succeeded++
+		} else {
+			summary.Failed++
+		}
+	}
+	return summary
+}
+
+// firstSuccessfulBarkOutcome 返回第一个成功的设备结果；没有成功的设备时返回零值。
+func firstSuccessfulBarkOutcome(summary barkPushSummary) BarkPushOutcome {
+	for _, outcome := range summary.Outcomes {
+		if outcome.OK {
+			return outcome
+		}
+	}
+	return BarkPushOutcome{}
+}
+
+// barkFailureMessage 拼「所有设备都失败」时对外的错误信息。
+//
+// 单设备时逐字沿用旧版那条单独的错误信息，老的调用方与用例不受影响；
+// 多设备时按「失败几个 / 共几个 + 逐条序号」展开，只带序号与打码前缀，不会带出完整 key。
+func barkFailureMessage(summary barkPushSummary) string {
+	failed := make([]BarkPushOutcome, 0, summary.Failed)
+	for _, outcome := range summary.Outcomes {
+		if !outcome.OK {
+			failed = append(failed, outcome)
+		}
+	}
+	if len(failed) == 0 {
+		return "bark push failed"
+	}
+	if summary.Total == 1 {
+		return failed[0].Message
+	}
+	parts := make([]string, 0, len(failed))
+	for _, outcome := range failed {
+		parts = append(parts, fmt.Sprintf("#%d (%s) %s", outcome.Index, outcome.MaskedKey, outcome.Message))
+	}
+	return fmt.Sprintf("%d of %d devices failed: %s", len(failed), summary.Total, strings.Join(parts, "; "))
+}
+
+// barkFailedDeviceLabels 失败设备的「#序号(打码前缀)」列表，只用于日志。
+func barkFailedDeviceLabels(summary barkPushSummary) []string {
+	labels := make([]string, 0, summary.Failed)
+	for _, outcome := range summary.Outcomes {
+		if !outcome.OK {
+			labels = append(labels, fmt.Sprintf("#%d(%s)", outcome.Index, outcome.MaskedKey))
+		}
+	}
+	return labels
 }
 
 func buildOpsAlertBarkBody(n OpsAlertNotification, resolved bool) string {
@@ -512,21 +727,27 @@ func (s *BarkNotificationService) load(ctx context.Context) (*BarkConfig, error)
 	return cfg, nil
 }
 
-// storedDeviceKey 返回已存 device_key 的明文；没有或解不开时返回空串。
-func (s *BarkNotificationService) storedDeviceKey(ctx context.Context) string {
+// storedDeviceKeys 返回已存 device_key 的明文列表；没有或解不开时返回空切片。
+func (s *BarkNotificationService) storedDeviceKeys(ctx context.Context) []string {
 	stored, err := s.load(ctx)
-	if err != nil || stored == nil || stored.DeviceKey == "" {
-		return ""
+	if err != nil || stored == nil {
+		return nil
 	}
-	if s.encryptor == nil {
-		return ""
+	return s.decryptDeviceKeys(stored.DeviceKey)
+}
+
+// decryptDeviceKeys 解密整串 device_key 再切成列表。
+// 解不开（典型场景：加密密钥被换过）时返回空切片，调用方一律按"未配置"处理。
+func (s *BarkNotificationService) decryptDeviceKeys(ciphertext string) []string {
+	if s == nil || s.encryptor == nil || ciphertext == "" {
+		return nil
 	}
-	plain, err := s.encryptor.Decrypt(stored.DeviceKey)
+	plain, err := s.encryptor.Decrypt(ciphertext)
 	if err != nil {
 		slog.Warn("bark_device_key_decrypt_failed", "error", err)
-		return ""
+		return nil
 	}
-	return strings.TrimSpace(plain)
+	return splitBarkDeviceKeys(plain)
 }
 
 // runtimeConfig 返回可直接用于推送的配置（device_key 已解密），带 30 秒缓存。
@@ -568,14 +789,15 @@ func (s *BarkNotificationService) resolveRuntimeConfig(ctx context.Context) *Bar
 		slog.Warn("bark_config_invalid_server_url", "error", err)
 		return nil
 	}
-	deviceKey := s.storedDeviceKey(ctx)
-	if deviceKey == "" {
+	deviceKeys := s.decryptDeviceKeys(stored.DeviceKey)
+	if len(deviceKeys) == 0 {
 		slog.Warn("bark_config_device_key_unavailable", "server_url", serverURL)
 		return nil
 	}
 	out := *stored
 	out.ServerURL = serverURL
-	out.DeviceKey = deviceKey
+	// 运行时配置里 DeviceKey 放的是解密后的整串（已去重、逗号分隔），push 时再切回列表。
+	out.DeviceKey = JoinBarkDeviceKeys(deviceKeys)
 	if !IsValidBarkLevel(out.Level) {
 		out.Level = BarkLevelActive
 	}
@@ -635,7 +857,9 @@ func normalizeBarkConfigInput(in BarkConfigInput, requireServerURL bool) (*BarkC
 	return cfg, nil
 }
 
-func toBarkConfigView(cfg *BarkConfig) *BarkConfigView {
+// toBarkConfigView 脱敏输出。deviceKeyCount 必须由调用方解密后数出来：
+// cfg.DeviceKey 是密文，从密文本身看不出里面装了几个设备。
+func toBarkConfigView(cfg *BarkConfig, deviceKeyCount int) *BarkConfigView {
 	if cfg == nil {
 		cfg = defaultBarkConfig()
 	}
@@ -644,6 +868,7 @@ func toBarkConfigView(cfg *BarkConfig) *BarkConfigView {
 		ServerURL:       cfg.ServerURL,
 		DeviceKey:       "",
 		HasDeviceKey:    cfg.DeviceKey != "",
+		DeviceKeyCount:  deviceKeyCount,
 		Group:           cfg.Group,
 		Level:           cfg.Level,
 		Sound:           cfg.Sound,

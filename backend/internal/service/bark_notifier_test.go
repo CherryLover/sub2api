@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -285,4 +286,130 @@ func TestIsValidBarkLevel(t *testing.T) {
 	for _, level := range []string{"", "Active", "urgent", "time-sensitive"} {
 		require.False(t, IsValidBarkLevel(level))
 	}
+}
+
+func TestSplitBarkDeviceKeys(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{name: "老配置的单 key 原样返回", in: "device-key-0001", want: []string{"device-key-0001"}},
+		{name: "英文逗号", in: "a-key-1,b-key-2,c-key-3", want: []string{"a-key-1", "b-key-2", "c-key-3"}},
+		{name: "中文逗号", in: "a-key-1，b-key-2", want: []string{"a-key-1", "b-key-2"}},
+		{name: "换行与 CRLF", in: "a-key-1\nb-key-2\r\nc-key-3", want: []string{"a-key-1", "b-key-2", "c-key-3"}},
+		{name: "混用分隔符", in: "a-key-1,b-key-2，\nc-key-3", want: []string{"a-key-1", "b-key-2", "c-key-3"}},
+		{name: "逐个 trim 并丢掉空段", in: "  a-key-1 , ,, \tb-key-2  ,", want: []string{"a-key-1", "b-key-2"}},
+		{name: "去重且保持首次出现顺序", in: "b-key,a-key,b-key,c-key,a-key", want: []string{"b-key", "a-key", "c-key"}},
+		{name: "只有分隔符时为空", in: " , ，\n\t ", want: []string{}},
+		{name: "空串为空", in: "", want: []string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, splitBarkDeviceKeys(tc.in))
+		})
+	}
+}
+
+func TestParseBarkDeviceKeysEnforcesLimit(t *testing.T) {
+	t.Parallel()
+
+	atLimit := make([]string, 0, barkMaxDeviceKeys)
+	for i := 0; i < barkMaxDeviceKeys; i++ {
+		atLimit = append(atLimit, fmt.Sprintf("device-key-%02d", i))
+	}
+
+	keys, err := ParseBarkDeviceKeys(strings.Join(atLimit, ","))
+	require.NoError(t, err, "刚好到上限应放行")
+	require.Equal(t, atLimit, keys)
+
+	_, err = ParseBarkDeviceKeys(strings.Join(append(atLimit, "device-key-99"), ","))
+	require.ErrorIs(t, err, ErrBarkDeviceKeyTooMany, "超出上限要报明确的错误")
+
+	// 先去重再数：同一个 key 粘贴三遍不该把人挡在上限外面。
+	tripled := append(append(append([]string{}, atLimit...), atLimit...), atLimit...)
+	keys, err = ParseBarkDeviceKeys(strings.Join(tripled, "\n"))
+	require.NoError(t, err)
+	require.Len(t, keys, barkMaxDeviceKeys)
+}
+
+func TestMaskBarkDeviceKey(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "dev***", MaskBarkDeviceKey("device-key-0001"))
+	require.Equal(t, "dev***", MaskBarkDeviceKey("  device-key-0001  "))
+	require.Equal(t, "***", MaskBarkDeviceKey("short"), "短 key 整串打码")
+	require.Equal(t, "***", MaskBarkDeviceKey(""))
+
+	// 打码片段必须短于 scrub 下限，否则它自己会被当成密钥再抹一遍。
+	require.Less(t, barkMaskedKeyPrefixLen, barkSecretScrubMinLen)
+}
+
+// TestScrubBarkSecretScrubsEveryDeviceKey 多设备场景的关键安全用例：
+// 只要列表里的任何一个 key 漏进错误信息就是事故。
+func TestScrubBarkSecretScrubsEveryDeviceKey(t *testing.T) {
+	t.Parallel()
+
+	keys := []string{"device-key-0001", "device-key-0002", "device-key-0003"}
+	err := errors.New("push failed for device-key-0002 then device-key-0003 (device-key-0001 was fine)")
+
+	scrubbed := scrubBarkSecret(err, keys...)
+	for _, key := range keys {
+		require.NotContainsf(t, scrubbed.Error(), key, "device_key %q 泄进了错误信息", key)
+	}
+	require.Equal(t, "push failed for *** then *** (*** was fine)", scrubbed.Error())
+
+	// 一个 key 都没命中时原样返回，保住错误链。
+	clean := errors.New("dial tcp: i/o timeout")
+	require.Same(t, clean, scrubBarkSecret(clean, keys...))
+	require.NoError(t, scrubBarkSecret(nil, keys...))
+
+	// 过短的 key 仍然跳过替换，免得把响应里的普通单词也抹了。
+	require.Equal(t, "bad key abc", scrubBarkSecret(errors.New("bad key abc"), "abc").Error())
+}
+
+func TestBarkResponseSnippetScrubsEveryDeviceKey(t *testing.T) {
+	t.Parallel()
+
+	keys := []string{"device-key-0001", "device-key-0002"}
+	snippet := barkResponseSnippet(
+		[]byte(`{"code":400,"message":"device-key-0001 and device-key-0002 rejected"}`),
+		keys...,
+	)
+	require.Equal(t, `{"code":400,"message":"*** and *** rejected"}`, snippet)
+
+	// 先抹后截断：key 正好骑在 200 字边界上时，截断在前会剩下半截密钥。
+	straddling := strings.Repeat("x", barkResponseSnippetLimit-5) + "device-key-0001 tail"
+	snippet = barkResponseSnippet([]byte(straddling), keys...)
+	require.NotContains(t, snippet, "devic", "截断不能把 key 切成能辨认的半截")
+}
+
+// TestBarkNotifier_SendScrubsOtherDeviceKeysFromUpstreamEcho 上游把"别的设备"的 key
+// 回显在响应里时，同样不能带出去——多设备下这才是最容易漏的口子。
+func TestBarkNotifier_SendScrubsOtherDeviceKeysFromUpstreamEcho(t *testing.T) {
+	t.Parallel()
+
+	other := "device-key-0002"
+	srv := newBarkTestServer(t)
+	srv.setPush(http.StatusBadRequest, `{"code":400,"message":"`+other+` is not registered"}`)
+	n := NewBarkNotifier(nil)
+
+	_, err := n.Send(
+		context.Background(),
+		BarkTarget{ServerURL: srv.URL, DeviceKey: "device-key-0001"},
+		BarkMessage{Body: "x"},
+	)
+	require.Error(t, err)
+
+	// Send 只认识自己这一个 key，兜底靠服务层用整份列表再抹一遍。
+	var sendErr *BarkSendError
+	require.ErrorAs(t, err, &sendErr)
+	require.NotContains(
+		t,
+		scrubBarkSecretText(sendErr.Error(), []string{"device-key-0001", other}),
+		other,
+	)
 }

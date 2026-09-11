@@ -89,6 +89,7 @@ const configuredConfig = () => ({
   server_url: 'https://bark.example.com',
   device_key: '',
   has_device_key: true,
+  device_key_count: 1,
   group: 'ops',
   level: 'critical',
   sound: 'alarm',
@@ -102,6 +103,7 @@ const freshConfig = () => ({
   server_url: 'https://api.day.app',
   device_key: '',
   has_device_key: false,
+  device_key_count: 0,
   group: 'sub2api',
   level: 'active',
   sound: '',
@@ -499,5 +501,176 @@ describe('BarkNotifySettingsCard', () => {
     expect(showError).toHaveBeenCalledWith(
       'admin.settings.notifications.bark.deviceKeyRequiredForTest',
     )
+  })
+
+  // ─── 多设备 Key ───
+
+  it('sends a comma-separated device key list verbatim and shows the configured device count', async () => {
+    getBarkConfig.mockResolvedValue(freshConfig())
+    updateBarkConfig.mockResolvedValue({
+      ...freshConfig(),
+      enabled: true,
+      has_device_key: true,
+      device_key_count: 3,
+      updated_at: '2026-09-10T12:00:00Z',
+    })
+
+    const wrapper = await mountCard()
+    // 原样提交给后端，由后端负责 trim / 去重 / 查上限，前端不自作主张改写
+    await field(wrapper, 'bark-device-key').setValue('key1, key2 ,key3')
+    await field(wrapper, 'bark-enabled').setValue(true)
+    await field(wrapper, 'bark-save').trigger('click')
+    await flushPromises()
+
+    expect(updateBarkConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: true, device_key: 'key1, key2 ,key3' }),
+    )
+    // 保存后清空输入框，只显示「已配置 N 个设备」，绝不回显 Key
+    expect((field(wrapper, 'bark-device-key').element as HTMLInputElement).value).toBe('')
+    expect(field(wrapper, 'bark-device-key-configured').text()).toContain(
+      'admin.settings.notifications.bark.deviceKeyConfiguredCount:3',
+    )
+    expect(wrapper.text()).not.toContain('key1')
+  })
+
+  it('falls back to the plain configured badge when the backend cannot count the keys', async () => {
+    // has_device_key=true / device_key_count=0：加密密钥换过，解不开已存的值
+    getBarkConfig.mockResolvedValue({ ...configuredConfig(), device_key_count: 0 })
+
+    const wrapper = await mountCard()
+
+    expect(field(wrapper, 'bark-device-key-configured').text()).toContain(
+      'admin.settings.notifications.bark.deviceKeyConfigured',
+    )
+    expect(field(wrapper, 'bark-device-key-configured').text()).not.toContain(
+      'deviceKeyConfiguredCount',
+    )
+  })
+
+  it('shows the per-device breakdown and warns when only some devices received the test push', async () => {
+    getBarkConfig.mockResolvedValue({ ...configuredConfig(), device_key_count: 3 })
+    testBark.mockResolvedValue({
+      ok: true,
+      ping_ok: true,
+      status_code: 200,
+      message: 'success',
+      latency_ms: 87,
+      device_count: 3,
+      success_count: 2,
+      failure_count: 1,
+      devices: [
+        { index: 1, masked_key: 'aaa***', ok: true, status_code: 200, message: 'success', latency_ms: 87 },
+        {
+          index: 2,
+          masked_key: 'bbb***',
+          ok: false,
+          status_code: 400,
+          message: 'bark push failed (status 400): device key is invalid',
+          latency_ms: 0,
+        },
+        { index: 3, masked_key: 'ccc***', ok: true, status_code: 200, message: 'success', latency_ms: 91 },
+      ],
+    })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'bark-send-test').trigger('click')
+    await flushPromises()
+
+    // 部分失败降级成 warning，而不是一片绿
+    expect(showWarning).toHaveBeenCalledWith('admin.settings.notifications.bark.sentPartial:2,1')
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
+
+    const result = field(wrapper, 'bark-test-result')
+    expect(result.attributes('data-tone')).toBe('warning')
+    expect(result.text()).toContain('admin.settings.notifications.bark.resultPartial')
+    expect(field(wrapper, 'bark-test-device-summary').text()).toBe(
+      'admin.settings.notifications.bark.resultDeviceSummary:3,2,1',
+    )
+
+    const rows = field(wrapper, 'bark-test-device-list').findAll('li')
+    expect(rows).toHaveLength(3)
+    expect(rows[0].text()).toBe('admin.settings.notifications.bark.deviceResultOk:1,aaa***')
+    expect(rows[0].attributes('data-ok')).toBe('true')
+    expect(rows[1].text()).toBe(
+      'admin.settings.notifications.bark.deviceResultFailed:2,bbb***,bark push failed (status 400): device key is invalid',
+    )
+    expect(rows[1].attributes('data-ok')).toBe('false')
+    expect(rows[2].attributes('data-ok')).toBe('true')
+  })
+
+  it('keeps the plain success view when every device received the test push', async () => {
+    getBarkConfig.mockResolvedValue({ ...configuredConfig(), device_key_count: 2 })
+    testBark.mockResolvedValue({
+      ...okTestResult(),
+      device_count: 2,
+      success_count: 2,
+      failure_count: 0,
+      devices: [
+        { index: 1, masked_key: 'aaa***', ok: true, status_code: 200, message: 'success', latency_ms: 87 },
+        { index: 2, masked_key: 'bbb***', ok: true, status_code: 200, message: 'success', latency_ms: 90 },
+      ],
+    })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'bark-send-test').trigger('click')
+    await flushPromises()
+
+    expect(showSuccess).toHaveBeenCalledWith('admin.settings.notifications.bark.sent')
+    expect(showWarning).not.toHaveBeenCalled()
+
+    const result = field(wrapper, 'bark-test-result')
+    expect(result.attributes('data-tone')).toBe('success')
+    expect(result.text()).toContain('admin.settings.notifications.bark.resultSent')
+    // 多设备时仍然给出统计，让站长确认真的推了两个人
+    expect(field(wrapper, 'bark-test-device-summary').text()).toBe(
+      'admin.settings.notifications.bark.resultDeviceSummary:2,2,0',
+    )
+    expect(field(wrapper, 'bark-test-device-list').findAll('li')).toHaveLength(2)
+  })
+
+  it('hides the multi-device breakdown for a single-device configuration', async () => {
+    getBarkConfig.mockResolvedValue(configuredConfig())
+    testBark.mockResolvedValue({
+      ...okTestResult(),
+      device_count: 1,
+      success_count: 1,
+      failure_count: 0,
+      devices: [
+        { index: 1, masked_key: '***', ok: true, status_code: 200, message: 'success', latency_ms: 87 },
+      ],
+    })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'bark-send-test').trigger('click')
+    await flushPromises()
+
+    expect(showSuccess).toHaveBeenCalledWith('admin.settings.notifications.bark.sent')
+    expect(field(wrapper, 'bark-test-device-summary').exists()).toBe(false)
+    expect(field(wrapper, 'bark-test-device-list').exists()).toBe(false)
+    expect(field(wrapper, 'bark-test-result').text()).toContain(
+      'admin.settings.notifications.bark.resultSent',
+    )
+  })
+
+  it('surfaces the backend limit error when too many device keys are pasted in', async () => {
+    getBarkConfig.mockResolvedValue(freshConfig())
+    updateBarkConfig.mockRejectedValue({
+      status: 400,
+      message: 'too many device keys: at most 10 comma-separated device keys are allowed',
+    })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'bark-device-key').setValue(
+      Array.from({ length: 11 }, (_, i) => `key${i}`).join(','),
+    )
+    await field(wrapper, 'bark-save').trigger('click')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith(
+      'too many device keys: at most 10 comma-separated device keys are allowed',
+    )
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(field(wrapper, 'bark-device-key-configured').exists()).toBe(false)
   })
 })

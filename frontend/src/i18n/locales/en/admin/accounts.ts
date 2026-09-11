@@ -1,5 +1,86 @@
 export default {
     accounts: {
+      // Account x model availability matrix (/admin/model-availability)
+      modelAvailability: {
+        title: 'Model Availability',
+        description:
+          'See at a glance which model is rate limited on which account, and which accounts are unschedulable as a whole.',
+        refresh: 'Refresh',
+        refreshing: 'Refreshing…',
+        lastUpdated: 'Updated {time}',
+        delayNotice: 'Status is a snapshot taken at query time and can lag by a few seconds.',
+        modelSourceNotice:
+          'The model list comes from each account\'s model mapping (platform defaults when no mapping is set), merged with currently active rate-limit records.',
+        loading: 'Loading accounts and model status…',
+        diagnosticsUnavailable: 'Scheduling diagnostics unavailable; falling back to database records only.',
+        modelListPartiallyUnavailable:
+          'Model list unavailable for {count} account(s); their cells are shown as "?".',
+        summary: {
+          accounts: 'Accounts',
+          models: 'Models',
+          blockedAccounts: 'Unschedulable accounts',
+          limitedCombos: 'Rate-limited account x model'
+        },
+        filters: {
+          allPlatforms: 'All platforms',
+          onlyIssues: 'Only show problems'
+        },
+        empty: {
+          title: 'No accounts',
+          description: 'No account matches the current filter.',
+          noIssuesTitle: 'No rate limits right now',
+          noIssuesDescription: 'Every account is schedulable and no model is rate limited.'
+        },
+        error: {
+          title: 'Failed to load',
+          retry: 'Retry'
+        },
+        matrix: {
+          accountColumn: 'Account',
+          accountBlocked: 'Account down',
+          accountBlockedHint: 'The whole account is unschedulable',
+          available: 'Available',
+          limited: 'Rate limited',
+          limitedUntil: 'Limited until {time}',
+          limitedAccounts: '{count} account(s) limited',
+          unsupportedHint: 'This account does not map this model',
+          unknownHint: 'Model list unavailable for this account, support unknown',
+          modelListUnavailable: 'Model list unavailable',
+          blockSourceLabel: 'Source: {source}'
+        },
+        reasons: {
+          openaiDedicatedQuotaPool: 'Spark dedicated quota pool exhausted',
+          codexPlanGatedModel: 'Account plan does not include this model',
+          upstreamModelNotFound: 'Upstream does not have this model',
+          openaiImageRateLimited: 'Image generation rate limited upstream',
+          openaiImageCapabilityLost: 'Account temporarily cannot generate images',
+          openaiImagesToolUnavailable: 'Image tool unavailable on this account',
+          anthropicWindowExhausted: '7-day usage window exhausted',
+          anthropicFableCredits: 'Fable requires extra credits'
+        },
+        pseudoModels: {
+          aiCredits: 'Account credits',
+          imageGeneration: 'Image generation'
+        },
+        accountBlocks: {
+          status: 'Account status is not active',
+          manualUnschedulable: 'Manually paused from scheduling',
+          expired: 'Account expired',
+          overloaded: 'Upstream overloaded (529)',
+          rateLimited: 'Account-wide rate limit (429)',
+          tempUnschedulable: 'Temporarily unschedulable',
+          quotaExceeded: 'Quota exhausted',
+          runtimeBlock: 'Gateway in-process block',
+          proxyQuarantine: 'Proxy quarantined',
+          quotaAutoPause: 'Auto-paused by quota threshold'
+        },
+        modelBlocks: {
+          modelRateLimit: 'Persisted model rate limit',
+          modelRuntimeBlock: 'In-process model block',
+          grokModelQuota: 'Grok model quota exhausted',
+          grokTeamRateLimit: 'Grok team rate limit'
+        }
+      },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',
@@ -266,7 +347,42 @@ export default {
         windowHint: 'Last {n} minutes',
         lastAt: 'Latest {time}',
         upstreamStatus: 'Upstream {code}',
-        unavailable: 'Error data unavailable (ops monitoring off or query failed) — this does not mean there were no errors'
+        unavailable: 'Error data unavailable (ops monitoring off or query failed) — this does not mean there were no errors',
+        chipRecovered: '{code} ×{count} recovered',
+        chipFailed: '{code} ×{count} failed',
+        chipTotalRecovered: '×{count} recovered',
+        chipTotalFailed: '×{count} failed',
+        summaryTotal: '{count} total',
+        summaryRecovered: '{count} recovered',
+        summaryFailed: '{count} failed',
+        recoveredExplainer: 'Recovered = the gateway retried or switched accounts and the client still got a 2xx. Only "failed" means the client actually saw an error.',
+        chainHint: 'Click a status code to see the full chain for that request.',
+        viewChain: 'View request chain'
+      },
+      requestChain: {
+        title: 'Request chain',
+        refresh: 'Refresh',
+        loadFailed: 'Failed to load the request chain',
+        retry: 'Retry',
+        outcomeRecovered: 'Recovered automatically',
+        outcomeFailed: 'Failed',
+        recoveredHint: 'Upstream failed {count} times, then "{account}" returned successfully — the client never noticed.',
+        recoveredHintNoFinal: 'Upstream failed {count} times, then the request succeeded — the client never noticed.',
+        failedHint: 'All {count} attempts failed; the client received {code}.',
+        stream: 'Stream',
+        nonStream: 'Non-stream',
+        requestedModel: 'requested {model}',
+        attempts: 'Attempts ({count})',
+        noAttempts: 'No attempts recorded for this request',
+        account: 'Account {id} {name}',
+        accountNoName: 'Account {id}',
+        noUpstreamStatus: 'No upstream response (it failed while connecting or fetching credentials) — not a status code of 0',
+        finalLabel: 'Final',
+        finalSuccess: 'Success',
+        finalFailed: 'Failed',
+        finalMissing: 'No successful record found',
+        firstToken: 'TTFT {value}',
+        tokens: '{value} tokens'
       },
       ollamaCloud: {
         title: 'Ollama Cloud usage',

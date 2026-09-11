@@ -146,6 +146,11 @@ export default {
     securityAudit: 'Security Audit',
     promptAudit: 'Prompt Audit',
     auditLogs: 'Audit Logs',
+    modelAvailability: 'Model Availability',
+    groupAccess: 'Access & Config',
+    groupUpstream: 'Upstream Resources',
+    groupRuntime: 'Runtime Status',
+    groupSecurity: 'Security & Audit',
   },
 
   // Auth

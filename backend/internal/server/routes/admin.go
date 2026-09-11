@@ -213,6 +213,8 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 		// Request drilldown (success + error)
 		ops.GET("/requests", h.Admin.Ops.ListRequestDetails)
+		// 单次请求的上游链路：试了几次、换过哪些账号、最终恢复还是失败
+		ops.GET("/requests/:clientRequestId/chain", h.Admin.Ops.GetRequestChain)
 
 		// Indexed system logs
 		ops.GET("/system-logs", h.Admin.Ops.ListSystemLogs)

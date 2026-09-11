@@ -33,61 +33,105 @@
     <nav ref="sidebarNavRef" class="sidebar-nav scrollbar-hide">
       <!-- Admin View: Admin menu first, then personal menu -->
       <template v-if="isAdmin">
-        <!-- Admin Section -->
-        <div class="sidebar-section">
-          <template v-for="item in adminNavItems" :key="item.path">
-            <!-- Collapsible group (has children) -->
-            <template v-if="item.children?.length">
-              <button
-                type="button"
-                class="sidebar-link mb-1 w-full"
-                :class="{
-                  'sidebar-link-active': isGroupActive(item) && !isGroupExpanded(item),
-                  'sidebar-link-collapsed': sidebarCollapsed
-                }"
+        <!--
+          Admin sections.
+          完整模式：四个「纯标题」分组（接入配置 / 上游资源 / 运行状态 / 安全与审计）+
+          末尾一个无标题分组放系统设置。
+          简单模式：退化成一个无标题分组，沿用原来的平铺精简列表。
+          无标题分组（section.label 为空）永远展开，不渲染可点击的标题。
+        -->
+        <div
+          v-for="section in adminNavSections"
+          :key="section.key"
+          class="sidebar-section"
+          :class="{ 'sidebar-section-grouped': !!section.label }"
+          :data-section="section.key"
+        >
+          <!-- 分组标题：纯标题，只切换展开/折叠，不导航；侧边栏收起时降级为分隔线 -->
+          <button
+            v-if="section.label"
+            type="button"
+            class="sidebar-section-title sidebar-section-toggle"
+            :class="{
+              'sidebar-section-title-collapsed': sidebarCollapsed,
+              'sidebar-section-toggle-active':
+                !sidebarCollapsed && !isSectionExpanded(section) && isSectionActive(section)
+            }"
+            :disabled="sidebarCollapsed"
+            :aria-expanded="isSectionExpanded(section) ? 'true' : 'false'"
+            :title="sidebarCollapsed ? section.label : undefined"
+            data-section-toggle
+            @click="toggleSection(section)"
+          >
+            <span
+              class="sidebar-section-title-text"
+              :class="{ 'sidebar-section-title-text-collapsed': sidebarCollapsed }"
+              :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+            >
+              {{ section.label }}
+            </span>
+            <ChevronDownIcon
+              v-if="!sidebarCollapsed"
+              class="h-3.5 w-3.5 flex-shrink-0 transition-transform duration-200"
+              :class="isSectionExpanded(section) ? 'rotate-180' : ''"
+            />
+          </button>
+
+          <template v-if="isSectionExpanded(section)">
+            <template v-for="item in section.items" :key="item.path">
+              <!-- Collapsible group (has children) -->
+              <template v-if="item.children?.length">
+                <button
+                  type="button"
+                  class="sidebar-link mb-1 w-full"
+                  :class="{
+                    'sidebar-link-active': isGroupActive(item) && !isGroupExpanded(item),
+                    'sidebar-link-collapsed': sidebarCollapsed
+                  }"
+                  :title="sidebarCollapsed ? item.label : undefined"
+                  @click="handleGroupClick(item)"
+                >
+                  <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+                  <span
+                    class="sidebar-label sidebar-label-flex"
+                    :class="{ 'sidebar-label-collapsed': sidebarCollapsed }"
+                    :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+                  >
+                    <span class="min-w-0 truncate">{{ item.label }}</span>
+                    <ChevronDownIcon
+                      class="h-4 w-4 flex-shrink-0 transition-transform duration-200"
+                      :class="isGroupExpanded(item) ? 'rotate-180' : ''"
+                    />
+                  </span>
+                </button>
+                <!-- Children -->
+                <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="mb-1 ml-4 border-l border-gray-200 pl-2 dark:border-dark-600">
+                  <router-link
+                    v-for="child in item.children"
+                    :key="child.path"
+                    :to="child.path"
+                    class="sidebar-link mb-0.5 py-1.5 text-sm"
+                    :class="{ 'sidebar-link-active': route.path === child.path }"
+                    @click="handleMenuItemClick()"
+                  >
+                    <component :is="child.icon" class="h-4 w-4 flex-shrink-0" />
+                    <span>{{ child.label }}</span>
+                  </router-link>
+                </div>
+              </template>
+              <!-- Normal item (no children) -->
+              <router-link
+                v-else
+                :to="item.path"
+                class="sidebar-link mb-1"
+                :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
                 :title="sidebarCollapsed ? item.label : undefined"
-                @click="handleGroupClick(item)"
+                @click="handleMenuItemClick()"
               >
                 <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-                <span
-                  class="sidebar-label sidebar-label-flex"
-                  :class="{ 'sidebar-label-collapsed': sidebarCollapsed }"
-                  :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
-                >
-                  <span class="min-w-0 truncate">{{ item.label }}</span>
-                  <ChevronDownIcon
-                    class="h-4 w-4 flex-shrink-0 transition-transform duration-200"
-                    :class="isGroupExpanded(item) ? 'rotate-180' : ''"
-                  />
-                </span>
-              </button>
-              <!-- Children -->
-              <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="mb-1 ml-4 border-l border-gray-200 pl-2 dark:border-dark-600">
-                <router-link
-                  v-for="child in item.children"
-                  :key="child.path"
-                  :to="child.path"
-                  class="sidebar-link mb-0.5 py-1.5 text-sm"
-                  :class="{ 'sidebar-link-active': route.path === child.path }"
-                  @click="handleMenuItemClick()"
-                >
-                  <component :is="child.icon" class="h-4 w-4 flex-shrink-0" />
-                  <span>{{ child.label }}</span>
-                </router-link>
-              </div>
+                <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+              </router-link>
             </template>
-            <!-- Normal item (no children) -->
-            <router-link
-              v-else
-              :to="item.path"
-              class="sidebar-link mb-1"
-              :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
-              :title="sidebarCollapsed ? item.label : undefined"
-              @click="handleMenuItemClick()"
-            >
-              <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-              <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
-            </router-link>
           </template>
         </div>
 
@@ -173,8 +217,58 @@
   </transition>
 </template>
 
+<script lang="ts">
+import { ref } from 'vue'
+
+/**
+ * 管理端导航分组的稳定 key。
+ * - access / upstream / runtime / security：四个「纯标题」分组（不可点击跳转，只归类）
+ * - system：无标题分组，系统设置固定留在最下面，不属于任何分组
+ * - simple：无标题分组，简单模式下的平铺精简列表
+ */
+export const AdminNavSectionKeys = {
+  access: 'access',
+  upstream: 'upstream',
+  runtime: 'runtime',
+  security: 'security',
+  system: 'system',
+  simple: 'simple'
+} as const
+
+/**
+ * 默认展开的分组：管理员日常都会用到的三组默认展开（接入配置 / 上游资源 / 运行状态），
+ * 低频的「安全与审计」默认折叠，避免首屏比改版前更长。
+ */
+export const DEFAULT_EXPANDED_SECTIONS: string[] = [
+  AdminNavSectionKeys.access,
+  AdminNavSectionKeys.upstream,
+  AdminNavSectionKeys.runtime
+]
+
+/** 分组展开状态在 expandedNavGroups 里的 key，和菜单项分组（用 path 做 key）区分开。 */
+export function sectionStateKey(key: string): string {
+  return `section:${key}`
+}
+
+/**
+ * 展开/折叠状态放在模块作用域而不是 setup 内部。
+ * AppSidebar 随 AppLayout 挂在每个页面组件内部，路由切换会整体重新挂载
+ * （这也是滚动位置要存进 appStore 的原因）。放模块作用域后，用户折叠某个分组的选择
+ * 能在整个会话里保持，而不是点一次菜单就被重置回默认值。
+ * 只做会话内记忆，不新增 localStorage 持久化——沿用原来的做法。
+ */
+export const expandedNavGroups = ref<Set<string>>(
+  new Set(DEFAULT_EXPANDED_SECTIONS.map(sectionStateKey))
+)
+
+/** 仅供测试使用：把展开状态复位到默认值。 */
+export function resetExpandedNavGroups(): void {
+  expandedNavGroups.value = new Set(DEFAULT_EXPANDED_SECTIONS.map(sectionStateKey))
+}
+</script>
+
 <script setup lang="ts">
-import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore } from '@/stores'
@@ -200,6 +294,18 @@ interface NavItem {
    * 开关切换时菜单自动更新。
    */
   featureFlag?: () => boolean | undefined
+}
+
+/**
+ * 侧边栏的一段分组。
+ * - `label` 有值：渲染成可折叠的「纯标题」（不可点击跳转，只切换展开状态）
+ * - `label` 为空：无标题分组，永远展开（用于系统设置、简单模式的平铺列表）
+ */
+interface NavSection {
+  /** 稳定 key，用于展开状态记忆与测试定位 */
+  key: string
+  label?: string
+  items: NavItem[]
 }
 
 // applyFeatureFlags 递归过滤掉 featureFlag() === false 的节点（含子节点）。
@@ -233,8 +339,8 @@ const isDark = ref(document.documentElement.classList.contains('dark'))
 
 const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
 
-// Track which parent nav groups are expanded
-const expandedGroups = ref<Set<string>>(new Set())
+// 展开状态见文件顶部的 expandedNavGroups（模块作用域，跨路由切换保持）。
+// 菜单项分组用 item.path 做 key，标题分组用 sectionStateKey(section.key)。
 
 const siteVersion = computed(() => appStore.siteVersion)
 
@@ -354,6 +460,22 @@ const GlobeIcon = {
           'stroke-linecap': 'round',
           'stroke-linejoin': 'round',
           d: 'M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418'
+        })
+      ]
+    )
+}
+
+// 模型可用性：用芯片图标表达"模型/算力"，和账号(地球)、代理(服务器)区分开
+const CpuChipIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z'
         })
       ]
     )
@@ -566,15 +688,16 @@ const userNavItems = computed((): NavItem[] => finalizeNav(buildSelfNavItems(tru
 // separate admin entry, since the page is purely a user-facing view.
 const personalNavItems = computed((): NavItem[] => finalizeNav(buildSelfNavItems(false)))
 
-// Admin navigation items
-const adminNavItems = computed((): NavItem[] => {
-  const baseItems: NavItem[] = [
-    { path: '/admin/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
-    { path: '/admin/ops', label: t('nav.ops'), icon: ChartIcon, featureFlag: flagOpsMonitoring },
-    { path: '/admin/users', label: t('nav.users'), icon: UsersIcon, hideInSimpleMode: true },
-    { path: '/admin/api-keys', label: t('nav.adminApiKeys'), icon: KeyIcon, hideInSimpleMode: true },
-    { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon, hideInSimpleMode: true },
-    {
+// buildAdminNavCatalog 是管理端每个入口的唯一声明处。
+// 简单模式的平铺精简列表和完整模式的分组视图都从这里取，避免两套声明各自漂移。
+function buildAdminNavCatalog(): Record<string, NavItem> {
+  return {
+    dashboard: { path: '/admin/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
+    ops: { path: '/admin/ops', label: t('nav.ops'), icon: ChartIcon, featureFlag: flagOpsMonitoring },
+    users: { path: '/admin/users', label: t('nav.users'), icon: UsersIcon, hideInSimpleMode: true },
+    apiKeys: { path: '/admin/api-keys', label: t('nav.adminApiKeys'), icon: KeyIcon, hideInSimpleMode: true },
+    groups: { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon, hideInSimpleMode: true },
+    channels: {
       path: '/admin/channels',
       label: t('nav.channelManagement'),
       icon: ChannelIcon,
@@ -585,9 +708,16 @@ const adminNavItems = computed((): NavItem[] => {
         { path: '/admin/channels/monitor', label: t('nav.channelMonitor'), icon: SignalIcon, featureFlag: flagChannelMonitor },
       ],
     },
-    { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
-    { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
-    {
+    accounts: { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
+    // 模型可用性：进阶排查页，和简单模式的"只保留最常用入口"定位不符，故简单模式下隐藏。
+    modelAvailability: {
+      path: '/admin/model-availability',
+      label: t('nav.modelAvailability'),
+      icon: CpuChipIcon,
+      hideInSimpleMode: true,
+    },
+    proxies: { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
+    securityAudit: {
       path: '/admin/security-audit',
       label: t('nav.securityAudit'),
       icon: ShieldIcon,
@@ -597,22 +727,70 @@ const adminNavItems = computed((): NavItem[] => {
         { path: '/admin/prompt-audit', label: t('nav.promptAudit'), icon: ShieldIcon },
       ],
     },
-    { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
-    { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true }
+    usage: { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
+    auditLogs: { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true },
+    settings: { path: '/admin/settings', label: t('nav.settings'), icon: CogIcon },
+  }
+}
+
+// 简单模式下的管理端菜单：保持改版前的平铺精简列表（顺序与内容都不变）。
+// hideInSimpleMode 的项会被过滤掉，最后补上 API 密钥和系统设置。
+const adminSimpleNavItems = computed((): NavItem[] => {
+  const c = buildAdminNavCatalog()
+  const baseItems: NavItem[] = [
+    c.dashboard, c.ops, c.users, c.apiKeys, c.groups, c.channels,
+    c.accounts, c.modelAvailability, c.proxies, c.securityAudit, c.usage, c.auditLogs,
   ]
 
-  const visible = applyFeatureFlags(baseItems)
+  const filtered = applyFeatureFlags(baseItems).filter(item => !item.hideInSimpleMode)
+  filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
+  filtered.push(c.settings)
+  return filtered
+})
 
-  // 简单模式下，在系统设置前插入 API密钥
+// 管理端导航分组。
+// 完整模式：四个按"你在做什么事"划分的纯标题分组 + 末尾无标题分组（系统设置）。
+// 简单模式：一个无标题分组，内容就是原来的平铺精简列表。
+// featureFlag / hideInSimpleMode 过滤后为空的分组会被整段移除，不留空壳标题。
+const adminNavSections = computed((): NavSection[] => {
   if (authStore.isSimpleMode) {
-    const filtered = visible.filter(item => !item.hideInSimpleMode)
-    filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
-    filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
-    return filtered
+    return [{ key: AdminNavSectionKeys.simple, items: adminSimpleNavItems.value }]
   }
 
-  visible.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
-  return visible
+  const c = buildAdminNavCatalog()
+  // 顺序刻意是「先看状态、再改配置」：仪表盘是进后台第一眼要看的东西，
+  // 排在别的组后面会让人每次都往下找。运行状态之后才是配置类与上游资源，
+  // 低频的安全与审计垫底（也只有它默认折叠）。
+  const grouped: NavSection[] = [
+    {
+      key: AdminNavSectionKeys.runtime,
+      label: t('nav.groupRuntime'),
+      items: [c.dashboard, c.ops, c.usage],
+    },
+    {
+      key: AdminNavSectionKeys.access,
+      label: t('nav.groupAccess'),
+      items: [c.users, c.apiKeys, c.groups, c.channels],
+    },
+    {
+      key: AdminNavSectionKeys.upstream,
+      label: t('nav.groupUpstream'),
+      items: [c.accounts, c.modelAvailability, c.proxies],
+    },
+    {
+      key: AdminNavSectionKeys.security,
+      label: t('nav.groupSecurity'),
+      items: [c.securityAudit, c.auditLogs],
+    },
+  ]
+
+  const sections = grouped
+    .map(section => ({ ...section, items: finalizeNav(section.items) }))
+    .filter(section => section.items.length > 0)
+
+  // 系统设置单独留在最下面，不进任何分组
+  sections.push({ key: AdminNavSectionKeys.system, items: [c.settings] })
+  return sections
 })
 
 function toggleSidebar() {
@@ -647,14 +825,47 @@ function isGroupActive(item: NavItem): boolean {
 }
 
 function isGroupExpanded(item: NavItem): boolean {
-  return expandedGroups.value.has(item.path) || isGroupActive(item)
+  return expandedNavGroups.value.has(item.path) || isGroupActive(item)
 }
 
 function toggleGroup(item: NavItem) {
-  if (expandedGroups.value.has(item.path)) {
-    expandedGroups.value.delete(item.path)
+  if (expandedNavGroups.value.has(item.path)) {
+    expandedNavGroups.value.delete(item.path)
   } else {
-    expandedGroups.value.add(item.path)
+    expandedNavGroups.value.add(item.path)
+  }
+}
+
+/** 分组里是否有条目命中当前路由（含二级子项）。 */
+function isSectionActive(section: NavSection): boolean {
+  return section.items.some(item => {
+    if (item.children?.length) {
+      return isActive(item.path) || item.children.some(child => isActive(child.path))
+    }
+    return isActive(item.path)
+  })
+}
+
+/**
+ * 分组是否展开：
+ * - 无标题分组（系统设置 / 简单模式列表）永远展开；
+ * - 侧边栏收起成图标条时强制展开，否则图标会跟着标题一起消失；
+ * - 其余情况读会话内记忆的展开状态。
+ */
+function isSectionExpanded(section: NavSection): boolean {
+  if (!section.label) return true
+  if (sidebarCollapsed.value) return true
+  return expandedNavGroups.value.has(sectionStateKey(section.key))
+}
+
+/** 点击分组标题：只切换展开状态，不导航；侧边栏收起时不响应。 */
+function toggleSection(section: NavSection) {
+  if (sidebarCollapsed.value || !section.label) return
+  const key = sectionStateKey(section.key)
+  if (expandedNavGroups.value.has(key)) {
+    expandedNavGroups.value.delete(key)
+  } else {
+    expandedNavGroups.value.add(key)
   }
 }
 
@@ -675,8 +886,8 @@ function handleGroupClick(item: NavItem) {
   if (route.path !== item.path) {
     router.push(item.path)
   }
-  if (!expandedGroups.value.has(item.path)) {
-    expandedGroups.value.add(item.path)
+  if (!expandedNavGroups.value.has(item.path)) {
+    expandedNavGroups.value.add(item.path)
   }
 }
 
@@ -800,6 +1011,44 @@ onBeforeUnmount(() => {
 
 .dark .sidebar-section-title::after {
   background: rgb(55 65 81);
+}
+
+/* 可折叠的分组标题：纯标题，只切换展开状态，不是链接 */
+.sidebar-section-toggle {
+  width: 100%;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: color 0.16s ease;
+}
+
+.sidebar-section-toggle:disabled {
+  cursor: default;
+}
+
+.sidebar-section-toggle:hover:not(:disabled) {
+  color: rgb(75 85 99);
+}
+
+.dark .sidebar-section-toggle:hover:not(:disabled) {
+  color: rgb(209 213 219);
+}
+
+/* 分组被折叠、但当前页面就在这个分组里时，给标题一点提示色 */
+.sidebar-section-toggle-active {
+  color: rgb(79 70 229);
+}
+
+.dark .sidebar-section-toggle-active {
+  color: rgb(129 140 248);
+}
+
+/* 分组之间的间距比大区块（管理端 / 我的账户）小一些，避免侧边栏被拉得过长 */
+.sidebar-section-grouped {
+  margin-bottom: 0.75rem;
 }
 
 .sidebar-section-title-text-collapsed {
