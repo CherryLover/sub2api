@@ -278,6 +278,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/model-availability',
+    name: 'AdminModelAvailability',
+    component: () => import('@/views/admin/ModelAvailabilityView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Model Availability',
+      titleKey: 'admin.accounts.modelAvailability.title',
+      descriptionKey: 'admin.accounts.modelAvailability.description'
+    }
+  },
+  {
     path: '/admin/proxies',
     name: 'AdminProxies',
     component: () => import('@/views/admin/ProxiesView.vue'),

@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -17,12 +19,14 @@ import (
 )
 
 // fakeBarkSender 记录每次 Send / Ping，并可注入失败。
+// sendErr 让所有设备都失败；failByKey 只让指定的 device_key 失败，用来造"部分失败"。
 type fakeBarkSender struct {
-	mu      sync.Mutex
-	sends   []fakeBarkSend
-	pings   []string
-	sendErr error
-	pingErr error
+	mu        sync.Mutex
+	sends     []fakeBarkSend
+	pings     []string
+	sendErr   error
+	pingErr   error
+	failByKey map[string]error
 }
 
 type fakeBarkSend struct {
@@ -36,6 +40,9 @@ func (f *fakeBarkSender) Send(_ context.Context, target BarkTarget, msg BarkMess
 	f.sends = append(f.sends, fakeBarkSend{Target: target, Msg: msg})
 	if f.sendErr != nil {
 		return nil, f.sendErr
+	}
+	if err, ok := f.failByKey[target.DeviceKey]; ok {
+		return nil, err
 	}
 	return &BarkSendResult{StatusCode: http.StatusOK, Message: "success", Latency: 12 * time.Millisecond}, nil
 }
@@ -53,6 +60,18 @@ func (f *fakeBarkSender) sent() []fakeBarkSend {
 	out := make([]fakeBarkSend, len(f.sends))
 	copy(out, f.sends)
 	return out
+}
+
+// sentDeviceKeys 返回实际推送到的 device_key（已排序）。
+// 多设备是并发发的，到达顺序不保证，断言只看"推了哪些"。
+func (f *fakeBarkSender) sentDeviceKeys() []string {
+	sends := f.sent()
+	keys := make([]string, 0, len(sends))
+	for _, s := range sends {
+		keys = append(keys, s.Target.DeviceKey)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 func newBarkSettingsFixture(t *testing.T) (*BarkNotificationService, *stubSettingRepo, *fakeBarkSender) {
@@ -547,6 +566,305 @@ func TestBarkNotificationService_CorruptConfig(t *testing.T) {
 
 	// 告警出口遇到坏配置只跳过，不报错。
 	require.NoError(t, svc.NotifyOpsAlertFired(context.Background(), OpsAlertNotification{RuleName: "r"}))
+}
+
+// ─── 多设备推送（逗号分隔的 device_key） ───
+
+func TestBarkNotificationService_UpdateStoresMultipleKeysAsOneEncryptedValue(t *testing.T) {
+	t.Parallel()
+
+	svc, repo, _ := newBarkSettingsFixture(t)
+	view, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app",
+		// 故意混上中文逗号、换行、空白、重复项：都是站长粘贴时的真实产物。
+		DeviceKey: " key-alpha ，key-bravo\nkey-charlie,, key-alpha ",
+	})
+	require.NoError(t, err)
+	require.True(t, view.HasDeviceKey)
+	require.Equal(t, 3, view.DeviceKeyCount, "去重后是 3 个设备")
+	require.Equal(t, "", view.DeviceKey, "任何情况下都不回显 key")
+
+	// 不新增字段、不做迁移：整串规范化后仍然只加密成 device_key 这一个值。
+	require.Equal(t, "enc:key-alpha,key-bravo,key-charlie", storedBarkConfig(t, repo).DeviceKey)
+
+	got, err := svc.GetBarkConfig(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 3, got.DeviceKeyCount)
+	require.Equal(t, "", got.DeviceKey)
+
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"device_key_count":3`)
+	for _, key := range []string{"key-alpha", "key-bravo", "key-charlie"} {
+		require.NotContains(t, string(raw), key)
+	}
+}
+
+func TestBarkNotificationService_UpdateRejectsTooManyDeviceKeys(t *testing.T) {
+	t.Parallel()
+
+	svc, repo, _ := newBarkSettingsFixture(t)
+	tooMany := make([]string, 0, barkMaxDeviceKeys+1)
+	for i := 0; i <= barkMaxDeviceKeys; i++ {
+		tooMany = append(tooMany, fmt.Sprintf("device-key-%02d", i))
+	}
+
+	_, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: strings.Join(tooMany, ","),
+	})
+	require.ErrorIs(t, err, ErrBarkDeviceKeyTooMany)
+	require.True(t, infraerrors.IsBadRequest(err))
+	require.Equal(t, "BARK_DEVICE_KEY_TOO_MANY", infraerrors.Reason(err))
+	require.Contains(t, infraerrors.Message(err), "10")
+	require.Empty(t, repo.values[settingKeyNotifyBarkConfig], "校验失败不应落库")
+
+	// 少一个就放行。
+	view, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: strings.Join(tooMany[:barkMaxDeviceKeys], ","),
+	})
+	require.NoError(t, err)
+	require.Equal(t, barkMaxDeviceKeys, view.DeviceKeyCount)
+}
+
+func TestBarkNotificationService_UpdateSeparatorsOnlyCountsAsNoNewKey(t *testing.T) {
+	t.Parallel()
+
+	svc, repo, _ := newBarkSettingsFixture(t)
+	_, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "key-alpha,key-bravo",
+	})
+	require.NoError(t, err)
+
+	// 只填分隔符解析后是空列表，等同于"这次没提供新 key"，保留旧值而不是存一串逗号。
+	view, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: " , ，\n ",
+	})
+	require.NoError(t, err)
+	require.True(t, view.HasDeviceKey)
+	require.Equal(t, 2, view.DeviceKeyCount)
+	require.Equal(t, "enc:key-alpha,key-bravo", storedBarkConfig(t, repo).DeviceKey)
+
+	// 一份全新配置下，"只填分隔符 + 启用"和"什么都没填"一样要被拦住。
+	fresh, freshRepo, _ := newBarkSettingsFixture(t)
+	_, err = fresh.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "，,\n",
+	})
+	require.True(t, infraerrors.IsBadRequest(err))
+	require.Equal(t, "BARK_DEVICE_KEY_REQUIRED", infraerrors.Reason(err))
+	require.Empty(t, freshRepo.values[settingKeyNotifyBarkConfig])
+}
+
+// TestBarkNotificationService_NotifyReachesEveryDeviceEvenWhenOneFails
+// 一个设备失败（key 注销）不能让其它设备收不到。
+func TestBarkNotificationService_NotifyReachesEveryDeviceEvenWhenOneFails(t *testing.T) {
+	t.Parallel()
+
+	svc, _, sender := newBarkSettingsFixture(t)
+	_, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", Group: "alerts",
+		DeviceKey: "key-alpha,key-bravo,key-charlie",
+	})
+	require.NoError(t, err)
+	sender.failByKey = map[string]error{
+		"key-bravo": &BarkSendError{StatusCode: http.StatusBadRequest, Snippet: `{"code":400,"message":"device key is invalid"}`},
+	}
+
+	require.NoError(t,
+		svc.NotifyOpsAlertFired(context.Background(), OpsAlertNotification{RuleName: "CPU 过高", Severity: "P1"}),
+		"只要有设备收到，整体就不算失败",
+	)
+
+	require.Equal(t,
+		[]string{"key-alpha", "key-bravo", "key-charlie"},
+		sender.sentDeviceKeys(),
+		"每个设备都要被尝试一次",
+	)
+	for _, s := range sender.sent() {
+		require.Equal(t, "[Sub2API] P1 CPU 过高", s.Msg.Title, "同一条通知内容完全一致")
+		require.Equal(t, "alerts", s.Msg.Group)
+	}
+}
+
+func TestBarkNotificationService_NotifyFailsOnlyWhenEveryDeviceFails(t *testing.T) {
+	t.Parallel()
+
+	svc, _, sender := newBarkSettingsFixture(t)
+	_, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "key-alpha,key-bravo,key-charlie",
+	})
+	require.NoError(t, err)
+
+	// 两个失败、一个成功：整体仍算成功。
+	sender.failByKey = map[string]error{
+		"key-alpha":   errors.New("dial tcp: i/o timeout"),
+		"key-charlie": errors.New("dial tcp: i/o timeout"),
+	}
+	require.NoError(t, svc.NotifyOpsAlertFired(context.Background(), OpsAlertNotification{RuleName: "r", Severity: "P2"}))
+
+	// 全部失败才向上报错，且错误里点名是第几个设备、绝不带完整 key。
+	sender.failByKey = nil
+	sender.sendErr = errors.New("upstream rejected key-alpha / key-bravo / key-charlie")
+	err = svc.NotifyOpsAlertFired(context.Background(), OpsAlertNotification{RuleName: "r", Severity: "P2"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "3 of 3 devices failed")
+	require.Contains(t, err.Error(), "#1")
+	require.Contains(t, err.Error(), "#2")
+	require.Contains(t, err.Error(), "#3")
+	for _, key := range []string{"key-alpha", "key-bravo", "key-charlie"} {
+		require.NotContainsf(t, err.Error(), key, "device_key %q 泄进了告警错误", key)
+	}
+}
+
+func TestBarkNotificationService_TestBarkReportsPerDeviceResults(t *testing.T) {
+	t.Parallel()
+
+	svc, _, sender := newBarkSettingsFixture(t)
+	sender.failByKey = map[string]error{
+		"key-bravo": &BarkSendError{StatusCode: http.StatusBadRequest, Snippet: `{"code":400,"message":"device key is invalid"}`},
+	}
+
+	res, err := svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{
+		ServerURL: "https://api.day.app", DeviceKey: "key-alpha，key-bravo\nkey-charlie",
+	}})
+	require.NoError(t, err, "部分失败仍是 200，不能整体报 502")
+	require.True(t, res.OK)
+	require.Equal(t, 3, res.DeviceCount)
+	require.Equal(t, 2, res.SuccessCount)
+	require.Equal(t, 1, res.FailureCount)
+	require.Len(t, res.Devices, 3)
+
+	// 逐条结果按填写顺序排列，序号就是"失败的是第几个"。
+	require.Equal(t, []int{1, 2, 3}, []int{res.Devices[0].Index, res.Devices[1].Index, res.Devices[2].Index})
+	require.True(t, res.Devices[0].OK)
+	require.False(t, res.Devices[1].OK)
+	require.True(t, res.Devices[2].OK)
+	require.Equal(t, http.StatusBadRequest, res.Devices[1].StatusCode)
+	require.Contains(t, res.Devices[1].Message, "device key is invalid")
+
+	// 顶层字段取第一个成功的设备，与单设备时代一致。
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	require.Equal(t, "success", res.Message)
+	require.Equal(t, int64(12), res.LatencyMs)
+
+	require.Equal(t, []string{"key-alpha", "key-bravo", "key-charlie"}, sender.sentDeviceKeys())
+}
+
+func TestBarkNotificationService_TestBarkAllDevicesFailedIs502(t *testing.T) {
+	t.Parallel()
+
+	svc, _, sender := newBarkSettingsFixture(t)
+	sender.sendErr = &BarkSendError{StatusCode: http.StatusForbidden, Snippet: `{"code":400,"message":"device key is invalid"}`}
+
+	_, err := svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{
+		ServerURL: "https://api.day.app", DeviceKey: "key-alpha,key-bravo",
+	}})
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadGateway, infraerrors.Code(err))
+	require.Equal(t, "BARK_PUSH_FAILED", infraerrors.Reason(err))
+
+	msg := infraerrors.Message(err)
+	require.Contains(t, msg, "2 of 2 devices failed")
+	require.Contains(t, msg, "#1")
+	require.Contains(t, msg, "#2")
+	require.Contains(t, msg, "device key is invalid")
+}
+
+// TestBarkNotificationService_MultiDeviceKeysNeverLeak 关键安全用例：
+// 上游把整份 key 列表回显在错误里时，测试推送的返回、逐条结果与错误信息里
+// 都不能出现任何一个完整 key——只抹"当次那一个"是不够的。
+func TestBarkNotificationService_MultiDeviceKeysNeverLeak(t *testing.T) {
+	t.Parallel()
+
+	keys := []string{"leak-key-alpha", "leak-key-bravo", "leak-key-charlie"}
+	echoAll := "rejected: " + strings.Join(keys, " / ")
+
+	svc, _, sender := newBarkSettingsFixture(t)
+	_, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: strings.Join(keys, ","),
+	})
+	require.NoError(t, err)
+
+	// 部分失败：成功的那条与失败的那两条一起序列化回前端。
+	sender.failByKey = map[string]error{
+		keys[1]: &BarkSendError{StatusCode: http.StatusBadRequest, Snippet: echoAll},
+		keys[2]: errors.New("dial tcp failed while pushing to " + strings.Join(keys, ",")),
+	}
+	res, err := svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{
+		ServerURL: "https://api.day.app",
+	}})
+	require.NoError(t, err)
+	require.Equal(t, 1, res.SuccessCount)
+	require.Equal(t, 2, res.FailureCount)
+
+	raw, err := json.Marshal(res)
+	require.NoError(t, err)
+	for _, key := range keys {
+		require.NotContainsf(t, string(raw), key, "device_key %q 泄进了测试推送返回", key)
+	}
+	for _, device := range res.Devices {
+		require.Equal(t, "lea***", device.MaskedKey, "只回打码前缀")
+	}
+
+	// 全部失败走 502 分支，错误信息同样不能带出任何 key。
+	sender.failByKey = nil
+	sender.sendErr = &BarkSendError{StatusCode: http.StatusBadRequest, Snippet: echoAll}
+	_, err = svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{
+		ServerURL: "https://api.day.app",
+	}})
+	require.Error(t, err)
+	for _, key := range keys {
+		require.NotContainsf(t, infraerrors.Message(err), key, "device_key %q 泄进了 502 错误", key)
+	}
+
+	// 告警出口同理。
+	err = svc.NotifyOpsAlertFired(context.Background(), OpsAlertNotification{RuleName: "r", Severity: "P0"})
+	require.Error(t, err)
+	for _, key := range keys {
+		require.NotContainsf(t, err.Error(), key, "device_key %q 泄进了告警错误", key)
+	}
+}
+
+// TestBarkNotificationService_SingleDeviceKeyBehaviorUnchanged 老的单 key 配置不回归：
+// 落库格式、GET 回显、推送目标与失败信息都与多设备改造前一致。
+func TestBarkNotificationService_SingleDeviceKeyBehaviorUnchanged(t *testing.T) {
+	t.Parallel()
+
+	svc, repo, sender := newBarkSettingsFixture(t)
+	_, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "legacy-single-key",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "enc:legacy-single-key", storedBarkConfig(t, repo).DeviceKey, "没有逗号就原样加密")
+
+	view, err := svc.GetBarkConfig(context.Background())
+	require.NoError(t, err)
+	require.True(t, view.HasDeviceKey)
+	require.Equal(t, 1, view.DeviceKeyCount)
+
+	res, err := svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{
+		ServerURL: "https://api.day.app",
+	}})
+	require.NoError(t, err)
+	require.True(t, res.OK)
+	require.Equal(t, 1, res.DeviceCount)
+	require.Equal(t, 1, res.SuccessCount)
+	require.Equal(t, 0, res.FailureCount)
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	require.Equal(t, "success", res.Message)
+	require.Equal(t, int64(12), res.LatencyMs)
+	require.Equal(t, []string{"legacy-single-key"}, sender.sentDeviceKeys())
+
+	// 单设备失败时错误信息逐字沿用旧版，不会多出 "#1" / "1 of 1" 这类多设备措辞。
+	sender.sendErr = &BarkSendError{StatusCode: http.StatusForbidden, Snippet: `{"code":400,"message":"device key is invalid"}`}
+	_, err = svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{
+		ServerURL: "https://api.day.app",
+	}})
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadGateway, infraerrors.Code(err))
+	require.Equal(t,
+		`bark push failed (status 403): {"code":400,"message":"device key is invalid"}`,
+		infraerrors.Message(err),
+	)
 }
 
 func TestFormatOpsAlertScope(t *testing.T) {

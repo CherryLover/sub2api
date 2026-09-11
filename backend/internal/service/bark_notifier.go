@@ -19,6 +19,9 @@ import (
 // 目前只接运维告警引擎（OpsAlertEvaluatorService）的触发 / 恢复两类事件。
 // 协议：POST {server_url}/push，JSON 体里 device_key 与 body 必填；探活 GET {server_url}/ping。
 // 成功响应形如 {"code":200,"message":"success"}；HTTP 非 2xx 或 code 非 200 都算失败。
+//
+// 这一层刻意只负责"发一条给一个设备"：多设备是配置层的概念（一串逗号分隔的 device_key），
+// 由 BarkNotificationService 拆开后逐个调 Send，HTTP 客户端本身不需要知道有几个人要收。
 
 const (
 	BarkLevelActive        = "active"
@@ -37,6 +40,19 @@ const (
 	// barkSecretScrubMinLen 短于此长度的 device_key 不做文本替换：真实 key 约 22 位，
 	// 太短的串会把响应里的普通单词（如 "key"）也抹掉，反而让错误信息失真。
 	barkSecretScrubMinLen = 6
+
+	// barkMaxDeviceKeys 一份配置里允许的 device_key 数量上限。设上限纯粹是防呆：
+	// 站长很容易整段粘贴一大片文本进来，而每个 key 都要独立发一次 HTTP 请求。
+	barkMaxDeviceKeys = 10
+	// barkMaskedKeyPrefixLen 打码后保留的前缀长度。只留 3 位，远小于 barkSecretScrubMinLen，
+	// 这样打码片段自己不会反过来被 scrub 逻辑当成密钥再抹一遍。
+	barkMaskedKeyPrefixLen = 3
+	// barkMaskMinLen 短于此长度的 key 整串打码：真实 key 约 22 位，更短的多半是测试值，
+	// 留前缀既没有辨识价值又白白多露几位。
+	barkMaskMinLen = 8
+	// barkDeviceKeySeparator 规范化存储时用的分隔符。落库前统一拼成这个格式，
+	// 读出来再切开，历史上的单 key 配置就是"没有分隔符"的特例，天然兼容。
+	barkDeviceKeySeparator = ","
 )
 
 // BarkMessage 一条待推送的通知；device_key 与服务器地址由 BarkTarget 单独携带，
@@ -132,6 +148,71 @@ func NormalizeBarkServerURL(raw string) (string, error) {
 	u.Path = strings.TrimRight(u.Path, "/")
 	u.RawPath = ""
 	return u.String(), nil
+}
+
+// isBarkDeviceKeySeparator 报告 r 是否是 device_key 列表的分隔符。
+//
+// 约定的写法是英文逗号，但同时接受中文逗号与换行：站长多半是从聊天记录、备忘录里
+// 一段一段粘过来的，输入法留下的 "，" 和粘贴带来的换行是常态而不是意外，
+// 与其报错不如直接认下来。
+func isBarkDeviceKeySeparator(r rune) bool {
+	switch r {
+	case ',', '，', '\n', '\r':
+		return true
+	default:
+		return false
+	}
+}
+
+// splitBarkDeviceKeys 把一串 device_key 切成列表：按分隔符切分后逐个 trim、丢掉空串、
+// 按首次出现顺序去重（重复的 key 会让同一台手机连收两条，纯属噪音）。
+//
+// 这里刻意不校验数量上限，读取路径（解密已存配置）用它：历史数据不该因为超限而整串读不出来，
+// 那样等于配置突然"消失"。上限只在写入路径由 ParseBarkDeviceKeys 把关。
+func splitBarkDeviceKeys(raw string) []string {
+	fields := strings.FieldsFunc(raw, isBarkDeviceKeySeparator)
+	keys := make([]string, 0, len(fields))
+	seen := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		key := strings.TrimSpace(field)
+		if key == "" {
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// ParseBarkDeviceKeys 在 splitBarkDeviceKeys 之上加数量上限，供所有写入路径使用
+// （保存配置、测试推送时请求体里现填的值）。超限时返回 ErrBarkDeviceKeyTooMany，
+// 该错误与其它 Bark 错误一起定义在 notify_bark_settings.go，管理端接口会直接映射成 400。
+func ParseBarkDeviceKeys(raw string) ([]string, error) {
+	keys := splitBarkDeviceKeys(raw)
+	if len(keys) > barkMaxDeviceKeys {
+		return nil, ErrBarkDeviceKeyTooMany
+	}
+	return keys, nil
+}
+
+// JoinBarkDeviceKeys 把列表拼回落库用的规范格式（去重、去空白后的逗号分隔串）。
+func JoinBarkDeviceKeys(keys []string) string {
+	return strings.Join(keys, barkDeviceKeySeparator)
+}
+
+// MaskBarkDeviceKey 把 device_key 压成可以安全出现在日志 / 接口返回里的片段。
+//
+// 只保留前 3 位：定位"是第几个设备失败了"靠的是序号，前缀只是让站长对着自己填的顺序
+// 再确认一眼，不承担"能认出这是谁的 key"的职责，所以露得越少越好。
+func MaskBarkDeviceKey(key string) string {
+	runes := []rune(strings.TrimSpace(key))
+	if len(runes) < barkMaskMinLen {
+		return "***"
+	}
+	return string(runes[:barkMaskedKeyPrefixLen]) + "***"
 }
 
 // Send 推送一条通知。device_key 只出现在请求体里；调用方打日志时只应记录 server_url 与状态码。
@@ -240,13 +321,12 @@ func (n *BarkNotifier) Ping(ctx context.Context, serverURL string) error {
 	return nil
 }
 
-// barkResponseSnippet 把上游响应压成一行、截断到 200 字，并抹掉 device_key。
-func barkResponseSnippet(body []byte, deviceKey string) string {
+// barkResponseSnippet 把上游响应压成一行、截断到 200 字，并抹掉所有已知 device_key。
+// 先抹再截断：反过来的话跨越截断边界的 key 会被切成两半，躲过替换后半截仍然泄露。
+func barkResponseSnippet(body []byte, deviceKeys ...string) string {
 	s := strings.TrimSpace(string(body))
 	s = strings.Join(strings.Fields(s), " ")
-	if len(deviceKey) >= barkSecretScrubMinLen {
-		s = strings.ReplaceAll(s, deviceKey, "***")
-	}
+	s = scrubBarkSecretText(s, deviceKeys)
 	runes := []rune(s)
 	if len(runes) > barkResponseSnippetLimit {
 		s = string(runes[:barkResponseSnippetLimit]) + "…"
@@ -254,14 +334,32 @@ func barkResponseSnippet(body []byte, deviceKey string) string {
 	return s
 }
 
+// scrubBarkSecretText 把文本里出现过的每一个 device_key 换成 ***。
+//
+// 多设备场景下必须整份列表一起抹，只抹"当次用的那一个"是不够的：上游回显、代理错误信息
+// 里完全可能带上别的设备的 key，漏出去任意一个都是事故。
+func scrubBarkSecretText(text string, deviceKeys []string) string {
+	for _, key := range deviceKeys {
+		key = strings.TrimSpace(key)
+		// 短 key 跳过替换，理由见 barkSecretScrubMinLen。
+		if len(key) < barkSecretScrubMinLen {
+			continue
+		}
+		text = strings.ReplaceAll(text, key, "***")
+	}
+	return text
+}
+
 // scrubBarkSecret 防御性处理：http 客户端错误一般只含 URL，但仍确保 device_key 不会随错误外泄。
-func scrubBarkSecret(err error, deviceKey string) error {
-	if err == nil || len(deviceKey) < barkSecretScrubMinLen {
+// 变参形式让调用方一次把整份 key 列表传进来，单 key 的老调用点写法不变。
+func scrubBarkSecret(err error, deviceKeys ...string) error {
+	if err == nil {
 		return err
 	}
 	text := err.Error()
-	if !strings.Contains(text, deviceKey) {
+	scrubbed := scrubBarkSecretText(text, deviceKeys)
+	if scrubbed == text {
 		return err
 	}
-	return errors.New(strings.ReplaceAll(text, deviceKey, "***"))
+	return errors.New(scrubbed)
 }

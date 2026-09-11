@@ -25,6 +25,14 @@ type BatchAccountDiagnosticsRequest struct {
 
 // AccountDiagnostics 单个账号的诊断结果。
 // RecentErrors 为 nil 表示错误数据不可用（运维监控关闭或查询失败），不等于"没有错误"。
+//
+// RecentErrors 里的 total / by_status[].count 是原始错误行数，recovered / failed 则把它们
+// 拆成「已恢复」与「最终失败」：网关遇到上游报错会重试、必要时换账号，只显示「502 × 5」
+// 会让站长把五次自动恢复当成五次事故。判定口径（status_code 2xx = 已恢复）与拆分的
+// 计算方式见 service/ops_account_recent_errors.go 顶部。
+//
+// by_status[].last_client_request_id 与 last.client_request_id 可用于打开「请求链路」
+// 接口 GET /api/v1/admin/ops/requests/:clientRequestId/chain，看清后续到底发生了什么。
 type AccountDiagnostics struct {
 	Scheduling   service.AccountSchedulingDiagnosis    `json:"scheduling"`
 	RecentErrors *service.OpsAccountRecentErrorSummary `json:"recent_errors"`
