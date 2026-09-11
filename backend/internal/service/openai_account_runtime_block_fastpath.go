@@ -104,12 +104,17 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		return true
 	}
 	if statusCode == http.StatusTooManyRequests {
-		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody)
+		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody, canonicalModel...)
 	}
 	if s.rateLimitService == nil {
 		return false
 	}
-	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody)
+	// 显式把 canonicalModel 透传给 HandleUpstreamError：429 的处理必须知道这次请求打的
+	// 是哪个模型，才能判断它是不是落在独立额度池上（见 handleOpenAIDedicatedQuotaPool429）。
+	// stateCtx 上虽然已有 withTempUnschedulableModel，但显式传参更安全。
+	// 这里补传不会改变其它分支的行为：model-not-found 与模型级 temp-unschedulable 规则
+	// 在上面 96 / 102 行已经用同一个 canonicalModel 判过并提前 return 了。
+	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, canonicalModel...)
 	modelTempMatched := statusCode != http.StatusUnauthorized && tempUnschedulableModel(stateCtx, nil) != "" &&
 		len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0
 	if shouldDisable && !modelTempMatched {
@@ -150,13 +155,24 @@ func shouldCooldownOpenAITransientUpstreamError(statusCode int, responseBody []b
 	}
 }
 
-func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) {
 	if s == nil || !isOpenAIOAuthAccount(account) {
 		return
 	}
 	// Spark 影子：不按 /responses 429 的 global x-codex-* 信号做内存运行时熔断(同 handle429,外审第8轮 P1)。
 	// 同时避免把 spark 的 429 计入全局 429 storm 计数(recordOpenAIOAuth429),否则会误伤母账号 failover 决策。
 	if account.IsShadow() {
+		return
+	}
+	// 独立额度池模型（codex_bengalfox / gpt-5.3-codex-spark）：这次 429 只说明该池的配额
+	// 用完了，账号的主池（gpt-5.5 / gpt-6-astra / gpt-5.6-* 共用）可能一点没动。
+	// 下面的 BlockAccountScheduling 是内存里的**整号**熔断（拿不到 reset 时还会兜底封 2 分钟），
+	// 在这里执行等于把一个附加池的耗尽放大成整号不可调度 —— 2026-09-10 线上账号 8 就是这样
+	// 在 spark 撞 429 后 7 秒内连完全无关的 gpt-6-astra 也被判限流的。
+	// 同时不计入 429 storm 计数：一个附加池的耗尽不该影响整个号池的 failover 决策（同影子的理由）。
+	// 真正该落的模型级限流由 RateLimitService.handleOpenAIDedicatedQuotaPool429 写进
+	// accounts.extra.model_rate_limits，不需要也不应该在这里再做整号动作。
+	if openAIDedicatedQuotaPoolScope(account, tempUnschedulableModel(ctx, requestedModel)) != "" {
 		return
 	}
 	s.recordOpenAIOAuth429()
@@ -240,6 +256,65 @@ func (s *OpenAIGatewayService) ClearAccountSchedulingBlock(accountID int64) {
 	defer mu.Unlock()
 	s.openaiAccountRuntimeBlockUntil.Delete(accountID)
 	s.openaiAccountRuntimeBlockGeneration.Store(accountID, s.openaiAccountRuntimeBlockSequence.Add(1))
+}
+
+// clearOpenAIAccountRuntimeBlocks 无条件抹掉整号运行时停调（openaiAccountRuntimeBlockUntil）。
+// accountIDs 为空表示全量，否则只清列出的账号。返回真正删掉的条目数。
+//
+// 与 ClearAccountSchedulingBlock 的区别只有一个：那个是给"知道账号 ID 的业务流程"用的
+// 单点解除，这个是运维逃生口的批量解除——不看数据库、不看账号状态，调用即清。库里干净
+// 的账号却被封在内存里（2026-09-11 线上账号 5、6）时，只有后者救得回来。
+//
+// 为什么不顺手删掉配套的 openaiAccountRuntimeBlockLocks：那张表里的 *sync.Mutex 是这个
+// 账号所有停调读写的互斥凭据。删掉它的一瞬间，正持锁的 goroutine 手里还是旧锁，而后来者
+// 会 LoadOrStore 出一把新锁——两边各拿各的锁，互斥就没了。一个 Mutex 只有几十字节，账号
+// 数量又有限，留着远比省这点内存划算。
+//
+// openaiAccountRuntimeBlockGeneration 同理：不删，而是递增。blockGrokCredentialRuntime
+// 会拿着安装时记下的 generation 判断要不要回滚，递增等于明确告诉它「你装的那条已经被人
+// 清掉了，别回填」。
+func (s *OpenAIGatewayService) clearOpenAIAccountRuntimeBlocks(accountIDs []int64) int {
+	if s == nil {
+		return 0
+	}
+	targets := accountIDs
+	if len(targets) == 0 {
+		// 全量模式：先快照一遍键，再逐个拿账号锁删。不在 Range 回调里直接加锁——
+		// sync.Map.Range 期间可能持有它自己的内部锁，在回调里再去抢账号锁等于把两把锁
+		// 叠起来，没必要给自己埋这个伏笔。
+		collected := make([]int64, 0, 16)
+		s.openaiAccountRuntimeBlockUntil.Range(func(key, _ any) bool {
+			if accountID, ok := key.(int64); ok {
+				collected = append(collected, accountID)
+			}
+			return true
+		})
+		targets = collected
+	}
+
+	cleared := 0
+	for _, accountID := range targets {
+		if accountID <= 0 {
+			continue
+		}
+		if s.clearOpenAIAccountRuntimeBlockEntry(accountID) {
+			cleared++
+		}
+	}
+	return cleared
+}
+
+// clearOpenAIAccountRuntimeBlockEntry 在账号锁内删掉一条停调，返回是否真的删到了东西。
+func (s *OpenAIGatewayService) clearOpenAIAccountRuntimeBlockEntry(accountID int64) bool {
+	mu := s.openAIAccountRuntimeBlockLock(accountID)
+	mu.Lock()
+	defer mu.Unlock()
+	if _, ok := s.openaiAccountRuntimeBlockUntil.Load(accountID); !ok {
+		return false
+	}
+	s.openaiAccountRuntimeBlockUntil.Delete(accountID)
+	s.openaiAccountRuntimeBlockGeneration.Store(accountID, s.openaiAccountRuntimeBlockSequence.Add(1))
+	return true
 }
 
 func (s *OpenAIGatewayService) isOpenAIAccountRuntimeBlocked(account *Account) bool {

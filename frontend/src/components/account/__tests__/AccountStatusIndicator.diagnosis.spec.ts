@@ -105,14 +105,46 @@ describe('AccountStatusIndicator scheduling diagnosis badge', () => {
           { source: 'rate_limited', until: FUTURE },
           { source: 'temp_unschedulable', until: FUTURE },
           { source: 'overloaded', until: FUTURE },
-          { source: 'quota_exceeded' },
-          { source: 'expired' }
+          { source: 'quota_exceeded' }
         ],
         false
       )
     )
 
     expect(wrapper.find('[data-test="scheduling-block-badge"]').exists()).toBe(false)
+  })
+
+  // expired 曾被当成"徽标已经展示过"而过滤掉，但状态列根本没有过期分支：
+  // 账号过期停调后整行还是绿色的「正常」。它必须自己冒出来。
+  it('surfaces the expired block — no other badge covers it', () => {
+    const wrapper = mountIndicator(makeDiagnosis([{ source: 'expired' }], false))
+
+    expect(wrapper.find('[data-test="scheduling-block-badge"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="scheduling-block-lines"]').text()).toContain(
+      'admin.accounts.schedulingBlock.expired'
+    )
+  })
+
+  it('surfaces the two Grok in-process model blocks', () => {
+    const wrapper = mountIndicator(
+      makeDiagnosis(
+        [
+          { source: 'grok_model_quota', model: 'grok-4', until: FUTURE },
+          { source: 'grok_team_rate_limit', model: 'grok-4-fast', until: FUTURE }
+        ],
+        true
+      )
+    )
+
+    const lines = wrapper.findAll('[data-test="scheduling-block-lines"] > div').map(n => n.text())
+    expect(lines).toEqual([
+      `admin.accounts.schedulingBlock.grokModelQuotaUntil|grok-4,min:${FUTURE}`,
+      `admin.accounts.schedulingBlock.grokTeamRateLimitUntil|grok-4-fast,min:${FUTURE}`
+    ])
+    // 两者都是模型级：整号仍可调度，徽标应是「部分受限」而不是「不可调度」
+    expect(wrapper.find('[data-test="scheduling-block-badge"]').text()).toContain(
+      'admin.accounts.status.partiallyBlocked'
+    )
   })
 
   it('shows only the hidden blocks when mixed with DB-derived ones', () => {

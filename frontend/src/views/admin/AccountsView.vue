@@ -136,6 +136,30 @@
 
                       <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
                       <div class="px-2 py-2">
+                        <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                          {{ t('admin.accounts.opsActions') }}
+                        </div>
+                      </div>
+                      <button
+                        class="account-tools-menu-item disabled:cursor-not-allowed disabled:opacity-60"
+                        data-test="clear-runtime-blocks"
+                        :disabled="clearingRuntimeBlocks"
+                        @click="openClearRuntimeBlocksDialog"
+                      >
+                        <span class="account-tools-menu-icon bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300">
+                          <Icon
+                            :name="clearingRuntimeBlocks ? 'refresh' : 'bolt'"
+                            size="sm"
+                            :class="[clearingRuntimeBlocks ? 'animate-spin' : '']"
+                          />
+                        </span>
+                        <span class="flex-1 text-left">
+                          {{ clearingRuntimeBlocks ? t('admin.accounts.runtimeBlocks.clearing') : t('admin.accounts.runtimeBlocks.clearAction') }}
+                        </span>
+                      </button>
+
+                      <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
+                      <div class="px-2 py-2">
                         <div class="flex items-center justify-between gap-3">
                           <span class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
                             {{ t('admin.accounts.viewColumns') }}
@@ -469,8 +493,18 @@
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
-    <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
-    <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
+    <AccountTestModal
+      :show="showTest"
+      :account="testingAcc"
+      :diagnosis="diagnosisFor(testingAcc)"
+      @close="closeTestModal"
+    />
+    <AccountStatsModal
+      :show="showStats"
+      :account="statsAcc"
+      :diagnosis="diagnosisFor(statsAcc)"
+      @close="closeStatsModal"
+    />
     <AccountLoadDrawer :show="showLoad" :account="loadAcc" @close="closeLoadDrawer" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @usage="handleViewUsage" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
@@ -495,6 +529,21 @@
         <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" v-model="includeProxyOnExport" />
         <span>{{ t('admin.accounts.dataExportIncludeProxies') }}</span>
       </label>
+    </ConfirmDialog>
+    <ConfirmDialog
+      :show="showClearRuntimeBlocksDialog"
+      :title="t('admin.accounts.runtimeBlocks.clearTitle')"
+      :message="t('admin.accounts.runtimeBlocks.clearConfirmMessage')"
+      :confirm-text="t('admin.accounts.runtimeBlocks.clearConfirmAction')"
+      :cancel-text="t('common.cancel')"
+      @confirm="handleClearRuntimeBlocks"
+      @cancel="showClearRuntimeBlocksDialog = false"
+    >
+      <ul class="list-disc space-y-1.5 pl-5 text-sm text-gray-600 dark:text-gray-400" data-test="clear-runtime-blocks-details">
+        <li>{{ t('admin.accounts.runtimeBlocks.clearConfirmScope') }}</li>
+        <li>{{ t('admin.accounts.runtimeBlocks.clearConfirmSafety') }}</li>
+        <li>{{ t('admin.accounts.runtimeBlocks.clearConfirmEffect') }}</li>
+      </ul>
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
@@ -618,6 +667,8 @@ const showTest = ref(false)
 const showStats = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
+const showClearRuntimeBlocksDialog = ref(false)
+const clearingRuntimeBlocks = ref(false)
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
@@ -726,6 +777,10 @@ const diagnosticsLoading = ref(false)
 const diagnosticsReqSeq = ref(0)
 const diagnosticsWindowMinutes = ref(15)
 const usageManualRefreshToken = ref(0)
+
+// 弹窗与列表共用同一份诊断，避免弹窗自己按 DB 字段再判一次（那样点进去会看到绿色 active）。
+const diagnosisFor = (acc: Account | null): AccountDiagnosis | null =>
+  acc ? (diagnosticsByAccountId.value[String(acc.id)] ?? null) : null
 
 const desktopViewportQuery = '(min-width: 768px)'
 const isDesktopViewport = ref(
@@ -1452,7 +1507,8 @@ const isAnyModalOpen = computed(() => {
     showLoad.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
-    showTLSFingerprintProfiles.value
+    showTLSFingerprintProfiles.value ||
+    showClearRuntimeBlocksDialog.value
   )
 })
 
@@ -1621,6 +1677,42 @@ const openErrorPassthrough = () => {
 const openTLSFingerprintProfiles = () => {
   closeAccountToolsDropdown()
   showTLSFingerprintProfiles.value = true
+}
+
+const openClearRuntimeBlocksDialog = () => {
+  if (clearingRuntimeBlocks.value) return
+  closeAccountToolsDropdown()
+  showClearRuntimeBlocksDialog.value = true
+}
+
+/**
+ * Wipe the gateway's in-process scheduling blocks for every account.
+ *
+ * These blocks never hit the DB, so the list can show a fully healthy account that still takes zero
+ * traffic. Restarting the container used to be the only way out, at the cost of every in-flight
+ * request; this is the surgical version of that.
+ */
+const handleClearRuntimeBlocks = async () => {
+  if (clearingRuntimeBlocks.value) return
+  showClearRuntimeBlocksDialog.value = false
+  clearingRuntimeBlocks.value = true
+  try {
+    // No account_ids => all accounts.
+    const result = await adminAPI.accounts.clearRuntimeBlocks()
+    const cleared = Number(result?.total_cleared ?? 0)
+    if (Number.isFinite(cleared) && cleared > 0) {
+      appStore.showSuccess(t('admin.accounts.runtimeBlocks.clearSuccess', { count: cleared }))
+    } else {
+      // Nothing to clear is a perfectly fine outcome, not a failure.
+      appStore.showSuccess(t('admin.accounts.runtimeBlocks.clearNothing'))
+    }
+    // The blocks only lived in memory, so the list + diagnostics have to be re-read to show the change.
+    await load()
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.runtimeBlocks.clearFailed')))
+  } finally {
+    clearingRuntimeBlocks.value = false
+  }
 }
 
 const syncPendingListChanges = async () => {

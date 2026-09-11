@@ -399,13 +399,18 @@ const statusText = computed(() => {
   return t(`admin.accounts.status.${props.account.status}`)
 })
 
-// 只展示进程内的拦截原因；DB 字段能推出来的（状态、限流、过载、临时不可调度、配额、手动暂停、过期）
-// 上面的徽标已经展示过，不重复。
-const HIDDEN_BLOCK_SOURCES = new Set<AccountSchedulingBlock['source']>([
-  'runtime_block',
-  'model_runtime_block',
-  'proxy_quarantine',
-  'quota_auto_pause'
+// 反向名单：只排除上面徽标确实已经画出来的来源，其余一律进这个提示框。
+//
+// 之前这里是正向白名单（只列进程内那四种），结果后端新增来源时没人记得同步，
+// 而 `expired` 从一开始就不在任何徽标里 —— 账号明明已经过期停调，状态列还是绿的「正常」。
+// 反着写以后，后端加任何新来源都会自动显示，最多是文案暂时缺省，不会再整条漏掉。
+const BLOCK_SOURCES_COVERED_BY_BADGES = new Set<AccountSchedulingBlock['source']>([
+  'status',
+  'manual_unschedulable',
+  'overloaded',
+  'rate_limited',
+  'temp_unschedulable',
+  'quota_exceeded'
 ])
 
 const toPercent = (value: number) => Math.round(value * 100)
@@ -438,6 +443,20 @@ const describeBlock = (block: AccountSchedulingBlock): string => {
         })
       }
       return t('admin.accounts.schedulingBlock.quotaAutoPausedGeneric')
+    case 'expired':
+      return t('admin.accounts.schedulingBlock.expired')
+    case 'grok_model_quota': {
+      const model = block.model || '-'
+      return time
+        ? t('admin.accounts.schedulingBlock.grokModelQuotaUntil', { model, time })
+        : t('admin.accounts.schedulingBlock.grokModelQuota', { model })
+    }
+    case 'grok_team_rate_limit': {
+      const model = block.model || '-'
+      return time
+        ? t('admin.accounts.schedulingBlock.grokTeamRateLimitUntil', { model, time })
+        : t('admin.accounts.schedulingBlock.grokTeamRateLimit', { model })
+    }
     default:
       return ''
   }
@@ -451,7 +470,7 @@ const hiddenBlockLines = computed<string[]>(() => {
   if (!Array.isArray(blocks) || blocks.length === 0) return NO_BLOCK_LINES
   const nowMs = now.value
   const lines = blocks
-    .filter(block => HIDDEN_BLOCK_SOURCES.has(block.source))
+    .filter(block => !BLOCK_SOURCES_COVERED_BY_BADGES.has(block.source))
     .filter(block => !block.until || isStillFuture(block.until, nowMs))
     .map(describeBlock)
     .filter(line => line !== '')

@@ -26,7 +26,9 @@ import type {
   UpstreamBillingRatesResponse,
   OllamaCloudUsageSettings,
   OllamaCloudUsageState,
-  BatchAccountDiagnosticsResponse
+  BatchAccountDiagnosticsResponse,
+  ClearAccountRuntimeBlocksRequest,
+  ClearAccountRuntimeBlocksResponse
 } from '@/types'
 
 /**
@@ -645,6 +647,30 @@ export async function getBatchDiagnostics(
 }
 
 /**
+ * 无条件清空进程内存里的账号封锁（运行时封锁 / 模型临时冷却 / 代理隔离 / Grok 限额闸门）。
+ *
+ * 这类封锁只存在于网关进程内存，数据库记录是干净的，所以后台页面会把账号显示成“正常”
+ * 却一个请求都不接。以前只能重启容器恢复，这个接口是不掐断在途请求的替代手段。
+ * 它不读写数据库，也不会改动任何账号配置。
+ *
+ * @param accountIds - 账号 ID 列表；省略或传空数组表示全部账号
+ * @returns 各类封锁的清除条数
+ */
+export async function clearRuntimeBlocks(
+  accountIds?: number[]
+): Promise<ClearAccountRuntimeBlocksResponse> {
+  const payload: ClearAccountRuntimeBlocksRequest = {}
+  if (accountIds && accountIds.length > 0) {
+    payload.account_ids = accountIds
+  }
+  const { data } = await apiClient.post<ClearAccountRuntimeBlocksResponse>(
+    '/admin/accounts/runtime-blocks/clear',
+    payload
+  )
+  return data
+}
+
+/**
  * Set account schedulable status
  * @param id - Account ID
  * @param schedulable - Whether the account should participate in scheduling
@@ -1135,6 +1161,7 @@ export const accountsAPI = {
   getTodayStats,
   getBatchTodayStats,
   getBatchDiagnostics,
+  clearRuntimeBlocks,
   clearRateLimit,
   recoverState,
   resetAccountQuota,

@@ -6,9 +6,25 @@
       <div class="h-3 w-10 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
     </div>
 
-    <!-- No errors / monitoring unavailable -->
+    <!-- 数据取不到（运维监控关闭 / 查询失败）：后端返回 null，与"确实零错误"不是一回事。
+         两者都画成 `-` 会让监控关掉时整列看起来像"全站零错误"。 -->
+    <HelpTooltip
+      v-else-if="!props.errors"
+      width-class="w-max max-w-[260px]"
+      class="!ml-0"
+    >
+      <template #trigger>
+        <span
+          class="cursor-help text-sm text-gray-400 dark:text-dark-500"
+          data-test="recent-errors-unavailable"
+        >?</span>
+      </template>
+      <div class="text-left">{{ t('admin.accounts.recentErrors.unavailable') }}</div>
+    </HelpTooltip>
+
+    <!-- 真的没有错误 -->
     <span
-      v-else-if="!props.errors || props.errors.total <= 0"
+      v-else-if="props.errors.total <= 0"
       class="text-sm text-gray-400 dark:text-dark-500"
       data-test="recent-errors-empty"
     >-</span>

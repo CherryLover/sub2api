@@ -37,10 +37,14 @@ function mountCell(props: { errors?: AccountRecentErrors | null; loading?: boole
 const LAST_AT = '2026-09-10T08:58:00Z'
 
 describe('AccountRecentErrorsCell', () => {
-  it('shows a dash when monitoring is unavailable (null)', () => {
+  // 「取不到数据」必须和「确实零错误」长得不一样：都画成 `-` 的话，
+  // 运维监控一关，整列看起来就像全站零错误。
+  it('distinguishes unavailable (null) from genuinely zero errors', () => {
     const wrapper = mountCell({ errors: null })
-    expect(wrapper.find('[data-test="recent-errors-empty"]').text()).toBe('-')
+    expect(wrapper.find('[data-test="recent-errors-unavailable"]').text()).toBe('?')
+    expect(wrapper.find('[data-test="recent-errors-empty"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="recent-errors"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('admin.accounts.recentErrors.unavailable')
   })
 
   it('shows a dash when there are no errors in the window', () => {

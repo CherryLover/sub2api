@@ -45,6 +45,11 @@ func (s *OpsService) GetAccountAvailabilityStats(ctx context.Context, platformFi
 	group := make(map[int64]*GroupAvailability)
 	account := make(map[int64]*AccountAvailability)
 
+	// 可用性一律走 DiagnoseAccountScheduling，与账号列表页同源。手写一套
+	// "status+schedulable+限流+过载+临时停调" 会漏掉过期、额度用尽、配额自动暂停
+	// 与全部进程内停用，把调不出去的账号统计成"可用"。
+	diagnoses := s.diagnoseAccountsForOps(ctx, accounts)
+
 	for _, acc := range accounts {
 		if acc.ID <= 0 {
 			continue
@@ -65,7 +70,12 @@ func (s *OpsService) GetAccountAvailabilityStats(ctx context.Context, platformFi
 			isOverloaded = false
 		}
 
-		isAvailable := acc.Status == StatusActive && acc.Schedulable && !isRateLimited && !isOverloaded && !isTempUnsched
+		diagnosis, diagnosed := diagnoses[acc.ID]
+		isAvailable := diagnosis.Schedulable
+		if !diagnosed {
+			// 诊断缺失（理论上不会发生）时退回旧口径，宁可少报也不要 panic 掉整页。
+			isAvailable = acc.Status == StatusActive && acc.Schedulable && !isRateLimited && !isOverloaded && !isTempUnsched
+		}
 
 		if acc.Platform != "" {
 			if _, ok := platform[acc.Platform]; !ok {
@@ -130,7 +140,8 @@ func (s *OpsService) GetAccountAvailabilityStats(ctx context.Context, platformFi
 			IsOverloaded:  isOverloaded,
 			HasError:      hasError,
 
-			ErrorMessage: acc.ErrorMessage,
+			ErrorMessage:     acc.ErrorMessage,
+			SchedulingBlocks: diagnosis.Blocks,
 		}
 
 		if isRateLimited && acc.RateLimitResetAt != nil {
@@ -155,6 +166,24 @@ func (s *OpsService) GetAccountAvailabilityStats(ctx context.Context, platformFi
 	}
 
 	return platform, group, account, &collectedAt, nil
+}
+
+// diagnoseAccountsForOps 把运维页拿到的账号快照送进统一的调度诊断。
+// 返回值按账号 ID 索引；openAIGatewayService 为 nil 时诊断仍会给出全部
+// 数据库派生的封锁（该方法允许 nil receiver），只是缺进程内那部分。
+func (s *OpsService) diagnoseAccountsForOps(ctx context.Context, accounts []Account) map[int64]AccountSchedulingDiagnosis {
+	if len(accounts) == 0 {
+		return map[int64]AccountSchedulingDiagnosis{}
+	}
+	ptrs := make([]*Account, 0, len(accounts))
+	for i := range accounts {
+		ptrs = append(ptrs, &accounts[i])
+	}
+	var gateway *OpenAIGatewayService
+	if s != nil {
+		gateway = s.openAIGatewayService
+	}
+	return gateway.DiagnoseAccountScheduling(ctx, ptrs)
 }
 
 type OpsAccountAvailability struct {

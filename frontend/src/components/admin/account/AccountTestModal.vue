@@ -29,16 +29,10 @@
             </div>
           </div>
         </div>
-        <span
-          :class="[
-            'rounded-full px-2.5 py-1 text-xs font-semibold',
-            account.status === 'active'
-              ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-              : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-          ]"
-        >
-          {{ account.status }}
-        </span>
+        <!-- 复用列表页的状态指示器：此处原先只看 account.status，一个正在限流 /
+             过载 / 临时停调 / 运行时停用的账号点进来照样显示绿色 active。
+             连接测试尤其需要真话——人正是点进来确认它到底能不能用的。 -->
+        <AccountStatusIndicator :account="account" :diagnosis="diagnosis" />
       </div>
 
       <!-- Grok: mode first, then optional model / mode params -->
@@ -375,7 +369,8 @@ import { useClipboard } from '@/composables/useClipboard'
 import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
-import type { Account, ClaudeModel } from '@/types'
+import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
+import type { Account, AccountDiagnosis, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
@@ -393,6 +388,8 @@ interface PreviewMedia {
 const props = defineProps<{
   show: boolean
   account: Account | null
+  /** 由账号列表页透传的调度诊断；缺省时指示器只按 DB 字段展示。 */
+  diagnosis?: AccountDiagnosis | null
 }>()
 
 const emit = defineEmits<{

@@ -20,6 +20,20 @@ export default {
       moreActions: 'More Actions',
       dataActions: 'Data',
       toolActions: 'Tools',
+      opsActions: 'Recovery',
+      runtimeBlocks: {
+        clearAction: 'Clear in-process blocks',
+        clearTitle: 'Clear in-process blocks',
+        clearConfirmMessage: 'This clears the temporary in-memory blocks held by the gateway process for every account, effective immediately.',
+        clearConfirmScope: 'Only in-process temporary blocks are cleared: runtime blocks, model cooldowns, proxy quarantines and Grok quota gates.',
+        clearConfirmSafety: 'The database is not touched, and no account settings, status or groups are changed.',
+        clearConfirmEffect: 'Wrongly blocked accounts return to the scheduling pool right away; accounts that really should be blocked will be blocked again the next time they trip a limit.',
+        clearConfirmAction: 'Clear blocks',
+        clearing: 'Clearing...',
+        clearSuccess: 'Cleared {count} in-process blocks; the affected accounts are back in the scheduling pool',
+        clearNothing: 'There are no in-process blocks right now',
+        clearFailed: 'Failed to clear in-process blocks'
+      },
       viewColumns: 'Columns',
       selectedCount: '{count} selected',
       dataExportConfirmMessage: 'The exported data contains sensitive account and proxy information. Store it securely.',
@@ -241,12 +255,18 @@ export default {
         proxyQuarantinedUntil: 'Proxy #{id} quarantined until {time}',
         proxyQuarantined: 'Proxy #{id} quarantined',
         quotaAutoPaused: '{window} usage {utilization}% ≥ {threshold}%, auto-paused',
-        quotaAutoPausedGeneric: 'Usage threshold reached, auto-paused'
+        quotaAutoPausedGeneric: 'Usage threshold reached, auto-paused',
+        expired: 'Account expired, scheduling stopped',
+        grokModelQuotaUntil: '{model} free usage exhausted, paused until {time}',
+        grokModelQuota: '{model} free usage exhausted',
+        grokTeamRateLimitUntil: 'Another account in the same team hit {model} rate limit, paused until {time}',
+        grokTeamRateLimit: 'Another account in the same team hit {model} rate limit'
       },
       recentErrors: {
         windowHint: 'Last {n} minutes',
         lastAt: 'Latest {time}',
-        upstreamStatus: 'Upstream {code}'
+        upstreamStatus: 'Upstream {code}',
+        unavailable: 'Error data unavailable (ops monitoring off or query failed) — this does not mean there were no errors'
       },
       ollamaCloud: {
         title: 'Ollama Cloud usage',

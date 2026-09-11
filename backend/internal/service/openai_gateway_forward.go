@@ -1065,7 +1065,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
 		if account.Type == AccountTypeOAuth && !account.IsShadow() {
 			if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
-				s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
+				// 必须带上上游模型名：独立额度池（codex_bengalfox / spark）的额度头
+				// 不能写进账号的主池用量，否则 spark 池打满会被当成整号周额度用尽。
+				s.updateCodexUsageSnapshotForModel(ctx, account.ID, snapshot, upstreamModel)
 			}
 		}
 

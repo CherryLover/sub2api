@@ -53,6 +53,32 @@ func accountGrokTeamID(account *Account) string {
 	return strings.TrimSpace(account.GetCredential("team_id"))
 }
 
+// peekGrokTeamModelRateLimits 列出该账号所在 team 当前仍生效的单模型限流
+// （model -> 解除时间）。严格只读，不清理过期项。
+//
+// team 维度是跨账号连坐的：本账号自己一次都没失败，也可能因为同 team 的兄弟账号
+// 撞了 429 而在这张表里。这正是它必须被展示出来的原因——页面上本账号毫无异常痕迹。
+func peekGrokTeamModelRateLimits(account *Account, now time.Time) map[string]time.Time {
+	fp := grokTeamFingerprint(accountGrokTeamID(account))
+	if fp == "" {
+		return nil
+	}
+	prefix := fp + "|"
+	globalGrokTeamModelRateLimits.mu.Lock()
+	defer globalGrokTeamModelRateLimits.mu.Unlock()
+	var out map[string]time.Time
+	for key, limit := range globalGrokTeamModelRateLimits.items {
+		if !strings.HasPrefix(key, prefix) || !now.Before(limit.Until) {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]time.Time, 1)
+		}
+		out[strings.TrimPrefix(key, prefix)] = limit.Until
+	}
+	return out
+}
+
 // markGrokTeamModelRateLimit records that this team+model pair should be skipped
 // until until. No-op when team_id or model is empty.
 func markGrokTeamModelRateLimit(account *Account, model string, until time.Time) {
@@ -110,6 +136,27 @@ func isGrokTeamModelRateLimited(account *Account, model string, now time.Time) b
 		return false
 	}
 	return true
+}
+
+// clearAllGrokTeamModelRateLimits 无条件清空 team×模型限流叠加表。
+// 返回真正删掉的条目数，含尚未被顺手清扫掉的过期条目。
+//
+// 只有运维逃生口的**全量**模式会调它。键是 "teamFingerprint|model"，而 teamFingerprint
+// 是 team_id 的 sha256 前缀——想从账号 ID 反推，得先去数据库把 team_id 读出来。这个逃生口
+// 的前提正是"不信任、也不依赖数据库状态"，所以"指定账号"模式下这一类一律跳过，计数如实
+// 返回 0，不假装清过。
+//
+// 这一类还额外隐蔽：它是跨账号连坐的，本账号一次都没失败也可能被同 team 的兄弟账号
+// 撞的 429 关在外面，页面上本账号毫无异常痕迹（同 peekGrokTeamModelRateLimits 的理由）。
+func clearAllGrokTeamModelRateLimits() int {
+	globalGrokTeamModelRateLimits.mu.Lock()
+	defer globalGrokTeamModelRateLimits.mu.Unlock()
+	cleared := len(globalGrokTeamModelRateLimits.items)
+	if cleared == 0 {
+		return 0
+	}
+	globalGrokTeamModelRateLimits.items = make(map[string]grokTeamModelRateLimit)
+	return cleared
 }
 
 // filterGrokTeamModelRateLimitedAccounts drops candidates whose team is under a

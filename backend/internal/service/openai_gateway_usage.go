@@ -1040,8 +1040,45 @@ func buildCodexUsageExtraUpdates(snapshot *OpenAICodexUsageSnapshot, fallbackNow
 // ⚠️ 调用方必须排除 spark 影子账号(account.IsShadow()):影子的 codex_* 仅由 QueryUsage
 // (/wham/usage bengalfox 道)更新,不能被全局头口径污染(外审第7轮 P1)。本函数仅持 accountID,
 // 无法在此自检影子,故守卫前置到各调用点。
+//
+// ⚠️⚠️ 还有第二道必须由调用方把关的守卫：**本次请求用的模型**。走独立额度池的模型
+// （当前只有 gpt-5.3-codex-spark，池名 codex_bengalfox）返回的 x-codex-* 头描述的是
+// 那个池的余量，不是账号的 global 5h/7d 余量，写进来会造成整号误限流
+// （2026-09-10 线上事故；名单与完整故障记录见 model_rate_limit.go 的
+// openAIDedicatedQuotaPoolModels）。
+// 能拿到模型名的调用点请改用 updateCodexUsageSnapshotForModel /
+// UpdateCodexUsageSnapshotFromHeadersForModel；本函数保留给确实没有模型上下文的路径，
+// 语义等价于「模型未知 → 按普通模型处理」。
 func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, accountID int64, snapshot *OpenAICodexUsageSnapshot) {
+	s.updateCodexUsageSnapshotForModel(ctx, accountID, snapshot, "")
+}
+
+// updateCodexUsageSnapshotForModel 在 updateCodexUsageSnapshot 之上加了「按模型区分
+// 额度池」的守卫：model 命中独立额度池名单时整包跳过写入。
+//
+// 为什么是整包跳过、而不是只跳过 codex_5h_*/codex_7d_*：buildCodexUsageExtraUpdates
+// 同时会写 codex_primary_*/codex_secondary_* 原始字段，而 openAIQuotaHeadroomFactor
+// 读的正是 codex_primary_used_percent（回退到 codex_7d_used_percent），
+// 所以原始字段同样是调度侧的输入，同样不能被独立池的数字污染。
+//
+// 也不在这里另存一份「该模型的用量」：extra 是 JSONB merge（mergeAccountExtra /
+// UpdateExtra 都是 merge 不是 replace），只回一个窗口时另一个会沿用旧值；再引入一组
+// 半更新的 per-pool 字段只会制造新的「半个窗口」问题。spark 池的真实余量已有权威来源
+// ——QueryUsage 走 /wham/usage 读 additional_rate_limits 里的 codex_bengalfox
+// （见 buildCodexSparkWindowExtraUpdates），不需要用响应头这条弱口径去猜。
+//
+// model 为空（没有模型上下文）时按普通模型处理、照常写 global。这是刻意选的保守方向：
+// 已知调用点都会显式传模型，少写一次 global 会让调度侧读到过期快照，危害大于多写一次。
+// 将来若出现「有独立池但拿不到模型名」的路径，正确做法是把模型名补上，而不是改这里。
+func (s *OpenAIGatewayService) updateCodexUsageSnapshotForModel(ctx context.Context, accountID int64, snapshot *OpenAICodexUsageSnapshot, model string) {
 	if snapshot == nil {
+		return
+	}
+	if IsOpenAIDedicatedQuotaPoolModel(model) {
+		logger.L().Debug("openai_codex_usage.skip_dedicated_quota_pool_model",
+			zap.Int64("account_id", accountID),
+			zap.String("model", model),
+		)
 		return
 	}
 	if s == nil || s.accountRepo == nil {
@@ -1064,11 +1101,44 @@ func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, acc
 	}()
 }
 
+// UpdateCodexUsageSnapshotFromHeaders 解析上游响应头并写入账号 global 用量快照。
+//
+// ⚠️ 已废弃，新代码不要再用这个重载。它拿不到本次请求的模型名，等价于 model=""
+// （按普通模型处理、照常写 global）。走独立额度池的模型（gpt-5.3-codex-spark）必须走
+// UpdateCodexUsageSnapshotFromHeadersForModel，否则会把 spark 池的余量当成账号
+// global 余量写入、造成整号误限流（2026-09-10 线上事故）。保留这个重载只是为了不打断
+// 确实没有模型上下文的旧调用点。
 func (s *OpenAIGatewayService) UpdateCodexUsageSnapshotFromHeaders(ctx context.Context, accountID int64, headers http.Header) {
+	s.UpdateCodexUsageSnapshotFromHeadersForModel(ctx, accountID, headers, "")
+}
+
+// UpdateCodexUsageSnapshotFromHeadersForModel 解析上游响应头并写入账号 global 5h/7d
+// 用量快照，但只在 model 不属于「独立额度池模型」时才写。
+//
+// model 传**本次真正发往上游的模型名**（account.GetMappedModel(reqModel) 或
+// result.UpstreamModel），不是客户端请求名：账号级 model_mapping 可以把任意请求名改写
+// 成 spark。模型名显式从调用点传入，不走 ctx 隐式传递——这条判断是限流正确性的一部分，
+// 必须在调用处一眼可见。
+//
+// 「独立额度池模型」的名单是 model_rate_limit.go 的 openAIDedicatedQuotaPoolModels
+// （单一事实来源，那里也记着 2026-09-10 的完整故障复盘与扩展方法）；判定
+// IsOpenAIDedicatedQuotaPoolModel 对大小写、空白、下划线、openai/ 路径前缀以及
+// 日期 / -openai-compact 等后缀变体都不敏感。
+//
+// model 为空时按普通模型处理（照常写 global），理由见 updateCodexUsageSnapshotForModel。
+func (s *OpenAIGatewayService) UpdateCodexUsageSnapshotFromHeadersForModel(ctx context.Context, accountID int64, headers http.Header, model string) {
 	if accountID <= 0 || headers == nil {
 		return
 	}
+	// 先判模型再解析头：命中独立额度池时连解析都省掉，避免在热路径上做无用功。
+	if IsOpenAIDedicatedQuotaPoolModel(model) {
+		logger.L().Debug("openai_codex_usage.skip_dedicated_quota_pool_model",
+			zap.Int64("account_id", accountID),
+			zap.String("model", model),
+		)
+		return
+	}
 	if snapshot := ParseCodexRateLimitHeaders(headers); snapshot != nil {
-		s.updateCodexUsageSnapshot(ctx, accountID, snapshot)
+		s.updateCodexUsageSnapshotForModel(ctx, accountID, snapshot, model)
 	}
 }

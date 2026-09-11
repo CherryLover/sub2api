@@ -217,6 +217,27 @@ func (c *openAIProxyStreamCircuit) activeBlockCount(now time.Time) int {
 	return count
 }
 
+// clearAll 无条件清空代理流熔断隔离表，返回真正删掉的条目数（含尚未过期清扫的旧条目）。
+//
+// 只有运维逃生口的**全量**模式会调它。这张表按 proxy_id 建键，从账号 ID 反查 proxy_id
+// 必须读数据库，而这个逃生口存在的前提正是"数据库看着一切正常、内存里却封着"——它不该、
+// 也不能依赖数据库。所以"指定账号"模式下这一类一律跳过，计数如实返回 0，不假装清过。
+//
+// settings.disabled 时照样清：开关只管要不要继续记录和拦截，不影响把残留状态抹干净。
+func (c *openAIProxyStreamCircuit) clearAll() int {
+	if c == nil {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cleared := len(c.entries)
+	if cleared == 0 {
+		return 0
+	}
+	c.entries = make(map[int64]openAIProxyStreamCircuitEntry)
+	return cleared
+}
+
 func (c *openAIProxyStreamCircuit) ensureCapacityLocked(now time.Time) {
 	if len(c.entries) < c.settings.maxEntries {
 		return

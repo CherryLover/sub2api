@@ -303,6 +303,40 @@ type AccountUsageService struct {
 	tlsFPProfileService     *TLSFingerprintProfileService
 	agentIdentityTaskMu     sync.Mutex
 	agentIdentityWS         agentIdentityWSConnectionInvalidator
+
+	// schedulingBlockClearer 由 wire 在 OpenAIGatewayService 构造完成后通过
+	// SetSchedulingBlockClearer 注入（同 OpsService.SetAlertRuleEvaluator 的解耦手法）：
+	// AccountUsageService 不能直接持有 *OpenAIGatewayService，否则构造期成环。
+	// 允许为 nil —— 单测和任何没接线的调用方都必须能安全跑完自愈。
+	schedulingBlockClearer AccountSchedulingBlockClearer
+}
+
+// AccountSchedulingBlockClearer 由 *OpenAIGatewayService 实现：拆掉某个账号的进程内运行时停调。
+//
+// 刻意只收敛到"解除"这一个方法（而不是复用 AccountRuntimeBlocker）：用量刷新这条路径永远
+// 只负责放行，没有任何理由反过来把账号停掉；把 BlockAccountScheduling 也暴露进来，
+// 等于给后来者留了一个可以在 usage 刷新里误封账号的口子。
+type AccountSchedulingBlockClearer interface {
+	ClearAccountSchedulingBlock(accountID int64)
+}
+
+// SetSchedulingBlockClearer 由 wire 注入运行时停调的解除入口（构造期循环依赖的解耦点）。
+func (s *AccountUsageService) SetSchedulingBlockClearer(clearer AccountSchedulingBlockClearer) {
+	if s == nil {
+		return
+	}
+	s.schedulingBlockClearer = clearer
+}
+
+// clearAccountSchedulingBlock 解除进程内运行时停调；未注入时静默跳过。
+//
+// 注意这里绝不能因为"拿不到网关引用"就让调用方走失败分支：库里的限流此时已经清掉了，
+// 自愈在数据层面是成功的，缺的只是内存闸门这一半。
+func (s *AccountUsageService) clearAccountSchedulingBlock(accountID int64) {
+	if s == nil || s.schedulingBlockClearer == nil || accountID <= 0 {
+		return
+	}
+	s.schedulingBlockClearer.ClearAccountSchedulingBlock(accountID)
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -806,6 +840,9 @@ type OpenAIRateLimitRecoveryRepository interface {
 // 因此这里正好是拿到"新鲜的上游窗口真值"的时刻：若两个窗口都没耗尽（<100%），
 // 说明这次限流标记与套餐额度无关（或对应窗口早已滚动），可以清掉账号级限流状态。
 //
+// 清库成功后还必须解除进程内的运行时停调（见函数尾部的 clearAccountSchedulingBlock）：
+// 429 是"库 + 内存"双写，只清库会把账号留在"后台全绿、网关永不调度"的分裂态。
+//
 // 三条必须守住的边界（每条都对应一个真实故障模式）：
 //
 //  1. 【丢失更新】只做条件清除。probe 超时 15s，而 account 是 probe 发起前加载的内存快照，
@@ -906,6 +943,28 @@ func (s *AccountUsageService) clearOpenAIRateLimitIfCodexSnapshotHealthy(
 
 	account.RateLimitedAt = nil
 	account.RateLimitResetAt = nil
+
+	// 【P0：内存停调必须与库限流同生共死】
+	//
+	// 线上实证（2026-09-10 11:01:59，公司实例账号 5 与 6）：两个账号在库里干干净净——
+	// status=active、schedulable=true、无 rate_limited_at / overload_until / temp_unschedulable、
+	// 也没过期——管理页显示一切正常，网关却从那一刻起一个请求都不派给它们。
+	//
+	// 根因是 429 处理是"双写"：handle429 既 SetRateLimited 落库，又经 BlockAccountScheduling
+	// 在 OpenAIGatewayService 里写一条进程内的运行时停调（openaiAccountRuntimeBlockUntil）。
+	// 调度前置检查除了看库里的 IsSchedulable()，还要过 isOpenAIAccountRuntimeBlocked() 这道
+	// 内存闸门，而这道闸门的到期时间就是那个把账号误封住的 reset_at——正是本函数存在的理由
+	// （历史上按 7d 窗口误封，一封就是好几天）。
+	//
+	// 此处的自愈当时只清了库和调度快照，没碰内存闸门，于是账号进入"库里完全健康 + 内存仍按
+	// 错误 reset_at 停调"的分裂态：自愈越成功，后台看着越正常，越没人能看出来它为什么不接
+	// 请求，最后只能靠人工点「清除限流」（admin_account.go 的清除路径正是库 +
+	// ClearAccountSchedulingBlock 一起做）或者重启容器才能恢复。
+	//
+	// 所以条件清除一旦真的清掉了库里那一代限流，就必须在同一个成功分支里把内存闸门一起拆掉。
+	// 位置刻意放在 UpdateExtra 之前：来源标记清理失败只是留下陈旧元数据，不该连累账号回池。
+	s.clearAccountSchedulingBlock(account.ID)
+
 	// 标记必须随限流一起消失，否则会留下误导后续判断的陈旧值。
 	if clearUpdates := openAIRateLimitSourceClearUpdates(); len(clearUpdates) > 0 {
 		if err := s.accountRepo.UpdateExtra(ctx, account.ID, clearUpdates); err != nil {
