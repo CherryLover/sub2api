@@ -292,6 +292,43 @@ func sweepGrokFreeQuotaGateCache(cache *sync.Map, now time.Time, cacheTTL time.D
 	})
 }
 
+// clearGrokFreeQuotaGateCache 无条件删掉 free 额度软闸的观测缓存条目，返回真正删掉的
+// 条目数。accountIDs 为空表示清空整张表，否则只删这些账号的。
+//
+// 缓存按 int64(accountID) 建键，所以按账号精确过滤在这一类上是成立的。
+//
+// 服务于运维逃生口：这里存的是"最近窗口用了多少 token"，达到软闸阈值就在选号阶段把账号
+// 过滤掉。它纯粹是进程内的观测快照，数据库里没有对应开关，后台页面既看不见也改不了——
+// 一条陈旧或错误的观测值足以让一个数据库上完全正常的账号静默地接不到任何请求。
+//
+// 清掉只是让下一次请求重新去查（查回来之前一律放行，fail open）。此刻若正好有后台刷新
+// 在飞，它落地时会重新写入一条真实的观测值；那是数据库里真实的用量，本来就该生效，
+// 不属于"清不掉的内存幽灵"。
+func clearGrokFreeQuotaGateCache(cache *sync.Map, accountIDs []int64) int {
+	if cache == nil {
+		return 0
+	}
+	cleared := 0
+	if len(accountIDs) == 0 {
+		cache.Range(func(key, _ any) bool {
+			if _, loaded := cache.LoadAndDelete(key); loaded {
+				cleared++
+			}
+			return true
+		})
+		return cleared
+	}
+	for _, accountID := range accountIDs {
+		if accountID <= 0 {
+			continue
+		}
+		if _, loaded := cache.LoadAndDelete(accountID); loaded {
+			cleared++
+		}
+	}
+	return cleared
+}
+
 func queryGrokFreeQuotaWindowStats(ctx context.Context, usageLogRepo UsageLogRepository, accountIDs []int64, start time.Time) (map[int64]*usagestats.AccountStats, error) {
 	if usageLogRepo == nil {
 		return nil, nil

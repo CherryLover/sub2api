@@ -989,6 +989,8 @@ export type AccountSchedulingBlockSource =
   | 'model_runtime_block'
   | 'proxy_quarantine'
   | 'quota_auto_pause'
+  | 'grok_model_quota'
+  | 'grok_team_rate_limit'
 
 export interface AccountSchedulingBlock {
   source: AccountSchedulingBlockSource
@@ -1034,6 +1036,31 @@ export interface BatchAccountDiagnosticsResponse {
   window_minutes: number
   generated_at: string
   diagnostics: Record<string, AccountDiagnosis>
+}
+
+// Runtime block reset (POST /admin/accounts/runtime-blocks/clear)
+// These blocks only ever live in the gateway process memory: the DB rows stay clean, which is why
+// the admin UI can show a perfectly healthy account that still refuses every request.
+export interface ClearAccountRuntimeBlocksRequest {
+  /** Omit (or send an empty array) to clear every account. */
+  account_ids?: number[]
+}
+
+export interface ClearedAccountRuntimeBlockCounts {
+  account_runtime_blocks: number
+  model_transient_cooldowns: number
+  proxy_quarantines: number
+  grok_model_quota_blocks: number
+  grok_team_rate_limits: number
+  grok_free_quota_gates: number
+}
+
+export interface ClearAccountRuntimeBlocksResponse {
+  /** 'all' when no account_ids were sent; otherwise the request was scoped to those accounts. */
+  scope: string
+  account_ids: number[]
+  cleared: ClearedAccountRuntimeBlockCounts
+  total_cleared: number
 }
 
 // Account Usage types

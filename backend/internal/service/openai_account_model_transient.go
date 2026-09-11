@@ -214,6 +214,44 @@ func (s *openAIAccountModelTransientState) activeBlocks(accountIDs []int64, now 
 	return out
 }
 
+// clearBlocks 无条件删掉账号×模型的瞬时冷却条目，返回真正删掉的条目数。
+// accountIDs 为空表示全量，否则只删这些账号名下的（键里带 AccountID，能精确过滤）。
+//
+// 服务于运维逃生口：这些冷却只存在于进程内存里，数据库上看不见也改不动，账号页显示一切
+// 正常但请求就是进不来时（2026-09-11 线上账号 5、6），必须能从服务自己身上一键抹掉。
+// 走 s.mu，和 recordFailure / isBlocked / activeBlocks 互斥，并发下不会撕裂。
+func (s *openAIAccountModelTransientState) clearBlocks(accountIDs []int64) int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.entries) == 0 {
+		return 0
+	}
+	if len(accountIDs) == 0 {
+		cleared := len(s.entries)
+		s.entries = make(map[openAIAccountModelKey]openAIAccountModelTransientEntry)
+		return cleared
+	}
+
+	wanted := make(map[int64]struct{}, len(accountIDs))
+	for _, accountID := range accountIDs {
+		if accountID > 0 {
+			wanted[accountID] = struct{}{}
+		}
+	}
+	cleared := 0
+	for key := range s.entries {
+		if _, ok := wanted[key.AccountID]; !ok {
+			continue
+		}
+		delete(s.entries, key)
+		cleared++
+	}
+	return cleared
+}
+
 func (s *openAIAccountModelTransientState) size() int {
 	if s == nil {
 		return 0

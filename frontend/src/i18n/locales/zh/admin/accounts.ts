@@ -20,6 +20,20 @@ export default {
       moreActions: '更多操作',
       dataActions: '数据操作',
       toolActions: '工具',
+      opsActions: '运维恢复',
+      runtimeBlocks: {
+        clearAction: '清空进程内封锁',
+        clearTitle: '清空进程内封锁',
+        clearConfirmMessage: '将对全部账号清空网关进程内存里的临时封锁，立即生效。',
+        clearConfirmScope: '只清理进程内存中的临时封锁：运行时封锁、模型冷却、代理隔离、Grok 限额闸门。',
+        clearConfirmSafety: '不修改数据库，也不改动任何账号配置、状态或分组。',
+        clearConfirmEffect: '被误封的账号会立刻回到调度池；确实该被封的账号在下次触发条件时会重新进入封锁。',
+        clearConfirmAction: '确认清空',
+        clearing: '清空中...',
+        clearSuccess: '已清空 {count} 条进程内封锁，相关账号已回到调度池',
+        clearNothing: '当前没有任何进程内封锁',
+        clearFailed: '清空进程内封锁失败'
+      },
       viewColumns: '列显示',
       selectedCount: '已选 {count}',
       dataExportConfirmMessage: '导出的数据包含账号与代理的敏感信息，请妥善保存。',
@@ -135,12 +149,18 @@ export default {
         proxyQuarantinedUntil: '代理 #{id} 隔离至 {time}',
         proxyQuarantined: '代理 #{id} 隔离',
         quotaAutoPaused: '{window} 用量 {utilization}% ≥ {threshold}%，已自动暂停',
-        quotaAutoPausedGeneric: '用量达到阈值，已自动暂停'
+        quotaAutoPausedGeneric: '用量达到阈值，已自动暂停',
+        expired: '账号已过期，自动停止调度',
+        grokModelQuotaUntil: '{model} 免费额度用尽，暂停至 {time}',
+        grokModelQuota: '{model} 免费额度用尽',
+        grokTeamRateLimitUntil: '同团队其它账号触发 {model} 限流，暂停至 {time}',
+        grokTeamRateLimit: '同团队其它账号触发 {model} 限流'
       },
       recentErrors: {
         windowHint: '最近 {n} 分钟',
         lastAt: '{time}',
-        upstreamStatus: '上游 {code}'
+        upstreamStatus: '上游 {code}',
+        unavailable: '取不到错误数据（运维监控未开启或查询失败），不代表没有错误'
       },
       ollamaCloud: {
         title: 'Ollama Cloud 用量',

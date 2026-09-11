@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sort"
 	"time"
 )
 
@@ -21,7 +22,20 @@ const (
 	AccountSchedulingBlockModelRuntime    = "model_runtime_block"
 	AccountSchedulingBlockProxyQuarantine = "proxy_quarantine"
 	AccountSchedulingBlockQuotaAutoPause  = "quota_auto_pause"
+
+	// In-process Grok-only state. Both are model-scoped: they exclude the account
+	// for one model, not entirely.
+	AccountSchedulingBlockGrokModelQuota    = "grok_model_quota"
+	AccountSchedulingBlockGrokTeamRateLimit = "grok_team_rate_limit"
 )
+
+// modelScopedSchedulingBlockSources 只挡单个模型、不影响整号可调度性的封锁来源。
+// 新增模型级来源时必须同步加进来，否则账号会被误判成整号不可调度。
+var modelScopedSchedulingBlockSources = map[string]struct{}{
+	AccountSchedulingBlockModelRuntime:      {},
+	AccountSchedulingBlockGrokModelQuota:    {},
+	AccountSchedulingBlockGrokTeamRateLimit: {},
+}
 
 // AccountSchedulingBlock is one reason the scheduler currently skips an account.
 // Only the fields relevant to Source are populated.
@@ -39,8 +53,9 @@ type AccountSchedulingBlock struct {
 
 // AccountSchedulingDiagnosis explains whether the scheduler would currently
 // consider an account at all. Schedulable is false when any account-wide block
-// is present; model-scoped cooldowns (model_runtime_block) only exclude the
-// account for that model, so they are listed but leave Schedulable true.
+// is present; model-scoped cooldowns (see modelScopedSchedulingBlockSources)
+// only exclude the account for that model, so they are listed but leave
+// Schedulable true.
 type AccountSchedulingDiagnosis struct {
 	Schedulable bool                     `json:"schedulable"`
 	Blocks      []AccountSchedulingBlock `json:"blocks"`
@@ -48,9 +63,16 @@ type AccountSchedulingDiagnosis struct {
 
 // DiagnoseAccountScheduling reports, per account, every condition that keeps
 // the scheduler from selecting it: the persisted conditions checked by
-// (*Account).IsSchedulable() plus the OpenAI gateway's in-process blocks
-// (account runtime block, account+model transient cooldown, proxy stream
-// quarantine) and quota auto-pause.
+// (*Account).IsSchedulable() plus the gateway's in-process blocks (account
+// runtime block, account+model transient cooldown, proxy stream quarantine,
+// quota auto-pause, and for Grok the free-usage model block and the team-wide
+// model rate limit).
+//
+// This is the single source of truth for "can this account take traffic right
+// now" across the admin UI — the account list and the ops availability card
+// both read it. Do not re-derive availability from raw DB columns somewhere
+// else; that is exactly how those call sites drifted apart before, reporting
+// accounts as available while the gateway refused to schedule them.
 //
 // In-process state is per instance: in a multi-instance deployment the result
 // reflects only the instance that served the admin request.
@@ -120,6 +142,7 @@ func (s *OpenAIGatewayService) DiagnoseAccountScheduling(ctx context.Context, ac
 			if block, ok := diagnoseAccountQuotaAutoPause(quotaCtx, account); ok {
 				blocks = append(blocks, block)
 			}
+			blocks = appendGrokModelScopedBlocks(blocks, account, now)
 		}
 		out[account.ID] = AccountSchedulingDiagnosis{
 			Schedulable: !hasAccountWideSchedulingBlock(blocks),
@@ -131,7 +154,7 @@ func (s *OpenAIGatewayService) DiagnoseAccountScheduling(ctx context.Context, ac
 
 func hasAccountWideSchedulingBlock(blocks []AccountSchedulingBlock) bool {
 	for _, block := range blocks {
-		if block.Source != AccountSchedulingBlockModelRuntime {
+		if _, modelScoped := modelScopedSchedulingBlockSources[block.Source]; !modelScoped {
 			return true
 		}
 	}
@@ -173,6 +196,40 @@ func diagnoseAccountPersistedSchedulingBlocks(a *Account, now time.Time) []Accou
 	if a.IsAPIKeyOrBedrock() && a.IsQuotaExceeded() {
 		blocks = append(blocks, AccountSchedulingBlock{Source: AccountSchedulingBlockQuotaExceeded})
 	}
+	return blocks
+}
+
+// appendGrokModelScopedBlocks 补上两处 Grok 专属的进程内单模型封锁：账号自己的
+// 免费额度软封（filterGrokModelQuotaBlockedAccounts 消费）与 team 维度的连坐限流
+// （filterGrokTeamModelRateLimitedAccounts 消费）。两者此前任何页面都看不到。
+//
+// 模型名排序输出，避免 map 遍历顺序让同一状态每次刷新都换个排法。
+//
+// 未覆盖：Grok free 账号的 95% 本地软闸（grok_free_quota_gate.go）。它要查用量
+// 统计才能判定，不是纯内存读，塞进这条只读路径会带上 I/O 和缓存副作用。
+func appendGrokModelScopedBlocks(blocks []AccountSchedulingBlock, account *Account, now time.Time) []AccountSchedulingBlock {
+	if account == nil || account.Platform != PlatformGrok {
+		return blocks
+	}
+	appendSorted := func(source string, entries map[string]time.Time) {
+		if len(entries) == 0 {
+			return
+		}
+		models := make([]string, 0, len(entries))
+		for model := range entries {
+			models = append(models, model)
+		}
+		sort.Strings(models)
+		for _, model := range models {
+			blocks = append(blocks, AccountSchedulingBlock{
+				Source: source,
+				Model:  model,
+				Until:  diagnosisTimePtr(entries[model]),
+			})
+		}
+	}
+	appendSorted(AccountSchedulingBlockGrokModelQuota, peekGrokModelQuotaBlocks(account.ID, now))
+	appendSorted(AccountSchedulingBlockGrokTeamRateLimit, peekGrokTeamModelRateLimits(account, now))
 	return blocks
 }
 

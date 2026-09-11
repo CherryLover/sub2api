@@ -50,6 +50,29 @@ func markGrokModelQuotaBlock(accountID int64, model string, until time.Time) {
 	storeGrokModelQuotaBlock(accountID, model, until, now)
 }
 
+// peekGrokModelQuotaBlocks 列出该账号当前仍生效的单模型软封锁（model -> 解除时间）。
+// 严格只读：不清理过期项、不改任何计时器。isGrokModelQuotaBlocked 走的是调度路径，
+// 诊断不能复用它——那条路径会顺手删过期项，把"看一眼"变成"改状态"。
+func peekGrokModelQuotaBlocks(accountID int64, now time.Time) map[string]time.Time {
+	if accountID <= 0 {
+		return nil
+	}
+	suffix := "|" + strconv.FormatInt(accountID, 10)
+	globalGrokModelQuotaBlocks.mu.Lock()
+	defer globalGrokModelQuotaBlocks.mu.Unlock()
+	var out map[string]time.Time
+	for key, block := range globalGrokModelQuotaBlocks.items {
+		if !strings.HasSuffix(key, suffix) || !now.Before(block.Until) {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]time.Time, 1)
+		}
+		out[strings.TrimSuffix(key, suffix)] = block.Until
+	}
+	return out
+}
+
 const (
 	grokModelTransientBlockMinTTL = 500 * time.Millisecond
 	grokModelTransientBlockMaxTTL = 5 * time.Minute
@@ -105,6 +128,46 @@ func isGrokModelQuotaBlocked(accountID int64, model string, now time.Time) bool 
 		return false
 	}
 	return true
+}
+
+// clearGrokModelQuotaBlocks 无条件删掉 Grok 单模型软封锁，accountIDs 为空表示全量。
+// 返回真正删掉的条目数，含尚未被顺手清扫掉的过期条目。
+//
+// 键的形状是 "model|accountID"（见 grokModelQuotaBlockKey），所以按账号过滤是靠后缀
+// "|<id>" 匹配的，和只读的 peekGrokModelQuotaBlocks 用的是同一套判据。
+//
+// 服务于运维逃生口：这张表是进程级全局变量，数据库里没有任何对应记录，后台页面看不见它，
+// 也没有任何按钮能清它。2026-09-11 线上就出现过库里干干净净、账号却一个请求都不接的情况。
+func clearGrokModelQuotaBlocks(accountIDs []int64) int {
+	globalGrokModelQuotaBlocks.mu.Lock()
+	defer globalGrokModelQuotaBlocks.mu.Unlock()
+	if len(globalGrokModelQuotaBlocks.items) == 0 {
+		return 0
+	}
+	if len(accountIDs) == 0 {
+		cleared := len(globalGrokModelQuotaBlocks.items)
+		globalGrokModelQuotaBlocks.items = make(map[string]grokModelQuotaBlock)
+		return cleared
+	}
+
+	suffixes := make([]string, 0, len(accountIDs))
+	for _, accountID := range accountIDs {
+		if accountID > 0 {
+			suffixes = append(suffixes, "|"+strconv.FormatInt(accountID, 10))
+		}
+	}
+	cleared := 0
+	for key := range globalGrokModelQuotaBlocks.items {
+		for _, suffix := range suffixes {
+			if !strings.HasSuffix(key, suffix) {
+				continue
+			}
+			delete(globalGrokModelQuotaBlocks.items, key)
+			cleared++
+			break
+		}
+	}
+	return cleared
 }
 
 func filterGrokModelQuotaBlockedAccounts(accounts []Account, model string, now time.Time) []Account {

@@ -89,4 +89,8 @@ type AccountAvailability struct {
 	OverloadRemainingSec   *int64     `json:"overload_remaining_sec"`
 	ErrorMessage           string     `json:"error_message"`
 	TempUnschedulableUntil *time.Time `json:"temp_unschedulable_until,omitempty"`
+
+	// SchedulingBlocks 是 is_available=false 的完整原因清单，与账号列表页的
+	// 诊断接口同源。为空表示该账号当前没有任何拦截。
+	SchedulingBlocks []AccountSchedulingBlock `json:"scheduling_blocks,omitempty"`
 }

@@ -835,8 +835,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 		if result != nil {
 			// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
+			// 同时按模型区分额度池:走独立额度池的模型(gpt-5.3-codex-spark)返回的 x-codex-*
+			// 头描述的是那个池、不是账号 global 窗口,写进来会整号误限流(2026-09-10 事故)。
 			if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
-				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
+				h.gatewayService.UpdateCodexUsageSnapshotFromHeadersForModel(
+					c.Request.Context(), account.ID, result.ResponseHeaders,
+					openAICodexQuotaPoolModel(account, result, reqModel),
+				)
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
 		} else {
@@ -851,6 +856,33 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		)
 		return
 	}
+}
+
+// openAICodexQuotaPoolModel 解析「本次请求真正发往上游的模型名」，供
+// UpdateCodexUsageSnapshotFromHeadersForModel 判断这次的 x-codex-* 额度头属于账号
+// 的 global 5h/7d 窗口、还是属于某个独立额度池（当前只有 gpt-5.3-codex-spark 的
+// codex_bengalfox 池）。
+//
+// 必须用上游模型名而不是客户端请求名：账号级 model_mapping 可以把任意请求名改写成
+// spark，只看请求名会漏判。优先级：
+//  1. result.UpstreamModel —— 转发层记录的实际上游模型，最权威；
+//  2. account.GetMappedModel(requestedModel) —— 透传/未回填 UpstreamModel 的路径；
+//  3. requestedModel —— 兜底。
+//
+// 全空时返回 ""，判定侧会按普通模型处理、照常写 global（保守方向，见
+// service.UpdateCodexUsageSnapshotFromHeadersForModel 注释）。
+func openAICodexQuotaPoolModel(account *service.Account, result *service.OpenAIForwardResult, requestedModel string) string {
+	if result != nil {
+		if model := strings.TrimSpace(result.UpstreamModel); model != "" {
+			return model
+		}
+	}
+	if account != nil {
+		if model := strings.TrimSpace(account.GetMappedModel(requestedModel)); model != "" {
+			return model
+		}
+	}
+	return strings.TrimSpace(requestedModel)
 }
 
 func isOpenAILegacyCompactPath(c *gin.Context) bool {
@@ -2315,13 +2347,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					zap.String("turn_upstream_model", turnUpstreamModel),
 					zap.String("billing_model", result.BillingModel),
 				)
-				// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
-				if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
-					h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, result.ResponseHeaders)
-				}
 				scheduleModel := turnUpstreamModel
 				if scheduleModel == "" {
 					scheduleModel = turnRequestedModel
+				}
+				// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
+				// 同时按模型区分额度池:走独立额度池的模型(gpt-5.3-codex-spark)返回的 x-codex-*
+				// 头描述的是那个池、不是账号 global 窗口,写进来会整号误限流(2026-09-10 事故)。
+				// 这里用 turn 级的上游模型名:同一条 WS 连接的不同 turn 可以换模型。
+				if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
+					h.gatewayService.UpdateCodexUsageSnapshotFromHeadersForModel(ctx, account.ID, result.ResponseHeaders, scheduleModel)
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, scheduleModel, openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
 				inboundEndpoint := GetInboundEndpoint(c)

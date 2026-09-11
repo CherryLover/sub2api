@@ -636,3 +636,132 @@ func (r *noConditionalClearRepo) ClearRateLimit(_ context.Context, id int64) err
 	r.clearedIDs = append(r.clearedIDs, id)
 	return nil
 }
+
+// runtimeBlockClearRecorder 替身 *OpenAIGatewayService，只记录自愈有没有真的去拆内存闸门。
+type runtimeBlockClearRecorder struct {
+	clearedIDs []int64
+}
+
+func (r *runtimeBlockClearRecorder) ClearAccountSchedulingBlock(accountID int64) {
+	r.clearedIDs = append(r.clearedIDs, accountID)
+}
+
+// TestAccountUsageService_SelfHealClearsRuntimeSchedulingBlock 锁住 2026-09-10 的线上故障：
+//
+// 公司实例的账号 5 与 6 从 11:01:59 起一个请求都不接，但库里干干净净（status=active、
+// schedulable=true、无限流/过载/临时停调/过期），后台看不出任何异常。原因是 429 处理是双写——
+// handle429 既把限流落库，又经 BlockAccountScheduling 在网关里写了一条进程内运行时停调；
+// 而这里的自愈当时只清了库，内存闸门原封不动，于是账号卡死在"库里全绿、网关永不调度"的
+// 分裂态，只能靠人工点「清除限流」或重启容器才能恢复。
+//
+// 这组用例守的是一条对称性：清库和拆内存闸门必须同进同退。
+// 清成功 ⇒ 必须拆；没清成（代际变了、清库报错）⇒ 绝不能拆，否则等于凭空放行一条有效封锁。
+func TestAccountUsageService_SelfHealClearsRuntimeSchedulingBlock(t *testing.T) {
+	t.Parallel()
+
+	limitedAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+	resetAt := time.Now().Add(96 * time.Hour).UTC().Truncate(time.Second)
+
+	// 内存快照与"库里那一行"初始同代，模拟 probe 发起前的状态。
+	newLimitedAccount := func(id int64) (*Account, *openAISelfHealRepo) {
+		mk := func() *Account {
+			limited := limitedAt
+			reset := resetAt
+			return &Account{
+				ID:               id,
+				Platform:         PlatformOpenAI,
+				Type:             AccountTypeOAuth,
+				Status:           StatusActive,
+				Schedulable:      true,
+				RateLimitedAt:    &limited,
+				RateLimitResetAt: &reset,
+			}
+		}
+		return mk(), &openAISelfHealRepo{state: mk()}
+	}
+
+	healthy := &UsageInfo{
+		FiveHour: &UsageProgress{Utilization: 12},
+		SevenDay: &UsageProgress{Utilization: 40},
+	}
+
+	t.Run("clears the in-process scheduling block after a successful heal", func(t *testing.T) {
+		account, repo := newLimitedAccount(5)
+		blocker := &runtimeBlockClearRecorder{}
+		svc := &AccountUsageService{accountRepo: repo}
+		svc.SetSchedulingBlockClearer(blocker)
+
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
+
+		if repo.clearedCount() != 1 {
+			t.Fatalf("observedClears = %+v, want the row to be healed", repo.observedClears)
+		}
+		if len(blocker.clearedIDs) != 1 || blocker.clearedIDs[0] != account.ID {
+			t.Fatalf("clearedIDs = %v, a healed account must also be released from the in-process scheduling block", blocker.clearedIDs)
+		}
+	})
+
+	// 代际变了说明 probe 飞行期间有真实 429 写了一条新封锁：库没清，内存闸门就更不能拆，
+	// 否则账号会带着一条有效封锁被放回池子里反复撞 429。
+	t.Run("keeps the in-process block when the rate limit generation changed", func(t *testing.T) {
+		account, repo := newLimitedAccount(6)
+		observedLimitedAt, observedResetAt := account.RateLimitedAt, account.RateLimitResetAt
+
+		newLimitedAt := time.Now().UTC().Truncate(time.Second)
+		newResetAt := newLimitedAt.Add(72 * time.Hour)
+		repo.state.RateLimitedAt = &newLimitedAt
+		repo.state.RateLimitResetAt = &newResetAt
+
+		blocker := &runtimeBlockClearRecorder{}
+		svc := &AccountUsageService{accountRepo: repo}
+		svc.SetSchedulingBlockClearer(blocker)
+
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), observedLimitedAt, observedResetAt)
+
+		if repo.clearedCount() != 0 {
+			t.Fatalf("observedClears = %+v, the newer rate limit must survive", repo.observedClears)
+		}
+		if len(blocker.clearedIDs) != 0 {
+			t.Fatalf("clearedIDs = %v, the in-process block must not be lifted when the row was not healed", blocker.clearedIDs)
+		}
+	})
+
+	// 清库本身失败时同理：数据层没恢复，内存闸门不能先放行。
+	t.Run("keeps the in-process block when the conditional clear fails", func(t *testing.T) {
+		account, repo := newLimitedAccount(7)
+		repo.observedErr = errors.New("db down")
+
+		blocker := &runtimeBlockClearRecorder{}
+		svc := &AccountUsageService{accountRepo: repo}
+		svc.SetSchedulingBlockClearer(blocker)
+
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
+
+		if len(blocker.clearedIDs) != 0 {
+			t.Fatalf("clearedIDs = %v, a failed clear must not release the in-process block", blocker.clearedIDs)
+		}
+		if !account.IsRateLimited() {
+			t.Fatal("a failed clear must keep the in-memory rate limit")
+		}
+	})
+
+	// 解除入口是构造后注入的可选依赖（wire 之外的调用方、单测都可能没接线）。
+	// 拿不到它只意味着少拆一半，绝不能 panic，更不能让已经成功的清库回滚或被跳过。
+	t.Run("skips safely when no clearer is injected", func(t *testing.T) {
+		account, repo := newLimitedAccount(8)
+		svc := &AccountUsageService{accountRepo: repo}
+
+		svc.clearOpenAIRateLimitIfCodexSnapshotHealthy(context.Background(), account, healthy,
+			healthyCodexUpdates(), account.RateLimitedAt, account.RateLimitResetAt)
+
+		if repo.clearedCount() != 1 {
+			t.Fatalf("observedClears = %+v, a missing clearer must not block the database heal", repo.observedClears)
+		}
+		if account.IsRateLimited() {
+			t.Fatal("the in-memory rate limit should still be cleared")
+		}
+	})
+}

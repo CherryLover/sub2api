@@ -176,6 +176,12 @@ func ProvideAccountUsageService(
 		tlsFPProfileService,
 	)
 	service.agentIdentityWS = openAIGatewayService
+	// 429 自愈清库后要顺带拆掉进程内的运行时停调，否则账号会停在
+	// "库里全绿、网关永不调度"的分裂态（见 clearOpenAIRateLimitIfCodexSnapshotHealthy）。
+	// openAIGatewayService 为 nil 时不注入，让接口保持真正的 nil 而不是 typed-nil。
+	if openAIGatewayService != nil {
+		service.SetSchedulingBlockClearer(openAIGatewayService)
+	}
 	return service
 }
 

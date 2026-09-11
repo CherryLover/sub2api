@@ -361,6 +361,19 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		}
 	}
 
+	// OpenAI 独立额度池（目前只有 codex_bengalfox / gpt-5.3-codex-spark）的 429：
+	// 只写「账号 × 模型」级限流，绝不整号。决策骨架照抄上面 Anthropic 7d_oi 的写法 ——
+	// 命中模型级就立刻 return，不给任何整号分支 fall through 的机会。
+	//
+	// 位置必须早于 tryTempUnschedulable：管理员配置的 429 关键词规则是账号级的，
+	// 一条宽泛的 "rate limit" 规则会把整号停调，等价于本次要修的故障本身。
+	// 详见 openAIDedicatedQuotaPoolModels 头部记录的 2026-09-10 线上故障。
+	if statusCode == http.StatusTooManyRequests && account.Platform == PlatformOpenAI {
+		if s.handleOpenAIDedicatedQuotaPool429(ctx, account, headers, responseBody, tempUnschedulableModel(ctx, requestedModel)) {
+			return false
+		}
+	}
+
 	// 先尝试临时不可调度规则（401除外）
 	// 如果匹配成功，直接返回，不执行后续禁用逻辑
 	if statusCode != 401 {
@@ -526,7 +539,9 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		)
 		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
 	case 429:
-		s.handle429(ctx, account, headers, responseBody)
+		// 显式把模型名透传进 handle429：它要靠模型名判断这次 429 是不是打在
+		// 独立额度池上。ctx 里虽然也有（withTempUnschedulableModel），但显式传参更安全。
+		s.handle429(ctx, account, headers, responseBody, requestedModel...)
 		shouldDisable = false
 	case 529:
 		s.handle529(ctx, account)
@@ -1111,13 +1126,25 @@ func (s *RateLimitService) handleCustomErrorCode(ctx context.Context, account *A
 
 // handle429 处理429限流错误
 // 解析响应头获取重置时间，标记账号为限流状态
-func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+//
+// requestedModel 是可变参数而不是必填参数，只是为了不破坏既有调用方；语义上它是必需的：
+// 没有模型名就无法区分"这次 429 打在独立额度池上"还是"整号额度用尽"，而这正是
+// 2026-09-10 线上故障的根因 —— 老签名里根本没有 model 参数，只看响应头/响应体，
+// 看到"额度用尽"就 SetRateLimited(整号)。调用方应尽量显式传入映射后的上游模型名。
+func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) {
 	// Spark 影子：限流/熔断状态 100% 由 QueryUsage(/wham/usage body 的 codex_bengalfox)驱动。
 	// /responses 的 429 携带的 x-codex-*/usage_limit_reached 是 global codex 道(plan/spec §8),
 	// 套到影子会把 spark 误耦合到 global 窗口——即便 spark 仍有配额也会被冷却到 global reset,
 	// 单影子场景直接变成无可用账号(外审第8轮 P1)。整段跳过;影子的 codex_* 仅由 account_usage 的
 	// QueryUsage→persistOpenAICodexProbeSnapshot 维护,枯竭由调度守卫处理。
 	if account.IsShadow() {
+		return
+	}
+	// 独立额度池（codex_bengalfox / gpt-5.3-codex-spark）的 429 只代表这个池的配额
+	// 用完了，账号的主池（gpt-5.5 / gpt-6-astra / gpt-5.6-* 共用）可能一点没动。
+	// 必须在所有整号分支之前判定并 return。HandleUpstreamError 里已经拦过一道，
+	// 这里是直接调用 handle429 的路径的兜底 —— 两处都命中时第一处已 return，不会重复写。
+	if s.handleOpenAIDedicatedQuotaPool429(ctx, account, headers, responseBody, tempUnschedulableModel(ctx, requestedModel)) {
 		return
 	}
 	// 国产供应商（kimi/zhipu/deepseek）的 429 走专用可恢复路径：余额不足 → 临时停调，
@@ -1244,6 +1271,95 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	}
 
 	slog.Info("account_rate_limited", "account_id", account.ID, "reset_at", resetAt)
+}
+
+const openAIDedicatedQuotaPoolRateLimitReason = "openai_dedicated_quota_pool_rate_limited"
+
+// handleOpenAIDedicatedQuotaPool429 把「打在独立额度池上的 429」收敛成
+// 「账号 × 模型」级限流，返回 true 表示本次 429 已经处理完毕，调用方必须立刻 return，
+// 绝不能再走任何 SetRateLimited(整号) 的分支。
+//
+// 【为什么必须这样】
+// 上游的额度是按池组织的：主池 rate_limit 被 gpt-5.5 / gpt-6-astra / gpt-5.6-* 共用，
+// 附加池 codex_bengalfox 只服务 gpt-5.3-codex-spark。spark 池打满时账号的主池可能只用了
+// 1%，此时把账号整体限流，等于用一个附加池的耗尽把整个号池打空 —— 2026-09-10 线上
+// 就是这样在 5 分钟内产生 230+ 次 503「无可用账号」的（详见
+// openAIDedicatedQuotaPoolModels 头部注释）。
+//
+// 【持久化失败也不得升级成整号限流】
+// 一次 jsonb_set 写失败只说明这条限流没落库，并不能把"这次 429 只影响一个池"这个
+// 已知事实推翻。写失败照样返回 true，与 persistAnthropicFableCreditsRequired 的处理一致。
+// 代价是这个池短时间内会被再撞几次；把它升级成整号限流的代价是所有模型立刻全挂。
+func (s *RateLimitService) handleOpenAIDedicatedQuotaPool429(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel string) bool {
+	if s == nil || s.accountRepo == nil || account == nil {
+		return false
+	}
+	// Spark 影子账号除外：它的限流状态 100% 由 QueryUsage(/wham/usage 的 codex_bengalfox 道)
+	// 驱动，不接受 /responses 429 的任何推断（同 handle429 顶部的影子守卫，外审第8轮 P1）。
+	// 返回 false 而不是 true：影子走到这里之后仍然由 handle429 的影子守卫整体跳过，
+	// 行为与改动前完全一致。
+	if account.IsShadow() {
+		return false
+	}
+	scope := openAIDedicatedQuotaPoolScope(account, requestedModel)
+	if scope == "" {
+		return false
+	}
+
+	resetAt, ok := s.openAIDedicatedQuotaPool429ResetAt(ctx, account, headers, responseBody)
+	if !ok {
+		// 管理端关掉了 429 兜底冷却，且上游没给任何可用的重置时间：与整号路径
+		// （apply429FallbackRateLimit）保持一致，不写任何限流。但依旧返回 true，
+		// 因为"这次 429 只影响一个池"与"要不要冷却"是两件事，不能借机整号。
+		slog.Info("openai_dedicated_quota_pool_429_cooldown_ignored",
+			"account_id", account.ID,
+			"scope", scope)
+		return true
+	}
+
+	// 只写 accounts.extra.model_rate_limits[scope]，完全不碰 accounts.rate_limit_reset_at。
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, scope, resetAt, openAIDedicatedQuotaPoolRateLimitReason); err != nil {
+		slog.Warn("openai_dedicated_quota_pool_rate_limit_set_failed",
+			"account_id", account.ID,
+			"scope", scope,
+			"reset_at", resetAt,
+			"error", err)
+		return true
+	}
+	slog.Info("openai_dedicated_quota_pool_model_rate_limited",
+		"account_id", account.ID,
+		"scope", scope,
+		"reset_at", resetAt,
+		"reset_in", time.Until(resetAt).Truncate(time.Second))
+	return true
+}
+
+// openAIDedicatedQuotaPool429ResetAt 解析独立额度池 429 的冷却截止时间。
+// 优先级：Retry-After → 响应体的 resets_at / resets_in_seconds → x-codex-* 窗口耗尽头
+// → 管理端可配的秒级 429 兜底冷却。ok=false 表示管理端关闭了兜底且上游没给时间。
+//
+// x-codex-* 放最后是有意的：那组头描述的是账号的 global codex 窗口（主池），不是这个
+// 附加池的额度；只有当 calculateOpenAI429ResetTime 判定某个窗口真的耗尽（used>=100）
+// 时它才返回非 nil，才有参考价值。上游给的 Retry-After / body resets_at 才是针对
+// 这次被拒请求的，因此排在前面。
+func (s *RateLimitService) openAIDedicatedQuotaPool429ResetAt(ctx context.Context, account *Account, headers http.Header, responseBody []byte) (time.Time, bool) {
+	now := time.Now()
+	if resetAt := parseRetryAfterResetTime(headers, now); resetAt != nil && resetAt.After(now) {
+		return *resetAt, true
+	}
+	if resetUnix := parseOpenAIRateLimitResetTime(responseBody); resetUnix != nil {
+		if resetAt := time.Unix(*resetUnix, 0); resetAt.After(now) {
+			return resetAt, true
+		}
+	}
+	if resetAt := calculateOpenAI429ResetTime(headers); resetAt != nil && resetAt.After(now) {
+		return *resetAt, true
+	}
+	cooldown, enabled := s.get429FallbackCooldown(ctx, account)
+	if !enabled {
+		return time.Time{}, false
+	}
+	return now.Add(cooldown), true
 }
 
 func (s *RateLimitService) apply429FallbackRateLimit(ctx context.Context, account *Account, reason string) {

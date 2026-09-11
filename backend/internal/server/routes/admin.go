@@ -363,6 +363,11 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/batch-clear-error", h.Admin.Account.BatchClearError)
 		accounts.POST("/batch-refresh", h.Admin.Account.BatchRefresh)
 
+		// 运维逃生口：无条件清空网关进程内存里的调度封锁。
+		// 库里干干净净、账号却一个请求都不接时（内存封锁在后台页面上不可见），
+		// 这是除了重启容器之外唯一能救场的入口，而重启会掐断所有在途请求。
+		accounts.POST("/runtime-blocks/clear", h.Admin.Account.ClearRuntimeBlocks)
+
 		// Antigravity 默认模型映射
 		accounts.GET("/antigravity/default-model-mapping", h.Admin.Account.GetAntigravityDefaultModelMapping)
 

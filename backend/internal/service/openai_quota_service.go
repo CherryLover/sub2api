@@ -553,6 +553,16 @@ func generateRedeemRequestID() (string, error) {
 // is populated with the same key names used by the scheduling / frontend layers.
 // Returns nil when no codex_bengalfox entry is present or when the RateLimit
 // yields no window data.
+//
+// ⚠️ 只对 **spark 影子账号** 调用（见 account_usage_service.go 的调用点）：影子账号
+// 整行只承接 spark，它的 codex_5h_*/codex_7d_* 天然就是 spark 池的数字，写进规范字段
+// 不算污染。普通账号绝不能走这条路——普通账号的 codex_5h_*/codex_7d_* 必须是账号
+// global 主池（rate_limit）的数字，混入 spark 池会造成整号误限流（2026-09-10 事故，
+// 完整复盘见 model_rate_limit.go 的 openAIDedicatedQuotaPoolModels）。
+//
+// 这里也是「独立额度池」的权威数据源：/wham/usage 是唯一能按池读到真实余量的接口，
+// 而 /responses 的 x-codex-* 响应头不带池名、无法自证属于哪个池，只能靠调用方按模型
+// 推断（IsOpenAIDedicatedQuotaPoolModel）。
 func buildCodexSparkWindowExtraUpdates(usage *OpenAIQuotaUsage, now time.Time) map[string]any {
 	if usage == nil {
 		return nil

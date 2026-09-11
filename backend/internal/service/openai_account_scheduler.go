@@ -486,6 +486,16 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, nil
 	}
+	// 模型级限流：粘性会话必须跳过这次选中，否则会直接绕过模型级限流，把请求钉死在
+	// 已经撞满额度池的那个账号上（独立额度池模型尤其明显：sticky 会话会一直复用同一个号）。
+	//
+	// 这里刻意不删除粘性绑定：模型级限流只说明"这个账号的这个模型现在不能用"，绑定对该
+	// 会话的其他模型仍然有效，删掉会白白打散所有模型的会话亲和性。放行给下面的负载均衡
+	// 层重新选号即可。仅在账号本身仍可调度时走这条早退，账号级不可调度仍由
+	// shouldClearStickySession 清理绑定。
+	if account.IsSchedulable() && isAccountModelRateLimitedForScheduling(ctx, account, req.RequestedModel) {
+		return nil, false, nil
+	}
 	if shouldClearStickySession(account, req.RequestedModel) || account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() || !account.IsSchedulable() {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, nil
@@ -1406,6 +1416,14 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude("not_schedulable")
 			continue
 		}
+		// 模型级限流（accounts.extra.model_rate_limits）：独立额度池模型被限流时，
+		// 账号对其他模型（主池）仍然完全健康，只跳过这一个模型。
+		// 新版调度器此前只判 IsSchedulable()，根本不读 model_rate_limits —— 模型级限流
+		// 写了没人读，限流账号照样被选中、请求继续撞同一个已耗尽的池。
+		if isAccountModelRateLimitedForScheduling(ctx, account, req.RequestedModel) {
+			filterStats.exclude("model_rate_limited")
+			continue
+		}
 		if account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() {
 			filterStats.exclude("platform_mismatch")
 			continue
@@ -1732,6 +1750,13 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	}
 	if s != nil && s.service != nil && s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
 		return false, "runtime_blocked"
+	}
+	// 落库的模型级限流（accounts.extra.model_rate_limits）。这里是 TopK 之后的
+	// fresh 复检、DB 复检和粘性会话共用的终检点：只在候选过滤里判会被复检重新放行，
+	// 于是一个已知被限流的 (账号, 模型) 组合仍然会被选中去撞 429。
+	// 具名 reason 进入 filter stats，"无可用账号"的报错里能直接看到是被模型级限流挡掉的。
+	if isAccountModelRateLimitedForScheduling(ctx, account, req.RequestedModel) {
+		return false, "model_rate_limited"
 	}
 	if s != nil && s.service != nil && s.service.isOpenAIProxyStreamQuarantined(ctx, account) {
 		return false, "proxy_stream_quarantined"

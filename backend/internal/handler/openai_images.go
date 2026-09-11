@@ -363,8 +363,13 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		}
 		if result != nil {
 			// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
+			// 同时按模型区分额度池:走独立额度池的模型返回的 x-codex-* 头描述的是那个池、
+			// 不是账号 global 窗口,写进来会整号误限流(2026-09-10 事故)。
 			if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
-				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
+				h.gatewayService.UpdateCodexUsageSnapshotFromHeadersForModel(
+					c.Request.Context(), account.ID, result.ResponseHeaders,
+					openAICodexQuotaPoolModel(account, result, requestModel),
+				)
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(requestModel), true, result.FirstTokenMs)
 		} else {

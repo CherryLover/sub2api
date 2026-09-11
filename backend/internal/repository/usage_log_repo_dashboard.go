@@ -165,10 +165,26 @@ func (r *usageLogRepository) fillDashboardEntityStats(ctx context.Context, stats
 		return err
 	}
 
+	// normal_accounts 必须与调度器的 DB 预过滤同口径（见 accountRepository.ListSchedulableByPlatforms）。
+	// 此处原先只看 status + schedulable，于是限流中、过载中、临时停调、已过期的账号
+	// 统统被算进"正常"——首页那个大数字恰恰是管理员每天第一眼看的，却最不准。
+	// 顺带修掉了另一个问题：normal 与 ratelimit / overload 原本会重复计数，同一个账号
+	// 既算"正常"又算"限流"，几个数字加起来对不上总数。
+	//
+	// 有意不含额度耗尽（IsQuotaExceeded）：它要按日/周窗口是否已滚动来判定，SQL 里
+	// 表达不了，调度器同样是取出来之后在 Go 里再判一次。
+	// 也有意不含进程内停用：本查询结果是带 TTL 缓存的聚合值，而进程内状态按秒变化，
+	// 塞进缓存反而会给出过期的假象。那一层由账号列表页与运维页的实时诊断负责。
 	accountStatsQuery := `
 		SELECT
 			COUNT(*) as total_accounts,
-			COUNT(CASE WHEN status = $1 AND schedulable = true THEN 1 END) as normal_accounts,
+			COUNT(CASE WHEN status = $1
+				AND schedulable = true
+				AND (temp_unschedulable_until IS NULL OR temp_unschedulable_until <= $3)
+				AND (auto_pause_on_expired IS NOT TRUE OR expires_at IS NULL OR expires_at > $3)
+				AND (overload_until IS NULL OR overload_until <= $3)
+				AND (rate_limit_reset_at IS NULL OR rate_limit_reset_at <= $3)
+				THEN 1 END) as normal_accounts,
 			COUNT(CASE WHEN status = $2 THEN 1 END) as error_accounts,
 			COUNT(CASE WHEN rate_limited_at IS NOT NULL AND rate_limit_reset_at > $3 THEN 1 END) as ratelimit_accounts,
 			COUNT(CASE WHEN overload_until IS NOT NULL AND overload_until > $4 THEN 1 END) as overload_accounts

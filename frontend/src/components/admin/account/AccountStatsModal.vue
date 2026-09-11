@@ -24,16 +24,9 @@
             </div>
           </div>
         </div>
-        <span
-          :class="[
-            'rounded-full px-2.5 py-1 text-xs font-semibold',
-            account.status === 'active'
-              ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-              : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-          ]"
-        >
-          {{ account.status }}
-        </span>
+        <!-- 复用列表页的状态指示器：此处原先只看 account.status，一个正在限流 /
+             过载 / 临时停调 / 运行时停用的账号点进来照样显示绿色 active。 -->
+        <AccountStatusIndicator :account="account" :diagnosis="diagnosis" />
       </div>
 
       <!-- Loading State -->
@@ -467,8 +460,9 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
+import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import { adminAPI } from '@/api/admin'
-import type { Account, AccountUsageStatsResponse } from '@/types'
+import type { Account, AccountDiagnosis, AccountUsageStatsResponse } from '@/types'
 
 ChartJS.register(
   CategoryScale,
@@ -486,6 +480,8 @@ const { t } = useI18n()
 const props = defineProps<{
   show: boolean
   account: Account | null
+  /** 由账号列表页透传的调度诊断；缺省时指示器只按 DB 字段展示。 */
+  diagnosis?: AccountDiagnosis | null
 }>()
 
 const emit = defineEmits<{

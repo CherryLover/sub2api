@@ -504,7 +504,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
 	if handleErr == nil && account.Type == AccountTypeOAuth && !account.IsShadow() && account.Platform != PlatformGrok {
 		if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
-			s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
+			// 见 updateCodexUsageSnapshotForModel：独立额度池的额度头不进主池用量。
+			s.updateCodexUsageSnapshotForModel(ctx, account.ID, snapshot, upstreamModel)
 		}
 	}
 

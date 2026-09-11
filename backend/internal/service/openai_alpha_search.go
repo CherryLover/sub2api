@@ -20,6 +20,18 @@ const (
 	openAIPlatformAlphaSearchURL = "https://api.openai.com/v1/alpha/search"
 )
 
+// alphaSearchQuotaPoolModel 取本次 alpha/search 真正发往上游的模型名，供
+// UpdateCodexUsageSnapshotFromHeadersForModel 判断额度头属于账号 global 窗口还是
+// 独立额度池。必须优先用 upstreamModel（account.GetMappedModel + 上游归一之后的结果）：
+// 账号级 model_mapping 可以把任意请求名改写成独立池模型，只看请求名会漏判。
+// normalizeOpenAIModelForUpstream 可能返回空串，此时回退到客户端请求名。
+func alphaSearchQuotaPoolModel(upstreamModel, requestedModel string) string {
+	if model := strings.TrimSpace(upstreamModel); model != "" {
+		return model
+	}
+	return strings.TrimSpace(requestedModel)
+}
+
 // ForwardAlphaSearch proxies Codex standalone web search without binding the
 // evolving alpha request or response schema.
 //
@@ -107,8 +119,10 @@ func (s *OpenAIGatewayService) ForwardAlphaSearch(ctx context.Context, c *gin.Co
 		}
 	}
 
+	// 按模型区分额度池:走独立额度池的模型(gpt-5.3-codex-spark)返回的 x-codex-* 头描述的是
+	// 那个池、不是账号 global 5h/7d 窗口,写进来会整号误限流(2026-09-10 事故)。
 	if !account.IsShadow() {
-		s.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, resp.Header)
+		s.UpdateCodexUsageSnapshotFromHeadersForModel(ctx, account.ID, resp.Header, alphaSearchQuotaPoolModel(upstreamModel, requestedModel))
 	}
 	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := resp.Header.Get("Content-Type")
@@ -192,8 +206,9 @@ func (s *OpenAIGatewayService) forwardAlphaSearchViaResponsesWebSearch(
 		return nil, nil
 	}
 
+	// 同上：按模型区分额度池，独立池模型的额度头不得写进账号 global 5h/7d。
 	if !account.IsShadow() {
-		s.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, resp.Header)
+		s.UpdateCodexUsageSnapshotFromHeadersForModel(ctx, account.ID, resp.Header, alphaSearchQuotaPoolModel(upstreamModel, requestedModel))
 	}
 	alphaRespBody, err := openAIAlphaSearchResponseFromResponsesSSE(respBody)
 	if err != nil {
