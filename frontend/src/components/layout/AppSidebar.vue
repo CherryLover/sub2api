@@ -758,7 +758,15 @@ const adminNavSections = computed((): NavSection[] => {
   }
 
   const c = buildAdminNavCatalog()
+  // 顺序刻意是「先看状态、再改配置」：仪表盘是进后台第一眼要看的东西，
+  // 排在别的组后面会让人每次都往下找。运行状态之后才是配置类与上游资源，
+  // 低频的安全与审计垫底（也只有它默认折叠）。
   const grouped: NavSection[] = [
+    {
+      key: AdminNavSectionKeys.runtime,
+      label: t('nav.groupRuntime'),
+      items: [c.dashboard, c.ops, c.usage],
+    },
     {
       key: AdminNavSectionKeys.access,
       label: t('nav.groupAccess'),
@@ -768,11 +776,6 @@ const adminNavSections = computed((): NavSection[] => {
       key: AdminNavSectionKeys.upstream,
       label: t('nav.groupUpstream'),
       items: [c.accounts, c.modelAvailability, c.proxies],
-    },
-    {
-      key: AdminNavSectionKeys.runtime,
-      label: t('nav.groupRuntime'),
-      items: [c.dashboard, c.ops, c.usage],
     },
     {
       key: AdminNavSectionKeys.security,

@@ -268,10 +268,12 @@ describe('AppSidebar admin nav grouping', () => {
     resetState()
   })
 
+  // 顺序是「先看状态、再改配置」：仪表盘必须是进后台第一眼看到的，
+  // 所以 runtime 排在最前。这条断言就是用来防止有人无意中把它挪下去的。
   it('renders the four admin groups in order, plus an untitled section for settings', async () => {
     const wrapper = await mountSidebar()
 
-    expect(sectionKeys(wrapper)).toEqual(['access', 'upstream', 'runtime', 'security', 'system'])
+    expect(sectionKeys(wrapper)).toEqual(['runtime', 'access', 'upstream', 'security', 'system'])
     expect(sectionTitle(wrapper, 'access')).toBe(GROUP_TITLES.access)
     expect(sectionTitle(wrapper, 'upstream')).toBe(GROUP_TITLES.upstream)
     expect(sectionTitle(wrapper, 'runtime')).toBe(GROUP_TITLES.runtime)
