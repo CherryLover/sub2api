@@ -843,13 +843,36 @@ function getRingOffset(ring: RingItem): number {
   return CIRCUMFERENCE - (Math.min(ring.pct, 100) / 100) * CIRCUMFERENCE
 }
 
+// 这条动画链是 nextTick → rAF → setTimeout(50ms) → rAF 循环，四层都得能取消。
+// 不取消的后果不是"多跑一会儿"：组件卸载后那个 50ms 定时器照样会触发，
+// 此时 requestAnimationFrame 可能已经不存在（测试环境拆掉、或页面正在卸载），
+// 直接抛 ReferenceError。这条动画曾经两次把 CI 跑红（2026-09-10、09-14），
+// 表现是 25 个文件 285 个用例全过、却多一个"拆环境之后"的未捕获异常。
+let ringRafId: number | null = null
+let ringDelayTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelRingAnimation() {
+  if (ringRafId !== null) {
+    cancelAnimationFrame(ringRafId)
+    ringRafId = null
+  }
+  if (ringDelayTimer !== null) {
+    clearTimeout(ringDelayTimer)
+    ringDelayTimer = null
+  }
+}
+
 function triggerRingAnimation(items: RingItem[]) {
+  // 连续触发时先掐掉上一轮，否则两条 tick 循环会互相覆盖 displayPcts。
+  cancelRingAnimation()
   ringAnimated.value = false
   displayPcts.value = items.map(() => 0)
 
   nextTick(() => {
-    requestAnimationFrame(() => {
-      setTimeout(() => {
+    ringRafId = requestAnimationFrame(() => {
+      ringRafId = null
+      ringDelayTimer = setTimeout(() => {
+        ringDelayTimer = null
         ringAnimated.value = true
 
         // Animate percentage numbers
@@ -862,9 +885,9 @@ function triggerRingAnimation(items: RingItem[]) {
           const p = Math.min(elapsed / duration, 1)
           const ease = 1 - Math.pow(1 - p, 3)
           displayPcts.value = targets.map(target => Math.round(ease * target))
-          if (p < 1) requestAnimationFrame(tick)
+          ringRafId = p < 1 ? requestAnimationFrame(tick) : null
         }
-        requestAnimationFrame(tick)
+        ringRafId = requestAnimationFrame(tick)
       }, 50)
     })
   })
@@ -1511,6 +1534,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (resetTimer) clearInterval(resetTimer)
+  cancelRingAnimation()
 })
 </script>
 
