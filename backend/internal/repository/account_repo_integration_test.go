@@ -1189,6 +1189,80 @@ func (s *AccountRepoSuite) TestClearModelRateLimits_SyncsSchedulerSnapshot() {
 	s.Require().NotContains(cacheRecorder.setAccounts[0].Extra, "model_rate_limits")
 }
 
+// TestClearModelRateLimitIfObserved 锁住模型级自愈用的条件清除原语：
+//
+//  1. 代际作用域：/wham/usage 往返期间真实 429 可能写入一条新的、更长的限流。
+//     只匹配查询发起前观测到的那一代 reset_at，代际变了就什么都不做（否则是丢失更新）。
+//  2. 只删一个 scope：同一个账号上其它模型的限流不能被连坐。
+//  3. 绝不碰账号级状态：rate_limit_reset_at / overload_until 必须原封不动 ——
+//     一个额度池恢复了，说明不了账号整体的任何事情。
+func (s *AccountRepoSuite) TestClearModelRateLimitIfObserved() {
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:     "acc-model-conditional-clear",
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeOAuth,
+	})
+	sparkReset := time.Now().Add(96 * time.Hour).UTC().Truncate(time.Second)
+	solReset := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	accountReset := time.Now().Add(48 * time.Hour).UTC().Truncate(time.Second)
+	overloadUntil := time.Now().Add(20 * time.Minute).UTC().Truncate(time.Second)
+
+	s.Require().NoError(s.repo.SetModelRateLimit(s.ctx, account.ID, "gpt-5.3-codex-spark", sparkReset, "openai_dedicated_quota_pool_rate_limited"))
+	s.Require().NoError(s.repo.SetModelRateLimit(s.ctx, account.ID, "gpt-5.6-sol", solReset))
+	s.Require().NoError(s.repo.SetRateLimited(s.ctx, account.ID, accountReset))
+	s.Require().NoError(s.repo.SetOverloaded(s.ctx, account.ID, overloadUntil))
+
+	// 代际不匹配（模拟往返期间被真实 429 改写）：什么都不能删。
+	cleared, err := s.repo.ClearModelRateLimitIfObserved(s.ctx, account.ID, "gpt-5.3-codex-spark", sparkReset.Add(time.Hour))
+	s.Require().NoError(err)
+	s.Require().False(cleared)
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Contains(got.Extra["model_rate_limits"], "gpt-5.3-codex-spark")
+
+	cacheRecorder := &schedulerCacheRecorder{}
+	s.repo.schedulerCache = cacheRecorder
+
+	// 代际匹配：只删这一个 scope。
+	cleared, err = s.repo.ClearModelRateLimitIfObserved(s.ctx, account.ID, "gpt-5.3-codex-spark", sparkReset)
+	s.Require().NoError(err)
+	s.Require().True(cleared)
+
+	healed, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	limits, ok := healed.Extra["model_rate_limits"].(map[string]any)
+	s.Require().True(ok)
+	s.Require().NotContains(limits, "gpt-5.3-codex-spark")
+	s.Require().Contains(limits, "gpt-5.6-sol", "同账号上其它模型的限流不能被连坐")
+
+	// 账号级状态必须原封不动。
+	s.Require().NotNil(healed.RateLimitResetAt)
+	s.Require().WithinDuration(accountReset, *healed.RateLimitResetAt, time.Second)
+	s.Require().NotNil(healed.RateLimitedAt)
+	s.Require().NotNil(healed.OverloadUntil)
+	s.Require().WithinDuration(overloadUntil, *healed.OverloadUntil, time.Second)
+
+	// 调度快照要跟着同步，否则库里解除了、内存里还锁着。
+	s.Require().Len(cacheRecorder.setAccounts, 1)
+	s.Require().Equal(account.ID, cacheRecorder.setAccounts[0].ID)
+	snapshotLimits, ok := cacheRecorder.setAccounts[0].Extra["model_rate_limits"].(map[string]any)
+	s.Require().True(ok)
+	s.Require().NotContains(snapshotLimits, "gpt-5.3-codex-spark")
+
+	// 已经删掉之后再来一次：幂等地返回 false。
+	cleared, err = s.repo.ClearModelRateLimitIfObserved(s.ctx, account.ID, "gpt-5.3-codex-spark", sparkReset)
+	s.Require().NoError(err)
+	s.Require().False(cleared)
+
+	// 空 scope 是纯 no-op，不得退化成删整棵 model_rate_limits。
+	cleared, err = s.repo.ClearModelRateLimitIfObserved(s.ctx, account.ID, "  ", sparkReset)
+	s.Require().NoError(err)
+	s.Require().False(cleared)
+	still, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Contains(still.Extra["model_rate_limits"], "gpt-5.6-sol")
+}
+
 // --- UpdateLastUsed ---
 
 func (s *AccountRepoSuite) TestUpdateLastUsed() {

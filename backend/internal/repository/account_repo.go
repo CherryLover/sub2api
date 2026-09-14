@@ -2310,6 +2310,62 @@ func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, sco
 	return nil
 }
 
+// ClearModelRateLimitIfObserved removes exactly one entry from
+// accounts.extra.model_rate_limits, and only while that entry still carries the
+// rate_limit_reset_at the caller observed. It is the model-level counterpart of
+// ClearOpenAIRateLimitIfObserved.
+//
+// 【为什么不能用无条件删除】
+// 自愈的证据来自一次 /wham/usage 往返（最长 20s）。往返期间一个真实业务请求完全可能
+// 撞 429、通过 SetModelRateLimit 写入一条**更新、更长**的限流；此时把整个 scope 裸删，
+// 等于把刚写好的正确限流抹掉，账号会带着已耗尽的额度池回到调度池，接着再撞 429 ——
+// 典型的丢失更新。把观测到的解除时间放进 WHERE，就把"清除"钉死在那一代上：
+// 代际变了 → 影响 0 行 → 返回 false，调用方什么都不做。
+//
+// 匹配用文本相等而不是时间戳比较：写入侧（SetModelRateLimit /
+// setAccountModelRateLimitSnapshot）统一用 resetAt.UTC().Format(time.RFC3339) 落库，
+// 读取侧解析回来再 UTC().Format(RFC3339) 得到的是同一个字符串（RFC3339 不带小数秒，
+// 往返无损）。万一遇到手工改库留下的异常写法，结果是"匹配不上、不清除"——保守的一侧。
+//
+// 边界：只删 extra.model_rate_limits 里的这一个 key。绝不碰 rate_limited_at /
+// rate_limit_reset_at / overload_until —— 账号级限流与过载各有各的写入方和自愈路径，
+// 一个模型的额度池恢复了，说明不了账号整体的任何事情。
+func (r *accountRepository) ClearModelRateLimitIfObserved(ctx context.Context, id int64, scope string, observedResetAt time.Time) (bool, error) {
+	if strings.TrimSpace(scope) == "" {
+		return false, nil
+	}
+	client := clientFromContext(ctx, r.client)
+	result, err := client.ExecContext(
+		ctx,
+		`UPDATE accounts
+			SET extra = COALESCE(extra, '{}'::jsonb) #- ARRAY['model_rate_limits', $1::text],
+				updated_at = NOW()
+		WHERE id = $2
+			AND deleted_at IS NULL
+			AND COALESCE(extra, '{}'::jsonb) #>> ARRAY['model_rate_limits', $1::text, 'rate_limit_reset_at'] = $3::text`,
+		scope,
+		id,
+		observedResetAt.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if affected == 0 {
+		// 代际已变（或账号已不在）：本实例的调度快照可能落后于真实值，刷新一次即可。
+		r.syncSchedulerAccountSnapshot(ctx, id)
+		return false, nil
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue observed model rate-limit clear failed: account=%d scope=%s err=%v", id, scope, err)
+	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
+	return true, nil
+}
+
 func (r *accountRepository) SetOverloaded(ctx context.Context, id int64, until time.Time) error {
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).

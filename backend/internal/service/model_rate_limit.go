@@ -135,6 +135,34 @@ var openAIDedicatedQuotaPoolModels = []string{
 	"gpt-5.3-codex-spark",
 }
 
+// openAICodexSparkMeteredFeature 是 GPT-5.3-Codex-Spark 在 /wham/usage
+// additional_rate_limits 里的池名（metered_feature）。
+const openAICodexSparkMeteredFeature = "codex_bengalfox"
+
+// openAIDedicatedQuotaPoolMeteredFeatures 把名单里的模型基名映射到它所属的上游池名。
+//
+// 为什么要有这张表：自愈只认「这个模型自己那个池」的证据（见
+// openai_model_usage_selfheal.go）。主池健康不能解除 spark 的限流，spark 池健康也不能
+// 解除别人的限流；要做到这一点就必须知道模型 → 池的对应关系，而上游至今没有下发
+// （additional_rate_limits[].normal_model_slug 实测恒为 null），只能在这里手工维护。
+//
+// 扩展点：往 openAIDedicatedQuotaPoolModels 加模型时，这里必须同步加一行，否则该模型
+// 的限流会永远拿不到解除证据（失败方向是"继续锁着"，是安全的一侧，但等于自愈失效）。
+var openAIDedicatedQuotaPoolMeteredFeatures = map[string]string{
+	"gpt-5.3-codex-spark": openAICodexSparkMeteredFeature,
+}
+
+// openAIDedicatedQuotaPoolMeteredFeatureFor 返回模型所属的独立额度池名，未命中返回 ""。
+// 入参可以是请求名、映射后的上游名或 model_rate_limits 里存的 scope，先做与
+// IsOpenAIDedicatedQuotaPoolModel 相同的归一化。
+func openAIDedicatedQuotaPoolMeteredFeatureFor(model string) string {
+	base := normalizeOpenAIDedicatedQuotaPoolModel(model)
+	if base == "" {
+		return ""
+	}
+	return openAIDedicatedQuotaPoolMeteredFeatures[base]
+}
+
 // IsOpenAIDedicatedQuotaPoolModel 判断模型是否落在上游的独立额度池里。
 // 入参可以是客户端请求名，也可以是账号映射后的上游名；大小写、首尾空白、
 // 下划线、路径前缀（openai/xxx）与日期/后缀变体都会先归一化。
@@ -290,6 +318,38 @@ func (a *Account) modelRateLimitResetAt(scope string) *time.Time {
 		return nil
 	}
 	return &resetAt
+}
+
+// activeModelRateLimits 返回账号当前仍在生效的模型级限流：scope → 解除时间（UTC）。
+//
+// 只收"还没到点"的条目：已经过期的条目对调度没有任何影响，自愈没必要去清它们
+// （清了也只是省下几个字节，却要多一次写库 + 调度快照同步）。
+//
+// 返回值同时充当自愈的"观测代际"：解除时把这里读到的解除时间原样交给
+// ClearModelRateLimitIfObserved，代际对不上就什么都不做。
+func (a *Account) activeModelRateLimits(now time.Time) map[string]time.Time {
+	if a == nil || a.Extra == nil {
+		return nil
+	}
+	rawLimits, ok := a.Extra[modelRateLimitsKey].(map[string]any)
+	if !ok || len(rawLimits) == 0 {
+		return nil
+	}
+	limits := make(map[string]time.Time, len(rawLimits))
+	for scope := range rawLimits {
+		if strings.TrimSpace(scope) == "" {
+			continue
+		}
+		resetAt := a.modelRateLimitResetAt(scope)
+		if resetAt == nil || !now.Before(*resetAt) {
+			continue
+		}
+		limits[scope] = resetAt.UTC()
+	}
+	if len(limits) == 0 {
+		return nil
+	}
+	return limits
 }
 
 func setAccountModelRateLimitSnapshot(account *Account, scope string, resetAt time.Time, reason string, now time.Time) {
