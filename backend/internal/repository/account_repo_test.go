@@ -161,3 +161,7 @@ func (parameterLimitRows) Next([]driver.Value) error {
 // 日志然后什么都不做。这里把"仓库必须提供该原语"变成编译错误，
 // 避免方法被改名/删除后自愈静默失效。
 var _ service.OpenAIRateLimitRecoveryRepository = (*accountRepository)(nil)
+
+// 同上，模型级限流自愈用的条件清除原语（accounts.extra.model_rate_limits[scope]）。
+// 它同样是可选接口 + 类型断言，丢了不会报错、只会让自愈静默消失。
+var _ service.OpenAIModelRateLimitRecoveryRepository = (*accountRepository)(nil)

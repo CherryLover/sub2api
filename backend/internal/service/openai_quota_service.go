@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,10 +58,92 @@ type OpenAIRateLimit struct {
 }
 
 // OpenAIAdditionalRateLimit describes a per-feature rate limit (e.g. Codex Spark).
+//
+// NormalModelSlug 是上游给这个附加池标注的"对应的普通模型"，实测为 null。它是上游
+// 目前唯一暴露出来的「池 → 模型」线索；一旦上游开始下发，就可以用它替换
+// openAIDedicatedQuotaPoolMeteredFeatures 里手工维护的映射（见 model_rate_limit.go）。
+// 现在只解析、不参与任何判定 —— 全量是 null 的字段没有资格决定调度行为。
 type OpenAIAdditionalRateLimit struct {
-	LimitName      string           `json:"limit_name"`
-	MeteredFeature string           `json:"metered_feature"`
-	RateLimit      *OpenAIRateLimit `json:"rate_limit,omitempty"`
+	LimitName       string           `json:"limit_name"`
+	MeteredFeature  string           `json:"metered_feature"`
+	RateLimit       *OpenAIRateLimit `json:"rate_limit,omitempty"`
+	NormalModelSlug string           `json:"normal_model_slug,omitempty"`
+}
+
+// OpenAIModelUsage 是 /wham/usage 顶层 model_usage 里单个模型的可用性描述。
+//
+// ⚠️ model_usage 是**稀疏**的：上游只列它想特别说明的模型。某个模型没出现在这张表里，
+// 既不代表可用，也不代表不可用，而是"没有信息"。所以 Available 必须是指针：调用方
+// 必须能区分「上游显式说 false」和「上游根本没提这个模型」。用值类型 bool 读，
+// 会把"没信息"静默读成"不可用"，直接导致整批模型被误封。
+type OpenAIModelUsage struct {
+	Available *bool `json:"available,omitempty"`
+	// AvailableAt 是上游给的"预计恢复时间"，实测为 null，真实取值的类型没有文档：
+	// 既可能是 unix 秒（与 rate_limit 窗口里的 reset_at 同构），也可能是 RFC3339 字符串。
+	// 猜错类型会让整个 /wham/usage 响应 Unmarshal 失败（管理后台的额度卡片会直接变成
+	// 上游错误），所以这里原样收下裸 JSON，由 AvailableAtTime 兼容两种写法解析。
+	AvailableAt        json.RawMessage `json:"available_at,omitempty"`
+	CreditsWouldEnable *bool           `json:"credits_would_enable,omitempty"`
+}
+
+// AvailableAtTime 解析 available_at，兼容 unix 秒 / unix 毫秒 / RFC3339 字符串三种写法。
+// ok=false 表示上游没给、给了 null，或者给了我们不认识的写法 —— 调用方必须按"没信息"
+// 处理，绝不能当成"立即恢复"。
+func (m OpenAIModelUsage) AvailableAtTime() (time.Time, bool) {
+	raw := strings.TrimSpace(string(m.AvailableAt))
+	if raw == "" || raw == "null" {
+		return time.Time{}, false
+	}
+	if ts, err := strconv.ParseFloat(raw, 64); err == nil {
+		return openAIEpochToTime(ts)
+	}
+	var text string
+	if err := json.Unmarshal(m.AvailableAt, &text); err != nil {
+		return time.Time{}, false
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return time.Time{}, false
+	}
+	if parsed, err := time.Parse(time.RFC3339, text); err == nil {
+		return parsed, true
+	}
+	if ts, err := strconv.ParseFloat(text, 64); err == nil {
+		return openAIEpochToTime(ts)
+	}
+	return time.Time{}, false
+}
+
+// openAIEpochToTime 把 unix 时间戳转成 time.Time。大于 1e12 的值按毫秒处理
+// （2001 年之后的秒级时间戳都小于 1e10，不可能落进这个区间）。
+func openAIEpochToTime(ts float64) (time.Time, bool) {
+	if ts <= 0 {
+		return time.Time{}, false
+	}
+	if ts > 1e12 {
+		return time.UnixMilli(int64(ts)).UTC(), true
+	}
+	return time.Unix(int64(ts), 0).UTC(), true
+}
+
+// OpenAISpendControl 是上游的消费额度闸门（实测 {"reached": false, "individual_limit": null}）。
+//
+// IndividualLimit 实测恒为 null，类型未知（可能是数字，也可能是字符串金额）。这里只做
+// 原样透传：猜一个具体类型，等于赌上整份 /wham/usage 的解析成功率。
+type OpenAISpendControl struct {
+	Reached         bool            `json:"reached"`
+	IndividualLimit json.RawMessage `json:"individual_limit,omitempty"`
+}
+
+// OpenAICredits 是账号的信用点状态（实测 has_credits=false、balance 是字符串 "0"）。
+//
+// Balance 实测是**字符串**而不是数字（金额用字符串传是为了避免浮点误差），但上游没有
+// 文档担保这一点，所以同样原样透传裸 JSON，前端拿到的字面量与上游完全一致。
+type OpenAICredits struct {
+	HasCredits          bool            `json:"has_credits"`
+	Unlimited           bool            `json:"unlimited"`
+	OverageLimitReached bool            `json:"overage_limit_reached"`
+	Balance             json.RawMessage `json:"balance,omitempty"`
 }
 
 // OpenAIRateLimitResetCreditDetail is the sanitized metadata surfaced for one
@@ -76,15 +160,26 @@ type OpenAIRateLimitResetCredits struct {
 }
 
 // OpenAIQuotaUsage is the typed projection of /wham/usage we expose to the UI.
-// Fields not relevant to the quota card are intentionally omitted to keep the
-// surface narrow; full upstream payload preservation is unnecessary.
+//
+// 上游顶层一共 12 个键，历史上我们只解析了 5 个，剩下的一直被静默丢弃 —— 其中
+// model_usage 正是"这个模型现在能不能用"的**唯一权威来源**，漏读它让模型级限流
+// 只能靠 429 反推、且没有任何自愈（复盘见 openai_model_usage_selfheal.go 文件头）。
+//
+// 新增字段一律只做解析与透传，不改任何既有字段的语义：管理后台的额度卡片依赖
+// rate_limit / additional_rate_limits / rate_limit_reset_credits 的现有含义。
+// 目前仍然刻意不解析的只剩 promo（纯营销位，与调度无关）。
 type OpenAIQuotaUsage struct {
 	UserID                string                       `json:"user_id,omitempty"`
 	AccountID             string                       `json:"account_id,omitempty"`
 	Email                 string                       `json:"email,omitempty"`
 	PlanType              string                       `json:"plan_type,omitempty"`
 	RateLimit             *OpenAIRateLimit             `json:"rate_limit,omitempty"`
+	CodeReviewRateLimit   *OpenAIRateLimit             `json:"code_review_rate_limit,omitempty"`
 	AdditionalRateLimits  []OpenAIAdditionalRateLimit  `json:"additional_rate_limits,omitempty"`
+	ModelUsage            map[string]OpenAIModelUsage  `json:"model_usage,omitempty"`
+	Credits               *OpenAICredits               `json:"credits,omitempty"`
+	SpendControl          *OpenAISpendControl          `json:"spend_control,omitempty"`
+	RateLimitReachedType  string                       `json:"rate_limit_reached_type,omitempty"`
 	RateLimitResetCredits *OpenAIRateLimitResetCredits `json:"rate_limit_reset_credits,omitempty"`
 	FetchedAt             int64                        `json:"fetched_at"`
 }
@@ -157,6 +252,11 @@ func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*
 	defer cancel()
 	agentIdentity := s.isAgentIdentityAccount(ctx, accountID)
 
+	// 模型级限流自愈的"观测代际"：必须在上游往返【之前】读一次库。往返期间真实业务
+	// 请求完全可能写入一条新的模型级限流，解除时只允许清掉这里看到的这一代。
+	// 详见 openai_model_usage_selfheal.go。
+	selfHealObservation := s.observeModelRateLimitsForSelfHeal(ctx, accountID, time.Now())
+
 	var payload OpenAIQuotaUsage
 	for recovered := false; ; {
 		quotaHeaders, expectedTaskID, headerErr := s.buildCodexQuotaHeaders(callCtx, accountID, accessToken, chatGPTAccountID, fedRAMP)
@@ -204,6 +304,11 @@ func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*
 			payload.RateLimitResetCredits.AvailableCount = details.AvailableCreditCount
 		}
 	}
+
+	// 顺手做模型级限流自愈：这是全仓库唯一能按「额度池」读到真实余量、并读到
+	// model_usage 显式可用性的地方，错过这次就只能等那个可能已经过期的 reset_at。
+	// 失败只记日志，绝不影响本次用量查询的返回值。
+	s.applyOpenAIModelUsageSelfHeal(ctx, selfHealObservation, &payload, time.Now())
 	return &payload, nil
 }
 
@@ -570,7 +675,7 @@ func buildCodexSparkWindowExtraUpdates(usage *OpenAIQuotaUsage, now time.Time) m
 	var spark *OpenAIRateLimit
 	for i := range usage.AdditionalRateLimits {
 		a := usage.AdditionalRateLimits[i]
-		if a.MeteredFeature == "codex_bengalfox" {
+		if a.MeteredFeature == openAICodexSparkMeteredFeature {
 			spark = a.RateLimit
 			break
 		}

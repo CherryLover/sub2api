@@ -304,6 +304,11 @@ type AccountUsageService struct {
 	agentIdentityTaskMu     sync.Mutex
 	agentIdentityWS         agentIdentityWSConnectionInvalidator
 
+	// openAIModelSelfHealAt 是模型级限流自愈的每账号节流表（accountID -> 上次触发时间）。
+	// 单独一张表而不是复用 openAIProbeCache：codex 探针与 /wham/usage 是两条独立的上游
+	// 调用，共用时间戳会让其中一条永远拿不到执行机会。零值可用，构造函数无需初始化。
+	openAIModelSelfHealAt sync.Map
+
 	// schedulingBlockClearer 由 wire 在 OpenAIGatewayService 构造完成后通过
 	// SetSchedulingBlockClearer 注入（同 OpsService.SetAlertRuleEvaluator 的解耦手法）：
 	// AccountUsageService 不能直接持有 *OpenAIGatewayService，否则构造期成环。
@@ -788,6 +793,12 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 			}
 		}
 	}
+
+	// 模型级限流的自愈是另一条独立的链路：上面那条自愈只看 codex 主池的 5h/7d 窗口，
+	// 对 accounts.extra.model_rate_limits 一无所知，而模型级限流在此之前**完全没有**
+	// 自愈入口（2026-09-11 spark 事故：上游 09-14 就放开了，我们锁到 09-15，中间一直
+	// 由我们自己回 503）。判定与写库都在 openai_model_usage_selfheal.go。
+	s.refreshOpenAIModelRateLimitSelfHeal(ctx, account, now, force)
 
 	if s.usageLogRepo == nil {
 		return usage, nil
