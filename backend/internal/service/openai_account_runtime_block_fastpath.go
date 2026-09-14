@@ -177,16 +177,24 @@ func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context
 	}
 	s.recordOpenAIOAuth429()
 
-	cooldownUntil := time.Now().Add(openAIOAuth429FallbackCooldown)
+	now := time.Now()
+	cooldownUntil := now.Add(openAIOAuth429FallbackCooldown)
 	if s.rateLimitService != nil {
-		if resetAt := s.rateLimitService.calculateOpenAI429ResetTime(headers); resetAt != nil && resetAt.After(time.Now()) {
-			cooldownUntil = *resetAt
-		} else if resetUnix := parseOpenAIRateLimitResetTime(responseBody); resetUnix != nil {
-			if resetAt := time.Unix(*resetUnix, 0); resetAt.After(time.Now()) {
-				cooldownUntil = resetAt
+		resetAt := s.rateLimitService.calculateOpenAI429ResetTime(headers)
+		if resetAt == nil || !resetAt.After(now) {
+			if resetUnix := parseOpenAIRateLimitResetTime(responseBody); resetUnix != nil {
+				bodyReset := time.Unix(*resetUnix, 0)
+				resetAt = &bodyReset
 			}
-		} else if cooldown, ok := s.rateLimitService.get429FallbackCooldown(ctx, account); ok && cooldown > 0 {
-			cooldownUntil = time.Now().Add(cooldown)
+		}
+		if resetAt != nil && resetAt.After(now) {
+			cooldownUntil = *resetAt
+		} else {
+			cooldown, ok := s.rateLimitService.get429FallbackCooldown(ctx, account)
+			if !ok || cooldown <= 0 {
+				return
+			}
+			cooldownUntil = now.Add(cooldown)
 		}
 	}
 	s.BlockAccountScheduling(account, cooldownUntil, "429")

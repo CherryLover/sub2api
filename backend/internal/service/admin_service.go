@@ -438,6 +438,7 @@ type CreateProxyInput struct {
 	ExpiryWarnDays int
 }
 
+// UpdateProxyInput preserves omitted fields; Clear flags explicitly remove values.
 type UpdateProxyInput struct {
 	Name           string
 	Protocol       string
@@ -447,9 +448,11 @@ type UpdateProxyInput struct {
 	Password       string
 	Status         string
 	ExpiresAt      *time.Time
+	ClearExpiresAt bool
 	FallbackMode   string
 	BackupProxyID  *int64
-	ExpiryWarnDays int
+	ClearBackupID  bool
+	ExpiryWarnDays *int
 }
 
 type ProxyBatchDeleteResult struct {
