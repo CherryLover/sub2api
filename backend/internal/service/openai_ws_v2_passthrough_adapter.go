@@ -674,6 +674,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
+	cleanedMetadata, _, metadataErr := normalizeOpenAIOAuthInputMetadataForAccount(firstClientMessage, account)
+	if metadataErr != nil {
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, metadataErr.Error(), metadataErr)
+	}
+	firstClientMessage = cleanedMetadata
 	if isOpenAIResponsesLiteWebSocketPayload(firstClientMessage) {
 		liteFirstMessage, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(firstClientMessage, account)
 		if liteErr != nil {
@@ -958,6 +963,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			}
 			responsesLite := isResponseCreate && isOpenAIResponsesLiteWebSocketPayload(payload)
 			if isResponseCreate {
+				cleanedMetadata, _, metadataErr := normalizeOpenAIOAuthInputMetadataForAccount(payload, account)
+				if metadataErr != nil {
+					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, metadataErr.Error(), metadataErr)
+				}
+				payload = cleanedMetadata
 				if responsesLite {
 					litePayload, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(payload, account)
 					if liteErr != nil {

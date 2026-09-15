@@ -75,6 +75,7 @@
 
 历史报告：`docs/maintenance/upstream-reviews/2026-09-08-upstream-v0.2.3.md`。
 后续报告：`docs/maintenance/upstream-reviews/YYYY-MM-DD-<版本>.md`。
+最新进度：`docs/maintenance/upstream-reviews/2026-09-15-core-fixes.md`（精简版 v0.1.194 基线，8组选择性回移；本地验证完成，GitHub 验证待推送）。
 
 已知核对事项（不是新增回移结论）：
 - 已核对：v0.2.3 标签为 `8fa67d477d6651a744754392a8982ea589c26ae6`；旧报告目标 `772a0382f079676983c06f24b0d41e09139a8462` 是其后的 VERSION 同步提交。本轮进度见 `docs/maintenance/upstream-reviews/2026-09-12-upstream-v0.2.4.md`，已实施与待审查项分别记录。

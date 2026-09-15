@@ -97,6 +97,9 @@ func TestShouldKeepOpenAIResponsesToolCallNamespaces(t *testing.T) {
 		// API Key 出口默认是标准 Responses API，不认识该字段。
 		{name: "apikey_strips", account: apiKey, transport: OpenAIUpstreamTransportHTTPSSE, want: false},
 		{name: "apikey_declared_namespace_keeps", account: apiKey, transport: OpenAIUpstreamTransportHTTPSSE, body: namespaceTools, want: true},
+		{name: "apikey_lite_namespace_keeps", account: apiKey, transport: OpenAIUpstreamTransportHTTPSSE, body: []byte(`{"input":[{"type":"additional_tools","tools":[{"type":"namespace","name":"collaboration","tools":[]}]}]}`), want: true},
+		{name: "apikey_lite_namespace_mixed_case", account: apiKey, transport: OpenAIUpstreamTransportHTTPSSE, body: []byte(`{"input":[{"type":" Additional_Tools ","tools":[{"type":" Namespace ","name":"collaboration"}]}]}`), want: true},
+		{name: "apikey_lite_function_namespace_attribute_drops", account: apiKey, transport: OpenAIUpstreamTransportHTTPSSE, body: []byte(`{"input":[{"type":"additional_tools","tools":[{"type":"function","namespace":"collaboration"}]}]}`), want: false},
 		{name: "apikey_compact_declared_namespace_strips", account: apiKey, transport: OpenAIUpstreamTransportHTTPSSE, compactPath: true, body: namespaceTools, want: false},
 		{name: "setup_token_strips", account: setupToken, transport: OpenAIUpstreamTransportHTTPSSE, want: false},
 		{name: "nil_account", account: nil, transport: OpenAIUpstreamTransportHTTPSSE, want: false},

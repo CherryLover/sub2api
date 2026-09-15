@@ -439,6 +439,11 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		})
 	}
 
+	cleanedMetadata, _, metadataErr := normalizeOpenAIOAuthInputMetadataForAccount(body, account)
+	if metadataErr != nil {
+		return nil, metadataErr
+	}
+	body = cleanedMetadata
 	if account.Platform != PlatformGrok && isOpenAIResponsesLiteWebSocketPayload(payload) {
 		liteBody, liteChanged, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(body, account)
 		if liteErr != nil {
