@@ -222,19 +222,19 @@ func TestOpsAlertEvaluator_AccountSustainedCountsPerAccount(t *testing.T) {
 	f.svc.evaluateOnce(60 * time.Second)
 	require.Empty(t, f.repo.created, "第一轮只计数不触发")
 	require.Len(t, f.svc.ruleStates, 2)
-	require.Equal(t, 1, f.svc.ruleStates[opsAlertRuleStateKey{RuleID: 1, AccountID: 1}].ConsecutiveBreaches)
+	require.Equal(t, 1, f.svc.ruleStates[opsAlertRuleStateKey{RuleID: 1, Kind: opsAlertTargetKindAccount, TargetID: 1}].ConsecutiveBreaches)
 
 	// B 回落后 A 仍连续越阈：只有 A 触发。
 	f.accounts[1] = openAIWindowAccount(2, "b", 10, future)
 	f.svc.evaluateOnce(60 * time.Second)
 	require.Len(t, f.repo.created, 1)
 	require.Equal(t, int64(1), f.repo.created[0].Dimensions["account_id"])
-	require.Equal(t, 0, f.svc.ruleStates[opsAlertRuleStateKey{RuleID: 1, AccountID: 2}].ConsecutiveBreaches)
+	require.Equal(t, 0, f.svc.ruleStates[opsAlertRuleStateKey{RuleID: 1, Kind: opsAlertTargetKindAccount, TargetID: 2}].ConsecutiveBreaches)
 
 	// 账号被移出作用域后它的计数被清掉。
 	f.accounts = f.accounts[:1]
 	f.svc.evaluateOnce(60 * time.Second)
-	_, ok := f.svc.ruleStates[opsAlertRuleStateKey{RuleID: 1, AccountID: 2}]
+	_, ok := f.svc.ruleStates[opsAlertRuleStateKey{RuleID: 1, Kind: opsAlertTargetKindAccount, TargetID: 2}]
 	require.False(t, ok)
 }
 

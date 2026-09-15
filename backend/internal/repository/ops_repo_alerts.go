@@ -610,6 +610,87 @@ LIMIT 1`
 	return ev, nil
 }
 
+// GetActiveAlertEventForAPIKey 取「规则 × API Key」当前仍在触发中的事件；密钥用量类规则
+// 一条规则会对应多把密钥各自的事件，靠 dimensions.api_key_id 区分（与账号维度互不干扰）。
+func (r *opsRepository) GetActiveAlertEventForAPIKey(ctx context.Context, ruleID int64, apiKeyID int64) (*service.OpsAlertEvent, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("nil ops repository")
+	}
+	if ruleID <= 0 || apiKeyID <= 0 {
+		return nil, fmt.Errorf("invalid rule id or api key id")
+	}
+
+	q := `
+SELECT
+  id,
+  COALESCE(rule_id, 0),
+  COALESCE(severity, ''),
+  COALESCE(status, ''),
+  COALESCE(title, ''),
+  COALESCE(description, ''),
+  metric_value,
+  threshold_value,
+  dimensions,
+  fired_at,
+  resolved_at,
+  email_sent,
+  created_at
+FROM ops_alert_events
+WHERE rule_id = $1 AND status = $2 AND dimensions->>'api_key_id' = $3
+ORDER BY fired_at DESC
+LIMIT 1`
+
+	row := r.db.QueryRowContext(ctx, q, ruleID, service.OpsAlertStatusFiring, strconv.FormatInt(apiKeyID, 10))
+	ev, err := scanOpsAlertEvent(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return ev, nil
+}
+
+// GetLatestAlertEventForAPIKey 取「规则 × API Key」最近一次事件（不限状态），用于冷却判断。
+func (r *opsRepository) GetLatestAlertEventForAPIKey(ctx context.Context, ruleID int64, apiKeyID int64) (*service.OpsAlertEvent, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("nil ops repository")
+	}
+	if ruleID <= 0 || apiKeyID <= 0 {
+		return nil, fmt.Errorf("invalid rule id or api key id")
+	}
+
+	q := `
+SELECT
+  id,
+  COALESCE(rule_id, 0),
+  COALESCE(severity, ''),
+  COALESCE(status, ''),
+  COALESCE(title, ''),
+  COALESCE(description, ''),
+  metric_value,
+  threshold_value,
+  dimensions,
+  fired_at,
+  resolved_at,
+  email_sent,
+  created_at
+FROM ops_alert_events
+WHERE rule_id = $1 AND dimensions->>'api_key_id' = $2
+ORDER BY fired_at DESC
+LIMIT 1`
+
+	row := r.db.QueryRowContext(ctx, q, ruleID, strconv.FormatInt(apiKeyID, 10))
+	ev, err := scanOpsAlertEvent(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return ev, nil
+}
+
 func (r *opsRepository) CreateAlertEvent(ctx context.Context, event *service.OpsAlertEvent) (*service.OpsAlertEvent, error) {
 	if r == nil || r.db == nil {
 		return nil, fmt.Errorf("nil ops repository")

@@ -1,8 +1,9 @@
 <template>
   <!--
-    账号用量提醒规则卡片。
-    复用运维告警的规则 CRUD 接口（/admin/ops/alert-rules），只管四个账号用量指标；
-    作用范围（平台 / 分组 / 账号 / 窗口）放在 filters 里，触发后由上面的 Bark 卡片推送。
+    用量与到期提醒规则卡片。
+    复用运维告警的规则 CRUD 接口（/admin/ops/alert-rules），管五个账号级指标 + 一个 API Key 级指标；
+    账号级指标的作用范围（平台 / 分组 / 账号 / 窗口）放在 filters 里，触发后由上面的 Bark 卡片推送。
+    API Key 当日用量是全量评估的：它不支持按对象过滤，选中时平台 / 分组 / 账号三个筛选器会整块隐藏。
     卡片挂在 SettingsView 的大 <form> 里，按钮一律 type="button"，输入框上的回车要拦下来。
   -->
   <div class="card" data-testid="account-usage-rules-card" @keydown.enter="handleEnterKey">
@@ -269,7 +270,8 @@
           </div>
           <div v-else></div>
 
-          <div>
+          <!-- 平台 / 分组 / 账号只对账号级指标有意义；密钥指标是全量评估，整块藏起来 -->
+          <div v-if="!isApiKeyMetric">
             <label class="input-label">{{ t("admin.settings.notifications.accountUsageRules.form.platform") }}</label>
             <Select
               :model-value="draft.platform"
@@ -280,7 +282,7 @@
             />
           </div>
 
-          <div>
+          <div v-if="!isApiKeyMetric">
             <label class="input-label">{{ t("admin.settings.notifications.accountUsageRules.form.group") }}</label>
             <Select
               :model-value="draft.group_id"
@@ -291,7 +293,7 @@
             />
           </div>
 
-          <div class="md:col-span-2">
+          <div v-if="!isApiKeyMetric" class="md:col-span-2">
             <label class="input-label">{{ t("admin.settings.notifications.accountUsageRules.form.accounts") }}</label>
             <Select
               :model-value="null"
@@ -330,6 +332,14 @@
               {{ t("admin.settings.notifications.accountUsageRules.form.accountsHint") }}
             </p>
           </div>
+
+          <p
+            v-if="isApiKeyMetric"
+            class="text-xs text-gray-500 dark:text-gray-400 md:col-span-2"
+            data-testid="usage-rule-apikey-scope-hint"
+          >
+            {{ t("admin.settings.notifications.accountUsageRules.form.apiKeyScopeHint") }}
+          </p>
 
           <template v-if="editorMode !== 'tiers'">
             <div>
@@ -486,8 +496,8 @@
           </p>
 
           <div>
-            <div class="mb-2 text-xs font-bold text-gray-700 dark:text-gray-200">
-              {{ t("admin.settings.notifications.accountUsageRules.evaluate.accountsTitle") }}
+            <div class="mb-2 text-xs font-bold text-gray-700 dark:text-gray-200" data-testid="usage-rule-evaluate-list-title">
+              {{ evaluateListTitle }}
             </div>
             <div v-if="evaluation.accounts.length === 0" class="rounded-xl border border-dashed border-gray-200 p-4 text-center text-xs text-gray-500 dark:border-dark-700 dark:text-gray-400">
               {{ t("admin.settings.notifications.accountUsageRules.evaluate.accountsEmpty") }}
@@ -497,7 +507,7 @@
                 <thead class="sticky top-0 bg-gray-50 dark:bg-dark-900">
                   <tr>
                     <th class="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                      {{ t("admin.settings.notifications.accountUsageRules.evaluate.columns.account") }}
+                      {{ evaluateTargetColumn }}
                     </th>
                     <th class="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                       {{ t("admin.settings.notifications.accountUsageRules.evaluate.columns.platform") }}
@@ -599,30 +609,48 @@ const appStore = useAppStore();
 const I18N = "admin.settings.notifications.accountUsageRules";
 
 // ---------- 契约常量 ----------
-type AccountMetricType =
+// 这张卡片管的指标：前四个 + 到期天数是账号级（按账号拆分评估、支持作用域过滤），
+// 最后一个是 API Key 级（按密钥拆分评估、全量不过滤）。
+type RuleMetricType =
   | "account_window_used_percent"
   | "account_quota_used_percent"
   | "account_balance"
-  | "account_today_cost";
+  | "account_today_cost"
+  | "account_expires_in_days"
+  | "apikey_daily_used_percent";
 type WindowKey = "5h" | "7d";
 type DimensionKey = "daily" | "weekly" | "total";
 type ProviderKey = "" | "kimi" | "deepseek";
 
-const ACCOUNT_METRIC_TYPES: readonly AccountMetricType[] = [
+// 密钥指标：不支持平台 / 分组 / 账号过滤，filters 恒为空，全站配了日限额的 key 全量评估
+const API_KEY_METRIC_TYPE = "apikey_daily_used_percent";
+
+const RULE_METRIC_TYPES: readonly RuleMetricType[] = [
   "account_window_used_percent",
   "account_quota_used_percent",
   "account_balance",
   "account_today_cost",
+  "account_expires_in_days",
+  API_KEY_METRIC_TYPE,
 ];
 const PERCENT_METRIC_TYPES = new Set<MetricType>([
   "account_window_used_percent",
   "account_quota_used_percent",
+  API_KEY_METRIC_TYPE,
 ]);
-const METRIC_I18N_KEY: Record<AccountMetricType, string> = {
+// 一键三档写死 40% / 60% / 80%，只对账号的两个百分比指标有意义。
+// 密钥当日用量的常用档位是 50 / 80 / 90，套不上这套后缀，所以不进三档下拉。
+const TIER_METRIC_TYPES = new Set<RuleMetricType>([
+  "account_window_used_percent",
+  "account_quota_used_percent",
+]);
+const METRIC_I18N_KEY: Record<RuleMetricType, string> = {
   account_window_used_percent: "windowUsedPercent",
   account_quota_used_percent: "quotaUsedPercent",
   account_balance: "balance",
   account_today_cost: "todayCost",
+  account_expires_in_days: "expiresInDays",
+  apikey_daily_used_percent: "apiKeyDailyUsedPercent",
 };
 const WINDOW_I18N_KEY: Record<WindowKey, string> = { "5h": "h5", "7d": "d7" };
 const DIMENSIONS: readonly DimensionKey[] = ["daily", "weekly", "total"];
@@ -644,8 +672,8 @@ const TIER_PERCENTS = [40, 60, 80] as const;
 // 账号指标不看统计窗口，后端要求必须是 1 / 5 / 60 之一，固定发 1
 const ACCOUNT_RULE_WINDOW_MINUTES = 1;
 
-function isAccountMetricType(value: unknown): value is AccountMetricType {
-  return typeof value === "string" && (ACCOUNT_METRIC_TYPES as readonly string[]).includes(value);
+function isRuleMetricType(value: unknown): value is RuleMetricType {
+  return typeof value === "string" && (RULE_METRIC_TYPES as readonly string[]).includes(value);
 }
 function isDimension(value: unknown): value is DimensionKey {
   return typeof value === "string" && (DIMENSIONS as readonly string[]).includes(value);
@@ -679,7 +707,7 @@ const allRules = ref<AlertRule[]>([]);
 
 const rules = computed(() =>
   allRules.value
-    .filter((r) => isAccountMetricType(r.metric_type))
+    .filter((r) => isRuleMetricType(r.metric_type))
     .sort((a, b) => (b.id || 0) - (a.id || 0)),
 );
 
@@ -765,15 +793,16 @@ function accountLabel(id: number): string {
 
 // ---------- 展示辅助 ----------
 function metricLabel(metricType: MetricType): string {
-  if (!isAccountMetricType(metricType)) return metricType;
+  if (!isRuleMetricType(metricType)) return metricType;
   return t(`${I18N}.metrics.${METRIC_I18N_KEY[metricType]}`);
 }
-function metricHint(metricType: AccountMetricType): string {
+function metricHint(metricType: RuleMetricType): string {
   return t(`${I18N}.metricHints.${METRIC_I18N_KEY[metricType]}`);
 }
 function metricUnit(metricType: MetricType): string {
   if (PERCENT_METRIC_TYPES.has(metricType)) return "%";
   if (metricType === "account_today_cost") return "$";
+  if (metricType === "account_expires_in_days") return t(`${I18N}.units.daySuffix`);
   return "";
 }
 
@@ -782,7 +811,15 @@ function formatNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
 }
 
+// 到期天数固定一位小数：「剩 6.5 天」比「剩 6.53 天」好读，负数就是已经过期了几天
+function formatDays(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(1) : String(value);
+}
+
 function formatValue(metricType: MetricType, value: number, currency?: string): string {
+  if (metricType === "account_expires_in_days") {
+    return t(`${I18N}.units.daysLeft`, { value: formatDays(value) });
+  }
   const text = formatNumber(value);
   if (PERCENT_METRIC_TYPES.has(metricType)) return `${text}%`;
   if (metricType === "account_today_cost") return `$${text}`;
@@ -801,8 +838,10 @@ function conditionText(rule: AlertRule): string {
   return `${rule.operator} ${formatNumber(rule.threshold)}${unit}`;
 }
 
-// 作用域摘要：平台 · 分组 · N 个账号 · 窗口/维度/供应商；三项都没填就是「全部账号」
+// 作用域摘要：平台 · 分组 · N 个账号 · 窗口/维度/供应商；三项都没填就是「全部账号」。
+// 密钥指标不支持过滤，直接写「全部密钥」。
 function scopeSummary(rule: AlertRule): string {
+  if (rule.metric_type === API_KEY_METRIC_TYPE) return t(`${I18N}.scope.allApiKeys`);
   const f = rule.filters ?? {};
   const parts: string[] = [];
   const platform = typeof f.platform === "string" ? f.platform : "";
@@ -832,7 +871,7 @@ type EditorMode = "create" | "edit" | "tiers";
 
 interface RuleDraft {
   name: string;
-  metric_type: AccountMetricType;
+  metric_type: RuleMetricType;
   window: WindowKey;
   dimension: DimensionKey;
   provider: ProviderKey;
@@ -877,7 +916,7 @@ function draftFromRule(rule: AlertRule): RuleDraft {
   return {
     ...base,
     name: rule.name,
-    metric_type: isAccountMetricType(rule.metric_type) ? rule.metric_type : base.metric_type,
+    metric_type: isRuleMetricType(rule.metric_type) ? rule.metric_type : base.metric_type,
     window: f.window === "7d" ? "7d" : "5h",
     dimension: isDimension(f.dimension) ? f.dimension : "daily",
     provider: isProvider(f.provider) ? f.provider : "",
@@ -905,11 +944,14 @@ const editorSubmitText = computed(() => {
 });
 
 const metricOptions = computed<SelectOption[]>(() =>
-  ACCOUNT_METRIC_TYPES
-    // 三档是 40% / 60% / 80%，只对百分比指标有意义
-    .filter((m) => editorMode.value !== "tiers" || PERCENT_METRIC_TYPES.has(m))
+  RULE_METRIC_TYPES
+    // 三档是 40% / 60% / 80%，只对账号的两个百分比指标有意义
+    .filter((m) => editorMode.value !== "tiers" || TIER_METRIC_TYPES.has(m))
     .map((m) => ({ value: m, label: metricLabel(m) })),
 );
+
+// 当前编辑的是密钥指标：平台 / 分组 / 账号三个筛选器都藏起来，filters 也不带它们
+const isApiKeyMetric = computed(() => draft.value?.metric_type === API_KEY_METRIC_TYPE);
 const windowOptions = computed<SelectOption[]>(() =>
   (["5h", "7d"] as WindowKey[]).map((w) => ({ value: w, label: t(`${I18N}.windows.${WINDOW_I18N_KEY[w]}`) })),
 );
@@ -954,7 +996,7 @@ const tierNames = computed(() => {
 });
 
 function onMetricChange(value: string | number | boolean | null): void {
-  if (!draft.value || !isAccountMetricType(value)) return;
+  if (!draft.value || !isRuleMetricType(value)) return;
   const previous = draft.value.metric_type;
   draft.value.metric_type = value;
   // 阈值随指标切换到一个合理的默认值（编辑已有规则时不改）
@@ -965,6 +1007,10 @@ function onMetricChange(value: string | number | boolean | null): void {
     } else if (value === "account_today_cost") {
       draft.value.operator = ">=";
       draft.value.threshold = 10;
+    } else if (value === "account_expires_in_days") {
+      // 到期提醒看的是「还剩几天」，越少越危险，所以是「小于等于 7 天」
+      draft.value.operator = "<=";
+      draft.value.threshold = 7;
     } else {
       draft.value.operator = ">=";
       draft.value.threshold = 80;
@@ -1064,6 +1110,8 @@ const editorErrors = computed<string[]>(() => {
 
 function buildFilters(d: RuleDraft): Record<string, unknown> {
   const filters: Record<string, unknown> = {};
+  // 密钥指标全量评估，后端也不接受这些键，直接发空 filters
+  if (d.metric_type === API_KEY_METRIC_TYPE) return filters;
   if (d.metric_type === "account_window_used_percent") filters.window = d.window;
   if (d.metric_type === "account_quota_used_percent") filters.dimension = d.dimension;
   if (d.metric_type === "account_balance" && d.provider) filters.provider = d.provider;
@@ -1269,6 +1317,15 @@ const SEND_TONE_CLASSES = {
     "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-200",
   error: "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200",
 } as const;
+
+// 试算结果里 accounts[] 对密钥指标装的是密钥，标题与首列表头跟着换个说法
+const evaluationIsApiKey = computed(() => evaluation.value?.metric_type === API_KEY_METRIC_TYPE);
+const evaluateListTitle = computed(() =>
+  evaluationIsApiKey.value ? t(`${I18N}.evaluate.apiKeysTitle`) : t(`${I18N}.evaluate.accountsTitle`),
+);
+const evaluateTargetColumn = computed(() =>
+  evaluationIsApiKey.value ? t(`${I18N}.evaluate.columns.apiKey`) : t(`${I18N}.evaluate.columns.account`),
+);
 
 const evaluationCurrency = computed(() => {
   const accounts = evaluation.value?.accounts ?? [];

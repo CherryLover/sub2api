@@ -688,11 +688,15 @@ export type MetricType =
   | 'account_error_ratio'
   | 'account_temp_unscheduled_count'
   | 'overload_account_count'
-  // 账号用量阈值指标（设置 → 通知 → 账号用量提醒规则），filters 里带作用域与窗口/维度
+  // 账号用量阈值指标（设置 → 通知 → 用量与到期提醒规则），filters 里带作用域与窗口/维度
   | 'account_window_used_percent'
   | 'account_quota_used_percent'
   | 'account_balance'
   | 'account_today_cost'
+  // 账号到期提醒：距离到期还剩几天（已过期为负数），filters 里只有作用域
+  | 'account_expires_in_days'
+  // API Key 当日用量：按密钥拆分评估，不支持任何对象过滤，filters 恒为空
+  | 'apikey_daily_used_percent'
 export type Operator = '>' | '>=' | '<' | '<=' | '==' | '!='
 
 export interface AlertRule {
@@ -1173,6 +1177,9 @@ export async function deleteAlertRule(id: number): Promise<void> {
 }
 
 // 手动试发一条规则：后端用真实数据算一遍，不落事件、不改状态；send=true 时顺带推一条 Bark
+//
+// 注意 apikey_daily_used_percent 复用这同一个 accounts[]：account_id 装的是 API Key 的 id，
+// account_name 装的是「用户名 / 密钥名」，platform 为空。后端是刻意这么填的，前端一套表格通吃。
 export interface AlertRuleEvaluationAccount {
   account_id: number
   account_name: string

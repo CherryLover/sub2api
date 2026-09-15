@@ -419,6 +419,78 @@ func TestOpsService_ListAccountsForAlerts_UsesFullEntityReads(t *testing.T) {
 	}
 }
 
+// ─── 账号到期提醒（account_expires_in_days）───
+
+func TestReadAccountExpiresInDays(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+
+	// 没填到期时间：必须当无数据跳过，绝不能按 0 天算，否则 `<=` 型规则会把全站账号都报一遍。
+	_, ok := readAccountExpiresInDays(&Account{ID: 1}, now)
+	require.False(t, ok, "ExpiresAt 为 nil 必须跳过")
+
+	_, ok = readAccountExpiresInDays(nil, now)
+	require.False(t, ok)
+
+	// 还剩 1.5 天。
+	future := now.Add(36 * time.Hour)
+	days, ok := readAccountExpiresInDays(&Account{ID: 2, ExpiresAt: &future}, now)
+	require.True(t, ok)
+	require.InDelta(t, 1.5, days, 0.0001)
+
+	// 已过期 2 天：负数。
+	past := now.Add(-48 * time.Hour)
+	days, ok = readAccountExpiresInDays(&Account{ID: 3, ExpiresAt: &past}, now)
+	require.True(t, ok)
+	require.InDelta(t, -2, days, 0.0001)
+}
+
+func TestCollectAccountMetricSamples_ExpiresInDaysSkipsAccountsWithoutExpiry(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	// 半天后到期 / 一天前已过期 / 压根没填到期时间。
+	soon := now.Add(12 * time.Hour)
+	expired := now.Add(-24 * time.Hour)
+	opsService := &OpsService{
+		listAccountsForAlerts: func(context.Context, string, *int64, []int64) ([]*Account, error) {
+			return []*Account{
+				{ID: 3, Name: "no-expiry", Platform: PlatformOpenAI},
+				{ID: 1, Name: "soon", Platform: PlatformOpenAI, ExpiresAt: &soon},
+				{ID: 2, Name: "expired", Platform: PlatformAnthropic, ExpiresAt: &expired},
+			}, nil
+		},
+	}
+	svc := &OpsAlertEvaluatorService{opsService: opsService}
+	rule := &OpsAlertRule{MetricType: OpsAlertMetricAccountExpiresInDays, Filters: map[string]any{}}
+
+	samples, err := svc.collectAccountMetricSamples(context.Background(), rule, now)
+	require.NoError(t, err)
+	require.Len(t, samples, 2, "没填到期时间的账号被跳过")
+	require.Equal(t, int64(1), samples[0].AccountID, "按账号 ID 升序")
+	require.InDelta(t, 0.5, samples[0].Value, 0.0001)
+	require.Equal(t, int64(2), samples[1].AccountID)
+	require.InDelta(t, -1, samples[1].Value, 0.0001, "已过期是负数")
+}
+
+func TestOpsAlertAccountMetric_ExpiresInDaysLabelAndUnit(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, IsOpsAlertAccountMetric(OpsAlertMetricAccountExpiresInDays))
+	require.Equal(t, "账号剩余到期天数", opsAlertAccountMetricLabel(OpsAlertMetricAccountExpiresInDays, opsAlertAccountFilters{}))
+	require.Equal(t, " 天", opsAlertAccountMetricUnit(OpsAlertMetricAccountExpiresInDays, ""))
+	require.True(t, opsAlertAggregateTakesMin(OpsAlertMetricAccountExpiresInDays), "到期天数聚合取最小")
+	require.False(t, opsAlertAggregateTakesMin(OpsAlertMetricAccountTodayCost))
+
+	sample := accountMetricSample{AccountID: 7, AccountName: "codex-a", Platform: "openai", Value: 0.5}
+	rule := &OpsAlertRule{MetricType: OpsAlertMetricAccountExpiresInDays, Operator: "<=", Threshold: 1}
+	require.Equal(t,
+		"账号剩余到期天数：账号 codex-a（openai）当前 0.5 天，阈值 <= 1 天",
+		buildOpsAlertAccountDescription(rule, sample, opsAlertAccountFilters{}),
+	)
+}
+
 func TestOpsAlertAccountMetricLabelsAndUnits(t *testing.T) {
 	t.Parallel()
 
