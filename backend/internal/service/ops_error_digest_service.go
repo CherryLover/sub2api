@@ -31,6 +31,12 @@ import (
 //
 // 区间是"从上次成功运行到这次运行"，上次成功时间直接读任务心跳，不另存状态：
 // 这样服务停过一段时间再起来，下一次汇总会自动把中间漏掉的那段一起算进去。
+//
+// ⚠️ 本文件的日志前缀是 [OpsDigest]，**不要**改回 [OpsErrorDigest]：
+// logger.LegacyPrintf 按消息文本推断级别（inferStdLogLevel），消息里只要含 "error"
+// 就整条判成 ERROR。前缀带 Error 会让这个服务的每一条日志（含正常的 scheduled /
+// disabled）都以错误级别写进 ops_system_logs，把系统日志页糊满假错误。
+// 真正该报错的那几条本来就带 "failed"，级别照样判得对。
 
 const (
 	opsErrorDigestJobName = "ops_error_digest"
@@ -248,7 +254,7 @@ func (s *OpsErrorDigestService) Start() {
 		return
 	}
 	if s.opsRepo == nil || s.settingRepo == nil {
-		logger.LegacyPrintf("service.ops_error_digest", "[OpsErrorDigest] not started (missing deps)")
+		logger.LegacyPrintf("service.ops_error_digest", "[OpsDigest] not started (missing deps)")
 		return
 	}
 
@@ -259,7 +265,7 @@ func (s *OpsErrorDigestService) Start() {
 	}
 	s.started = true
 	if err := s.applyScheduleLocked(context.Background()); err != nil {
-		logger.LegacyPrintf("service.ops_error_digest", "[OpsErrorDigest] not started: %v", err)
+		logger.LegacyPrintf("service.ops_error_digest", "[OpsDigest] not started: %v", err)
 	}
 }
 
@@ -300,7 +306,7 @@ func (s *OpsErrorDigestService) stopCronLocked() {
 	select {
 	case <-ctx.Done():
 	case <-time.After(opsErrorDigestCronStopTimeout):
-		logger.LegacyPrintf("service.ops_error_digest", "[OpsErrorDigest] cron stop timed out")
+		logger.LegacyPrintf("service.ops_error_digest", "[OpsDigest] cron stop timed out")
 	}
 	s.cron = nil
 }
@@ -312,7 +318,7 @@ func (s *OpsErrorDigestService) applyScheduleLocked(ctx context.Context) error {
 	s.stopCronLocked()
 
 	if !s.effective.Enabled {
-		logger.LegacyPrintf("service.ops_error_digest", "[OpsErrorDigest] cron disabled by settings")
+		logger.LegacyPrintf("service.ops_error_digest", "[OpsDigest] cron disabled by settings")
 		return nil
 	}
 
@@ -328,7 +334,7 @@ func (s *OpsErrorDigestService) applyScheduleLocked(ctx context.Context) error {
 	c.Start()
 	s.cron = c
 	logger.LegacyPrintf("service.ops_error_digest",
-		"[OpsErrorDigest] scheduled (schedule=%q tz=%s top_keys=%d skip_when_empty=%v)",
+		"[OpsDigest] scheduled (schedule=%q tz=%s top_keys=%d skip_when_empty=%v)",
 		schedule, s.location().String(), s.effective.TopKeys, s.effective.SkipWhenEmpty,
 	)
 	return nil
@@ -355,7 +361,7 @@ func (s *OpsErrorDigestService) computeEffectiveLocked(ctx context.Context) {
 	cfg, err := s.load(ctx)
 	if err != nil {
 		logger.LegacyPrintf("service.ops_error_digest",
-			"[OpsErrorDigest] read digest settings failed, using defaults: %v", err)
+			"[OpsDigest] read digest settings failed, using defaults: %v", err)
 	}
 	if cfg == nil {
 		cfg = defaultOpsErrorDigestConfig()
@@ -403,7 +409,7 @@ func (s *OpsErrorDigestService) runScheduled() {
 	result, err := s.runDigestOnce(ctx, startedAt, s.snapshotEffective())
 	if err != nil {
 		s.recordHeartbeatError(runAt, time.Since(startedAt), err)
-		logger.LegacyPrintf("service.ops_error_digest", "[OpsErrorDigest] digest failed: %v", err)
+		logger.LegacyPrintf("service.ops_error_digest", "[OpsDigest] digest failed: %v", err)
 		return
 	}
 	// 即使这次因为"区间内没有报错"跳过了推送，也要记成功：心跳是下一次算区间的起点，
@@ -529,7 +535,7 @@ func (s *OpsErrorDigestService) lastSuccessAt(ctx context.Context) (time.Time, b
 	beats, err := s.opsRepo.ListJobHeartbeats(ctx)
 	if err != nil {
 		logger.LegacyPrintf("service.ops_error_digest",
-			"[OpsErrorDigest] read job heartbeats failed, falling back to 24h window: %v", err)
+			"[OpsDigest] read job heartbeats failed, falling back to 24h window: %v", err)
 		return time.Time{}, false
 	}
 	for _, beat := range beats {
@@ -554,7 +560,7 @@ func (s *OpsErrorDigestService) tryAcquireLeaderLock(ctx context.Context) (func(
 	}
 	if s.redisClient == nil {
 		s.warnNoRedisOnce.Do(func() {
-			logger.LegacyPrintf("service.ops_error_digest", "[OpsErrorDigest] redis not configured; running without distributed lock")
+			logger.LegacyPrintf("service.ops_error_digest", "[OpsDigest] redis not configured; running without distributed lock")
 		})
 		return nil, true
 	}
@@ -564,7 +570,7 @@ func (s *OpsErrorDigestService) tryAcquireLeaderLock(ctx context.Context) (func(
 		// Redis 抽风时宁可这次不跑：漏掉的这段不会丢，心跳没更新，下一次的区间会自动把它包进来；
 		// 反过来每个实例都推一遍，站长手机上就是几条一模一样的通知。
 		s.warnNoRedisOnce.Do(func() {
-			logger.LegacyPrintf("service.ops_error_digest", "[OpsErrorDigest] leader lock SetNX failed; skipping this run: %v", err)
+			logger.LegacyPrintf("service.ops_error_digest", "[OpsDigest] leader lock SetNX failed; skipping this run: %v", err)
 		})
 		return nil, false
 	}
@@ -656,7 +662,7 @@ func (s *OpsErrorDigestService) UpdateErrorDigestConfig(
 	// 重建 cron 失败（例如表达式在这一步才被 cron 库拒绝）只记日志：配置已经存下了，
 	// 报错回前端会让人以为没保存成功。
 	if err := s.Reload(ctx); err != nil {
-		logger.LegacyPrintf("service.ops_error_digest", "[OpsErrorDigest] reload after save failed: %v", err)
+		logger.LegacyPrintf("service.ops_error_digest", "[OpsDigest] reload after save failed: %v", err)
 	}
 	return toOpsErrorDigestConfigView(next), nil
 }
