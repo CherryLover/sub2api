@@ -197,4 +197,8 @@ func (m *opsRepoMock) GetLatestDailyBucketDate(ctx context.Context) (time.Time, 
 	return time.Time{}, false, nil
 }
 
+func (m *opsRepoMock) GetErrorDigestBreakdown(ctx context.Context, start, end time.Time) ([]*OpsErrorDigestRow, error) {
+	return nil, nil
+}
+
 var _ OpsRepository = (*opsRepoMock)(nil)

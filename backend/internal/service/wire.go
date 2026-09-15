@@ -482,6 +482,21 @@ func ProvideBarkNotificationService(
 	return NewBarkNotificationService(settingRepo, encryptor, NewBarkNotifier(nil), encryptionKeyConfigured)
 }
 
+// ProvideOpsErrorDigestService 创建并启动定时报错汇总任务（cron 调度）。
+// settingRepo 让它自己读写 notify_error_digest_config；notifier 是 Bark 推送出口，
+// 未启用 Bark 时汇总照算不推，不会让任务失败。
+func ProvideOpsErrorDigestService(
+	opsRepo OpsRepository,
+	settingRepo SettingRepository,
+	notifier *BarkNotificationService,
+	redisClient *redis.Client,
+	cfg *config.Config,
+) *OpsErrorDigestService {
+	svc := NewOpsErrorDigestService(opsRepo, settingRepo, notifier, redisClient, cfg)
+	svc.Start()
+	return svc
+}
+
 // ProvideOpsCleanupService creates and starts OpsCleanupService (cron scheduled).
 // settingRepo 让 cleanup service 自己读 ops_advanced_settings.data_retention 覆盖 cfg；
 // opsService 用来反向注入 cleanup hook，以便 UI 改清理设置时能 Reload cron。
@@ -804,6 +819,7 @@ var ProviderSet = wire.NewSet(
 	ProvideBarkNotificationService,
 	ProvideOpsAlertEvaluatorService,
 	ProvideOpsCleanupService,
+	ProvideOpsErrorDigestService,
 	ProvideConcurrencyService,
 	ProvideUserMessageQueueService,
 	NewUsageRecordWorkerPool,

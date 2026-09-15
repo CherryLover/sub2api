@@ -405,6 +405,21 @@ func (s *BarkNotificationService) NotifyOpsAlertResolved(ctx context.Context, n 
 	return s.push(ctx, cfg, strings.TrimSpace(title), buildOpsAlertBarkBody(n, true))
 }
 
+// NotifyOpsErrorDigest 定时报错汇总的推送出口，标题与正文由汇总服务拼好后原样发出。
+//
+// 与告警不同，Bark 未启用时这里不报错，只返回 pushed=false：汇总是每天固定两次的"顺带说一声"，
+// 没配推送通道不该让整个定时任务记成失败；管理端「立即试推」靠这个返回值告诉站长为什么没收到。
+func (s *BarkNotificationService) NotifyOpsErrorDigest(ctx context.Context, title, body string) (bool, error) {
+	cfg, ok := s.runtimeConfig(ctx)
+	if !ok {
+		return false, nil
+	}
+	if err := s.push(ctx, cfg, strings.TrimSpace(title), body); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // IsEnabled Bark 是否已启用且配置完整（可直接推送）。
 func (s *BarkNotificationService) IsEnabled(ctx context.Context) bool {
 	_, ok := s.runtimeConfig(ctx)
