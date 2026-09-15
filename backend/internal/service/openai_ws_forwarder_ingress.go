@@ -259,6 +259,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = next
 		}
+		cleanedMetadata, _, metadataErr := normalizeOpenAIOAuthInputMetadataForAccount(normalized, account)
+		if metadataErr != nil {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, metadataErr.Error(), metadataErr)
+		}
+		normalized = cleanedMetadata
 		if isOpenAIResponsesLiteWebSocketPayload(normalized) {
 			litePayload, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(normalized, account)
 			if liteErr != nil {

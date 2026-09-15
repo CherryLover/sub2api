@@ -847,6 +847,13 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 		}
 	}
 
+	cleaned, metadataChanged, metadataErr := stripOpenAIOAuthInputMetadataBody(normalized)
+	if metadataErr != nil {
+		return body, false, metadataErr
+	}
+	normalized = cleaned
+	changed = changed || metadataChanged
+
 	if compact {
 		if store := gjson.GetBytes(normalized, "store"); store.Exists() {
 			next, err := sjson.DeleteBytes(normalized, "store")
