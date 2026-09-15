@@ -53,7 +53,7 @@ function makeAccount(overrides: Partial<Account>): Account {
   } as Account
 }
 
-const position = { top: 100, left: 100 }
+const anchorRect = new DOMRect(100, 100, 24, 24)
 const bodyText = () => document.body.textContent ?? ''
 
 describe('AccountActionMenu 状态到期', () => {
@@ -84,7 +84,7 @@ describe('AccountActionMenu 状态到期', () => {
     ],
   ])('%s 到期后「恢复状态」入口自行消失', async (_label, overrides) => {
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account: makeAccount(overrides as Partial<Account>), position },
+      props: { show: true, account: makeAccount(overrides as Partial<Account>), anchorRect },
       attachTo: document.body,
     })
 
@@ -100,7 +100,7 @@ describe('AccountActionMenu 状态到期', () => {
 
   it('status=error 的账号不受心跳影响，「恢复状态」始终可见', async () => {
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account: makeAccount({ status: 'error' }), position },
+      props: { show: true, account: makeAccount({ status: 'error' }), anchorRect },
       attachTo: document.body,
     })
 

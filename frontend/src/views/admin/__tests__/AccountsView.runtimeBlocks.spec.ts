@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import type { VueWrapper } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
+import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 
 const {
   listAccounts,
@@ -77,7 +78,7 @@ const DataTableStub = {
   props: ['columns', 'data'],
   template: `
     <div data-test="data-table">
-      <div v-for="row in data" :key="row.id" :data-test="'row-' + row.id" />
+      <div v-for="row in data" :key="row.id" :data-test="'row-' + row.id"><slot name="cell-actions" :row="row" /></div>
     </div>
   `
 }
@@ -97,8 +98,9 @@ const ConfirmDialogStub = {
   `
 }
 
-function mountView() {
+function mountView(stubActionMenu = true) {
   return mount(AccountsView, {
+    attachTo: document.body,
     global: {
       stubs: {
         AppLayout: { template: '<div><slot /></div>' },
@@ -112,7 +114,7 @@ function mountView() {
         AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
         AccountTableFilters: { template: '<div></div>' },
         AccountBulkActionsBar: true,
-        AccountActionMenu: true,
+        AccountActionMenu: stubActionMenu,
         ImportDataModal: true,
         ReAuthAccountModal: true,
         AccountTestModal: true,
@@ -232,6 +234,26 @@ describe('admin AccountsView runtime block reset', () => {
     wrapper?.unmount()
     wrapper = null
     document.body.innerHTML = ''
+  })
+
+  it('keeps internal menu scrolling open and closes on table scrolling', async () => {
+    wrapper = mountView(false)
+    await flushPromises()
+    const trigger = wrapper.findAll('button').find(button => button.text() === 'common.more')!
+    expect(trigger).toBeDefined()
+    await trigger.trigger('click')
+    await flushPromises()
+    const menu = document.body.querySelector<HTMLElement>('.action-menu-content')!
+    expect(menu).not.toBeNull()
+    menu.dispatchEvent(new Event('scroll'))
+    await flushPromises()
+    expect(wrapper.findComponent(AccountActionMenu).props('show')).toBe(true)
+    menu.querySelector('button')!.dispatchEvent(new Event('scroll'))
+    await flushPromises()
+    expect(wrapper.findComponent(AccountActionMenu).props('show')).toBe(true)
+    wrapper.get('[data-test="data-table"]').element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    await flushPromises()
+    expect(wrapper.findComponent(AccountActionMenu).props('show')).toBe(false)
   })
 
   it('asks for confirmation before touching the API, and explains what is cleared', async () => {
