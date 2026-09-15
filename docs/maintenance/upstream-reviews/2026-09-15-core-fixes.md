@@ -58,10 +58,10 @@
 - 获准后仅推送个人 fork 工作分支；检查同一最终 SHA 的 CI 和 Security Scan 全部任务，尤其数据库集成测试。失败先修复重验，通过后向 CherryLover/main 提 PR；不自行合并、发版或推镜像。
 - 回滚：以问题组提交逆序 revert；#6810 的边界测试依赖 #7111 的测试桩，回退凭据组时连同日期组处理。数据库组无新增迁移，回退代码不会自动修复历史代理数据。
 
-## 阶段状态（GitHub 验证通过，待创建 PR）
+## 阶段状态（PR 已创建，最终文档验证中）
 
-- 个人 fork 工作分支已推送：`xiaoguai1818:backport/2026-09-15-core-fixes`。
-- 最后验证的代码提交：`8cdeda73f9943bd592e42ef86ddf1877bd80b1a6`。
-- [CI](https://github.com/xiaoguai1818/sub2api/actions/runs/34941632320) 通过：前端、部署脚本、后端嵌入构建、全量单元、PostgreSQL/Redis 集成和 golangci-lint 全部成功。
-- [Security Scan](https://github.com/xiaoguai1818/sub2api/actions/runs/34941632373) 通过：前端依赖审计例外校验和 govulncheck 成功。
-- 本次仅补充验证记录；推送该文档后以新的最终 SHA 再跑一次同样的检查，通过后创建面向 CherryLover/sub2api 的 PR。
+- 个人 fork 工作分支：`xiaoguai1818:backport/2026-09-15-core-fixes`。
+- [精简版 PR #12](https://github.com/CherryLover/sub2api/pull/12) 已创建，目标为 `CherryLover/sub2api:main`；未自动合并、未发版。
+- 首次完整 GitHub 验证对应 `377018220f6c537e390088660279ada5cd334e77`：
+  [CI](https://github.com/xiaoguai1818/sub2api/actions/runs/34942397284) 与 [Security Scan](https://github.com/xiaoguai1818/sub2api/actions/runs/34942397247) 全部通过，包含 PostgreSQL/Redis 集成测试。
+- 本次只更新本记录的 PR 状态；推送此文档提交后将以新的最终 SHA 再跑 CI 与 Security Scan，通过后 PR 保持待人工审查。
