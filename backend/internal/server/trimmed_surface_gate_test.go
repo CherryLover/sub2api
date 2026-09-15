@@ -520,6 +520,32 @@ func TestNotificationBarkSurfaceRegistered(t *testing.T) {
 	}
 }
 
+// TestNotificationErrorDigestSurfaceRegistered 定时报错汇总的三条管理端路由必须在场：
+// 读配置、写配置，外加一条「立即试推」（不等到点就能验证通知长什么样）。
+// 它复用 Bark 这条唯一的外发通道，所以同样只允许挂在 /admin 下。
+func TestNotificationErrorDigestSurfaceRegistered(t *testing.T) {
+	router, _ := newTrimmedSurfaceRouter(t)
+
+	routes := make(map[string]struct{})
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = struct{}{}
+	}
+	for _, want := range []string{
+		"GET /api/v1/admin/notifications/error-digest",
+		"PUT /api/v1/admin/notifications/error-digest",
+		"POST /api/v1/admin/notifications/error-digest/test",
+	} {
+		_, exists := routes[want]
+		require.Truef(t, exists, "报错汇总路由 %s 应已注册", want)
+	}
+	for _, route := range router.Routes() {
+		if strings.Contains(route.Path, "error-digest") {
+			require.Truef(t, strings.HasPrefix(route.Path, "/api/v1/admin/"),
+				"报错汇总配置只能挂在 /admin 下，发现 %s", route.Path)
+		}
+	}
+}
+
 // TestAdminAPIKeySurfaceRegistered 管理端密钥总表三条路由必须齐：跨用户列表、改状态/IP 名单、删除。
 // 列表只回掩码 Key，故只允许挂在 /admin 下，不能出现在用户侧 /api/v1/keys 之外的公开前缀。
 func TestAdminAPIKeySurfaceRegistered(t *testing.T) {

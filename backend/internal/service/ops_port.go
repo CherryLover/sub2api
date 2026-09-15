@@ -30,6 +30,10 @@ type OpsRepository interface {
 	GetErrorDistribution(ctx context.Context, filter *OpsDashboardFilter) (*OpsErrorDistributionResponse, error)
 	GetOpenAITokenStats(ctx context.Context, filter *OpsOpenAITokenStatsFilter) (*OpsOpenAITokenStatsResponse, error)
 
+	// GetErrorDigestBreakdown 定时报错汇总用：一条 SQL 拿回区间内按
+	// 「密钥 × 错误类型 × 状态码 × 是否业务拦截」分组的计数，分组与折叠由 Go 侧完成。
+	GetErrorDigestBreakdown(ctx context.Context, start, end time.Time) ([]*OpsErrorDigestRow, error)
+
 	InsertSystemMetrics(ctx context.Context, input *OpsInsertSystemMetricsInput) error
 	GetLatestSystemMetrics(ctx context.Context, windowMinutes int) (*OpsSystemMetricsSnapshot, error)
 
@@ -307,6 +311,27 @@ type OpsJobHeartbeat struct {
 	LastResult     *string    `json:"last_result"`
 
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// OpsErrorDigestRow 报错汇总的一行原始计数：一个「密钥 × 错误类型 × 状态码 × 是否业务拦截」组合。
+//
+// APIKeyID 为 nil 表示这条请求在认证阶段就失败了，还没解析出是哪个密钥；
+// Username / UserEmail / APIKeyName 来自 LEFT JOIN，用户或密钥被软删后仍然带得出名字，
+// 真的取不到就是空串，由汇总服务回退成 ID。
+type OpsErrorDigestRow struct {
+	APIKeyID   *int64
+	UserID     *int64
+	Username   string
+	UserEmail  string
+	APIKeyName string
+
+	ErrorType  string
+	StatusCode int
+	// IsBusinessLimited 为真表示这是"正常的业务拦截"（余额不足、额度用尽、无效密钥之类），
+	// 汇总正文里与真故障分开计数。
+	IsBusinessLimited bool
+
+	Count int64
 }
 
 type OpsWindowStats struct {

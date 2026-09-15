@@ -71,6 +71,90 @@ export interface TestBarkNotifyResponse {
   devices?: BarkDevicePushOutcome[]
 }
 
+/**
+ * 定时报错汇总推送配置。
+ *
+ * 接口契约：/api/v1/admin/notifications/error-digest
+ * - GET  返回当前配置（从未保存过时是后端默认值）
+ * - PUT  保存配置，保存成功后后端立刻按新的 cron 表达式重建定时任务
+ * - POST /test 立刻按最近 24 小时算一份并推送，不看 enabled，也不看 skip_when_empty
+ *
+ * 推送走的是上面那条 Bark 通道；Bark 没启用时试推不报错，只会回 pushed=false。
+ */
+export interface ErrorDigestConfig {
+  enabled: boolean
+  /** 五字段 cron 表达式，时区跟随后端配置 */
+  schedule: string
+  /** 区间内没有报错时是否跳过推送 */
+  skip_when_empty: boolean
+  /** 正文里展开几个密钥，其余折成「另有 N 个密钥共 M 次」 */
+  top_keys: number
+  updated_at?: string
+}
+
+export interface UpdateErrorDigestConfigRequest {
+  enabled: boolean
+  schedule: string
+  skip_when_empty: boolean
+  top_keys: number
+}
+
+/** 一个密钥下的一种错误：标签已经是「上游过载(529)」这种人话形式 */
+export interface ErrorDigestTypeLine {
+  label: string
+  count: number
+}
+
+export interface ErrorDigestGroup {
+  title: string
+  total: number
+  types: ErrorDigestTypeLine[]
+}
+
+export interface ErrorDigestSummary {
+  start: string
+  end: string
+  total: number
+  /** 真故障（is_business_limited=false） */
+  sla: number
+  /** 业务拦截（余额不足、额度用尽之类） */
+  limited: number
+  groups: ErrorDigestGroup[]
+  hidden_groups: number
+  hidden_total: number
+}
+
+export interface TestErrorDigestResponse {
+  /** Bark 没启用时是 false，reason 会是 bark_disabled */
+  pushed: boolean
+  reason?: string
+  title: string
+  body: string
+  summary: ErrorDigestSummary | null
+}
+
+export async function getErrorDigestConfig(): Promise<ErrorDigestConfig> {
+  const { data } = await apiClient.get<ErrorDigestConfig>('/admin/notifications/error-digest')
+  return data
+}
+
+export async function updateErrorDigestConfig(
+  req: UpdateErrorDigestConfigRequest,
+): Promise<ErrorDigestConfig> {
+  const { data } = await apiClient.put<ErrorDigestConfig>(
+    '/admin/notifications/error-digest',
+    req,
+  )
+  return data
+}
+
+export async function testErrorDigest(): Promise<TestErrorDigestResponse> {
+  const { data } = await apiClient.post<TestErrorDigestResponse>(
+    '/admin/notifications/error-digest/test',
+  )
+  return data
+}
+
 export async function getBarkConfig(): Promise<BarkNotifyConfig> {
   const { data } = await apiClient.get<BarkNotifyConfig>('/admin/notifications/bark')
   return data
@@ -95,6 +179,9 @@ export const notificationsAPI = {
   getBarkConfig,
   updateBarkConfig,
   testBark,
+  getErrorDigestConfig,
+  updateErrorDigestConfig,
+  testErrorDigest,
 }
 
 export default notificationsAPI
