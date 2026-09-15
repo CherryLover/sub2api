@@ -535,6 +535,32 @@ func (r *apiKeyRepository) ListAllByUserID(ctx context.Context, userID int64, fi
 	return outKeys, nil
 }
 
+// ListAPIKeysWithDailyRateLimit 跨用户列出「配了日限额且仍启用」的 API Key，供告警评估器算
+// 当日用量百分比（apikey_daily_used_percent）。
+//
+// 条件必须下推到 SQL，不能把全表拉回来再过滤：密钥表是全站最大的表之一，而真正配了日限额的
+// 通常只有很小一撮。activeQuery() 已经带上 deleted_at IS NULL，这里再叠 rate_limit_1d > 0
+// 与 status = active；预载 User 是因为推送正文要写「用户名 / 密钥名」，不预载就得逐行回查。
+func (r *apiKeyRepository) ListAPIKeysWithDailyRateLimit(ctx context.Context) ([]*service.APIKey, error) {
+	keys, err := r.activeQuery().
+		Where(
+			apikey.RateLimit1dGT(0),
+			apikey.StatusEQ(service.StatusActive),
+		).
+		WithUser().
+		Order(dbent.Asc(apikey.FieldID)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*service.APIKey, 0, len(keys))
+	for i := range keys {
+		out = append(out, apiKeyEntityToService(keys[i]))
+	}
+	return out, nil
+}
+
 func (r *apiKeyRepository) attachLastUsedIPs(ctx context.Context, keys []service.APIKey) error {
 	if len(keys) == 0 || r.sql == nil {
 		return nil

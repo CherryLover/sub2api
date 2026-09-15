@@ -453,7 +453,8 @@ func ProvideOpsAggregationService(
 }
 
 // ProvideOpsAlertEvaluatorService creates and starts OpsAlertEvaluatorService.
-// usageLogRepo 给账号今日费用指标读用量日志；opsService 反向注入评估器，让「立即试算」接口能透传。
+// usageLogRepo 给账号今日费用指标读用量日志；apiKeyRepo 给密钥当日用量指标列配了日限额的 key；
+// opsService 反向注入评估器，让「立即试算」接口能透传。
 func ProvideOpsAlertEvaluatorService(
 	opsService *OpsService,
 	opsRepo OpsRepository,
@@ -462,8 +463,9 @@ func ProvideOpsAlertEvaluatorService(
 	proxyRepo ProxyRepository,
 	alertNotifier *BarkNotificationService,
 	usageLogRepo UsageLogRepository,
+	apiKeyRepo APIKeyRepository,
 ) *OpsAlertEvaluatorService {
-	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, redisClient, cfg, proxyRepo, alertNotifier, usageLogRepo)
+	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, redisClient, cfg, proxyRepo, alertNotifier, usageLogRepo, apiKeyRepo)
 	svc.Start()
 	if opsService != nil {
 		opsService.SetAlertRuleEvaluator(svc)

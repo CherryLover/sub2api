@@ -186,6 +186,40 @@ const balanceRule = () => ({
   filters: { provider: 'kimi', group_id: 5 },
 })
 
+// 账号到期：账号级指标，仍然支持平台 / 分组 / 账号过滤
+const expiryRule = () => ({
+  id: 4,
+  name: 'Account expiry',
+  description: '',
+  enabled: true,
+  metric_type: 'account_expires_in_days',
+  operator: '<=',
+  threshold: 7,
+  window_minutes: 1,
+  sustained_minutes: 1,
+  severity: 'P1',
+  cooldown_minutes: 1440,
+  notify_email: false,
+  filters: { platform: 'openai' },
+})
+
+// API Key 当日用量：密钥级指标，不支持任何对象过滤，filters 恒为空
+const apiKeyRule = () => ({
+  id: 5,
+  name: 'Key daily 80',
+  description: '',
+  enabled: true,
+  metric_type: 'apikey_daily_used_percent',
+  operator: '>=',
+  threshold: 80,
+  window_minutes: 1,
+  sustained_minutes: 1,
+  severity: 'P2',
+  cooldown_minutes: 60,
+  notify_email: false,
+  filters: {},
+})
+
 const accountsPage = (items: unknown[]) => ({
   items,
   total: items.length,
@@ -640,6 +674,200 @@ describe('AccountUsageAlertRulesCard', () => {
     expect(results[2].text()).toContain('admin.settings.notifications.accountUsageRules.tiers.duplicate')
     expect(showWarning).toHaveBeenCalledWith('admin.settings.notifications.accountUsageRules.tiers.summary:1,2')
     expect(showSuccess).not.toHaveBeenCalled()
+  })
+
+  it('lists the expiry and API key metrics with their own unit, condition and scope text', async () => {
+    listAlertRules.mockResolvedValue([systemRule(), windowRule(), balanceRule(), expiryRule(), apiKeyRule()])
+
+    const wrapper = await mountCard()
+
+    const expiryRow = field(wrapper, 'usage-rule-row-4')
+    expect(expiryRow.exists()).toBe(true)
+    expect(expiryRow.find('[data-testid="usage-rule-row-metric"]').text()).toBe(
+      'admin.settings.notifications.accountUsageRules.metrics.expiresInDays',
+    )
+    // 到期天数的单位是「天」，不是 % 也不是 $
+    expect(expiryRow.find('[data-testid="usage-rule-condition"]').text()).toBe(
+      '<= 7admin.settings.notifications.accountUsageRules.units.daySuffix',
+    )
+    expect(expiryRow.find('[data-testid="usage-rule-scope"]').text()).toContain('openai')
+
+    const keyRow = field(wrapper, 'usage-rule-row-5')
+    expect(keyRow.exists()).toBe(true)
+    expect(keyRow.find('[data-testid="usage-rule-row-metric"]').text()).toBe(
+      'admin.settings.notifications.accountUsageRules.metrics.apiKeyDailyUsedPercent',
+    )
+    expect(keyRow.find('[data-testid="usage-rule-condition"]').text()).toBe('>= 80%')
+    // 密钥指标没有作用域可言，直接写「全部密钥」
+    expect(keyRow.find('[data-testid="usage-rule-scope"]').text()).toBe(
+      'admin.settings.notifications.accountUsageRules.scope.allApiKeys',
+    )
+    expect(showError).not.toHaveBeenCalled()
+  })
+
+  it('hides the account-scoped filters for the API key metric and saves it with empty filters', async () => {
+    createAlertRule.mockResolvedValue({ ...apiKeyRule(), id: 9 })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'usage-rules-create').trigger('click')
+    await flushPromises()
+
+    // 六个指标都在新建下拉里
+    expect(
+      field(wrapper, 'usage-rule-metric')
+        .findAll('option')
+        .map((o) => (o.element as HTMLOptionElement).value),
+    ).toEqual([
+      'account_window_used_percent',
+      'account_quota_used_percent',
+      'account_balance',
+      'account_today_cost',
+      'account_expires_in_days',
+      'apikey_daily_used_percent',
+    ])
+    // 默认落在账号指标上：三个作用域筛选器都在
+    expect(field(wrapper, 'usage-rule-platform').exists()).toBe(true)
+    expect(field(wrapper, 'usage-rule-group').exists()).toBe(true)
+    expect(field(wrapper, 'usage-rule-account-picker').exists()).toBe(true)
+
+    await field(wrapper, 'usage-rule-metric').setValue('apikey_daily_used_percent')
+    await flushPromises()
+
+    // 切到密钥指标：平台 / 分组 / 账号整块隐藏，换成一句全量评估的说明
+    expect(field(wrapper, 'usage-rule-platform').exists()).toBe(false)
+    expect(field(wrapper, 'usage-rule-group').exists()).toBe(false)
+    expect(field(wrapper, 'usage-rule-account-picker').exists()).toBe(false)
+    expect(field(wrapper, 'usage-rule-apikey-scope-hint').exists()).toBe(true)
+    // 窗口 / 维度 / 供应商这些账号指标专属字段也不该冒出来
+    expect(field(wrapper, 'usage-rule-window').exists()).toBe(false)
+    expect(field(wrapper, 'usage-rule-dimension').exists()).toBe(false)
+    expect(field(wrapper, 'usage-rule-provider').exists()).toBe(false)
+
+    await field(wrapper, 'usage-rule-name').setValue('Key daily 80')
+    await field(wrapper, 'usage-rule-threshold').setValue('80')
+    await field(wrapper, 'usage-rule-save').trigger('click')
+    await flushPromises()
+
+    expect(createAlertRule).toHaveBeenCalledTimes(1)
+    expect(createAlertRule.mock.calls[0][0]).toMatchObject({
+      name: 'Key daily 80',
+      metric_type: 'apikey_daily_used_percent',
+      operator: '>=',
+      threshold: 80,
+      window_minutes: 1,
+      filters: {},
+    })
+    expect(showSuccess).toHaveBeenCalledWith('admin.settings.notifications.accountUsageRules.saveSuccess')
+  })
+
+  it('defaults the expiry metric to "<= 7 days" and keeps the account filters', async () => {
+    createAlertRule.mockResolvedValue({ ...expiryRule(), id: 10 })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'usage-rules-create').trigger('click')
+    await flushPromises()
+    await field(wrapper, 'usage-rule-metric').setValue('account_expires_in_days')
+    await flushPromises()
+
+    // 到期指标仍然是账号级的，筛选器留着
+    expect(field(wrapper, 'usage-rule-platform').exists()).toBe(true)
+    expect(field(wrapper, 'usage-rule-account-picker').exists()).toBe(true)
+    expect(field(wrapper, 'usage-rule-apikey-scope-hint').exists()).toBe(false)
+    // 「还剩几天」越少越危险，默认给 <= 7
+    expect((field(wrapper, 'usage-rule-operator').element as HTMLSelectElement).value).toBe('<=')
+    expect((field(wrapper, 'usage-rule-threshold').element as HTMLInputElement).value).toBe('7')
+    expect(wrapper.find('label[for="usage-rule-threshold"]').text()).toContain(
+      'admin.settings.notifications.accountUsageRules.units.daySuffix',
+    )
+
+    await field(wrapper, 'usage-rule-name').setValue('Account expiry 7d')
+    await field(wrapper, 'usage-rule-platform').setValue('openai')
+    await flushPromises()
+    await field(wrapper, 'usage-rule-save').trigger('click')
+    await flushPromises()
+
+    expect(createAlertRule.mock.calls[0][0]).toMatchObject({
+      metric_type: 'account_expires_in_days',
+      operator: '<=',
+      threshold: 7,
+      filters: { platform: 'openai' },
+    })
+  })
+
+  it('switches the evaluate dialog to API key wording and renders "user / key" rows', async () => {
+    listAlertRules.mockResolvedValue([windowRule(), apiKeyRule()])
+    evaluateAlertRule.mockResolvedValue({
+      rule_id: 5,
+      rule_name: 'Key daily 80',
+      metric_type: 'apikey_daily_used_percent',
+      operator: '>=',
+      threshold: 80,
+      evaluated_at: '2026-09-15T10:00:00Z',
+      has_data: true,
+      value: 85,
+      breached: true,
+      // 后端复用 accounts[]：account_id 是 key 的 id，account_name 是「用户名 / 密钥名」
+      accounts: [
+        { account_id: 1, account_name: '张三 / dev-key', platform: '', value: 85, breached: true },
+        { account_id: 2, account_name: '李四 / ci-key', platform: '', value: 20, breached: false },
+      ],
+      sent: false,
+    })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'usage-rule-evaluate-5').trigger('click')
+    await flushPromises()
+
+    expect(evaluateAlertRule).toHaveBeenCalledWith(5, false)
+    expect(field(wrapper, 'usage-rule-evaluate-value').text()).toBe('85%')
+    expect(field(wrapper, 'usage-rule-evaluate-list-title').text()).toBe(
+      'admin.settings.notifications.accountUsageRules.evaluate.apiKeysTitle',
+    )
+    const head = field(wrapper, 'usage-rule-evaluate-accounts').findAll('thead th')
+    expect(head[0].text()).toBe('admin.settings.notifications.accountUsageRules.evaluate.columns.apiKey')
+    const rows = field(wrapper, 'usage-rule-evaluate-accounts').findAll('tbody tr')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].text()).toContain('张三 / dev-key')
+    expect(rows[0].text()).toContain('85%')
+    expect(rows[1].text()).toContain('李四 / ci-key')
+    expect(rows[1].text()).toContain('20%')
+  })
+
+  it('formats expiry values as days with one decimal, negative when already expired', async () => {
+    listAlertRules.mockResolvedValue([expiryRule()])
+    evaluateAlertRule.mockResolvedValue({
+      rule_id: 4,
+      rule_name: 'Account expiry',
+      metric_type: 'account_expires_in_days',
+      operator: '<=',
+      threshold: 7,
+      evaluated_at: '2026-09-15T10:00:00Z',
+      has_data: true,
+      value: 6.53,
+      breached: true,
+      accounts: [
+        { account_id: 11, account_name: 'codex-a', platform: 'openai', value: 6.53, breached: true },
+        { account_id: 12, account_name: 'codex-b', platform: 'openai', value: -1.24, breached: true },
+      ],
+      sent: false,
+    })
+
+    const wrapper = await mountCard()
+    await field(wrapper, 'usage-rule-evaluate-4').trigger('click')
+    await flushPromises()
+
+    expect(field(wrapper, 'usage-rule-evaluate-value').text()).toBe(
+      'admin.settings.notifications.accountUsageRules.units.daysLeft:6.5',
+    )
+    // 账号级指标：标题与首列表头还是「账号」
+    expect(field(wrapper, 'usage-rule-evaluate-list-title').text()).toBe(
+      'admin.settings.notifications.accountUsageRules.evaluate.accountsTitle',
+    )
+    const head = field(wrapper, 'usage-rule-evaluate-accounts').findAll('thead th')
+    expect(head[0].text()).toBe('admin.settings.notifications.accountUsageRules.evaluate.columns.account')
+    const rows = field(wrapper, 'usage-rule-evaluate-accounts').findAll('tbody tr')
+    expect(rows[0].text()).toContain('daysLeft:6.5')
+    expect(rows[1].text()).toContain('daysLeft:-1.2')
   })
 
   it('toggles a rule by PUTting the whole rule with enabled flipped', async () => {

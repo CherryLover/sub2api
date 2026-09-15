@@ -15,16 +15,18 @@ import (
 
 // 账号用量阈值提醒规则（批次 6 / A6-2 第二步）。
 //
-// 四个指标都是「一条规则 × N 个账号 = N 个评估目标」：每个账号各自越阈、各自恢复，
+// 五个指标都是「一条规则 × N 个账号 = N 个评估目标」：每个账号各自越阈、各自恢复，
 // 事件用 dimensions.account_id 区分。取值全部来自 accounts.extra 里已有的快照，
 // 没有快照 / 没有 limit / 没有余额键的账号一律视为"无数据"跳过，绝不当 0 处理
-// （否则 `<` 型规则会误触发）。
+// （否则 `<` 型规则会误触发）。到期天数同理：ExpiresAt 没填就是"无数据"，
+// 不能当 0 天，否则 `<=` 型规则一上来就把全站没填到期时间的账号全报一遍。
 
 const (
 	OpsAlertMetricAccountWindowUsedPercent = "account_window_used_percent"
 	OpsAlertMetricAccountQuotaUsedPercent  = "account_quota_used_percent"
 	OpsAlertMetricAccountBalance           = "account_balance"
 	OpsAlertMetricAccountTodayCost         = "account_today_cost"
+	OpsAlertMetricAccountExpiresInDays     = "account_expires_in_days"
 
 	opsAlertAccountWindow5h = "5h"
 	opsAlertAccountWindow7d = "7d"
@@ -43,7 +45,8 @@ func IsOpsAlertAccountMetric(metricType string) bool {
 	case OpsAlertMetricAccountWindowUsedPercent,
 		OpsAlertMetricAccountQuotaUsedPercent,
 		OpsAlertMetricAccountBalance,
-		OpsAlertMetricAccountTodayCost:
+		OpsAlertMetricAccountTodayCost,
+		OpsAlertMetricAccountExpiresInDays:
 		return true
 	default:
 		return false
@@ -199,6 +202,8 @@ func (s *OpsAlertEvaluatorService) collectAccountMetricSamples(ctx context.Conte
 			sample.Value, sample.Currency, ok = readAccountBalance(account)
 		case OpsAlertMetricAccountTodayCost:
 			sample.Value, ok = todayCosts[account.ID]
+		case OpsAlertMetricAccountExpiresInDays:
+			sample.Value, ok = readAccountExpiresInDays(account, now)
 		}
 		if !ok {
 			continue
@@ -352,6 +357,18 @@ func readAccountBalance(account *Account) (float64, string, bool) {
 	return balance, currency, true
 }
 
+// readAccountExpiresInDays 读取账号距离到期还剩多少天（浮点，已过期为负数）。
+//
+// ExpiresAt 为 nil 表示这个账号根本没填到期时间，必须当"无数据"跳过 —— 绝不能按 0 天算：
+// 到期提醒配的是 `<= 7` / `<= 3` / `<= 1` 这类规则，一旦把 nil 当 0，全站没填到期时间的
+// 账号会在同一轮里集体越阈，推一堆假告警。
+func readAccountExpiresInDays(account *Account, now time.Time) (float64, bool) {
+	if account == nil || account.ExpiresAt == nil {
+		return 0, false
+	}
+	return account.ExpiresAt.Sub(now).Hours() / 24, true
+}
+
 // readAccountTodayCosts 用 GetTodayStatsBatch 同一条路径（timezone.Today + 批量 SQL）读账号今日费用。
 // 没有用量日志仓储或批量查询失败时整体视为无数据；今天没有请求的账号费用就是 0，不算无数据。
 func (s *OpsAlertEvaluatorService) readAccountTodayCosts(ctx context.Context, accounts []*Account) (map[int64]float64, bool) {
@@ -406,12 +423,14 @@ func opsAlertAccountMetricLabel(metricType string, filters opsAlertAccountFilter
 		return "账号余额"
 	case OpsAlertMetricAccountTodayCost:
 		return "账号今日费用"
+	case OpsAlertMetricAccountExpiresInDays:
+		return "账号剩余到期天数"
 	default:
 		return strings.TrimSpace(metricType)
 	}
 }
 
-// opsAlertAccountMetricUnit 取值后缀：百分比类是 "%"，余额跟币种，今日费用按美元计。
+// opsAlertAccountMetricUnit 取值后缀：百分比类是 "%"，余额跟币种，今日费用按美元计，到期天数是「天」。
 func opsAlertAccountMetricUnit(metricType string, currency string) string {
 	switch strings.TrimSpace(metricType) {
 	case OpsAlertMetricAccountWindowUsedPercent, OpsAlertMetricAccountQuotaUsedPercent:
@@ -423,8 +442,21 @@ func opsAlertAccountMetricUnit(metricType string, currency string) string {
 		return ""
 	case OpsAlertMetricAccountTodayCost:
 		return " USD"
+	case OpsAlertMetricAccountExpiresInDays:
+		return " 天"
 	default:
 		return ""
+	}
+}
+
+// opsAlertAggregateTakesMin 「立即试算」的聚合方向：余额与剩余到期天数看的是"最少的那个"
+// （最危险），其余百分比 / 费用类指标看最大。
+func opsAlertAggregateTakesMin(metricType string) bool {
+	switch strings.TrimSpace(metricType) {
+	case OpsAlertMetricAccountBalance, OpsAlertMetricAccountExpiresInDays:
+		return true
+	default:
+		return false
 	}
 }
 
