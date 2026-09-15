@@ -161,6 +161,14 @@ func (m *opsRepoMock) GetLatestAlertEventForAccount(ctx context.Context, ruleID 
 	return nil, nil
 }
 
+func (m *opsRepoMock) GetActiveAlertEventForAPIKey(ctx context.Context, ruleID int64, apiKeyID int64) (*OpsAlertEvent, error) {
+	return nil, nil
+}
+
+func (m *opsRepoMock) GetLatestAlertEventForAPIKey(ctx context.Context, ruleID int64, apiKeyID int64) (*OpsAlertEvent, error) {
+	return nil, nil
+}
+
 func (m *opsRepoMock) CreateAlertEvent(ctx context.Context, event *OpsAlertEvent) (*OpsAlertEvent, error) {
 	return event, nil
 }
@@ -195,6 +203,10 @@ func (m *opsRepoMock) GetLatestHourlyBucketStart(ctx context.Context) (time.Time
 
 func (m *opsRepoMock) GetLatestDailyBucketDate(ctx context.Context) (time.Time, bool, error) {
 	return time.Time{}, false, nil
+}
+
+func (m *opsRepoMock) GetErrorDigestBreakdown(ctx context.Context, start, end time.Time) ([]*OpsErrorDigestRow, error) {
+	return nil, nil
 }
 
 var _ OpsRepository = (*opsRepoMock)(nil)

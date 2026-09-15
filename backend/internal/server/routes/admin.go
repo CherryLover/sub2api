@@ -562,13 +562,19 @@ func registerBackupRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAut
 }
 
 // registerNotificationRoutes 主动推送通道的管理端配置。邮件体系裁掉之后这是唯一的外发出口，
-// 目前只有 Bark；设置键 notify_bark_config 只在这里读写，不进公开设置。
+// 出口只有 Bark，这里挂它的通道配置与复用这条通道的定时报错汇总；
+// 设置键 notify_bark_config / notify_error_digest_config 只在这里读写，不进公开设置。
 func registerNotificationRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	notifications := admin.Group("/notifications")
 	{
 		notifications.GET("/bark", h.Admin.NotificationBark.GetBarkConfig)
 		notifications.PUT("/bark", h.Admin.NotificationBark.UpdateBarkConfig)
 		notifications.POST("/bark/test", h.Admin.NotificationBark.TestBark)
+
+		// 定时报错汇总：读 / 写配置，外加一条「立即试推」让站长不用等到点就能验证。
+		notifications.GET("/error-digest", h.Admin.NotificationDigest.GetErrorDigestConfig)
+		notifications.PUT("/error-digest", h.Admin.NotificationDigest.UpdateErrorDigestConfig)
+		notifications.POST("/error-digest/test", h.Admin.NotificationDigest.TestErrorDigest)
 	}
 }
 

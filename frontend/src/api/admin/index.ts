@@ -95,4 +95,10 @@ export type {
   UpdateBarkNotifyConfigRequest,
   TestBarkNotifyRequest,
   TestBarkNotifyResponse,
+  ErrorDigestConfig,
+  UpdateErrorDigestConfigRequest,
+  ErrorDigestGroup,
+  ErrorDigestSummary,
+  ErrorDigestTypeLine,
+  TestErrorDigestResponse,
 } from './notifications'

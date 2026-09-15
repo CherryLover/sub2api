@@ -40,6 +40,9 @@ type OpsAlertEvaluatorService struct {
 	proxyRepo  ProxyRepository
 	// usageLogRepo 账号今日费用指标（account_today_cost）读用量日志用；为 nil 时该指标无数据。
 	usageLogRepo UsageLogRepository
+	// apiKeyRepo 密钥当日用量指标（apikey_daily_used_percent）列配了日限额的 key 用；
+	// 为 nil 或实现里没有 ListAPIKeysWithDailyRateLimit 时该指标无数据。
+	apiKeyRepo APIKeyRepository
 
 	// alertNotifier 告警出口（Bark）。为 nil 或未启用时评估流程与从前完全一致，只落库不外发。
 	alertNotifier *BarkNotificationService
@@ -62,11 +65,28 @@ type OpsAlertEvaluatorService struct {
 	warnNoRedisOnce sync.Once
 }
 
-// opsAlertRuleStateKey 持续计数的键：健康度指标一条规则一个目标（AccountID 为 0），
-// 账号用量类指标按「规则 × 账号」各自计数。
+// opsAlertTargetKind 评估目标的拆分维度。
+//
+// 同一条规则拆出来的目标可能是账号，也可能是 API Key，两者的 ID 空间互不相干，
+// 所以持续计数的键、活动事件的查法都得带上这个 kind —— 绝不能把 key id 塞进账号字段
+// 冒充账号，那样计数会串、事件会查错。
+type opsAlertTargetKind string
+
+const (
+	// opsAlertTargetKindRule 健康度指标：一条规则就是一个目标，没有拆分维度（零值）。
+	opsAlertTargetKindRule opsAlertTargetKind = ""
+	// opsAlertTargetKindAccount 账号用量类指标：按账号拆。
+	opsAlertTargetKindAccount opsAlertTargetKind = "account"
+	// opsAlertTargetKindAPIKey 密钥用量类指标：按 API Key 拆。
+	opsAlertTargetKindAPIKey opsAlertTargetKind = "api_key"
+)
+
+// opsAlertRuleStateKey 持续计数的键：健康度指标一条规则一个目标（Kind 为空、TargetID 为 0），
+// 账号 / 密钥用量类指标按「规则 × 拆分维度 × 目标 ID」各自计数。
 type opsAlertRuleStateKey struct {
-	RuleID    int64
-	AccountID int64
+	RuleID   int64
+	Kind     opsAlertTargetKind
+	TargetID int64
 }
 
 type opsAlertRuleState struct {
@@ -74,10 +94,12 @@ type opsAlertRuleState struct {
 	ConsecutiveBreaches int
 }
 
-// opsAlertEvalTarget 一次评估的最小单位：健康度指标一条规则一个目标（accountID=0），
-// 账号用量类指标每个账号一个目标，各自查活动事件、各自冷却、各自推送。
+// opsAlertEvalTarget 一次评估的最小单位：健康度指标一条规则一个目标（kind 为空、targetID=0），
+// 账号用量类指标每个账号一个目标、密钥用量类指标每把 key 一个目标，各自查活动事件、
+// 各自冷却、各自推送。
 type opsAlertEvalTarget struct {
-	accountID   int64
+	kind        opsAlertTargetKind
+	targetID    int64
 	value       float64
 	description string
 	dimensions  map[string]any
@@ -105,12 +127,14 @@ func NewOpsAlertEvaluatorService(
 	proxyRepo ProxyRepository,
 	alertNotifier *BarkNotificationService,
 	usageLogRepo UsageLogRepository,
+	apiKeyRepo APIKeyRepository,
 ) *OpsAlertEvaluatorService {
 	return &OpsAlertEvaluatorService{
 		opsService:    opsService,
 		opsRepo:       opsRepo,
 		proxyRepo:     proxyRepo,
 		usageLogRepo:  usageLogRepo,
+		apiKeyRepo:    apiKeyRepo,
 		alertNotifier: alertNotifier,
 		redisClient:   redisClient,
 		cfg:           cfg,
@@ -257,7 +281,21 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 		// 账号用量类指标：一条规则拆成 N 个账号目标，各自触发 / 恢复。
 		if IsOpsAlertAccountMetric(rule.MetricType) {
 			targets := s.buildAccountTargets(ctx, rule, now)
-			s.pruneRuleAccountStates(rule.ID, targets)
+			s.pruneRuleTargetStates(rule.ID, targets)
+			if len(targets) == 0 {
+				continue
+			}
+			rulesEvaluated++
+			for _, target := range targets {
+				s.evaluateTarget(ctx, rule, target, scope, now, interval, &counters)
+			}
+			continue
+		}
+
+		// 密钥用量类指标：同样是一条规则拆成 N 个目标，只是拆分维度换成 API Key。
+		if IsOpsAlertAPIKeyMetric(rule.MetricType) {
+			targets := s.buildAPIKeyTargets(ctx, rule)
+			s.pruneRuleTargetStates(rule.ID, targets)
 			if len(targets) == 0 {
 				continue
 			}
@@ -277,12 +315,13 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 
 		metricValue, ok := s.computeRuleMetric(ctx, rule, systemMetrics, windowStart, windowEnd, scopePlatform, scopeGroupID)
 		if !ok {
-			s.resetRuleState(opsAlertRuleStateKey{RuleID: rule.ID}, now)
+			s.resetRuleState(opsAlertRuleStateKey{RuleID: rule.ID, Kind: opsAlertTargetKindRule}, now)
 			continue
 		}
 		rulesEvaluated++
 
 		s.evaluateTarget(ctx, rule, opsAlertEvalTarget{
+			kind:         opsAlertTargetKindRule,
 			value:        metricValue,
 			description:  buildOpsAlertDescription(rule, metricValue, windowMinutes, scopePlatform, scopeGroupID),
 			dimensions:   buildOpsAlertDimensions(scopePlatform, scopeGroupID),
@@ -295,7 +334,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 }
 
 // evaluateTarget 对一个评估目标走完整流程：持续计数 → 查活动事件 → 越阈则（静默 / 冷却后）落事件并推送，
-// 未越阈则解除活动事件并推「已恢复」。健康度指标 accountID=0，行为与拆分前完全一致。
+// 未越阈则解除活动事件并推「已恢复」。健康度指标 kind 为空、targetID=0，行为与拆分前完全一致。
 func (s *OpsAlertEvaluatorService) evaluateTarget(
 	ctx context.Context,
 	rule *OpsAlertRule,
@@ -308,15 +347,15 @@ func (s *OpsAlertEvaluatorService) evaluateTarget(
 	if s == nil || rule == nil || counters == nil {
 		return
 	}
-	stateKey := opsAlertRuleStateKey{RuleID: rule.ID, AccountID: target.accountID}
+	stateKey := opsAlertRuleStateKey{RuleID: rule.ID, Kind: target.kind, TargetID: target.targetID}
 
 	breachedNow := compareMetric(target.value, rule.Operator, rule.Threshold)
 	required := requiredSustainedBreaches(rule.SustainedMinutes, interval)
 	consecutive := s.updateRuleBreaches(stateKey, now, interval, breachedNow)
 
-	activeEvent, err := s.getActiveAlertEvent(ctx, rule.ID, target.accountID)
+	activeEvent, err := s.getActiveAlertEvent(ctx, rule.ID, target.kind, target.targetID)
 	if err != nil {
-		logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] get active event failed (rule=%d account=%d): %v", rule.ID, target.accountID, err)
+		logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] get active event failed (rule=%d target=%s/%d): %v", rule.ID, target.kind, target.targetID, err)
 		return
 	}
 
@@ -335,9 +374,9 @@ func (s *OpsAlertEvaluatorService) evaluateTarget(
 			}
 		}
 
-		latestEvent, err := s.getLatestAlertEvent(ctx, rule.ID, target.accountID)
+		latestEvent, err := s.getLatestAlertEvent(ctx, rule.ID, target.kind, target.targetID)
 		if err != nil {
-			logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] get latest event failed (rule=%d account=%d): %v", rule.ID, target.accountID, err)
+			logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] get latest event failed (rule=%d target=%s/%d): %v", rule.ID, target.kind, target.targetID, err)
 			return
 		}
 		if latestEvent != nil && rule.CooldownMinutes > 0 {
@@ -361,7 +400,7 @@ func (s *OpsAlertEvaluatorService) evaluateTarget(
 		}
 
 		if _, err := s.opsRepo.CreateAlertEvent(ctx, firedEvent); err != nil {
-			logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] create event failed (rule=%d account=%d): %v", rule.ID, target.accountID, err)
+			logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] create event failed (rule=%d target=%s/%d): %v", rule.ID, target.kind, target.targetID, err)
 			return
 		}
 
@@ -401,7 +440,8 @@ func (s *OpsAlertEvaluatorService) buildAccountTargets(ctx context.Context, rule
 		notification.Unit = opsAlertAccountMetricUnit(rule.MetricType, sample.Currency)
 		notification.Details = []string{formatOpsAlertAccountLine(sample)}
 		targets = append(targets, opsAlertEvalTarget{
-			accountID:    sample.AccountID,
+			kind:         opsAlertTargetKindAccount,
+			targetID:     sample.AccountID,
 			value:        sample.Value,
 			description:  buildOpsAlertAccountDescription(rule, sample, filters),
 			dimensions:   buildOpsAlertAccountDimensions(sample, filters),
@@ -411,16 +451,57 @@ func (s *OpsAlertEvaluatorService) buildAccountTargets(ctx context.Context, rule
 	return targets
 }
 
-func (s *OpsAlertEvaluatorService) getActiveAlertEvent(ctx context.Context, ruleID, accountID int64) (*OpsAlertEvent, error) {
-	if accountID > 0 {
-		return s.opsRepo.GetActiveAlertEventForAccount(ctx, ruleID, accountID)
+// buildAPIKeyTargets 把密钥用量类规则拆成按 API Key 的评估目标；取不到密钥或全部无数据时返回空。
+func (s *OpsAlertEvaluatorService) buildAPIKeyTargets(ctx context.Context, rule *OpsAlertRule) []opsAlertEvalTarget {
+	samples, err := s.collectAPIKeyMetricSamples(ctx, rule)
+	if err != nil {
+		logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] list api keys failed (rule=%d): %v", rule.ID, err)
+		return nil
+	}
+	if len(samples) == 0 {
+		return nil
+	}
+	targets := make([]opsAlertEvalTarget, 0, len(samples))
+	for _, sample := range samples {
+		notification := buildOpsAlertNotification(rule, sample.Value)
+		notification.MetricLabel = opsAlertAPIKeyMetricLabel(rule.MetricType)
+		notification.Unit = opsAlertAPIKeyMetricUnit(rule.MetricType)
+		notification.Details = []string{formatOpsAlertAPIKeyLine(sample)}
+		targets = append(targets, opsAlertEvalTarget{
+			kind:         opsAlertTargetKindAPIKey,
+			targetID:     sample.APIKeyID,
+			value:        sample.Value,
+			description:  buildOpsAlertAPIKeyDescription(rule, sample),
+			dimensions:   buildOpsAlertAPIKeyDimensions(sample),
+			notification: notification,
+		})
+	}
+	return targets
+}
+
+// getActiveAlertEvent 按目标的拆分维度查「当前仍在触发中」的事件：
+// 账号目标查 dimensions.account_id，密钥目标查 dimensions.api_key_id，健康度目标查规则级。
+func (s *OpsAlertEvaluatorService) getActiveAlertEvent(ctx context.Context, ruleID int64, kind opsAlertTargetKind, targetID int64) (*OpsAlertEvent, error) {
+	if targetID > 0 {
+		switch kind {
+		case opsAlertTargetKindAccount:
+			return s.opsRepo.GetActiveAlertEventForAccount(ctx, ruleID, targetID)
+		case opsAlertTargetKindAPIKey:
+			return s.opsRepo.GetActiveAlertEventForAPIKey(ctx, ruleID, targetID)
+		}
 	}
 	return s.opsRepo.GetActiveAlertEvent(ctx, ruleID)
 }
 
-func (s *OpsAlertEvaluatorService) getLatestAlertEvent(ctx context.Context, ruleID, accountID int64) (*OpsAlertEvent, error) {
-	if accountID > 0 {
-		return s.opsRepo.GetLatestAlertEventForAccount(ctx, ruleID, accountID)
+// getLatestAlertEvent 同上，取最近一次事件（不限状态）用于冷却判断。
+func (s *OpsAlertEvaluatorService) getLatestAlertEvent(ctx context.Context, ruleID int64, kind opsAlertTargetKind, targetID int64) (*OpsAlertEvent, error) {
+	if targetID > 0 {
+		switch kind {
+		case opsAlertTargetKindAccount:
+			return s.opsRepo.GetLatestAlertEventForAccount(ctx, ruleID, targetID)
+		case opsAlertTargetKindAPIKey:
+			return s.opsRepo.GetLatestAlertEventForAPIKey(ctx, ruleID, targetID)
+		}
 	}
 	return s.opsRepo.GetLatestAlertEvent(ctx, ruleID)
 }
@@ -466,13 +547,15 @@ func (s *OpsAlertEvaluatorService) EvaluateRuleNow(ctx context.Context, ruleID i
 	}
 	notification := buildOpsAlertNotification(rule, 0)
 
-	if IsOpsAlertAccountMetric(rule.MetricType) {
+	switch {
+	case IsOpsAlertAccountMetric(rule.MetricType):
 		samples, err := s.collectAccountMetricSamples(ctx, rule, now)
 		if err != nil {
 			return nil, err
 		}
 		filters := parseOpsAlertAccountFilters(rule.Filters)
 		notification.MetricLabel = opsAlertAccountMetricLabel(rule.MetricType, filters)
+		takesMin := opsAlertAggregateTakesMin(rule.MetricType)
 		var aggregate float64
 		for i, sample := range samples {
 			breached := compareMetric(sample.Value, rule.Operator, rule.Threshold)
@@ -487,9 +570,8 @@ func (s *OpsAlertEvaluatorService) EvaluateRuleNow(ctx context.Context, ruleID i
 			if breached {
 				result.Breached = true
 			}
-			// 聚合：percent / cost 取最大，balance 取最小。
-			if i == 0 || (rule.MetricType == OpsAlertMetricAccountBalance && sample.Value < aggregate) ||
-				(rule.MetricType != OpsAlertMetricAccountBalance && sample.Value > aggregate) {
+			// 聚合：percent / cost 取最大，balance / 剩余到期天数取最小。
+			if i == 0 || (takesMin && sample.Value < aggregate) || (!takesMin && sample.Value > aggregate) {
 				aggregate = sample.Value
 			}
 			if notification.Unit == "" {
@@ -501,7 +583,40 @@ func (s *OpsAlertEvaluatorService) EvaluateRuleNow(ctx context.Context, ruleID i
 			result.Value = float64Ptr(aggregate)
 		}
 		notification.Details = buildOpsAlertManualDetails(samples, rule)
-	} else {
+	case IsOpsAlertAPIKeyMetric(rule.MetricType):
+		samples, err := s.collectAPIKeyMetricSamples(ctx, rule)
+		if err != nil {
+			return nil, err
+		}
+		notification.MetricLabel = opsAlertAPIKeyMetricLabel(rule.MetricType)
+		notification.Unit = opsAlertAPIKeyMetricUnit(rule.MetricType)
+		var aggregate float64
+		for i, sample := range samples {
+			breached := compareMetric(sample.Value, rule.Operator, rule.Threshold)
+			// 刻意复用 accounts[] 承载密钥明细，不另起一个 api_keys[]：
+			// account_id 放这把 key 的 id，account_name 放「用户名 / 密钥名」，platform 留空。
+			// 这样前端的「立即试发」弹窗一套表格就能同时渲染账号指标和密钥指标。
+			// 后人看到 account_* 字段里装着密钥不要困惑 —— 它就是按这个约定填的。
+			result.Accounts = append(result.Accounts, OpsAlertAccountSample{
+				AccountID:   sample.APIKeyID,
+				AccountName: formatOpsAlertAPIKeyName(sample),
+				Value:       sample.Value,
+				Breached:    breached,
+			})
+			if breached {
+				result.Breached = true
+			}
+			// 百分比：聚合取最大。
+			if i == 0 || sample.Value > aggregate {
+				aggregate = sample.Value
+			}
+		}
+		if len(samples) > 0 {
+			result.HasData = true
+			result.Value = float64Ptr(aggregate)
+		}
+		notification.Details = buildOpsAlertAPIKeyManualDetails(samples, rule)
+	default:
 		safeEnd := now.Truncate(time.Minute)
 		if safeEnd.IsZero() {
 			safeEnd = now
@@ -616,23 +731,28 @@ func (s *OpsAlertEvaluatorService) pruneRuleStates(rules []*OpsAlertRule) {
 	}
 }
 
-// pruneRuleAccountStates 清掉本轮不再出现的「规则 × 账号」计数（账号被删 / 移出作用域 / 无数据）。
-func (s *OpsAlertEvaluatorService) pruneRuleAccountStates(ruleID int64, targets []opsAlertEvalTarget) {
+// pruneRuleTargetStates 清掉本轮不再出现的「规则 × 目标」计数
+// （账号被删 / 移出作用域 / 无数据，密钥被删 / 撤掉日限额 / 被禁用）。
+func (s *OpsAlertEvaluatorService) pruneRuleTargetStates(ruleID int64, targets []opsAlertEvalTarget) {
 	if ruleID <= 0 {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	live := make(map[int64]struct{}, len(targets))
+	type liveKey struct {
+		kind     opsAlertTargetKind
+		targetID int64
+	}
+	live := make(map[liveKey]struct{}, len(targets))
 	for _, target := range targets {
-		live[target.accountID] = struct{}{}
+		live[liveKey{kind: target.kind, targetID: target.targetID}] = struct{}{}
 	}
 	for key := range s.ruleStates {
 		if key.RuleID != ruleID {
 			continue
 		}
-		if _, ok := live[key.AccountID]; !ok {
+		if _, ok := live[liveKey{kind: key.Kind, targetID: key.TargetID}]; !ok {
 			delete(s.ruleStates, key)
 		}
 	}

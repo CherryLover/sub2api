@@ -14,6 +14,7 @@ FRONTEND_CRITICAL_VITEST := \
 	src/components/user/profile/__tests__/ProfileInfoCard.spec.ts \
 	src/views/admin/__tests__/SettingsView.spec.ts \
 	src/views/admin/settings/__tests__/BarkNotifySettingsCard.spec.ts \
+	src/views/admin/settings/__tests__/ErrorDigestSettingsCard.spec.ts \
 	src/views/admin/settings/__tests__/AccountUsageAlertRulesCard.spec.ts \
 	src/components/account/__tests__/QuotaLimitCard.weeklyNaturalWeek.spec.ts \
 	src/views/admin/__tests__/GroupsView.columnSettings.spec.ts \

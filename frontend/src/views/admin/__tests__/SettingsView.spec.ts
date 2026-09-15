@@ -390,6 +390,7 @@ function mountView() {
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
         BarkNotifySettingsCard: true,
+        ErrorDigestSettingsCard: true,
         AccountUsageAlertRulesCard: true,
       },
     },

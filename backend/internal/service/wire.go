@@ -453,7 +453,8 @@ func ProvideOpsAggregationService(
 }
 
 // ProvideOpsAlertEvaluatorService creates and starts OpsAlertEvaluatorService.
-// usageLogRepo 给账号今日费用指标读用量日志；opsService 反向注入评估器，让「立即试算」接口能透传。
+// usageLogRepo 给账号今日费用指标读用量日志；apiKeyRepo 给密钥当日用量指标列配了日限额的 key；
+// opsService 反向注入评估器，让「立即试算」接口能透传。
 func ProvideOpsAlertEvaluatorService(
 	opsService *OpsService,
 	opsRepo OpsRepository,
@@ -462,8 +463,9 @@ func ProvideOpsAlertEvaluatorService(
 	proxyRepo ProxyRepository,
 	alertNotifier *BarkNotificationService,
 	usageLogRepo UsageLogRepository,
+	apiKeyRepo APIKeyRepository,
 ) *OpsAlertEvaluatorService {
-	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, redisClient, cfg, proxyRepo, alertNotifier, usageLogRepo)
+	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, redisClient, cfg, proxyRepo, alertNotifier, usageLogRepo, apiKeyRepo)
 	svc.Start()
 	if opsService != nil {
 		opsService.SetAlertRuleEvaluator(svc)
@@ -480,6 +482,21 @@ func ProvideBarkNotificationService(
 ) *BarkNotificationService {
 	encryptionKeyConfigured := cfg != nil && cfg.Totp.EncryptionKeyConfigured
 	return NewBarkNotificationService(settingRepo, encryptor, NewBarkNotifier(nil), encryptionKeyConfigured)
+}
+
+// ProvideOpsErrorDigestService 创建并启动定时报错汇总任务（cron 调度）。
+// settingRepo 让它自己读写 notify_error_digest_config；notifier 是 Bark 推送出口，
+// 未启用 Bark 时汇总照算不推，不会让任务失败。
+func ProvideOpsErrorDigestService(
+	opsRepo OpsRepository,
+	settingRepo SettingRepository,
+	notifier *BarkNotificationService,
+	redisClient *redis.Client,
+	cfg *config.Config,
+) *OpsErrorDigestService {
+	svc := NewOpsErrorDigestService(opsRepo, settingRepo, notifier, redisClient, cfg)
+	svc.Start()
+	return svc
 }
 
 // ProvideOpsCleanupService creates and starts OpsCleanupService (cron scheduled).
@@ -804,6 +821,7 @@ var ProviderSet = wire.NewSet(
 	ProvideBarkNotificationService,
 	ProvideOpsAlertEvaluatorService,
 	ProvideOpsCleanupService,
+	ProvideOpsErrorDigestService,
 	ProvideConcurrencyService,
 	ProvideUserMessageQueueService,
 	NewUsageRecordWorkerPool,

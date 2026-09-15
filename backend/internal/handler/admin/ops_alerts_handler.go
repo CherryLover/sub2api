@@ -40,6 +40,10 @@ var validOpsAlertMetricTypes = []string{
 	service.OpsAlertMetricAccountQuotaUsedPercent,
 	service.OpsAlertMetricAccountBalance,
 	service.OpsAlertMetricAccountTodayCost,
+	// 账号到期提醒：同样按账号拆分，取值是「还剩几天到期」，已过期为负数。
+	service.OpsAlertMetricAccountExpiresInDays,
+	// API Key 当日用量提醒：按密钥拆分评估，不接受 window / dimension / provider / 账号过滤。
+	service.OpsAlertMetricAPIKeyDailyUsedPercent,
 }
 
 var validOpsAlertAccountWindows = []string{"5h", "7d"}
@@ -108,9 +112,11 @@ func isPercentOrRateMetric(metricType string) bool {
 		"group_rate_limit_ratio",
 		"account_error_ratio",
 		service.OpsAlertMetricAccountWindowUsedPercent,
-		service.OpsAlertMetricAccountQuotaUsedPercent:
+		service.OpsAlertMetricAccountQuotaUsedPercent,
+		service.OpsAlertMetricAPIKeyDailyUsedPercent:
 		return true
 	default:
+		// account_expires_in_days 不在这里：它是天数不是百分比，阈值上限不能卡在 100。
 		return false
 	}
 }
@@ -118,6 +124,10 @@ func isPercentOrRateMetric(metricType string) bool {
 // validateAccountAlertFilters 校验并规范化账号用量类规则的 filters（非账号指标原样放过）：
 // window / dimension 必填枚举，provider 可选且只允许 kimi / deepseek，platform 可选字符串，
 // group_id 可选正整数，account_ids 可选正整数数组（去重后 ≤ 200）。通过后把这些键写回规范值。
+//
+// account_expires_in_days 不需要 window / dimension / provider（它只看 ExpiresAt），
+// 所以下面的 switch 没有它的分支，直接落到后半段的 platform / group_id / account_ids 作用域校验。
+// apikey_daily_used_percent 不是账号指标，第一行就原样放过：它不支持任何对象过滤，全量评估。
 func validateAccountAlertFilters(metricType string, filters map[string]any) error {
 	if !service.IsOpsAlertAccountMetric(metricType) {
 		return nil
