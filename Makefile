@@ -4,6 +4,11 @@
 # 静默少跑一个文件。裁剪期间这里一度有 5 条指向已删除的测试，覆盖面无声缩水，
 # 因此 test-frontend-critical 增加了存在性校验，见下方。
 FRONTEND_CRITICAL_VITEST := \
+	src/components/admin/account/__tests__/AccountActionMenu.position.spec.ts \
+	src/components/admin/account/__tests__/AccountActionMenu.spark_shadow.spec.ts \
+	src/components/admin/account/__tests__/AccountActionMenu.stateExpiry.spec.ts \
+	src/views/admin/__tests__/AccountsView.runtimeBlocks.spec.ts \
+	src/views/admin/__tests__/ProxiesView.credentials.spec.ts \
 	src/i18n/__tests__/localeKeyCompleteness.spec.ts \
 	src/api/__tests__/client.spec.ts \
 	src/api/__tests__/tokenRefresh.spec.ts \
