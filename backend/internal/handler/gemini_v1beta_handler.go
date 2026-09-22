@@ -46,38 +46,24 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 
-	// 分组级模型白名单开启时过滤 models[].name（名字形如 models/xxx）。
-	filterGeminiModels := func(models []gemini.Model) []gemini.Model {
-		if apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() {
-			return models
-		}
-		filtered := make([]gemini.Model, 0, len(models))
-		for _, model := range models {
-			if apiKey.Group.ModelAllowlist.Allows(model.Name) {
-				filtered = append(filtered, model)
-			}
-		}
-		return filtered
-	}
-
-	agModelIDs, err := h.geminiCompatService.AntigravityGeminiModelIDs(c.Request.Context(), apiKey.GroupID, forcePlatform != service.PlatformAntigravity)
-	if err != nil {
-		googleError(c, http.StatusServiceUnavailable, "Unable to list Antigravity models")
+	// 强制 antigravity 模式：返回 antigravity 支持的模型列表
+	if forcePlatform == service.PlatformAntigravity {
+		c.JSON(http.StatusOK, antigravity.FallbackGeminiModelsList())
 		return
 	}
-	agModels := make([]gemini.Model, 0, len(agModelIDs))
-	for _, id := range agModelIDs {
-		agModels = append(agModels, gemini.FallbackModel(id))
-	}
-	if forcePlatform == service.PlatformAntigravity {
-		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(agModels)})
+
+	if models, ok := customGeminiModelsList(apiKey.Group); ok {
+		c.JSON(http.StatusOK, models)
 		return
 	}
 
 	account, err := h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
 	if err != nil {
-		if len(agModels) > 0 {
-			c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(agModels)})
+		// 没有 gemini 账户，检查是否有 antigravity 账户可用
+		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
+		if hasAntigravity {
+			// antigravity 账户使用静态模型列表
+			c.JSON(http.StatusOK, gemini.FallbackModelsList())
 			return
 		}
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -91,128 +77,21 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	if shouldFallbackGeminiModels(res) {
-		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(mergeGeminiModelLists(gemini.DefaultModels(), agModels))})
+		c.JSON(http.StatusOK, gemini.FallbackModelsList())
 		return
-	}
-	if res.StatusCode == http.StatusOK && len(agModels) > 0 {
-		if merged, ok := appendUpstreamGeminiModels(res.Body, agModels); ok {
-			res.Body = merged
-		}
-	}
-
-	if apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
-		if filtered, dropped, ok := filterUpstreamGeminiModelsBody(res.Body, apiKey.Group.ModelAllowlist); ok && dropped {
-			// 只在确有条目被过滤时替换响应体；全命中或解析失败时保持原始响应，
-			// 统一经 writeUpstreamResponse 写出（保留全部上游响应头）。
-			res.Body = filtered
-		}
 	}
 	writeUpstreamResponse(c, res)
 }
 
-// mergeGeminiModelLists keeps native metadata when both sources advertise a model.
-func mergeGeminiModelLists(native, extra []gemini.Model) []gemini.Model {
-	result := append([]gemini.Model{}, native...)
-	seen := make(map[string]bool, len(native))
-	for _, model := range native {
-		seen[model.Name] = true
+func customGeminiModelsList(group *service.Group) (gemini.ModelsListResponse, bool) {
+	if group == nil || !group.CustomModelsListEnabled() {
+		return gemini.ModelsListResponse{}, false
 	}
-	for _, model := range extra {
-		if !seen[model.Name] {
-			result = append(result, model)
-			seen[model.Name] = true
-		}
+	models := make([]gemini.Model, 0, len(group.ModelsListConfig.Models))
+	for _, modelID := range group.ModelsListConfig.Models {
+		models = append(models, gemini.FallbackModel(modelID))
 	}
-	return result
-}
-
-// appendUpstreamGeminiModels preserves unknown model metadata and envelope fields.
-func appendUpstreamGeminiModels(body []byte, extra []gemini.Model) ([]byte, bool) {
-	var envelope map[string]json.RawMessage
-	if json.Unmarshal(body, &envelope) != nil || envelope == nil {
-		return body, false
-	}
-	var models []json.RawMessage
-	raw, exists := envelope["models"]
-	if !exists || json.Unmarshal(raw, &models) != nil {
-		return body, false
-	}
-	seen := make(map[string]bool, len(models))
-	for _, raw := range models {
-		var model struct {
-			Name string `json:"name"`
-		}
-		if json.Unmarshal(raw, &model) != nil {
-			return body, false
-		}
-		seen[model.Name] = true
-	}
-	changed := false
-	for _, model := range extra {
-		if seen[model.Name] {
-			continue
-		}
-		raw, err := json.Marshal(model)
-		if err != nil {
-			return body, false
-		}
-		models = append(models, raw)
-		seen[model.Name] = true
-		changed = true
-	}
-	if !changed {
-		return body, true
-	}
-	envelope["models"], _ = json.Marshal(models)
-	merged, err := json.Marshal(envelope)
-	return merged, err == nil
-}
-
-// filterUpstreamGeminiModelsBody 按白名单过滤上游 /v1beta/models 响应中的
-// models[].name，其余信封字段（如 nextPageToken）原样保留。
-// 返回值：filtered 为过滤后的响应体；dropped 表示是否有条目被移除（全命中时
-// 为 false，调用方应保持原始响应以完整透传上游头）；ok=false 表示解析失败，
-// 调用方同样应透传原始响应。
-func filterUpstreamGeminiModelsBody(body []byte, allowlist service.GroupModelAllowlist) (filtered []byte, dropped bool, ok bool) {
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal(body, &envelope); err != nil {
-		return nil, false, false
-	}
-	rawModels, hasModels := envelope["models"]
-	if !hasModels {
-		return body, false, true
-	}
-	type geminiModelName struct {
-		Name string `json:"name"`
-	}
-	var models []json.RawMessage
-	if err := json.Unmarshal(rawModels, &models); err != nil {
-		return nil, false, false
-	}
-	kept := make([]json.RawMessage, 0, len(models))
-	for _, raw := range models {
-		var model geminiModelName
-		if err := json.Unmarshal(raw, &model); err != nil {
-			return nil, false, false
-		}
-		if allowlist.Allows(model.Name) {
-			kept = append(kept, raw)
-		}
-	}
-	if len(kept) == len(models) {
-		// 全部命中时直接透传原始响应体。
-		return body, false, true
-	}
-	mergedModels, err := json.Marshal(kept)
-	if err != nil {
-		return nil, false, false
-	}
-	envelope["models"] = mergedModels
-	merged, err := json.Marshal(envelope)
-	if err != nil {
-		return nil, false, false
-	}
-	return merged, true, true
+	return gemini.ModelsListResponse{Models: models}, true
 }
 
 // GeminiV1BetaGetModel proxies:
@@ -344,7 +223,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	pricingCtx, pricingAt := service.WithGatewayTokenRequestPricing(c.Request.Context())
 	c.Request = c.Request.WithContext(pricingCtx)
 
-	if decision := h.checkSecurityAudit(c, reqLog, apiKey, authSubject, service.ContentModerationProtocolGemini, modelName, body); decision != nil && !decision.AllowNextStage {
+	if decision := h.checkSecurityAudit(c, reqLog, apiKey, authSubject, service.SecurityAuditProtocolGemini, modelName, body); decision != nil && !decision.AllowNextStage {
 		googleSecurityAuditError(c, decision)
 		return
 	}
@@ -355,9 +234,6 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	if channelMapping.Mapped {
 		modelName = channelMapping.MappedModel
 	}
-
-	// Get subscription (may be nil)
-	subscription, _ := middleware.GetSubscriptionFromContext(c)
 
 	// For Gemini native API, do not send Claude-style ping frames.
 	geminiConcurrency := NewConcurrencyHelper(h.concurrencyHelper.concurrencyService, SSEPingFormatNone, 0)
@@ -380,7 +256,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	}
 
 	// 2) billing eligibility check (after wait)
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("gemini.billing_eligibility_check_failed", zap.Error(err))
 		status, _, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -706,25 +582,25 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		forceCacheBilling := fs.ForceCacheBilling
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
-		// 长上下文阶梯由目录数据驱动，统一在计费路径内生效，入口无需声明。
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
-			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
-				Result:             result,
-				QuotaPlatform:      quotaPlatform,
-				APIKey:             apiKey,
-				User:               apiKey.User,
-				Account:            account,
-				Subscription:       subscription,
-				PricingAt:          pricingAt,
-				InboundEndpoint:    inboundEndpoint,
-				UpstreamEndpoint:   upstreamEndpoint,
-				UserAgent:          userAgent,
-				IPAddress:          clientIP,
-				RequestPayloadHash: requestPayloadHash,
-				ForceCacheBilling:  forceCacheBilling,
-				APIKeyService:      h.apiKeyService,
-				SessionID:          sessionID,
-				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
+			if err := h.gatewayService.RecordUsageWithLongContext(ctx, &service.RecordUsageLongContextInput{
+				Result:                result,
+				QuotaPlatform:         quotaPlatform,
+				APIKey:                apiKey,
+				User:                  apiKey.User,
+				Account:               account,
+				PricingAt:             pricingAt,
+				InboundEndpoint:       inboundEndpoint,
+				UpstreamEndpoint:      upstreamEndpoint,
+				UserAgent:             userAgent,
+				IPAddress:             clientIP,
+				RequestPayloadHash:    requestPayloadHash,
+				LongContextThreshold:  200000, // Gemini 200K 阈值
+				LongContextMultiplier: 2.0,    // 超出部分双倍计费
+				ForceCacheBilling:     forceCacheBilling,
+				APIKeyService:         h.apiKeyService,
+				SessionID:             sessionID,
+				ChannelUsageFields:    clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
 			}); err != nil {
 				logger.L().With(
 					zap.String("component", "handler.gemini_v1beta.models"),

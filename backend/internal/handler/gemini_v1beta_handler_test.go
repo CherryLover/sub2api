@@ -58,11 +58,7 @@ func TestGeminiV1BetaListModels_ForcedAntigravityIgnoresCustomGroupList(t *testi
 	})
 	c.Set(string(middleware.ContextKeyForcePlatform), service.PlatformAntigravity)
 
-	groupID := int64(42)
-	key, _ := middleware.GetAPIKeyFromContext(c)
-	key.GroupID = &groupID
-	repo := &geminiAllowlistAccountRepoStub{}
-	(&GatewayHandler{geminiCompatService: service.NewGeminiMessagesCompatService(repo, nil, nil, nil, nil, nil, nil, nil, nil)}).GeminiV1BetaListModels(c)
+	(&GatewayHandler{}).GeminiV1BetaListModels(c)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got antigravity.GeminiModelsListResponse
