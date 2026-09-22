@@ -99,8 +99,8 @@ func TestResolveGeminiThinkingVariant(t *testing.T) {
 			// 但 credentials 里没有这条，应当继续推导变体。
 			"gemini-3.7-flash-medium": "gemini-3.7-flash-medium",
 		}, "gemini-3.7-flash", budget("4000"), "gemini-3.7-flash-medium", true},
-		// 空 credentials 映射 → 走 DefaultAntigravityModelMapping，其中同样只有带后缀的 3.8 flash
-		{"empty mapping falls back to default catalog", map[string]string{}, "gemini-3.8-flash", budget("-1"), "gemini-3.8-flash-high", true},
+		// 精简版默认目录当前只到 3.6；空映射不能凭空声明 3.8 变体。
+		{"empty mapping without catalog support remains unmatched", map[string]string{}, "gemini-3.8-flash", budget("-1"), "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
