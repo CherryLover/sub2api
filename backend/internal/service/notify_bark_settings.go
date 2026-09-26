@@ -31,14 +31,14 @@ import (
 const (
 	settingKeyNotifyBarkConfig = "notify_bark_config"
 
-	barkDefaultGroup = "sub2api"
+	barkDefaultGroup       = "sub2api"
+	barkDefaultTitlePrefix = "Sub2API"
 	// barkConfigCacheTTL 评估器每轮都要判断"Bark 是否启用"，配置带 30 秒短缓存避免每次查库。
 	barkConfigCacheTTL = 30 * time.Second
 	// barkNotifyTimeout 告警出口单次推送的超时上限，评估流程不会被慢服务器拖住。
 	barkNotifyTimeout = 10 * time.Second
 
-	barkTestDefaultTitle = "Sub2API 测试通知"
-	barkTimeLayout       = "2006-01-02 15:04:05"
+	barkTimeLayout = "2006-01-02 15:04:05"
 	// barkTestNoDeviceKeyMessage 测试接口在没有任何 device_key 时只探活不推送，用这句话告诉前端。
 	barkTestNoDeviceKeyMessage = "未配置设备 Key，仅测试了服务器连通性"
 )
@@ -70,6 +70,7 @@ type BarkConfig struct {
 	Enabled         bool      `json:"enabled"`
 	ServerURL       string    `json:"server_url"`
 	DeviceKey       string    `json:"device_key"`
+	TitlePrefix     string    `json:"title_prefix"`
 	Group           string    `json:"group"`
 	Level           string    `json:"level"`
 	Sound           string    `json:"sound"`
@@ -89,6 +90,7 @@ type BarkConfigView struct {
 	// 前端据此只显示"已配置"而不报设备数，比直接翻成"未配置"更贴近事实。
 	HasDeviceKey    bool       `json:"has_device_key"`
 	DeviceKeyCount  int        `json:"device_key_count"`
+	TitlePrefix     string     `json:"title_prefix"`
 	Group           string     `json:"group"`
 	Level           string     `json:"level"`
 	Sound           string     `json:"sound"`
@@ -100,14 +102,15 @@ type BarkConfigView struct {
 // BarkConfigInput 管理端 PUT 的请求体。NotifyOnResolve 缺省（nil）按默认值 true 处理。
 // DeviceKey 允许写成逗号分隔的多个设备 Key（也接受中文逗号与换行）。
 type BarkConfigInput struct {
-	Enabled         bool   `json:"enabled"`
-	ServerURL       string `json:"server_url"`
-	DeviceKey       string `json:"device_key"`
-	Group           string `json:"group"`
-	Level           string `json:"level"`
-	Sound           string `json:"sound"`
-	ClickURL        string `json:"click_url"`
-	NotifyOnResolve *bool  `json:"notify_on_resolve"`
+	Enabled         bool    `json:"enabled"`
+	ServerURL       string  `json:"server_url"`
+	DeviceKey       string  `json:"device_key"`
+	TitlePrefix     *string `json:"title_prefix"`
+	Group           string  `json:"group"`
+	Level           string  `json:"level"`
+	Sound           string  `json:"sound"`
+	ClickURL        string  `json:"click_url"`
+	NotifyOnResolve *bool   `json:"notify_on_resolve"`
 }
 
 // BarkTestInput 测试推送的请求体：配置同 PUT，另可指定标题与正文。
@@ -202,6 +205,7 @@ func NewBarkNotificationService(settingRepo SettingRepository, encryptor SecretE
 
 func defaultBarkConfig() *BarkConfig {
 	return &BarkConfig{
+		TitlePrefix:     barkDefaultTitlePrefix,
 		Group:           barkDefaultGroup,
 		Level:           BarkLevelActive,
 		NotifyOnResolve: true,
@@ -233,6 +237,12 @@ func (s *BarkNotificationService) UpdateBarkConfig(ctx context.Context, in BarkC
 
 	// 旧配置读不出来（含 JSON 损坏）时按"没有旧值"处理，保证坏数据能被这次保存覆盖掉。
 	old, _ := s.load(ctx)
+
+	// title_prefix 是后来新增的字段：旧版客户端保存配置时不会发送它。
+	// 未传（nil）时保留已存值；明确传空串时 normalizeBarkConfigInput 会回落默认 Sub2API。
+	if in.TitlePrefix == nil && old != nil {
+		next.TitlePrefix = barkNotificationTitlePrefix(old)
+	}
 
 	// 只填了分隔符（例如 " , , "）解析后是空列表，等同于"这次没提供新 key"，走保留旧值分支；
 	// 否则会把一串逗号当成有效密钥存进去。
@@ -285,6 +295,11 @@ func (s *BarkNotificationService) TestBark(ctx context.Context, in BarkTestInput
 	if err != nil {
 		return nil, err
 	}
+	if in.TitlePrefix == nil {
+		if stored, loadErr := s.load(ctx); loadErr == nil && stored != nil {
+			cfg.TitlePrefix = barkNotificationTitlePrefix(stored)
+		}
+	}
 	if s.sender == nil {
 		return nil, errors.New("bark sender not initialized")
 	}
@@ -309,11 +324,11 @@ func (s *BarkNotificationService) TestBark(ctx context.Context, in BarkTestInput
 
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
-		title = barkTestDefaultTitle
+		title = fmt.Sprintf("[%s] Bark 测试通知", barkNotificationTitlePrefix(cfg))
 	}
 	body := strings.TrimSpace(in.Body)
 	if body == "" {
-		body = fmt.Sprintf("这是一条来自 Sub2API 的测试通知。\n时间：%s\n服务器：%s", formatBarkTime(s.now()), cfg.ServerURL)
+		body = fmt.Sprintf("这是一条来自「%s」的 Bark 测试通知。\n时间：%s\n服务器：%s", barkNotificationTitlePrefix(cfg), formatBarkTime(s.now()), cfg.ServerURL)
 	}
 
 	summary := s.pushToDevices(ctx, cfg.ServerURL, deviceKeys, BarkMessage{
@@ -391,7 +406,13 @@ func (s *BarkNotificationService) NotifyOpsAlertFired(ctx context.Context, n Ops
 	if !ok {
 		return nil
 	}
-	title := fmt.Sprintf("[Sub2API] %s %s", strings.TrimSpace(n.Severity), strings.TrimSpace(n.RuleName))
+	state := strings.TrimSpace(n.Severity)
+	if state == "" {
+		state = "告警"
+	} else {
+		state += " 告警"
+	}
+	title := buildBarkAlertTitle(cfg, n.RuleName, state)
 	return s.push(ctx, cfg, strings.TrimSpace(title), buildOpsAlertBarkBody(n, false))
 }
 
@@ -401,7 +422,7 @@ func (s *BarkNotificationService) NotifyOpsAlertResolved(ctx context.Context, n 
 	if !ok || !cfg.NotifyOnResolve {
 		return nil
 	}
-	title := fmt.Sprintf("[Sub2API] 已恢复 %s", strings.TrimSpace(n.RuleName))
+	title := buildBarkAlertTitle(cfg, n.RuleName, "已恢复")
 	return s.push(ctx, cfg, strings.TrimSpace(title), buildOpsAlertBarkBody(n, true))
 }
 
@@ -433,8 +454,46 @@ func (s *BarkNotificationService) NotifyOpsAlertManual(ctx context.Context, n Op
 	if !ok {
 		return ErrBarkNotEnabled
 	}
-	title := fmt.Sprintf("[Sub2API] 手动试发 %s", strings.TrimSpace(n.RuleName))
+	title := buildBarkAlertTitle(cfg, n.RuleName, "手动试发")
 	return s.push(ctx, cfg, strings.TrimSpace(title), buildOpsAlertManualBarkBody(n, hasData, breached))
+}
+
+func buildBarkAlertTitle(cfg *BarkConfig, ruleName, state string) string {
+	prefix := barkNotificationTitlePrefix(cfg)
+	ruleName = strings.TrimSpace(ruleName)
+	state = strings.TrimSpace(state)
+	switch {
+	case ruleName == "":
+		return fmt.Sprintf("[%s] %s", prefix, state)
+	case state == "":
+		return fmt.Sprintf("[%s] %s", prefix, ruleName)
+	default:
+		return fmt.Sprintf("[%s] %s · %s", prefix, ruleName, state)
+	}
+}
+
+func barkNotificationTitlePrefix(cfg *BarkConfig) string {
+	if cfg != nil {
+		if prefix := strings.TrimSpace(cfg.TitlePrefix); prefix != "" {
+			return prefix
+		}
+	}
+	return barkDefaultTitlePrefix
+}
+
+// NotificationTitlePrefix 返回当前 Bark 配置用于人类可读标题的实例名称。
+// 报错汇总等其它 Bark 使用者通过这里取值，避免各自写死 Sub2API；配置读取失败时
+// 只回落默认值，不让一个展示字段阻断通知主流程。
+func (s *BarkNotificationService) NotificationTitlePrefix(ctx context.Context) string {
+	if s == nil {
+		return barkDefaultTitlePrefix
+	}
+	cfg, err := s.load(ctx)
+	if err != nil {
+		slog.Warn("bark_title_prefix_load_failed", "error", err)
+		return barkDefaultTitlePrefix
+	}
+	return barkNotificationTitlePrefix(cfg)
 }
 
 // push 把一条告警推给配置里的每个设备。全部失败才向上返回错误：
@@ -587,17 +646,23 @@ func barkFailedDeviceLabels(summary barkPushSummary) []string {
 func buildOpsAlertBarkBody(n OpsAlertNotification, resolved bool) string {
 	lines := []string{opsAlertBarkMetricLine(n)}
 	lines = append(lines, n.Details...)
+	valueLabel := "当前值"
+	thresholdLabel := "阈值"
+	if resolved {
+		valueLabel = "恢复值"
+		thresholdLabel = "告警阈值"
+	}
 	lines = append(lines,
-		opsAlertBarkValueLine(n),
+		fmt.Sprintf("%s：%s%s", valueLabel, formatBarkNumber(n.Value), n.Unit),
+		fmt.Sprintf("%s：%s %s%s", thresholdLabel, strings.TrimSpace(n.Operator), formatBarkNumber(n.Threshold), n.Unit),
 		"作用域："+opsAlertBarkScope(n),
 		"触发时间："+formatBarkTime(n.FiredAt),
 	)
 	if resolved && n.ResolvedAt != nil {
-		line := "恢复时间：" + formatBarkTime(*n.ResolvedAt)
+		lines = append(lines, "恢复时间："+formatBarkTime(*n.ResolvedAt))
 		if d := n.ResolvedAt.Sub(n.FiredAt); d > 0 {
-			line += "，持续 " + formatBarkDuration(d)
+			lines = append(lines, "持续："+formatBarkDuration(d))
 		}
-		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -735,6 +800,9 @@ func (s *BarkNotificationService) load(ctx context.Context) (*BarkConfig, error)
 	if strings.TrimSpace(cfg.Level) == "" {
 		cfg.Level = BarkLevelActive
 	}
+	if strings.TrimSpace(cfg.TitlePrefix) == "" {
+		cfg.TitlePrefix = barkDefaultTitlePrefix
+	}
 	// 旧数据或手改过的行 group 可能是空串：读出来统一回落默认分组，GET 回显与推送都用得上。
 	if strings.TrimSpace(cfg.Group) == "" {
 		cfg.Group = barkDefaultGroup
@@ -854,6 +922,12 @@ func normalizeBarkConfigInput(in BarkConfigInput, requireServerURL bool) (*BarkC
 	}
 	cfg.Level = level
 
+	if in.TitlePrefix != nil {
+		cfg.TitlePrefix = strings.TrimSpace(*in.TitlePrefix)
+		if cfg.TitlePrefix == "" {
+			cfg.TitlePrefix = barkDefaultTitlePrefix
+		}
+	}
 	cfg.Group = strings.TrimSpace(in.Group)
 	if cfg.Group == "" {
 		cfg.Group = barkDefaultGroup
@@ -884,6 +958,7 @@ func toBarkConfigView(cfg *BarkConfig, deviceKeyCount int) *BarkConfigView {
 		DeviceKey:       "",
 		HasDeviceKey:    cfg.DeviceKey != "",
 		DeviceKeyCount:  deviceKeyCount,
+		TitlePrefix:     barkNotificationTitlePrefix(cfg),
 		Group:           cfg.Group,
 		Level:           cfg.Level,
 		Sound:           cfg.Sound,
