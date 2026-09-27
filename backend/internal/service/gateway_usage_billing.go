@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -79,6 +80,17 @@ type postUsageBillingParams struct {
 	AccountRateMultiplier float64
 	APIKeyService         APIKeyQuotaUpdater
 	Platform              string // 来自 APIKey 关联 Group 的平台标识
+	// SimpleModeKeyRateLimitOnly records only API-key 5h/1d/7d spending-window
+	// usage. It must not trigger key lifetime quota, account quota or user
+	// platform quota side effects.
+	SimpleModeKeyRateLimitOnly bool
+}
+
+var ErrSimpleModeKeyRateLimitBillingUnavailable = errors.New("simple mode api key rate-limit billing unavailable")
+
+func simpleModeKeyRateLimitBillingEnabled(cfg *config.Config, apiKey *APIKey) bool {
+	return cfg != nil && cfg.RunMode == config.RunModeSimple &&
+		cfg.SimpleModeKeyRateLimitEnabled && apiKey != nil && apiKey.HasRateLimits()
 }
 
 // PlatformFromAPIKey 从 APIKey 关联的 Group 推导 platform 名称。
@@ -285,6 +297,14 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		}
 	}
 
+	if p.SimpleModeKeyRateLimitOnly {
+		if p.Cost.ActualCost > 0 && p.APIKey.HasRateLimits() {
+			cmd.APIKeyRateLimitCost = p.Cost.ActualCost
+		}
+		cmd.Normalize()
+		return cmd
+	}
+
 	if p.shouldDeductAPIKeyQuota() {
 		cmd.APIKeyQuotaCost = p.Cost.ActualCost
 	}
@@ -306,6 +326,9 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
+		if p.SimpleModeKeyRateLimitOnly {
+			return false, ErrSimpleModeKeyRateLimitBillingUnavailable
+		}
 		postUsageBilling(ctx, p, deps)
 		return true, nil
 	}
@@ -338,7 +361,22 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 		return
 	}
 
-	if p.Cost.ActualCost > 0 && p.APIKey != nil && p.APIKey.HasRateLimits() {
+	if p.SimpleModeKeyRateLimitOnly {
+		// Preflight reads DB-authoritative window usage, so after a committed
+		// increment invalidate any Redis snapshot. This is best-effort and does
+		// not affect enforcement correctness.
+		if p.APIKey != nil && deps.billingCacheService != nil {
+			if err := deps.billingCacheService.InvalidateAPIKeyRateLimit(ctx, p.APIKey.ID); err != nil {
+				logger.LegacyPrintf("service.gateway", "Warning: invalidate simple-mode api key rate-limit cache failed for key %d: %v", p.APIKey.ID, err)
+			}
+		}
+		if deps.deferredService != nil && p.Account != nil {
+			deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
+		}
+		return
+	}
+
+	if p.Cost.ActualCost > 0 && p.APIKey != nil && p.APIKey.HasRateLimits() && deps.billingCacheService != nil {
 		deps.billingCacheService.QueueUpdateAPIKeyRateLimitUsage(p.APIKey.ID, p.Cost.ActualCost)
 	}
 
@@ -351,7 +389,7 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 	//     限制在并发 in-flight 请求数量内（旧实现的异步入队会让超支无限累积直到 worker 处理）
 	//   - DB 异步(flusher_enabled=false):在独立 goroutine 中走 detached context,失败用 ALERT log 触发 oncall 对账
 	//   - flusher_enabled=true:不直写 DB,由 flusher 异步批量刷（markDirty 已在 IncrementUserPlatformQuotaUsage 内部完成）
-	if p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
+	if p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil && deps.billingCacheService != nil {
 		if deps.billingCacheService.HasUserPlatformQuotaLimit(ctx, p.User.ID, p.Platform) {
 			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
 			if deps.cfg == nil || !deps.cfg.Database.UserPlatformQuotaFlusherEnabled {
@@ -740,7 +778,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		)
 	}
 
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+	simpleModeKeyRateLimitOnly := simpleModeKeyRateLimitBillingEnabled(s.cfg, apiKey)
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && !simpleModeKeyRateLimitOnly {
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 		logger.LegacyPrintf("service.gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)
@@ -759,14 +798,15 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 	requestID := usageLog.RequestID
 	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
-		Cost:                  cost,
-		User:                  user,
-		APIKey:                apiKey,
-		Account:               account,
-		RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
-		AccountRateMultiplier: accountRateMultiplier,
-		APIKeyService:         input.APIKeyService,
-		Platform:              quotaPlatform,
+		Cost:                       cost,
+		User:                       user,
+		APIKey:                     apiKey,
+		Account:                    account,
+		RequestPayloadHash:         resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
+		AccountRateMultiplier:      accountRateMultiplier,
+		APIKeyService:              input.APIKeyService,
+		Platform:                   quotaPlatform,
+		SimpleModeKeyRateLimitOnly: simpleModeKeyRateLimitOnly,
 	}, s.billingDeps(), s.usageBillingRepo)
 
 	if billingErr != nil {

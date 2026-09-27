@@ -62,36 +62,37 @@ const (
 const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 
 type Config struct {
-	Server       ServerConfig               `mapstructure:"server"`
-	Log          LogConfig                  `mapstructure:"log"`
-	CORS         CORSConfig                 `mapstructure:"cors"`
-	Security     SecurityConfig             `mapstructure:"security"`
-	Billing      BillingConfig              `mapstructure:"billing"`
-	Database     DatabaseConfig             `mapstructure:"database"`
-	Redis        RedisConfig                `mapstructure:"redis"`
-	Ops          OpsConfig                  `mapstructure:"ops"`
-	JWT          JWTConfig                  `mapstructure:"jwt"`
-	Totp         TotpConfig                 `mapstructure:"totp"`
-	WebAuthn     WebAuthnConfig             `mapstructure:"webauthn"`
-	Default      DefaultConfig              `mapstructure:"default"`
-	RateLimit    RateLimitConfig            `mapstructure:"rate_limit"`
-	Pricing      PricingConfig              `mapstructure:"pricing"`
-	Gateway      GatewayConfig              `mapstructure:"gateway"`
-	APIKeyAuth   APIKeyAuthCacheConfig      `mapstructure:"api_key_auth_cache"`
-	Dashboard    DashboardCacheConfig       `mapstructure:"dashboard_cache"`
-	DashboardAgg DashboardAggregationConfig `mapstructure:"dashboard_aggregation"`
-	UsageCleanup UsageCleanupConfig         `mapstructure:"usage_cleanup"`
-	Concurrency  ConcurrencyConfig          `mapstructure:"concurrency"`
-	TokenRefresh TokenRefreshConfig         `mapstructure:"token_refresh"`
-	SimpleMode   SimpleModeConfig           `mapstructure:"simple_mode" yaml:"simple_mode"`
-	RunMode      string                     `mapstructure:"run_mode" yaml:"run_mode"`
-	Timezone     string                     `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
-	Gemini       GeminiConfig               `mapstructure:"gemini"`
-	Update       UpdateConfig               `mapstructure:"update"`
-	Idempotency  IdempotencyConfig          `mapstructure:"idempotency"`
-	ImageStorage ImageStorageConfig         `mapstructure:"image_storage"`
-	KeyUsage     KeyUsageConfig             `mapstructure:"key_usage"`
-	Web          WebConfig                  `mapstructure:"web"`
+	Server                        ServerConfig               `mapstructure:"server"`
+	Log                           LogConfig                  `mapstructure:"log"`
+	CORS                          CORSConfig                 `mapstructure:"cors"`
+	Security                      SecurityConfig             `mapstructure:"security"`
+	Billing                       BillingConfig              `mapstructure:"billing"`
+	Database                      DatabaseConfig             `mapstructure:"database"`
+	Redis                         RedisConfig                `mapstructure:"redis"`
+	Ops                           OpsConfig                  `mapstructure:"ops"`
+	JWT                           JWTConfig                  `mapstructure:"jwt"`
+	Totp                          TotpConfig                 `mapstructure:"totp"`
+	WebAuthn                      WebAuthnConfig             `mapstructure:"webauthn"`
+	Default                       DefaultConfig              `mapstructure:"default"`
+	RateLimit                     RateLimitConfig            `mapstructure:"rate_limit"`
+	Pricing                       PricingConfig              `mapstructure:"pricing"`
+	Gateway                       GatewayConfig              `mapstructure:"gateway"`
+	APIKeyAuth                    APIKeyAuthCacheConfig      `mapstructure:"api_key_auth_cache"`
+	Dashboard                     DashboardCacheConfig       `mapstructure:"dashboard_cache"`
+	DashboardAgg                  DashboardAggregationConfig `mapstructure:"dashboard_aggregation"`
+	UsageCleanup                  UsageCleanupConfig         `mapstructure:"usage_cleanup"`
+	Concurrency                   ConcurrencyConfig          `mapstructure:"concurrency"`
+	TokenRefresh                  TokenRefreshConfig         `mapstructure:"token_refresh"`
+	SimpleMode                    SimpleModeConfig           `mapstructure:"simple_mode" yaml:"simple_mode"`
+	SimpleModeKeyRateLimitEnabled bool                       `mapstructure:"simple_mode_key_rate_limit_enabled" yaml:"simple_mode_key_rate_limit_enabled"`
+	RunMode                       string                     `mapstructure:"run_mode" yaml:"run_mode"`
+	Timezone                      string                     `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
+	Gemini                        GeminiConfig               `mapstructure:"gemini"`
+	Update                        UpdateConfig               `mapstructure:"update"`
+	Idempotency                   IdempotencyConfig          `mapstructure:"idempotency"`
+	ImageStorage                  ImageStorageConfig         `mapstructure:"image_storage"`
+	KeyUsage                      KeyUsageConfig             `mapstructure:"key_usage"`
+	Web                           WebConfig                  `mapstructure:"web"`
 }
 
 // SimpleModeConfig controls startup behavior in simple mode.
@@ -1597,6 +1598,7 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
 	viper.SetDefault("simple_mode.auto_create_default_groups", true)
+	viper.SetDefault("simple_mode_key_rate_limit_enabled", false)
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")
