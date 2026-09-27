@@ -82,6 +82,8 @@ func newBarkSettingsFixture(t *testing.T) (*BarkNotificationService, *stubSettin
 	return svc, repo, sender
 }
 
+func barkStringPtr(v string) *string { return &v }
+
 func storedBarkConfig(t *testing.T, repo *stubSettingRepo) BarkConfig {
 	t.Helper()
 	raw, err := repo.GetValue(context.Background(), settingKeyNotifyBarkConfig)
@@ -103,6 +105,7 @@ func TestBarkNotificationService_GetDefaultWhenUnset(t *testing.T) {
 		ServerURL:       "",
 		DeviceKey:       "",
 		HasDeviceKey:    false,
+		TitlePrefix:     "Sub2API",
 		Group:           "sub2api",
 		Level:           BarkLevelActive,
 		NotifyOnResolve: true,
@@ -127,6 +130,7 @@ func TestBarkNotificationService_UpdateEncryptsKeyAndMasksResponse(t *testing.T)
 		Enabled:         true,
 		ServerURL:       "https://api.day.app/",
 		DeviceKey:       "  secret-device-key ",
+		TitlePrefix:     barkStringPtr("  生产网关  "),
 		Group:           "",
 		Level:           BarkLevelCritical,
 		Sound:           "alarm",
@@ -138,6 +142,7 @@ func TestBarkNotificationService_UpdateEncryptsKeyAndMasksResponse(t *testing.T)
 	require.Equal(t, "https://api.day.app", view.ServerURL, "末尾 / 应被去掉")
 	require.Equal(t, "", view.DeviceKey)
 	require.True(t, view.HasDeviceKey)
+	require.Equal(t, "生产网关", view.TitlePrefix)
 	require.Equal(t, "sub2api", view.Group, "group 留空回落默认值")
 	require.Equal(t, BarkLevelCritical, view.Level)
 	require.Equal(t, "alarm", view.Sound)
@@ -148,13 +153,57 @@ func TestBarkNotificationService_UpdateEncryptsKeyAndMasksResponse(t *testing.T)
 
 	stored := storedBarkConfig(t, repo)
 	require.Equal(t, "enc:secret-device-key", stored.DeviceKey, "落库必须是密文且已 trim")
+	require.Equal(t, "生产网关", stored.TitlePrefix)
 	require.NotContains(t, repo.values[settingKeyNotifyBarkConfig], `"device_key":"secret-device-key"`)
 
 	got, err := svc.GetBarkConfig(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "", got.DeviceKey)
 	require.True(t, got.HasDeviceKey)
+	require.Equal(t, "生产网关", got.TitlePrefix)
 	require.Equal(t, fixed, *got.UpdatedAt)
+}
+
+func TestBarkNotificationService_OmittedTitlePrefixKeepsStoredValue(t *testing.T) {
+	t.Parallel()
+
+	svc, _, sender := newBarkSettingsFixture(t)
+	_, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "stored-key", TitlePrefix: barkStringPtr("生产网关"),
+	})
+	require.NoError(t, err)
+
+	// 模拟旧客户端：保存时完全不认识 title_prefix，因此字段缺省为 nil。
+	view, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "生产网关", view.TitlePrefix)
+
+	// 旧客户端发测试通知时同样沿用已存名称，而不是退回 Sub2API。
+	_, err = svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{
+		ServerURL: "https://api.day.app",
+	}})
+	require.NoError(t, err)
+	sends := sender.sent()
+	require.Len(t, sends, 1)
+	require.Equal(t, "[生产网关] Bark 测试通知", sends[0].Msg.Title)
+}
+
+func TestBarkNotificationService_ExplicitBlankTitlePrefixResetsDefault(t *testing.T) {
+	t.Parallel()
+
+	svc, _, _ := newBarkSettingsFixture(t)
+	_, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "stored-key", TitlePrefix: barkStringPtr("生产网关"),
+	})
+	require.NoError(t, err)
+
+	view, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", TitlePrefix: barkStringPtr("   "),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Sub2API", view.TitlePrefix)
 }
 
 func TestBarkNotificationService_UpdateEmptyKeyKeepsStoredKey(t *testing.T) {
@@ -299,12 +348,32 @@ func TestBarkNotificationService_TestBarkUsesStoredKeyAndDefaultsText(t *testing
 	require.Len(t, sends, 1)
 	require.Equal(t, "https://api.day.app", sends[0].Target.ServerURL)
 	require.Equal(t, "stored-key", sends[0].Target.DeviceKey, "请求里 key 为空时用库里已存的")
-	require.Equal(t, "Sub2API 测试通知", sends[0].Msg.Title)
+	require.Equal(t, "[Sub2API] Bark 测试通知", sends[0].Msg.Title)
+	require.Contains(t, sends[0].Msg.Body, "这是一条来自「Sub2API」的 Bark 测试通知")
 	require.Contains(t, sends[0].Msg.Body, "时间：")
 	require.Contains(t, sends[0].Msg.Body, "服务器：https://api.day.app")
 	require.Equal(t, "ops", sends[0].Msg.Group)
 	require.Equal(t, BarkLevelTimeSensitive, sends[0].Msg.Level)
 	require.Equal(t, "https://ops.example.com", sends[0].Msg.URL)
+}
+
+func TestBarkNotificationService_TestBarkDefaultsUseCustomTitlePrefix(t *testing.T) {
+	t.Parallel()
+
+	svc, _, sender := newBarkSettingsFixture(t)
+	_, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "stored-key", TitlePrefix: barkStringPtr("生产网关"),
+	})
+	require.NoError(t, err)
+
+	_, err = svc.TestBark(context.Background(), BarkTestInput{BarkConfigInput: BarkConfigInput{
+		ServerURL: "https://api.day.app", TitlePrefix: barkStringPtr("生产网关"),
+	}})
+	require.NoError(t, err)
+	sends := sender.sent()
+	require.Len(t, sends, 1)
+	require.Equal(t, "[生产网关] Bark 测试通知", sends[0].Msg.Title)
+	require.Contains(t, sends[0].Msg.Body, "这是一条来自「生产网关」的 Bark 测试通知")
 }
 
 func TestBarkNotificationService_TestBarkPrefersRequestKeyAndCustomText(t *testing.T) {
@@ -444,7 +513,7 @@ func TestBarkNotificationService_NotifyOpsAlertFiredAndResolved(t *testing.T) {
 
 	svc, _, sender := newBarkSettingsFixture(t)
 	_, err := svc.UpdateBarkConfig(context.Background(), BarkConfigInput{
-		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "k", Group: "alerts", Level: BarkLevelCritical, ClickURL: "https://ops.example.com/alerts",
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "k", TitlePrefix: barkStringPtr("生产网关"), Group: "alerts", Level: BarkLevelCritical, ClickURL: "https://ops.example.com/alerts",
 	})
 	require.NoError(t, err)
 
@@ -466,9 +535,10 @@ func TestBarkNotificationService_NotifyOpsAlertFiredAndResolved(t *testing.T) {
 	fired := sends[0]
 	require.Equal(t, "k", fired.Target.DeviceKey)
 	require.Equal(t, "https://api.day.app", fired.Target.ServerURL)
-	require.Equal(t, "[Sub2API] P1 CPU 过高", fired.Msg.Title)
+	require.Equal(t, "[生产网关] CPU 过高 · P1 告警", fired.Msg.Title)
 	require.Contains(t, fired.Msg.Body, "指标：cpu_usage_percent")
-	require.Contains(t, fired.Msg.Body, "当前值：93.46（阈值 > 90）")
+	require.Contains(t, fired.Msg.Body, "当前值：93.46")
+	require.Contains(t, fired.Msg.Body, "阈值：> 90")
 	require.Contains(t, fired.Msg.Body, "作用域：platform=openai group_id=3")
 	require.Contains(t, fired.Msg.Body, "触发时间：")
 	require.NotContains(t, fired.Msg.Body, "恢复时间")
@@ -477,10 +547,11 @@ func TestBarkNotificationService_NotifyOpsAlertFiredAndResolved(t *testing.T) {
 	require.Equal(t, "https://ops.example.com/alerts", fired.Msg.URL)
 
 	resolved := sends[1]
-	require.Equal(t, "[Sub2API] 已恢复 CPU 过高", resolved.Msg.Title)
-	require.Contains(t, resolved.Msg.Body, "当前值：61（阈值 > 90）")
+	require.Equal(t, "[生产网关] CPU 过高 · 已恢复", resolved.Msg.Title)
+	require.Contains(t, resolved.Msg.Body, "恢复值：61")
+	require.Contains(t, resolved.Msg.Body, "告警阈值：> 90")
 	require.Contains(t, resolved.Msg.Body, "恢复时间：")
-	require.Contains(t, resolved.Msg.Body, "持续 12 分钟")
+	require.Contains(t, resolved.Msg.Body, "持续：12 分钟")
 }
 
 func TestBarkNotificationService_NotifyRespectsEnabledAndResolveSwitch(t *testing.T) {
@@ -680,7 +751,7 @@ func TestBarkNotificationService_NotifyReachesEveryDeviceEvenWhenOneFails(t *tes
 		"每个设备都要被尝试一次",
 	)
 	for _, s := range sender.sent() {
-		require.Equal(t, "[Sub2API] P1 CPU 过高", s.Msg.Title, "同一条通知内容完全一致")
+		require.Equal(t, "[Sub2API] CPU 过高 · P1 告警", s.Msg.Title, "同一条通知内容完全一致")
 		require.Equal(t, "alerts", s.Msg.Group)
 	}
 }

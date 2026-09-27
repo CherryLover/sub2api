@@ -254,10 +254,11 @@ func TestOpsAlertEvaluator_APIKeyTargetsFireAndResolveIndependently(t *testing.T
 
 	sends := f.sender.sent()
 	require.Len(t, sends, 1)
-	require.Equal(t, "[Sub2API] P2 密钥当日用量", sends[0].Msg.Title)
+	require.Equal(t, "[Sub2API] 密钥当日用量 · P2 告警", sends[0].Msg.Title)
 	require.Contains(t, sends[0].Msg.Body, "指标：API Key 当日用量")
 	require.Contains(t, sends[0].Msg.Body, "张三 / dev-key：85%（425.00 / 500.00 USD）")
-	require.Contains(t, sends[0].Msg.Body, "当前值：85%（阈值 >= 80%）")
+	require.Contains(t, sends[0].Msg.Body, "当前值：85%")
+	require.Contains(t, sends[0].Msg.Body, "阈值：>= 80%")
 
 	// 第二轮：1 号有活动事件不重复推；2 号涨到 90% → 它自己触发一次。
 	f.keyRepo.keys[1] = dailyLimitedKey(2, "ci-key", "李四", 450, 500)
@@ -274,8 +275,9 @@ func TestOpsAlertEvaluator_APIKeyTargetsFireAndResolveIndependently(t *testing.T
 	require.Len(t, f.repo.created, 2)
 	sends = f.sender.sent()
 	require.Len(t, sends, 3)
-	require.Equal(t, "[Sub2API] 已恢复 密钥当日用量", sends[2].Msg.Title)
+	require.Equal(t, "[Sub2API] 密钥当日用量 · 已恢复", sends[2].Msg.Title)
 	require.Contains(t, sends[2].Msg.Body, "张三 / dev-key：0%（0.00 / 500.00 USD）")
+	require.Contains(t, sends[2].Msg.Body, "恢复值：0%")
 	require.Len(t, f.repo.activeByKey, 1, "2 号仍在触发中")
 	require.Equal(t, 0, f.repo.wrongKindCalls)
 }
@@ -355,7 +357,7 @@ func TestOpsAlertEvaluator_APIKeyEvaluateRuleNow(t *testing.T) {
 
 	require.True(t, got.Sent)
 	body := f.sender.sent()[0].Msg.Body
-	require.Equal(t, "[Sub2API] 手动试发 密钥当日用量", f.sender.sent()[0].Msg.Title)
+	require.Equal(t, "[Sub2API] 密钥当日用量 · 手动试发", f.sender.sent()[0].Msg.Title)
 	require.Contains(t, body, "指标：API Key 当日用量")
 	require.Contains(t, body, "当前值：85%（阈值 >= 80%）")
 	require.Contains(t, body, "张三 / dev-key：85%（425.00 / 500.00 USD）（越阈）")

@@ -22,6 +22,8 @@ export interface BarkNotifyConfig {
   has_device_key: boolean
   /** 已配置的设备数量；加密密钥换过导致解不开时会是 0（此时 has_device_key 仍为 true） */
   device_key_count: number
+  /** 显示在 Bark 通知标题前的实例/服务名称，默认 Sub2API */
+  title_prefix: string
   group: string
   level: BarkLevel
   sound: string
@@ -35,6 +37,7 @@ export interface UpdateBarkNotifyConfigRequest {
   server_url: string
   /** 留空表示保留已存的设备 Key；多个设备用逗号分隔 */
   device_key: string
+  title_prefix: string
   group: string
   level: BarkLevel
   sound: string

@@ -110,6 +110,28 @@
           </p>
         </div>
 
+        <!-- 通知名称：只控制人看到的标题前缀，与 Bark group 分开 -->
+        <div>
+          <label
+            for="bark-title-prefix"
+            class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+          >
+            {{ t("admin.settings.notifications.bark.titlePrefix") }}
+          </label>
+          <input
+            id="bark-title-prefix"
+            v-model="form.title_prefix"
+            type="text"
+            class="input w-full"
+            data-testid="bark-title-prefix"
+            autocomplete="off"
+            :placeholder="BARK_DEFAULT_TITLE_PREFIX"
+          />
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.settings.notifications.bark.titlePrefixHint") }}
+          </p>
+        </div>
+
         <!-- 通知分组 -->
         <div>
           <label
@@ -334,6 +356,7 @@ const BARK_LEVELS: readonly BarkLevel[] = [
   "critical",
 ];
 const BARK_DEFAULT_SERVER_URL = "https://api.day.app";
+const BARK_DEFAULT_TITLE_PREFIX = "Sub2API";
 const BARK_DEFAULT_GROUP = "sub2api";
 
 type TestMode = "connection" | "send";
@@ -376,6 +399,7 @@ const form = reactive<UpdateBarkNotifyConfigRequest>({
   enabled: false,
   server_url: BARK_DEFAULT_SERVER_URL,
   device_key: "",
+  title_prefix: BARK_DEFAULT_TITLE_PREFIX,
   group: BARK_DEFAULT_GROUP,
   level: "active",
   sound: "",
@@ -539,6 +563,7 @@ function applyConfig(cfg: BarkNotifyConfig): void {
   form.enabled = Boolean(cfg.enabled);
   form.server_url = cfg.server_url || BARK_DEFAULT_SERVER_URL;
   form.device_key = "";
+  form.title_prefix = cfg.title_prefix || BARK_DEFAULT_TITLE_PREFIX;
   form.group = cfg.group || BARK_DEFAULT_GROUP;
   form.level = isBarkLevel(cfg.level) ? cfg.level : "active";
   form.sound = cfg.sound || "";
@@ -554,6 +579,7 @@ function buildPayload(): UpdateBarkNotifyConfigRequest {
     enabled: form.enabled,
     server_url: form.server_url.trim(),
     device_key: form.device_key.trim(),
+    title_prefix: form.title_prefix.trim(),
     group: form.group.trim(),
     level: form.level,
     sound: form.sound.trim(),
@@ -667,8 +693,9 @@ async function runTest(mode: TestMode): Promise<void> {
 
   const payload: TestBarkNotifyRequest = buildPayload();
   if (mode === "send") {
-    payload.title = t("admin.settings.notifications.bark.testTitle");
-    payload.body = t("admin.settings.notifications.bark.testBody");
+    const name = form.title_prefix.trim() || BARK_DEFAULT_TITLE_PREFIX;
+    payload.title = t("admin.settings.notifications.bark.testTitle", { name });
+    payload.body = t("admin.settings.notifications.bark.testBody", { name });
   }
 
   testing.value = mode;

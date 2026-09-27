@@ -433,7 +433,7 @@ func (s *OpsErrorDigestService) runDigestOnce(
 		return "no errors in window, push skipped", nil
 	}
 
-	title, body := s.renderDigest(summary, end)
+	title, body := s.renderDigest(ctx, summary, end)
 	pushed, err := s.push(ctx, title, body)
 	if err != nil {
 		return "", err
@@ -466,7 +466,7 @@ func (s *OpsErrorDigestService) RunManualDigest(ctx context.Context) (*OpsErrorD
 	if err != nil {
 		return nil, err
 	}
-	title, body := s.renderDigest(summary, end)
+	title, body := s.renderDigest(ctx, summary, end)
 
 	out := &OpsErrorDigestTestResult{Title: title, Body: body, Summary: summary}
 	pushed, err := s.push(ctx, title, body)
@@ -938,9 +938,13 @@ func opsErrorDigestGroupTitle(row *OpsErrorDigestRow) string {
 //	（未识别密钥）：12 次
 //	  认证失败 12
 //	另有 3 个密钥共 12 次
-func (s *OpsErrorDigestService) renderDigest(summary *OpsErrorDigestSummary, runAt time.Time) (string, string) {
+func (s *OpsErrorDigestService) renderDigest(ctx context.Context, summary *OpsErrorDigestSummary, runAt time.Time) (string, string) {
 	loc := s.location()
-	title := "[Sub2API] 报错汇总 " + runAt.In(loc).Format(opsErrorDigestTimeLayout)
+	prefix := barkDefaultTitlePrefix
+	if s != nil && s.notifier != nil {
+		prefix = s.notifier.NotificationTitlePrefix(ctx)
+	}
+	title := fmt.Sprintf("[%s] 报错汇总 · %s", prefix, runAt.In(loc).Format(opsErrorDigestTimeLayout))
 	return title, buildOpsErrorDigestBody(summary, loc)
 }
 

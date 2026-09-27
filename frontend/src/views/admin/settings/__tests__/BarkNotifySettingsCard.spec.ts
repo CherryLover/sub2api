@@ -90,6 +90,7 @@ const configuredConfig = () => ({
   device_key: '',
   has_device_key: true,
   device_key_count: 1,
+  title_prefix: '生产网关',
   group: 'ops',
   level: 'critical',
   sound: 'alarm',
@@ -104,6 +105,7 @@ const freshConfig = () => ({
   device_key: '',
   has_device_key: false,
   device_key_count: 0,
+  title_prefix: 'Sub2API',
   group: 'sub2api',
   level: 'active',
   sound: '',
@@ -158,6 +160,9 @@ describe('BarkNotifySettingsCard', () => {
     expect((field(wrapper, 'bark-server-url').element as HTMLInputElement).value).toBe(
       'https://bark.example.com',
     )
+    expect((field(wrapper, 'bark-title-prefix').element as HTMLInputElement).value).toBe(
+      '生产网关',
+    )
     expect((field(wrapper, 'bark-group').element as HTMLInputElement).value).toBe('ops')
     expect((field(wrapper, 'bark-level').element as HTMLSelectElement).value).toBe('critical')
     expect((field(wrapper, 'bark-sound').element as HTMLInputElement).value).toBe('alarm')
@@ -192,6 +197,7 @@ describe('BarkNotifySettingsCard', () => {
     })
 
     const wrapper = await mountCard()
+    await field(wrapper, 'bark-title-prefix').setValue('  上海生产网关  ')
     await field(wrapper, 'bark-group').setValue('  sub2api-prod  ')
     await field(wrapper, 'bark-level').setValue('passive')
     await field(wrapper, 'bark-save').trigger('click')
@@ -202,6 +208,7 @@ describe('BarkNotifySettingsCard', () => {
       enabled: true,
       server_url: 'https://bark.example.com',
       device_key: '',
+      title_prefix: '上海生产网关',
       group: 'sub2api-prod',
       level: 'passive',
       sound: 'alarm',
@@ -298,13 +305,14 @@ describe('BarkNotifySettingsCard', () => {
       enabled: true,
       server_url: 'https://custom.example',
       device_key: '',
+      title_prefix: '生产网关',
       group: 'ops',
       level: 'critical',
       sound: 'alarm',
       click_url: 'https://sub2api.example.com/admin/ops',
       notify_on_resolve: false,
-      title: 'admin.settings.notifications.bark.testTitle',
-      body: 'admin.settings.notifications.bark.testBody',
+      title: 'admin.settings.notifications.bark.testTitle:生产网关',
+      body: 'admin.settings.notifications.bark.testBody:生产网关',
     })
     expect(showSuccess).toHaveBeenCalledWith('admin.settings.notifications.bark.sent')
 

@@ -26,28 +26,31 @@ func TestBuildOpsAlertBarkBody_AccountDetailsAndUnit(t *testing.T) {
 		FiredAt: firedAt,
 	}
 	lines := strings.Split(buildOpsAlertBarkBody(n, false), "\n")
-	require.Len(t, lines, 5)
+	require.Len(t, lines, 6)
 	require.Equal(t, "指标：账号 5 小时窗口用量", lines[0])
 	require.Equal(t, "账号：codex-01（openai）", lines[1], "账号行插在指标与当前值之间")
-	require.Equal(t, "当前值：85.46%（阈值 >= 80%）", lines[2])
-	require.Equal(t, "作用域：platform=openai window=5h", lines[3])
-	require.True(t, strings.HasPrefix(lines[4], "触发时间："))
+	require.Equal(t, "当前值：85.46%", lines[2])
+	require.Equal(t, "阈值：>= 80%", lines[3])
+	require.Equal(t, "作用域：platform=openai window=5h", lines[4])
+	require.True(t, strings.HasPrefix(lines[5], "触发时间："))
 
 	resolvedAt := firedAt.Add(90 * time.Minute)
 	n.Value = 0
 	n.ResolvedAt = &resolvedAt
 	body := buildOpsAlertBarkBody(n, true)
 	require.Contains(t, body, "账号：codex-01（openai）")
-	require.Contains(t, body, "当前值：0%（阈值 >= 80%）")
-	require.Contains(t, body, "持续 1 小时 30 分钟")
+	require.Contains(t, body, "恢复值：0%")
+	require.Contains(t, body, "告警阈值：>= 80%")
+	require.Contains(t, body, "持续：1 小时 30 分钟")
 
-	// 旧格式：没有 MetricLabel / Unit / Details 时与第一步完全一致。
+	// 没有 MetricLabel / Unit / Details 时仍使用原始指标名，但值与阈值分行展示。
 	old := OpsAlertNotification{RuleName: "CPU 过高", MetricType: "cpu_usage_percent", Operator: ">", Threshold: 90, Value: 95, FiredAt: firedAt}
 	oldLines := strings.Split(buildOpsAlertBarkBody(old, false), "\n")
-	require.Len(t, oldLines, 4)
+	require.Len(t, oldLines, 5)
 	require.Equal(t, "指标：cpu_usage_percent", oldLines[0])
-	require.Equal(t, "当前值：95（阈值 > 90）", oldLines[1])
-	require.Equal(t, "作用域：全局", oldLines[2])
+	require.Equal(t, "当前值：95", oldLines[1])
+	require.Equal(t, "阈值：> 90", oldLines[2])
+	require.Equal(t, "作用域：全局", oldLines[3])
 }
 
 func TestBuildOpsAlertBarkBody_BalanceCurrencyUnit(t *testing.T) {
@@ -57,7 +60,9 @@ func TestBuildOpsAlertBarkBody_BalanceCurrencyUnit(t *testing.T) {
 		RuleName: "余额不足", MetricType: OpsAlertMetricAccountBalance, MetricLabel: "账号余额",
 		Operator: "<", Threshold: 5, Value: 2.5, Unit: " CNY", Details: []string{"账号：kimi-01（kimi）"},
 	}
-	require.Contains(t, buildOpsAlertBarkBody(n, false), "当前值：2.5 CNY（阈值 < 5 CNY）")
+	body := buildOpsAlertBarkBody(n, false)
+	require.Contains(t, body, "当前值：2.5 CNY")
+	require.Contains(t, body, "阈值：< 5 CNY")
 }
 
 func TestBarkNotificationService_NotifyOpsAlertManual(t *testing.T) {
@@ -80,7 +85,7 @@ func TestBarkNotificationService_NotifyOpsAlertManual(t *testing.T) {
 	require.NoError(t, svc.NotifyOpsAlertManual(context.Background(), n, true, false))
 	sends := sender.sent()
 	require.Len(t, sends, 1)
-	require.Equal(t, "[Sub2API] 手动试发 Codex 5h 用量", sends[0].Msg.Title)
+	require.Equal(t, "[Sub2API] Codex 5h 用量 · 手动试发", sends[0].Msg.Title)
 	lines := strings.Split(sends[0].Msg.Body, "\n")
 	require.Equal(t, "这是手动试发，不代表真实告警", lines[0])
 	require.Equal(t, "指标：账号 5 小时窗口用量", lines[1])

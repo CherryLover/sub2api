@@ -285,9 +285,9 @@ func TestOpsErrorDigest_RendersBody(t *testing.T) {
 		digestRow(0, "", "", "authentication_error", 401, true, 12),
 	}
 
-	title, body := svc.renderDigest(buildOpsErrorDigestSummary(rows, start, end, 8), end)
+	title, body := svc.renderDigest(context.Background(), buildOpsErrorDigestSummary(rows, start, end, 8), end)
 
-	require.Equal(t, "[Sub2API] 报错汇总 11:30", title)
+	require.Equal(t, "[Sub2API] 报错汇总 · 11:30", title)
 	require.Equal(t, strings.Join([]string{
 		"区间 17:30 – 11:30（18 小时）",
 		"失败 72 次：真故障 42，业务拦截 30",
@@ -301,6 +301,20 @@ func TestOpsErrorDigest_RendersBody(t *testing.T) {
 	}, "\n"), body)
 }
 
+func TestOpsErrorDigest_TitleUsesBarkNotificationName(t *testing.T) {
+	t.Parallel()
+
+	svc, _, _ := newErrorDigestFixture(t, true)
+	_, err := svc.notifier.UpdateBarkConfig(context.Background(), BarkConfigInput{
+		Enabled: true, ServerURL: "https://api.day.app", DeviceKey: "device-key", TitlePrefix: barkStringPtr("生产网关"),
+	})
+	require.NoError(t, err)
+
+	end := time.Date(2026, 9, 16, 3, 30, 0, 0, time.UTC)
+	title, _ := svc.renderDigest(context.Background(), &OpsErrorDigestSummary{}, end)
+	require.Equal(t, "[生产网关] 报错汇总 · 11:30", title)
+}
+
 func TestOpsErrorDigest_BodyMentionsHiddenKeys(t *testing.T) {
 	t.Parallel()
 
@@ -312,7 +326,7 @@ func TestOpsErrorDigest_BodyMentionsHiddenKeys(t *testing.T) {
 		rows = append(rows, digestRow(int64(i), "用户"+string(rune('A'+i-1)), "key", "api_error", 500, false, int64((12-i)*10)))
 	}
 
-	_, body := svc.renderDigest(buildOpsErrorDigestSummary(rows, start, end, 8), end)
+	_, body := svc.renderDigest(context.Background(), buildOpsErrorDigestSummary(rows, start, end, 8), end)
 
 	require.Contains(t, body, "另有 3 个密钥共 60 次")
 }
@@ -376,7 +390,7 @@ func TestOpsErrorDigest_PushesSummaryWhenThereAreErrors(t *testing.T) {
 	require.Contains(t, result, "errors=35")
 	sends := sender.sent()
 	require.Len(t, sends, 1)
-	require.Equal(t, "[Sub2API] 报错汇总 11:30", sends[0].Msg.Title)
+	require.Equal(t, "[Sub2API] 报错汇总 · 11:30", sends[0].Msg.Title)
 	require.Contains(t, sends[0].Msg.Body, "失败 35 次：真故障 30，业务拦截 5")
 	require.Contains(t, sends[0].Msg.Body, "张三 / dev-key：30 次")
 }

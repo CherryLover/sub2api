@@ -126,9 +126,10 @@ func TestOpsAlertEvaluator_FiringPushesBarkOnce(t *testing.T) {
 	require.Len(t, sends, 1, "触发时只推一次")
 	require.Equal(t, "device-key", sends[0].Target.DeviceKey)
 	require.Equal(t, "https://api.day.app", sends[0].Target.ServerURL)
-	require.Equal(t, "[Sub2API] P1 CPU 过高", sends[0].Msg.Title)
+	require.Equal(t, "[Sub2API] CPU 过高 · P1 告警", sends[0].Msg.Title)
 	require.Contains(t, sends[0].Msg.Body, "指标：cpu_usage_percent")
-	require.Contains(t, sends[0].Msg.Body, "当前值：95（阈值 > 90）")
+	require.Contains(t, sends[0].Msg.Body, "当前值：95")
+	require.Contains(t, sends[0].Msg.Body, "阈值：> 90")
 	require.Contains(t, sends[0].Msg.Body, "作用域：platform=openai group_id=3")
 	require.Contains(t, sends[0].Msg.Body, "触发时间：")
 	require.Equal(t, "sub2api", sends[0].Msg.Group)
@@ -155,10 +156,11 @@ func TestOpsAlertEvaluator_ResolvePushesWhenSwitchOn(t *testing.T) {
 	require.Empty(t, repo.created)
 	sends := sender.sent()
 	require.Len(t, sends, 1)
-	require.Equal(t, "[Sub2API] 已恢复 CPU 过高", sends[0].Msg.Title)
-	require.Contains(t, sends[0].Msg.Body, "当前值：40（阈值 > 90）")
+	require.Equal(t, "[Sub2API] CPU 过高 · 已恢复", sends[0].Msg.Title)
+	require.Contains(t, sends[0].Msg.Body, "恢复值：40")
+	require.Contains(t, sends[0].Msg.Body, "告警阈值：> 90")
 	require.Contains(t, sends[0].Msg.Body, "恢复时间：")
-	require.Contains(t, sends[0].Msg.Body, "持续 5 分钟")
+	require.Contains(t, sends[0].Msg.Body, "持续：5 分钟")
 }
 
 func TestOpsAlertEvaluator_ResolveSkipsPushWhenSwitchOff(t *testing.T) {
