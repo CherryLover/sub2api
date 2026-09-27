@@ -63,13 +63,12 @@ func TestIsOllamaCloudRawChatCompletionsAccount(t *testing.T) {
 		require.False(t, isOllamaCloudRawChatCompletionsAccount(account))
 	})
 
-	t.Run("OpenCode Go extra", func(t *testing.T) {
+	t.Run("foreign OpenCode-compatible endpoint", func(t *testing.T) {
 		t.Parallel()
 		account := rawChatCompletionsTestAccount()
 		account.Credentials["base_url"] = "https://opencode.ai/zen/go/v1"
 		account.Extra = map[string]any{
 			openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
-			"opencode_go_usage_auto_refresh":    true,
 		}
 		require.False(t, isOllamaCloudRawChatCompletionsAccount(account))
 	})
@@ -170,7 +169,6 @@ func TestApplyOllamaCloudRawChatCompletionsLeavesForeignAccountsUnchanged(t *tes
 	opencode.Credentials["base_url"] = "https://opencode.ai/zen/go/v1"
 	opencode.Extra = map[string]any{
 		openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
-		"opencode_go_usage_auto_refresh":    true,
 	}
 
 	for _, account := range []*Account{official, opencode} {
