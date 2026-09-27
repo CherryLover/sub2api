@@ -120,7 +120,11 @@ func TestShouldStripOpenAIResponsesInputItemID_Reasoning(t *testing.T) {
 		{"message item id", "message", "item_x", true},
 		{"function_call fc id", "function_call", "fc_abc", false},
 		{"function_call item id", "function_call", "item_x", true},
-		{"unconstrained type", "web_search_call", "ws_001", false},
+		{"message 64 chars", "message", "msg_" + strings.Repeat("x", 60), false},
+		{"message oversized", "message", "msg_" + strings.Repeat("x", 62), true},
+		{"reasoning oversized", "reasoning", "rs_" + strings.Repeat("x", 62), true},
+		{"function_call oversized", "function_call", "fc_" + strings.Repeat("x", 62), true},
+		{"unconstrained type", "web_search_call", "ws_" + strings.Repeat("x", 80), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

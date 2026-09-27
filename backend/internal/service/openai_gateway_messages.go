@@ -33,6 +33,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	// Tool-schema sanitization must happen before all downstream branches:
+	// native Anthropic passthrough, Chat Completions conversion and Responses
+	// conversion can all otherwise forward required:null/type:null unchanged.
+	if sanitized, changed, err := sanitizeOpenAIResponsesToolParameterTypes(body); err != nil {
+		return nil, err
+	} else if changed {
+		body = sanitized
+	}
+
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
