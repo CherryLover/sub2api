@@ -141,7 +141,7 @@ func (s *antigravityCompatStreamSession) consume(line string) {
 }
 
 func (s *antigravityCompatStreamSession) hasMeaningfulData() bool {
-	return s.meaningfulData
+	return s.meaningfulData || s.processor.HasContent()
 }
 
 func (s *antigravityCompatStreamSession) finish() *antigravityStreamResult {
@@ -220,24 +220,18 @@ func isMeaningfulAntigravityCompatEvent(event *apicompat.AnthropicStreamEvent) b
 	if event == nil {
 		return false
 	}
-	if event.Type == "message_stop" {
-		return true
-	}
 	if event.ContentBlock != nil {
 		block := event.ContentBlock
 		return block.Type == "tool_use" ||
 			block.Text != "" ||
 			block.Thinking != "" ||
-			block.Signature != "" ||
 			block.Source != nil
 	}
 	if event.Delta != nil {
 		delta := event.Delta
 		return delta.Text != "" ||
 			delta.PartialJSON != "" ||
-			delta.Thinking != "" ||
-			delta.Signature != "" ||
-			delta.StopReason != ""
+			delta.Thinking != ""
 	}
 	return false
 }
