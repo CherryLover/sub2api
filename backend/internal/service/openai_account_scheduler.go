@@ -2161,6 +2161,79 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	return s.selectAccountWithSchedulerOnce(withOpenAIProxyStreamQuarantineBypass(ctx), groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 }
 
+// selectLegacyAccountByPreviousResponse gives the legacy (advanced scheduler
+// disabled) path the same response-affinity guarantee as the modern scheduler.
+// It reuses the existing sticky-response lookup and then applies the current
+// lite scheduling gates before accepting the owner account.
+func (s *OpenAIGatewayService) selectLegacyAccountByPreviousResponse(
+	ctx context.Context,
+	groupID *int64,
+	previousResponseID string,
+	sessionHash string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requiredTransport OpenAIUpstreamTransport,
+	requiredCapability OpenAIEndpointCapability,
+	requiredImageCapability OpenAIImagesCapability,
+	requireCompact bool,
+	platform string,
+) (*AccountSelectionResult, bool, error) {
+	if strings.TrimSpace(previousResponseID) == "" || platform != PlatformOpenAI {
+		return nil, false, nil
+	}
+	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+		return nil, false, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+	}
+
+	selection, err := s.selectAccountByPreviousResponseIDForCapability(
+		ctx, groupID, previousResponseID, requestedModel, excludedIDs, requiredCapability, requireCompact,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	if selection == nil || selection.Account == nil {
+		return nil, false, nil
+	}
+
+	releaseAndMiss := func() (*AccountSelectionResult, bool, error) {
+		if selection.ReleaseFunc != nil {
+			selection.ReleaseFunc()
+		}
+		return nil, false, nil
+	}
+	account := selection.Account
+	if !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
+		return releaseAndMiss()
+	}
+	if groupID != nil && s.schedulerSnapshot != nil {
+		group, groupErr := s.schedulerSnapshot.GetGroupByID(ctx, *groupID)
+		if groupErr != nil {
+			return releaseAndMiss()
+		}
+		if group != nil && group.RequirePrivacySet && !account.IsPrivacySet() {
+			return releaseAndMiss()
+		}
+	}
+
+	scheduler := &defaultOpenAIAccountScheduler{service: s, stats: newOpenAIAccountRuntimeStats()}
+	compatible, _ := scheduler.isAccountRequestCompatibleReason(ctx, account, OpenAIAccountScheduleRequest{
+		GroupID:                 groupID,
+		Platform:                platform,
+		RequestedModel:          requestedModel,
+		RequiredTransport:       requiredTransport,
+		RequiredCapability:      requiredCapability,
+		RequiredImageCapability: requiredImageCapability,
+		RequireCompact:          requireCompact,
+		ExcludedIDs:             excludedIDs,
+	})
+	if !compatible || !scheduler.isAccountTransportCompatible(account, requiredTransport) {
+		return releaseAndMiss()
+	}
+	if sessionHash != "" {
+		_ = s.bindOpenAIStickySessionDuringSelection(ctx, groupID, sessionHash, account.ID)
+	}
+	return selection, true, nil
+}
 func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	ctx context.Context,
 	groupID *int64,
@@ -2191,6 +2264,18 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
 		decision.Layer = openAIAccountScheduleLayerLoadBalance
+		if selection, hit, err := s.selectLegacyAccountByPreviousResponse(
+			ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs,
+			requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform,
+		); err != nil {
+			return nil, decision, err
+		} else if hit {
+			decision.Layer = openAIAccountScheduleLayerPreviousResponse
+			decision.StickyPreviousHit = true
+			decision.SelectedAccountID = selection.Account.ID
+			decision.SelectedAccountType = selection.Account.Type
+			return selection, decision, nil
+		}
 		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
 			effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 			for {

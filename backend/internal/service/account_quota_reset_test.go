@@ -572,7 +572,7 @@ func TestComputeQuotaResetAt_InvalidHour_ClampedToZero(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // withProjectTimezone 临时把全局项目时区切到 name，用例结束后恢复为 UTC
-//（本包 group_peak_rate_test.go 的 init 固定成 UTC，其它用例都依赖它）。
+// （本包 group_peak_rate_test.go 的 init 固定成 UTC，其它用例都依赖它）。
 func withProjectTimezone(t *testing.T, name string) {
 	t.Helper()
 	require.NoError(t, timezone.Init(name))

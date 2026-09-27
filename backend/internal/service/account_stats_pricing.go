@@ -31,7 +31,12 @@ func resolveAccountStatsCost(
 	totalCost float64,
 	serviceTier string,
 	pricingAt time.Time,
+	reasoningEfforts ...string,
 ) *float64 {
+	reasoningEffort := ""
+	if len(reasoningEfforts) > 0 {
+		reasoningEffort = reasoningEfforts[0]
+	}
 	if channelService == nil || upstreamModel == "" {
 		return nil
 	}
@@ -43,7 +48,7 @@ func resolveAccountStatsCost(
 	platform := channelService.GetGroupPlatform(ctx, groupID)
 
 	// 优先级 1：自定义规则（始终尝试）
-	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount); cost != nil {
+	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount, reasoningEffort); cost != nil {
 		return cost
 	}
 
@@ -58,7 +63,7 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, pricingAt)
+		return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, pricingAt, reasoningEffort)
 	}
 
 	return nil
@@ -68,15 +73,20 @@ func resolveAccountStatsCost(
 // 与用户计费共用同一条定价管线，避免这里维护第二份"单价 × token 数"实现后，
 // 每加一个定价特性都要手工镜像一次。解析器不配置渠道或分组，保持优先级 3 的
 // 语义：只取模型定价文件，不引入自定义售价。
-func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier string, pricingAt time.Time) *float64 {
+func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier string, pricingAt time.Time, reasoningEfforts ...string) *float64 {
+	reasoningEffort := ""
+	if len(reasoningEfforts) > 0 {
+		reasoningEffort = reasoningEfforts[0]
+	}
 	breakdown, err := billingService.CalculateCostUnified(CostInput{
-		Ctx:            context.Background(),
-		Model:          model,
-		Tokens:         tokens,
-		RateMultiplier: 1,
-		ServiceTier:    normalizeBillingServiceTier(serviceTier),
-		PricingAt:      pricingAt,
-		Resolver:       NewModelPricingResolver(nil, billingService),
+		Ctx:             context.Background(),
+		Model:           model,
+		Tokens:          tokens,
+		RateMultiplier:  1,
+		ServiceTier:     normalizeBillingServiceTier(serviceTier),
+		ReasoningEffort: reasoningEffort,
+		PricingAt:       pricingAt,
+		Resolver:        NewModelPricingResolver(nil, billingService),
 	})
 	if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 		return nil
@@ -88,7 +98,12 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 func tryCustomRules(
 	channel *Channel, accountID, groupID int64,
 	platform, model string, tokens UsageTokens, requestCount int,
+	reasoningEfforts ...string,
 ) *float64 {
+	reasoningEffort := ""
+	if len(reasoningEfforts) > 0 {
+		reasoningEffort = reasoningEfforts[0]
+	}
 	modelLower := strings.ToLower(model)
 	for _, rule := range channel.AccountStatsPricingRules {
 		if !matchAccountStatsRule(&rule, accountID, groupID) {
@@ -98,7 +113,11 @@ func tryCustomRules(
 		if pricing == nil {
 			continue // 规则匹配但模型不在规则定价中，继续下一条
 		}
-		return calculateStatsCost(pricing, tokens, requestCount)
+		cost := calculateStatsCost(pricing, tokens, requestCount)
+		if cost != nil {
+			*cost *= reasoningEffortBillingMultiplier(reasoningEffort, pricing.ReasoningEffortMultipliers)
+		}
+		return cost
 	}
 	return nil
 }
@@ -172,7 +191,7 @@ func calculateStatsCost(pricing *ChannelModelPricing, tokens UsageTokens, reques
 		return nil
 	}
 	switch pricing.BillingMode {
-	case BillingModePerRequest, BillingModeImage:
+	case BillingModePerRequest, BillingModeImage, BillingModeVideo:
 		return calculatePerRequestStatsCost(pricing, requestCount)
 	default:
 		return calculateTokenStatsCost(pricing, tokens)

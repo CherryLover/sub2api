@@ -72,37 +72,50 @@ func isAcceptableFingerprintUserAgent(ua string) bool {
 	if !ok {
 		return false
 	}
-	currentMajor, _, _, currentOK := parseUserAgentVersion(claudeCLIUserAgentProduct + "/" + claude.CLIVersion())
+	// 超前检查以运行期生效版本为基准（EffectiveCLIVersion）：同步跨大版本后，
+	// 若仍与静态基线比较会误拒客户端上报的新版本。
+	currentMajor, _, _, currentOK := parseUserAgentVersion(claudeCLIUserAgentProduct + "/" + claude.EffectiveCLIVersion())
 	if !currentOK {
 		return true
 	}
 	return major <= currentMajor+maxClaudeCLIMajorVersionSkew
 }
 
+// floorClaudeCLIUserAgentVersion 把 claude-cli UA 中的版本号抬升到运行期生效版本
+// （claude.EffectiveCLIVersion()）下限：低于下限时就地升到下限并返回 changed=true，否则原样返回。
+//
+// 约束：只对 claude-cli 生效；只升不降；仅替换版本号段；其余 UA 和 X-Stainless-* 语义保持不变。
 func floorClaudeCLIUserAgentVersion(ua string) (string, bool) {
 	if extractProduct(ua) != claudeCLIUserAgentProduct {
 		return ua, false
 	}
-	floorUA := claudeCLIUserAgentProduct + "/" + claude.CLICurrentVersion
+	// 自动同步后的运行期版本也必须成为指纹下限；EffectiveCLIVersion 自身会
+	// 校验 semver 并回退到环境变量覆盖/内置基线，因此保留原有安全边界。
+	floor := claude.EffectiveCLIVersion()
+	floorUA := claudeCLIUserAgentProduct + "/" + floor
 	if !isNewerVersion(floorUA, ua) {
 		return ua, false
 	}
-	floored := claudeCLIUAVersionPrefixRegex.ReplaceAllString(ua, "${1}/"+claude.CLICurrentVersion)
+	floored := claudeCLIUAVersionPrefixRegex.ReplaceAllString(ua, "${1}/"+floor)
 	if floored == ua {
 		return ua, false
 	}
 	return floored, true
 }
 
-// 默认指纹值（当客户端未提供时使用）
-var defaultFingerprint = Fingerprint{
-	UserAgent:               "claude-cli/" + claude.CLIVersion() + " (external, cli)",
-	StainlessLang:           "js",
-	StainlessPackageVersion: "0.94.0",
-	StainlessOS:             "Linux",
-	StainlessArch:           "arm64",
-	StainlessRuntime:        "node",
-	StainlessRuntimeVersion: "v24.3.0",
+// defaultFingerprint 返回默认指纹值（当客户端未提供时使用）。
+// UserAgent 不能在包 init 时固化：必须在每次使用时经 EffectiveCLIVersion 现取，
+// 否则运行期同步到新版本后，新建账号会写入过期版本作为持久身份。
+func defaultFingerprint() Fingerprint {
+	return Fingerprint{
+		UserAgent:               claude.DefaultUserAgent(),
+		StainlessLang:           "js",
+		StainlessPackageVersion: "0.94.0",
+		StainlessOS:             "Linux",
+		StainlessArch:           "arm64",
+		StainlessRuntime:        "node",
+		StainlessRuntimeVersion: "v24.3.0",
+	}
 }
 
 // Fingerprint represents account fingerprint data
@@ -170,7 +183,7 @@ func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID 
 			if uaAcceptable {
 				mergeHeadersIntoFingerprint(cached, headers)
 			} else {
-				cached.UserAgent = defaultFingerprint.UserAgent
+				cached.UserAgent = defaultFingerprint().UserAgent
 			}
 			needWrite = true
 			logger.LegacyPrintf("service.identity",
@@ -234,18 +247,21 @@ func (s *IdentityService) createFingerprintFromHeaders(headers http.Header) *Fin
 	// 获取User-Agent：只接受形态合法且版本合理的值，否则回退默认指纹。
 	// 首次创建同样是持久化写入，必须与升级路径共用同一套校验。
 	if ua := strings.TrimSpace(headers.Get("User-Agent")); isAcceptableFingerprintUserAgent(ua) {
+		// 首次创建与缓存命中路径共用同一个版本下限：合法但过旧的 claude-cli UA
+		// 落库时同样不能低于运行期生效版本，避免新账号一开始就持久化过旧身份。
 		fp.UserAgent, _ = floorClaudeCLIUserAgentVersion(ua)
 	} else {
-		fp.UserAgent = defaultFingerprint.UserAgent
+		fp.UserAgent = defaultFingerprint().UserAgent
 	}
 
 	// 获取x-stainless-*头，如果没有则使用默认值
-	fp.StainlessLang = getHeaderOrDefault(headers, "X-Stainless-Lang", defaultFingerprint.StainlessLang)
-	fp.StainlessPackageVersion = getHeaderOrDefault(headers, "X-Stainless-Package-Version", defaultFingerprint.StainlessPackageVersion)
-	fp.StainlessOS = getHeaderOrDefault(headers, "X-Stainless-OS", defaultFingerprint.StainlessOS)
-	fp.StainlessArch = getHeaderOrDefault(headers, "X-Stainless-Arch", defaultFingerprint.StainlessArch)
-	fp.StainlessRuntime = getHeaderOrDefault(headers, "X-Stainless-Runtime", defaultFingerprint.StainlessRuntime)
-	fp.StainlessRuntimeVersion = getHeaderOrDefault(headers, "X-Stainless-Runtime-Version", defaultFingerprint.StainlessRuntimeVersion)
+	df := defaultFingerprint()
+	fp.StainlessLang = getHeaderOrDefault(headers, "X-Stainless-Lang", df.StainlessLang)
+	fp.StainlessPackageVersion = getHeaderOrDefault(headers, "X-Stainless-Package-Version", df.StainlessPackageVersion)
+	fp.StainlessOS = getHeaderOrDefault(headers, "X-Stainless-OS", df.StainlessOS)
+	fp.StainlessArch = getHeaderOrDefault(headers, "X-Stainless-Arch", df.StainlessArch)
+	fp.StainlessRuntime = getHeaderOrDefault(headers, "X-Stainless-Runtime", df.StainlessRuntime)
+	fp.StainlessRuntimeVersion = getHeaderOrDefault(headers, "X-Stainless-Runtime-Version", df.StainlessRuntimeVersion)
 
 	return fp
 }
@@ -295,7 +311,7 @@ func (s *IdentityService) ApplyFingerprint(req *http.Request, fp *Fingerprint) {
 		setHeaderRaw(req.Header, "User-Agent", fp.UserAgent)
 	}
 
-	// 设置x-stainless-*头（保持与 claude.DefaultHeaders 一致的大小写）
+	// 设置x-stainless-*头（保持与 claude.DefaultHeaders() 一致的大小写）
 	if fp.StainlessLang != "" {
 		setHeaderRaw(req.Header, "X-Stainless-Lang", fp.StainlessLang)
 	}

@@ -414,7 +414,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		)
 	}
 
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+	simpleModeKeyRateLimitOnly := simpleModeKeyRateLimitBillingEnabled(s.cfg, apiKey)
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && !simpleModeKeyRateLimitOnly {
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 		logger.LegacyPrintf("service.openai_gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)
@@ -430,14 +431,15 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	billingErr := func() error {
 		_, err := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
-			Cost:                  cost,
-			User:                  user,
-			APIKey:                apiKey,
-			Account:               account,
-			RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
-			AccountRateMultiplier: accountRateMultiplier,
-			APIKeyService:         input.APIKeyService,
-			Platform:              quotaPlatform,
+			Cost:                       cost,
+			User:                       user,
+			APIKey:                     apiKey,
+			Account:                    account,
+			RequestPayloadHash:         resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
+			AccountRateMultiplier:      accountRateMultiplier,
+			APIKeyService:              input.APIKeyService,
+			Platform:                   quotaPlatform,
+			SimpleModeKeyRateLimitOnly: simpleModeKeyRateLimitOnly,
 		}, s.billingDeps(), s.usageBillingRepo)
 		return err
 	}()
@@ -547,6 +549,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 				pricingAt,
 				tokens,
 				serviceTier,
+				optionalStringValue(result.ReasoningEffort),
 				longContextBillingGate,
 			)
 			if err == nil {
@@ -640,6 +643,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	pricingAt time.Time,
 	tokens UsageTokens,
 	serviceTier string,
+	reasoningEffort string,
 	longContextBillingGate *bool,
 ) (*CostBreakdown, error) {
 	if s.resolver != nil && apiKey.Group != nil {
@@ -648,16 +652,24 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, PricingAt: pricingAt,
 			ServiceTier: serviceTier, Resolver: s.resolver,
+			ReasoningEffort:           reasoningEffort,
 			LongContextBillingEnabled: longContextBillingGate,
 		})
 	}
-	return s.billingService.calculateCostWithServiceTierPolicy(
+	breakdown, err := s.billingService.calculateCostWithServiceTierPolicy(
 		billingModel,
 		tokens,
 		multiplier,
 		serviceTier,
 		longContextBillingGate == nil || *longContextBillingGate,
 	)
+	if err != nil || breakdown == nil || strings.TrimSpace(reasoningEffort) == "" {
+		return breakdown, err
+	}
+	if pricing, pricingErr := s.billingService.GetModelPricing(billingModel); pricingErr == nil && pricing != nil {
+		applyCostBreakdownMultiplier(breakdown, reasoningEffortBillingMultiplier(reasoningEffort, pricing.ReasoningEffortMultipliers))
+	}
+	return breakdown, nil
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIImageCost(

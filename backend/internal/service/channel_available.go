@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 )
@@ -178,21 +179,30 @@ func synthesizePricingFromLiteLLM(lp *LiteLLMModelPricing, existing *ChannelMode
 
 	if mode == BillingModeImage || mode == BillingModePerRequest {
 		return &ChannelModelPricing{
-			BillingMode:      mode,
-			PerRequestPrice:  nonZeroPtr(lp.OutputCostPerImage),
-			ImageOutputPrice: nonZeroPtr(lp.OutputCostPerImageToken),
-			InputPrice:       nonZeroPtr(lp.InputCostPerToken),
-			OutputPrice:      nonZeroPtr(lp.OutputCostPerToken),
+			BillingMode:                mode,
+			PerRequestPrice:            nonZeroPtr(lp.OutputCostPerImage),
+			ImageOutputPrice:           nonZeroPtr(lp.OutputCostPerImageToken),
+			InputPrice:                 nonZeroPtr(lp.InputCostPerToken),
+			OutputPrice:                nonZeroPtr(lp.OutputCostPerToken),
+			ReasoningEffortMultipliers: reasoningEffortMultipliersFromPricing(existing),
 		}
 	}
 	return &ChannelModelPricing{
-		BillingMode:      mode,
-		InputPrice:       nonZeroPtr(lp.InputCostPerToken),
-		OutputPrice:      nonZeroPtr(lp.OutputCostPerToken),
-		CacheWritePrice:  nonZeroPtr(lp.CacheCreationInputTokenCost),
-		CacheReadPrice:   nonZeroPtr(lp.CacheReadInputTokenCost),
-		ImageOutputPrice: nonZeroPtr(lp.OutputCostPerImageToken),
+		BillingMode:                mode,
+		InputPrice:                 nonZeroPtr(lp.InputCostPerToken),
+		OutputPrice:                nonZeroPtr(lp.OutputCostPerToken),
+		CacheWritePrice:            nonZeroPtr(lp.CacheCreationInputTokenCost),
+		CacheReadPrice:             nonZeroPtr(lp.CacheReadInputTokenCost),
+		ImageOutputPrice:           nonZeroPtr(lp.OutputCostPerImageToken),
+		ReasoningEffortMultipliers: reasoningEffortMultipliersFromPricing(existing),
 	}
+}
+
+func reasoningEffortMultipliersFromPricing(pricing *ChannelModelPricing) map[string]float64 {
+	if pricing == nil {
+		return nil
+	}
+	return maps.Clone(pricing.ReasoningEffortMultipliers)
 }
 
 func nonZeroPtr(v float64) *float64 {

@@ -1937,6 +1937,8 @@ func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapabilit
 		return false
 	}
 	switch capability {
+	case OpenAIImagesCapabilityAPIKey:
+		return a.Type == AccountTypeAPIKey
 	case OpenAIImagesCapabilityBasic, OpenAIImagesCapabilityNative:
 		return a.Type == AccountTypeOAuth || a.Type == AccountTypeAPIKey
 	default:

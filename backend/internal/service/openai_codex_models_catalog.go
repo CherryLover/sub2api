@@ -333,9 +333,18 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 	}
 
 	if isClaudeCodexModel(modelID) {
+		if claude.IsOpus55(modelID) {
+			descriptor.ContextWindow = 1_000_000
+			descriptor.MaxContextWindow = 1_000_000
+		}
 		descriptor.DisplayName = claudeCodexDisplayName(modelID)
 		descriptor.Description = "Claude coding and reasoning model routed through Sub2API."
 		descriptor.SupportsParallelToolCalls = true
+		if levels := configuredCodexClaudeReasoningLevels(modelID); len(levels) > 0 {
+			defaultReasoningLevel := claudeCodexDefaultReasoningLevel(levels)
+			descriptor.DefaultReasoningLevel = &defaultReasoningLevel
+			descriptor.SupportedReasoningLevels = levels
+		}
 	}
 
 	if isOpenAICodexGPTModel(modelID) {
@@ -352,7 +361,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 			descriptor.SupportedReasoningLevels = configuredCodexGPTReasoningLevels(modelID)
 			descriptor.DefaultReasoningSummary = "none"
 			descriptor.TruncationPolicy = configuredCodexTruncationPolicy{Mode: "tokens", Limit: configuredCodexToolOutputMaxTokens}
-			if isOpenAIGPT56Model(modelID) {
+			if isOpenAIGPT56Model(modelID) || openai.IsGPT6SolOrLunaModelSpelling(modelID) {
 				descriptor.MaxContextWindow = configuredCodexGPT56MaxContext
 			}
 			if isOpenAIGPT6AstraModel(modelID) {
@@ -414,7 +423,7 @@ func configuredCodexSupportsPriorityServiceTier(modelID string) bool {
 			return true
 		}
 	}
-	return isOpenAIGPT6AstraModel(modelID)
+	return isOpenAIGPT6Model(modelID)
 }
 
 func configuredCodexGrokReasoningLevels() []configuredCodexReasoningLevel {
@@ -425,6 +434,32 @@ func configuredCodexGrokReasoningLevels() []configuredCodexReasoningLevel {
 	}
 }
 
+func configuredCodexClaudeReasoningLevels(modelID string) []configuredCodexReasoningLevel {
+	levels := claude.EffortLevelsForModel(modelID)
+	out := make([]configuredCodexReasoningLevel, 0, len(levels))
+	for _, effort := range levels {
+		out = append(out, configuredCodexReasoningLevel{
+			Effort:      effort,
+			Description: configuredCodexReasoningLevelDescription(effort),
+		})
+	}
+	return out
+}
+
+func claudeCodexDefaultReasoningLevel(levels []configuredCodexReasoningLevel) string {
+	for _, preferred := range []string{"medium", "high", "low"} {
+		for _, level := range levels {
+			if level.Effort == preferred {
+				return preferred
+			}
+		}
+	}
+	if len(levels) == 0 {
+		return ""
+	}
+	return levels[0].Effort
+}
+
 func configuredCodexGPTReasoningLevels(modelID string) []configuredCodexReasoningLevel {
 	levels := []configuredCodexReasoningLevel{
 		{Effort: "low", Description: configuredCodexReasoningLevelDescription("low")},
@@ -433,7 +468,7 @@ func configuredCodexGPTReasoningLevels(modelID string) []configuredCodexReasonin
 		{Effort: "xhigh", Description: configuredCodexReasoningLevelDescription("xhigh")},
 	}
 	normalized := getNormalizedCodexModel(modelID)
-	if isOpenAIGPT56Model(modelID) || isOpenAIGPT6AstraModel(modelID) {
+	if isOpenAIGPT56Model(modelID) || isOpenAIGPT6Model(modelID) {
 		levels = append(levels, configuredCodexReasoningLevel{
 			Effort:      "max",
 			Description: configuredCodexReasoningLevelDescription("max"),
@@ -458,12 +493,12 @@ func isOpenAICodexGPTModel(modelID string) bool {
 
 func isOpenAICodexReasoningGPTModel(modelID string) bool {
 	normalized := canonicalizeOpenAIModelAliasSpelling(modelID)
-	return isOpenAIGPT6AstraModel(normalized) || strings.HasPrefix(normalized, "gpt-5")
+	return isOpenAIGPT6Model(normalized) || strings.HasPrefix(normalized, "gpt-5")
 }
 
 func isOpenAICodexImageInputModel(modelID string) bool {
 	normalized := canonicalizeOpenAIModelAliasSpelling(modelID)
-	return isOpenAIGPT6AstraModel(normalized) ||
+	return isOpenAIGPT6Model(normalized) ||
 		strings.HasPrefix(normalized, "gpt-5") ||
 		strings.HasPrefix(normalized, "gpt-4o") ||
 		strings.HasPrefix(normalized, "gpt-4.1") ||

@@ -23,7 +23,8 @@ const CLIVersionEnv = "SUB2API_CLAUDE_CLI_VERSION"
 // User-Agent 头与请求体 billing attribution 块里的 cc_version 由不同代码路径写入，
 // 若两次读到不同的值（例如进程运行中有人改了环境变量），同一个请求就会自相矛盾，
 // 被上游判为非正版客户端。
-var resolvedCLIVersion = resolveCLIVersion(os.Getenv(CLIVersionEnv))
+var rawCLIVersionOverride = strings.TrimSpace(os.Getenv(CLIVersionEnv))
+var resolvedCLIVersion = resolveCLIVersion(rawCLIVersionOverride)
 
 // CLIVersion 返回对外伪装的 Claude Code CLI 版本号（三段 semver）。
 //
@@ -31,6 +32,13 @@ var resolvedCLIVersion = resolveCLIVersion(os.Getenv(CLIVersionEnv))
 // 后者只是"没有覆盖时的内置基线"。
 func CLIVersion() string {
 	return resolvedCLIVersion
+}
+
+// HasCLIVersionOverride reports whether the process started with an explicit,
+// valid SUB2API_CLAUDE_CLI_VERSION operator override. Runtime settings and
+// automatic synchronization must not supersede this pin.
+func HasCLIVersionOverride() bool {
+	return rawCLIVersionOverride != "" && IsSupportedCLIVersion(rawCLIVersionOverride)
 }
 
 // IsSupportedCLIVersion 判断运维给的覆盖值是否可用。

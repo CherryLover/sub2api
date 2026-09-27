@@ -429,8 +429,12 @@ func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, plat
 // 依据 auth cache 快照拦截；本方法负责 user × platform 配额、Key 速率限制与 RPM 限流。
 // platform 为请求的目标平台（如 "anthropic"），传空串 "" 时跳过 user × platform quota 检查。
 func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, platform string) error {
-	// 简易模式：跳过所有计费检查
-	if s.cfg.RunMode == config.RunModeSimple {
+	// 简易模式默认仍跳过所有商业计费检查。只有显式开启时，单独执行 API Key
+	// 5h/1d/7d 消费窗口；余额、用户平台额度、RPM 等保持 Simple Mode 既有语义。
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		if s.cfg.SimpleModeKeyRateLimitEnabled {
+			return s.checkSimpleModeAPIKeyRateLimits(ctx, apiKey)
+		}
 		return nil
 	}
 	if s.circuitBreaker != nil && !s.circuitBreaker.Allow() {
@@ -453,6 +457,33 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 		return err
 	}
 
+	return nil
+}
+
+// checkSimpleModeAPIKeyRateLimits deliberately reads the DB-authoritative
+// spending-window counters. Redis updates are asynchronous, so relying on cache
+// here could allow an opted-in Simple Mode key to overshoot after a committed use.
+// When an operator explicitly enables this guard, loader failures fail closed.
+func (s *BillingCacheService) checkSimpleModeAPIKeyRateLimits(ctx context.Context, apiKey *APIKey) error {
+	if apiKey == nil || !apiKey.HasRateLimits() {
+		return nil
+	}
+	if s == nil || s.apiKeyRateLimitLoader == nil {
+		return ErrBillingServiceUnavailable
+	}
+	data, err := s.apiKeyRateLimitLoader.GetRateLimitData(ctx, apiKey.ID)
+	if err != nil || data == nil {
+		return ErrBillingServiceUnavailable
+	}
+	if apiKey.RateLimit5h > 0 && data.EffectiveUsage5h() >= apiKey.RateLimit5h {
+		return ErrAPIKeyRateLimit5hExceeded
+	}
+	if apiKey.RateLimit1d > 0 && data.EffectiveUsage1d() >= apiKey.RateLimit1d {
+		return ErrAPIKeyRateLimit1dExceeded
+	}
+	if apiKey.RateLimit7d > 0 && data.EffectiveUsage7d() >= apiKey.RateLimit7d {
+		return ErrAPIKeyRateLimit7dExceeded
+	}
 	return nil
 }
 

@@ -28,6 +28,7 @@ export interface UserPricingInterval {
   output_price: number | null
   cache_write_price: number | null
   cache_read_price: number | null
+  reasoning_effort_multipliers?: Record<string, number> | null
   per_request_price: number | null
 }
 

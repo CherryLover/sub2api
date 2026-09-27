@@ -249,3 +249,41 @@ func TestSanitizeOpenAIResponsesToolParameterTypes_RewriteCountIndependentOfHits
 		return true
 	})
 }
+
+func TestSanitizeOpenAIResponsesToolParameterTypes_DropsNullRequired(t *testing.T) {
+	body := []byte(`{"tools":[{"type":"function","name":"f","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":null}}]}`)
+	sanitized, changed, err := sanitizeOpenAIResponsesToolParameterTypes(body)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.False(t, gjson.GetBytes(sanitized, "tools.0.parameters.required").Exists())
+	require.Equal(t, "object", gjson.GetBytes(sanitized, "tools.0.parameters.type").String())
+}
+
+func TestSanitizeOpenAIResponsesToolParameterTypes_AnthropicInputSchema(t *testing.T) {
+	body := []byte(`{"tools":[{"name":"f","input_schema":{"type":null,"properties":{"path":{"type":"string"}},"required":null}}]}`)
+	sanitized, changed, err := sanitizeOpenAIResponsesToolParameterTypes(body)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "object", gjson.GetBytes(sanitized, "tools.0.input_schema.type").String())
+	require.False(t, gjson.GetBytes(sanitized, "tools.0.input_schema.required").Exists())
+}
+
+func TestSanitizeOpenAIResponsesToolParameterTypes_ContentSchema(t *testing.T) {
+	body := []byte(`{"tools":[{"name":"f","input_schema":{"type":"object","contentSchema":{"required":null}}}]}`)
+	sanitized, changed, err := sanitizeOpenAIResponsesToolParameterTypes(body)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.False(t, gjson.GetBytes(sanitized, "tools.0.input_schema.contentSchema.required").Exists())
+}
+
+func TestSanitizeOpenAIResponsesToolParameterTypes_PreservesInstanceData(t *testing.T) {
+	body := []byte(`{"tools":[{"name":"f","input_schema":{"type":"object","properties":{"cfg":{"type":"object","default":{"required":null},"examples":[{"required":null}],"const":{"required":null},"enum":[{"required":null}]}}}}]}`)
+	sanitized, changed, err := sanitizeOpenAIResponsesToolParameterTypes(body)
+	require.NoError(t, err)
+	require.False(t, changed)
+	base := "tools.0.input_schema.properties.cfg"
+	require.True(t, gjson.GetBytes(sanitized, base+".default.required").Exists())
+	require.True(t, gjson.GetBytes(sanitized, base+".examples.0.required").Exists())
+	require.True(t, gjson.GetBytes(sanitized, base+".const.required").Exists())
+	require.True(t, gjson.GetBytes(sanitized, base+".enum.0.required").Exists())
+}

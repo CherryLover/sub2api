@@ -8,79 +8,59 @@ import (
 )
 
 const (
-	// 工具定义在多轮历史里最多再嵌套一层 tools，留出余量后截断，避免畸形请求体
-	// 造成无界递归。
-	openAIResponsesToolSchemaMaxDepth = 4
-	// JSON Schema 里 type 只能是字符串或字符串数组；显式 null 无论哪个方言都非法，
-	// 补成 object 与 upstream 对该工具的实际期望一致。
+	openAIResponsesToolSchemaMaxDepth     = 12
 	openAIResponsesToolSchemaFallbackType = `"object"`
-	// 显式 null 在 JSON 里只有这一种字面量形态。
-	openAIResponsesToolSchemaNullLiteral = "null"
+	openAIResponsesToolSchemaNullLiteral  = "null"
 )
 
-// openAIResponsesToolSchemaNullType 记录一处待修正的 null，用原始 body 上的
-// 绝对字节偏移表示，便于最后一次性拼接。
-type openAIResponsesToolSchemaNullType struct {
-	offset int
-	length int
+type openAIResponsesToolSchemaEdit struct {
+	offset      int
+	length      int
+	replacement string
 }
 
-// sanitizeOpenAIResponsesToolParameterTypes 修正请求体中显式为 null 的
-// tools[].parameters.type。
+// sanitizeOpenAIResponsesToolParameterTypes repairs invalid JSON-Schema
+// members inside tool schema roots. It deliberately does not descend into
+// instance-data keywords such as default/examples/const/enum.
 //
-// Codex Desktop 内置的 automation_update 工具会带 parameters.type = null，
-// OpenAI 直接回 400 invalid_function_parameters，而网关把该状态归一成可重试的
-// 502 upstream_error；该工具定义又会沉进多轮历史，导致之后每一轮继续失败并在
-// 账号池里反复重放同一份坏 Schema。
-//
-// 只修正显式 null：缺失 type 的 Schema 本身合法（等价于不约束），补写会收窄
-// 客户端语义，因此保持原样。
-//
-// 实现上先收集全部命中的绝对偏移，再一次性拼出新 body：逐个 sjson.SetBytes 每次
-// 都会重扫并全量拷贝整个文档，命中 N 处就是 N 次全量拷贝，而 /v1/responses 的
-// body 上限是 gateway.max_body_size（默认 256MB），构造请求能塞进百万级命中。
+// Edits are collected as byte spans and the request is rewritten once, keeping
+// the lite branch's bounded-allocation behavior for large Responses bodies.
 func sanitizeOpenAIResponsesToolParameterTypes(body []byte) ([]byte, bool, error) {
 	if len(body) == 0 {
 		return body, false, nil
 	}
 
-	hits := make([]openAIResponsesToolSchemaNullType, 0, 2)
-	collectOpenAIResponsesToolSchemaNullTypes(body, gjson.GetBytes(body, "tools"), 0, &hits)
+	edits := make([]openAIResponsesToolSchemaEdit, 0, 4)
+	collectOpenAIResponsesToolSchemaEdits(body, gjson.GetBytes(body, "tools"), 0, &edits)
 	if input := gjson.GetBytes(body, "input"); input.IsArray() {
 		input.ForEach(func(_, item gjson.Result) bool {
 			if item.IsObject() {
-				collectOpenAIResponsesToolSchemaNullTypes(body, item.Get("tools"), 0, &hits)
+				collectOpenAIResponsesToolSchemaEdits(body, item.Get("tools"), 0, &edits)
 			}
 			return true
 		})
 	}
-	if len(hits) == 0 {
+	if len(edits) == 0 {
 		return body, false, nil
 	}
 
-	// tools 与 input 在 body 里的先后顺序由客户端决定，收集顺序不保证单调。
-	sort.Slice(hits, func(i, j int) bool { return hits[i].offset < hits[j].offset })
-
-	sanitized := make([]byte, 0, len(body)+len(hits)*len(openAIResponsesToolSchemaFallbackType))
+	sort.Slice(edits, func(i, j int) bool { return edits[i].offset < edits[j].offset })
+	out := make([]byte, 0, len(body)+len(edits)*len(openAIResponsesToolSchemaFallbackType))
 	cursor := 0
-	for _, hit := range hits {
-		// 收集阶段已逐个校验过区间，这里再挡一次重叠，保证拼接严格单调向前。
-		if hit.offset < cursor {
+	for _, edit := range edits {
+		if edit.offset < cursor || edit.offset < 0 || edit.offset+edit.length > len(body) {
 			continue
 		}
-		sanitized = append(sanitized, body[cursor:hit.offset]...)
-		sanitized = append(sanitized, openAIResponsesToolSchemaFallbackType...)
-		cursor = hit.offset + hit.length
+		out = append(out, body[cursor:edit.offset]...)
+		out = append(out, edit.replacement...)
+		cursor = edit.offset + edit.length
 	}
-	sanitized = append(sanitized, body[cursor:]...)
-	return sanitized, true, nil
+	out = append(out, body[cursor:]...)
+	return out, true, nil
 }
 
-// collectOpenAIResponsesToolSchemaNullTypes 收集一个 tools 数组里所有需要修正的
-// parameters.type 位置。不按 tool type 过滤：null 的 schema type 在 function、
-// custom 以及任何 hosted 工具上都同样非法。
-func collectOpenAIResponsesToolSchemaNullTypes(
-	body []byte, tools gjson.Result, depth int, hits *[]openAIResponsesToolSchemaNullType,
+func collectOpenAIResponsesToolSchemaEdits(
+	body []byte, tools gjson.Result, depth int, edits *[]openAIResponsesToolSchemaEdit,
 ) {
 	if depth > openAIResponsesToolSchemaMaxDepth || !tools.IsArray() {
 		return
@@ -89,39 +69,144 @@ func collectOpenAIResponsesToolSchemaNullTypes(
 		if !tool.IsObject() {
 			return true
 		}
-		// Responses 形态用顶层 parameters，ChatCompletions 形态用 function.parameters，
-		// 两种都可能出现在 Responses 请求里（见 normalizeCodexTools）。
-		for _, suffix := range []string{"parameters", "function.parameters"} {
-			params := tool.Get(suffix)
-			if !params.IsObject() {
-				continue
-			}
-			// gjson 用 Type==Null 同时表示「显式 null」和「路径不存在」，靠 Raw
-			// 区分：不存在时 Raw 为空串。
-			if typ := params.Get("type"); typ.Type == gjson.Null && typ.Raw == openAIResponsesToolSchemaNullLiteral {
-				appendOpenAIResponsesToolSchemaNullType(body, typ, hits)
+		for _, suffix := range []string{"parameters", "function.parameters", "input_schema"} {
+			schema := tool.Get(suffix)
+			if schema.IsObject() {
+				collectOpenAIResponsesJSONSchemaEdits(body, schema, 0, edits)
 			}
 		}
-		// 历史输入里的工具定义会再嵌套一层 tools（upstream 报错路径形如
-		// input[234].tools[0].tools[3].parameters）。
-		collectOpenAIResponsesToolSchemaNullTypes(body, tool.Get("tools"), depth+1, hits)
+		collectOpenAIResponsesToolSchemaEdits(body, tool.Get("tools"), depth+1, edits)
 		return true
 	})
 }
 
-// appendOpenAIResponsesToolSchemaNullType 先校验 gjson 给出的偏移确实指向原始
-// body 上那段 null，再记录。gjson 对嵌套取值同样返回相对原始文档的绝对偏移，但
-// Index 为 0 表示未知；偏移不可用时跳过该处而不是猜位置——少修一个工具只是维持
-// 现状，拼错位置会损坏整个请求体。
-func appendOpenAIResponsesToolSchemaNullType(
-	body []byte, typ gjson.Result, hits *[]openAIResponsesToolSchemaNullType,
+func collectOpenAIResponsesJSONSchemaEdits(
+	body []byte, schema gjson.Result, depth int, edits *[]openAIResponsesToolSchemaEdit,
 ) {
-	end := typ.Index + len(typ.Raw)
-	if typ.Index <= 0 || end > len(body) {
+	if depth > openAIResponsesToolSchemaMaxDepth || !schema.IsObject() {
 		return
 	}
-	if !bytes.Equal(body[typ.Index:end], []byte(typ.Raw)) {
+
+	if typ := schema.Get("type"); typ.Type == gjson.Null && typ.Raw == openAIResponsesToolSchemaNullLiteral {
+		appendOpenAIResponsesToolSchemaReplacement(body, typ, openAIResponsesToolSchemaFallbackType, edits)
+	}
+	if required := schema.Get("required"); required.Type == gjson.Null && required.Raw == openAIResponsesToolSchemaNullLiteral {
+		if offset, length, ok := openAIResponsesJSONObjectMemberSpan(body, required, "required"); ok {
+			*edits = append(*edits, openAIResponsesToolSchemaEdit{offset: offset, length: length})
+		}
+	}
+
+	for _, key := range []string{"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"} {
+		obj := schema.Get(key)
+		if !obj.IsObject() {
+			continue
+		}
+		obj.ForEach(func(_, child gjson.Result) bool {
+			if child.IsObject() {
+				collectOpenAIResponsesJSONSchemaEdits(body, child, depth+1, edits)
+			}
+			return true
+		})
+	}
+	for _, key := range []string{
+		"additionalProperties", "additionalItems", "contains", "not", "if", "then", "else",
+		"propertyNames", "unevaluatedProperties", "unevaluatedItems", "contentSchema",
+	} {
+		child := schema.Get(key)
+		if child.IsObject() {
+			collectOpenAIResponsesJSONSchemaEdits(body, child, depth+1, edits)
+		}
+	}
+	for _, key := range []string{"allOf", "anyOf", "oneOf", "prefixItems"} {
+		arr := schema.Get(key)
+		if !arr.IsArray() {
+			continue
+		}
+		arr.ForEach(func(_, child gjson.Result) bool {
+			if child.IsObject() {
+				collectOpenAIResponsesJSONSchemaEdits(body, child, depth+1, edits)
+			}
+			return true
+		})
+	}
+	items := schema.Get("items")
+	switch {
+	case items.IsObject():
+		collectOpenAIResponsesJSONSchemaEdits(body, items, depth+1, edits)
+	case items.IsArray():
+		items.ForEach(func(_, child gjson.Result) bool {
+			if child.IsObject() {
+				collectOpenAIResponsesJSONSchemaEdits(body, child, depth+1, edits)
+			}
+			return true
+		})
+	}
+}
+
+func appendOpenAIResponsesToolSchemaReplacement(
+	body []byte, value gjson.Result, replacement string, edits *[]openAIResponsesToolSchemaEdit,
+) {
+	end := value.Index + len(value.Raw)
+	if value.Index <= 0 || end > len(body) || !bytes.Equal(body[value.Index:end], []byte(value.Raw)) {
 		return
 	}
-	*hits = append(*hits, openAIResponsesToolSchemaNullType{offset: typ.Index, length: len(typ.Raw)})
+	*edits = append(*edits, openAIResponsesToolSchemaEdit{
+		offset: value.Index, length: len(value.Raw), replacement: replacement,
+	})
+}
+
+// openAIResponsesJSONObjectMemberSpan returns the byte range for a fixed schema
+// member and consumes one adjacent comma, so deleting the range keeps valid JSON.
+func openAIResponsesJSONObjectMemberSpan(body []byte, value gjson.Result, key string) (int, int, bool) {
+	if value.Index <= 0 || value.Index+len(value.Raw) > len(body) {
+		return 0, 0, false
+	}
+	i := value.Index - 1
+	for i >= 0 && isOpenAIResponsesJSONSpace(body[i]) {
+		i--
+	}
+	if i < 0 || body[i] != ':' {
+		return 0, 0, false
+	}
+	i--
+	for i >= 0 && isOpenAIResponsesJSONSpace(body[i]) {
+		i--
+	}
+	keyToken := []byte(`"` + key + `"`)
+	keyEnd := i + 1
+	keyStart := keyEnd - len(keyToken)
+	if keyStart < 0 || !bytes.Equal(body[keyStart:keyEnd], keyToken) {
+		return 0, 0, false
+	}
+
+	start := keyStart
+	end := value.Index + len(value.Raw)
+	for end < len(body) && isOpenAIResponsesJSONSpace(body[end]) {
+		end++
+	}
+
+	j := start - 1
+	for j >= 0 && isOpenAIResponsesJSONSpace(body[j]) {
+		j--
+	}
+	if j >= 0 && body[j] == ',' {
+		start = j
+		return start, end - start, true
+	}
+	if end < len(body) && body[end] == ',' {
+		end++
+		for end < len(body) && isOpenAIResponsesJSONSpace(body[end]) {
+			end++
+		}
+	}
+	return start, end - start, true
+}
+
+func isOpenAIResponsesJSONSpace(b byte) bool {
+	switch b {
+	case ' ', '\t', '\r', '\n':
+		return true
+	default:
+		return false
+	}
 }
