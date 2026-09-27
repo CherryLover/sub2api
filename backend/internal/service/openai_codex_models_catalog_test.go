@@ -66,6 +66,29 @@ func TestConfiguredCodexSupportsPriorityServiceTier(t *testing.T) {
 	}}, descriptor.ServiceTiers)
 }
 
+func TestConfiguredCodexNewModelsExposeCapabilities(t *testing.T) {
+	for _, model := range []string{"gpt-6-sol", "gpt-6-luna"} {
+		descriptor := newConfiguredCodexModelDescriptor(model)
+		require.Equal(t, model, descriptor.Slug)
+		require.True(t, isOpenAICodexImageInputModel(model))
+		require.Equal(t, int64(configuredCodexGPT56MaxContext), descriptor.MaxContextWindow)
+		require.Contains(t, descriptor.SupportedReasoningLevels, configuredCodexReasoningLevel{
+			Effort: "max", Description: configuredCodexReasoningLevelDescription("max"),
+		})
+		require.NotEmpty(t, descriptor.ServiceTiers)
+	}
+
+	opus := newConfiguredCodexModelDescriptor("claude-opus-5-5")
+	require.Equal(t, int64(1_000_000), opus.ContextWindow)
+	require.Equal(t, int64(1_000_000), opus.MaxContextWindow)
+	require.Contains(t, opus.SupportedReasoningLevels, configuredCodexReasoningLevel{
+		Effort: "xhigh", Description: configuredCodexReasoningLevelDescription("xhigh"),
+	})
+	require.Contains(t, opus.SupportedReasoningLevels, configuredCodexReasoningLevel{
+		Effort: "max", Description: configuredCodexReasoningLevelDescription("max"),
+	})
+}
+
 func TestConvertOpenAIModelListToCodexManifestForAccountMarksImageInput(t *testing.T) {
 	body := []byte(`{"object":"list","data":[{"id":"gpt-5.4"},{"id":"custom-text-only"}]}`)
 	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
