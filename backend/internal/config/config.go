@@ -83,6 +83,7 @@ type Config struct {
 	UsageCleanup UsageCleanupConfig         `mapstructure:"usage_cleanup"`
 	Concurrency  ConcurrencyConfig          `mapstructure:"concurrency"`
 	TokenRefresh TokenRefreshConfig         `mapstructure:"token_refresh"`
+	SimpleMode   SimpleModeConfig           `mapstructure:"simple_mode" yaml:"simple_mode"`
 	RunMode      string                     `mapstructure:"run_mode" yaml:"run_mode"`
 	Timezone     string                     `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
 	Gemini       GeminiConfig               `mapstructure:"gemini"`
@@ -91,6 +92,11 @@ type Config struct {
 	ImageStorage ImageStorageConfig         `mapstructure:"image_storage"`
 	KeyUsage     KeyUsageConfig             `mapstructure:"key_usage"`
 	Web          WebConfig                  `mapstructure:"web"`
+}
+
+// SimpleModeConfig controls startup behavior in simple mode.
+type SimpleModeConfig struct {
+	AutoCreateDefaultGroups bool `mapstructure:"auto_create_default_groups" yaml:"auto_create_default_groups"`
 }
 
 type LogConfig struct {
@@ -1590,6 +1596,7 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
+	viper.SetDefault("simple_mode.auto_create_default_groups", true)
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")
