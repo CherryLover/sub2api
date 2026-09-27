@@ -142,7 +142,7 @@ func TestGroupReasoningPricingRoundTripAndBilling(t *testing.T) {
 	allLevels := map[string]float64{"none": 0.5, "minimal": 0.75, "low": 0.9, "medium": 1.25, "high": 1.5, "xhigh": 2, "max": 3}
 	group := &service.Group{
 		Name: t.Name(), Platform: service.PlatformAnthropic, RateMultiplier: 0.8,
-		Status: service.StatusActive, SubscriptionType: service.SubscriptionTypeStandard,
+		Status: service.StatusActive,
 		ModelPricing: []service.ChannelModelPricing{{
 			Platform: service.PlatformAnthropic, Models: []string{"claude-opus-5-5"}, BillingMode: service.BillingModeToken,
 			InputPrice: &inputPrice, OutputPrice: &outputPrice, ReasoningEffortMultipliers: allLevels,
