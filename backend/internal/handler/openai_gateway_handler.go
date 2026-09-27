@@ -2709,6 +2709,19 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 		return
 	}
 	copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)
+	if failoverErr.Reason == service.OpenAIImagesInsufficientBalanceReason {
+		status := failoverErr.ClientStatusCode
+		if status <= 0 {
+			status = http.StatusPaymentRequired
+		}
+		message := strings.TrimSpace(failoverErr.ClientMessage)
+		if message == "" {
+			message = service.OpenAIImagesInsufficientBalanceMessage
+		}
+		service.SetOpsUpstreamError(c, failoverErr.StatusCode, message, "")
+		h.handleStreamingAwareErrorWithCode(c, status, "upstream_error", service.OpenAIImagesInsufficientBalanceCode, message, streamStarted, false)
+		return
+	}
 	if failoverErr.IsCredentialFailure() {
 		status, message := credentialFailoverClientResponse(failoverErr)
 		h.handleStreamingAwareError(c, status, "upstream_error", message, streamStarted)
