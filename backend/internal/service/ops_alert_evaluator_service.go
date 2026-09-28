@@ -392,7 +392,7 @@ func (s *OpsAlertEvaluatorService) evaluateTarget(
 			Severity:       strings.TrimSpace(rule.Severity),
 			Status:         OpsAlertStatusFiring,
 			Urgency:        urgency,
-			Delivery:       opsAlertDeliveryForUrgency(urgency),
+			Delivery:       opsAlertDeliveryForRule(rule),
 			Title:          fmt.Sprintf("%s: %s", strings.TrimSpace(rule.Severity), strings.TrimSpace(rule.Name)),
 			Description:    target.description,
 			MetricValue:    float64Ptr(target.value),
@@ -714,10 +714,16 @@ func opsAlertUrgencyForRule(rule *OpsAlertRule) string {
 	}
 }
 
-func opsAlertDeliveryForUrgency(urgency string) string {
-	switch urgency {
+func opsAlertDeliveryForRule(rule *OpsAlertRule) string {
+	if rule == nil {
+		return OpsAlertDeliveryNone
+	}
+	switch opsAlertUrgencyForRule(rule) {
 	case OpsAlertUrgencyImmediate:
-		return OpsAlertDeliveryBarkRealtime
+		if rule.NotifyEmail {
+			return OpsAlertDeliveryBarkRealtime
+		}
+		return OpsAlertDeliveryInApp
 	case OpsAlertUrgencyObserve:
 		return OpsAlertDeliveryInApp
 	default:
@@ -727,7 +733,7 @@ func opsAlertDeliveryForUrgency(urgency string) string {
 
 // notifyAlertFired only interrupts the administrator for immediate events.
 func (s *OpsAlertEvaluatorService) notifyAlertFired(ctx context.Context, rule *OpsAlertRule, n OpsAlertNotification, firedAt time.Time) {
-	if s == nil || s.alertNotifier == nil || rule == nil || opsAlertUrgencyForRule(rule) != OpsAlertUrgencyImmediate {
+	if s == nil || s.alertNotifier == nil || rule == nil || opsAlertDeliveryForRule(rule) != OpsAlertDeliveryBarkRealtime {
 		return
 	}
 	n.FiredAt = firedAt
@@ -739,7 +745,7 @@ func (s *OpsAlertEvaluatorService) notifyAlertFired(ctx context.Context, rule *O
 
 // notifyAlertResolved mirrors realtime delivery: observe/silent recovery stays in history.
 func (s *OpsAlertEvaluatorService) notifyAlertResolved(ctx context.Context, rule *OpsAlertRule, n OpsAlertNotification, firedAt, resolvedAt time.Time) {
-	if s == nil || s.alertNotifier == nil || rule == nil || opsAlertUrgencyForRule(rule) != OpsAlertUrgencyImmediate {
+	if s == nil || s.alertNotifier == nil || rule == nil || opsAlertDeliveryForRule(rule) != OpsAlertDeliveryBarkRealtime {
 		return
 	}
 	n.FiredAt = firedAt

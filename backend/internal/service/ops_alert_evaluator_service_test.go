@@ -276,10 +276,18 @@ func TestOpsAlertUrgencyForRule(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := opsAlertUrgencyForRule(&OpsAlertRule{MetricType: tt.metric, Operator: tt.operator, Threshold: tt.threshold})
+			rule := &OpsAlertRule{MetricType: tt.metric, Operator: tt.operator, Threshold: tt.threshold, NotifyEmail: true}
+			got := opsAlertUrgencyForRule(rule)
 			require.Equal(t, tt.want, got)
 			if got == OpsAlertUrgencyImmediate {
-				require.Equal(t, OpsAlertDeliveryBarkRealtime, opsAlertDeliveryForUrgency(got))
+				require.Equal(t, OpsAlertDeliveryBarkRealtime, opsAlertDeliveryForRule(rule))
+				rule.NotifyEmail = false
+				require.Equal(t, OpsAlertUrgencyImmediate, opsAlertUrgencyForRule(rule))
+				require.Equal(t, OpsAlertDeliveryInApp, opsAlertDeliveryForRule(rule))
+			} else if got == OpsAlertUrgencyObserve {
+				require.Equal(t, OpsAlertDeliveryInApp, opsAlertDeliveryForRule(rule))
+			} else {
+				require.Equal(t, OpsAlertDeliveryNone, opsAlertDeliveryForRule(rule))
 			}
 		})
 	}

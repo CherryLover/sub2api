@@ -560,7 +560,9 @@ export default {
           window: 'Window (minutes)',
           sustained: 'Sustained (samples)',
           cooldown: 'Cooldown (minutes)',
-          enabled: 'Enabled'
+          enabled: 'Enabled',
+          realtimeBark: 'Allow realtime Bark notifications',
+          realtimeBarkHint: 'Only Immediate events use this switch; disabling it still keeps the event in in-app history.'
         },
         validation: {
           title: 'Please fix the following issues',

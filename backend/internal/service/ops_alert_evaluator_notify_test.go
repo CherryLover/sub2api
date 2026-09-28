@@ -88,6 +88,7 @@ func newNotifyEvaluatorFixture(t *testing.T, barkEnabled bool, notifyOnResolve b
 			ID:         1,
 			Name:       "用户请求错误率过高",
 			Enabled:    true,
+			NotifyEmail: true,
 			Severity:   "P1",
 			MetricType: "error_rate",
 			Operator:   ">",
@@ -218,4 +219,17 @@ func TestOpsAlertEvaluator_NoPushWhenBarkDisabledOrAbsent(t *testing.T) {
 		ruleStates: map[opsAlertRuleStateKey]*opsAlertRuleState{},
 	}
 	require.NotPanics(t, func() { bare.evaluateOnce(60 * time.Second) })
+}
+
+func TestOpsAlertEvaluator_ImmediateWithoutRealtimeDeliveryStaysInApp(t *testing.T) {
+	t.Parallel()
+
+	svc, repo, sender := newNotifyEvaluatorFixture(t, true, true)
+	repo.rules[0].NotifyEmail = false
+	svc.evaluateOnce(60 * time.Second)
+
+	require.Len(t, repo.created, 1)
+	require.Equal(t, OpsAlertUrgencyImmediate, repo.created[0].Urgency)
+	require.Equal(t, OpsAlertDeliveryInApp, repo.created[0].Delivery)
+	require.Empty(t, sender.sent())
 }

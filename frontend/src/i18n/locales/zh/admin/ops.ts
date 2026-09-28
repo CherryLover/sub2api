@@ -560,7 +560,9 @@ export default {
           window: '统计窗口（分钟）',
           sustained: '连续样本数（每分钟）',
           cooldown: '冷却期（分钟）',
-          enabled: '启用'
+          enabled: '启用',
+          realtimeBark: '允许实时 Bark 通知',
+          realtimeBarkHint: '仅“立即处理”事件会使用此开关；关闭后事件仍保留在站内历史。'
         },
         validation: {
           title: '请先修正以下问题',
