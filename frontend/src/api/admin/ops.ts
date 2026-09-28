@@ -730,6 +730,8 @@ export interface AlertEvent {
   dimensions?: Record<string, any>
   fired_at: string
   resolved_at?: string | null
+  urgency: 'immediate' | 'observe' | 'silent' | string
+  delivery: 'bark_realtime' | 'in_app' | 'none' | string
   email_sent: boolean
   created_at: string
 }

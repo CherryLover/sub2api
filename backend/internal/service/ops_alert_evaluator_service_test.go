@@ -252,3 +252,43 @@ func TestComputeRuleMetricNewIndicators(t *testing.T) {
 		})
 	}
 }
+
+func TestOpsAlertUrgencyForRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		metric    string
+		operator  string
+		threshold float64
+		want      string
+	}{
+		{name: "user-visible error rate requires action", metric: "error_rate", want: OpsAlertUrgencyImmediate},
+		{name: "zero available accounts requires action", metric: "group_available_accounts", operator: "<=", threshold: 0, want: OpsAlertUrgencyImmediate},
+		{name: "low available accounts is observed", metric: "group_available_accounts", operator: "<=", threshold: 2, want: OpsAlertUrgencyObserve},
+		{name: "upstream degradation is observed", metric: "upstream_error_rate", want: OpsAlertUrgencyObserve},
+		{name: "account resource state is observed", metric: OpsAlertMetricAccountWindowUsedPercent, want: OpsAlertUrgencyObserve},
+		{name: "api key quota is observed", metric: OpsAlertMetricAPIKeyDailyUsedPercent, want: OpsAlertUrgencyObserve},
+		{name: "unknown metric is history only", metric: "future_metric", want: OpsAlertUrgencySilent},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rule := &OpsAlertRule{MetricType: tt.metric, Operator: tt.operator, Threshold: tt.threshold, NotifyEmail: true}
+			got := opsAlertUrgencyForRule(rule)
+			require.Equal(t, tt.want, got)
+			if got == OpsAlertUrgencyImmediate {
+				require.Equal(t, OpsAlertDeliveryBarkRealtime, opsAlertDeliveryForRule(rule))
+				rule.NotifyEmail = false
+				require.Equal(t, OpsAlertUrgencyImmediate, opsAlertUrgencyForRule(rule))
+				require.Equal(t, OpsAlertDeliveryInApp, opsAlertDeliveryForRule(rule))
+			} else if got == OpsAlertUrgencyObserve {
+				require.Equal(t, OpsAlertDeliveryInApp, opsAlertDeliveryForRule(rule))
+			} else {
+				require.Equal(t, OpsAlertDeliveryNone, opsAlertDeliveryForRule(rule))
+			}
+		})
+	}
+}

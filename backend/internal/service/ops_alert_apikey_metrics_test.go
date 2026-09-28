@@ -249,23 +249,19 @@ func TestOpsAlertEvaluator_APIKeyTargetsFireAndResolveIndependently(t *testing.T
 	require.Equal(t, "张三", f.repo.created[0].Dimensions["user_name"])
 	require.Nil(t, f.repo.created[0].Dimensions["account_id"], "密钥事件不写 account_id")
 	require.Equal(t, "API Key 当日用量：张三 / dev-key 当前 85%，阈值 >= 80%", f.repo.created[0].Description)
+	require.Equal(t, OpsAlertUrgencyObserve, f.repo.created[0].Urgency)
+	require.Equal(t, OpsAlertDeliveryInApp, f.repo.created[0].Delivery)
 	require.Equal(t, 0, f.repo.wrongKindCalls, "密钥目标不能用规则级 / 账号级事件查询")
 	require.Contains(t, f.repo.heartbeats[len(f.repo.heartbeats)-1], "evaluated=1 created=1 resolved=0")
 
-	sends := f.sender.sent()
-	require.Len(t, sends, 1)
-	require.Equal(t, "[Sub2API] 密钥当日用量 · P2 告警", sends[0].Msg.Title)
-	require.Contains(t, sends[0].Msg.Body, "指标：API Key 当日用量")
-	require.Contains(t, sends[0].Msg.Body, "张三 / dev-key：85%（425.00 / 500.00 USD）")
-	require.Contains(t, sends[0].Msg.Body, "当前值：85%")
-	require.Contains(t, sends[0].Msg.Body, "阈值：>= 80%")
+	require.Empty(t, f.sender.sent(), "API Key 用量属于持续观察，不应实时 Bark")
 
 	// 第二轮：1 号有活动事件不重复推；2 号涨到 90% → 它自己触发一次。
 	f.keyRepo.keys[1] = dailyLimitedKey(2, "ci-key", "李四", 450, 500)
 	f.svc.evaluateOnce(60 * time.Second)
 	require.Len(t, f.repo.created, 2)
 	require.Equal(t, int64(2), f.repo.created[1].Dimensions["api_key_id"])
-	require.Len(t, f.sender.sent(), 2)
+	require.Empty(t, f.sender.sent())
 
 	// 第三轮：1 号的日窗口滚过去 → EffectiveUsage1d() 记 0 → 只有 1 号恢复，2 号仍活跃。
 	expired := time.Now().UTC().Add(-25 * time.Hour)
@@ -273,11 +269,7 @@ func TestOpsAlertEvaluator_APIKeyTargetsFireAndResolveIndependently(t *testing.T
 	f.svc.evaluateOnce(60 * time.Second)
 	require.Equal(t, []int64{1}, f.repo.resolved)
 	require.Len(t, f.repo.created, 2)
-	sends = f.sender.sent()
-	require.Len(t, sends, 3)
-	require.Equal(t, "[Sub2API] 密钥当日用量 · 已恢复", sends[2].Msg.Title)
-	require.Contains(t, sends[2].Msg.Body, "张三 / dev-key：0%（0.00 / 500.00 USD）")
-	require.Contains(t, sends[2].Msg.Body, "恢复值：0%")
+	require.Empty(t, f.sender.sent(), "持续观察事件恢复不应实时 Bark")
 	require.Len(t, f.repo.activeByKey, 1, "2 号仍在触发中")
 	require.Equal(t, 0, f.repo.wrongKindCalls)
 }

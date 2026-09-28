@@ -11,6 +11,14 @@ const (
 	OpsAlertStatusFiring         = "firing"
 	OpsAlertStatusResolved       = "resolved"
 	OpsAlertStatusManualResolved = "manual_resolved"
+
+	OpsAlertUrgencyImmediate = "immediate"
+	OpsAlertUrgencyObserve   = "observe"
+	OpsAlertUrgencySilent    = "silent"
+
+	OpsAlertDeliveryBarkRealtime = "bark_realtime"
+	OpsAlertDeliveryInApp        = "in_app"
+	OpsAlertDeliveryNone         = "none"
 )
 
 type OpsAlertRule struct {
@@ -54,6 +62,9 @@ type OpsAlertEvent struct {
 
 	FiredAt    time.Time  `json:"fired_at"`
 	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+
+	Urgency  string `json:"urgency"`
+	Delivery string `json:"delivery"`
 
 	EmailSent bool      `json:"email_sent"`
 	CreatedAt time.Time `json:"created_at"`

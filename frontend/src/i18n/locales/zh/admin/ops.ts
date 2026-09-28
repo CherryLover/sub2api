@@ -424,6 +424,16 @@ export default {
           resolved: '已恢复',
           manualResolved: '手动已解决'
         },
+        urgency: {
+          immediate: '立即处理',
+          observe: '持续观察',
+          silent: '静默记录'
+        },
+        delivery: {
+          barkRealtime: 'Bark 即时通知',
+          inApp: '站内记录',
+          historyOnly: '仅站内记录'
+        },
         detail: {
           title: '告警详情',
           loading: '加载详情中...',
@@ -450,6 +460,7 @@ export default {
           time: '时间',
           status: '状态',
           severity: '级别',
+          notification: '紧急程度 / 通知',
           platform: '平台',
           ruleId: '规则ID',
           title: '标题',
@@ -549,7 +560,9 @@ export default {
           window: '统计窗口（分钟）',
           sustained: '连续样本数（每分钟）',
           cooldown: '冷却期（分钟）',
-          enabled: '启用'
+          enabled: '启用',
+          realtimeBark: '允许实时 Bark 通知',
+          realtimeBarkHint: '仅“立即处理”事件会使用此开关；关闭后事件仍保留在站内历史。'
         },
         validation: {
           title: '请先修正以下问题',

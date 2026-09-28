@@ -424,6 +424,16 @@ export default {
           resolved: 'RESOLVED',
           manualResolved: 'MANUAL RESOLVED'
         },
+        urgency: {
+          immediate: 'Immediate action',
+          observe: 'Observe',
+          silent: 'Silent record'
+        },
+        delivery: {
+          barkRealtime: 'Realtime Bark',
+          inApp: 'In-app record',
+          historyOnly: 'History only'
+        },
         detail: {
           title: 'Alert Detail',
           loading: 'Loading detail...',
@@ -450,6 +460,7 @@ export default {
           time: 'Time',
           status: 'Status',
           severity: 'Severity',
+          notification: 'Urgency / Delivery',
           platform: 'Platform',
           ruleId: 'Rule ID',
           title: 'Title',
@@ -549,7 +560,9 @@ export default {
           window: 'Window (minutes)',
           sustained: 'Sustained (samples)',
           cooldown: 'Cooldown (minutes)',
-          enabled: 'Enabled'
+          enabled: 'Enabled',
+          realtimeBark: 'Allow realtime Bark notifications',
+          realtimeBarkHint: 'Only Immediate events use this switch; disabling it still keeps the event in in-app history.'
         },
         validation: {
           title: 'Please fix the following issues',
