@@ -7,15 +7,17 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
-// A partial mapping catalog must not hide models from unmapped OpenAI accounts.
-// Keep an empty catalog unchanged so callers retain their existing discovery fallback.
+// A partial mapping catalog must not hide models from unmapped or passthrough OpenAI accounts.
+// Passthrough routing ignores model_mapping, so it contributes the default model set even if
+// stale mapping metadata is still present. Keep an empty catalog unchanged so callers retain
+// their existing discovery fallback.
 func supplementUnmappedOpenAIModels(accounts []Account, models []string) []string {
 	if len(models) == 0 {
 		return models
 	}
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform == PlatformOpenAI && len(account.GetModelMapping()) == 0 {
+		if account.Platform == PlatformOpenAI && (account.IsOpenAIPassthroughEnabled() || len(account.GetModelMapping()) == 0) {
 			return dedupeAndSortModelIDs(slices.Concat(models, openai.DefaultModelIDs()))
 		}
 	}
