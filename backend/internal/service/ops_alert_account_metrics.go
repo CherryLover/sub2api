@@ -244,7 +244,11 @@ func readAccountWindowUsedPercent(account *Account, window string, now time.Time
 		if openAIQuotaWindowReset(account.Extra, window, now) {
 			return 0, true
 		}
-		// 读取器内部还会做快照过期判断（codex_usage_updated_at 超 2 小时 → nil）。
+		// 告警指标与调度停调的语义不同：调度在已知未来 reset 时可以继续信任
+		// 陈旧快照以避免提前解封，但监控不能把超过时效的快照当作当前用量。
+		if openAICodexSnapshotStaleForPause(account.Extra, now) {
+			return 0, false
+		}
 		candidate = openAIThresholdCandidate(account.Extra, window, now)
 	case PlatformAnthropic:
 		candidate = anthropicWindowCandidate(account, window)
