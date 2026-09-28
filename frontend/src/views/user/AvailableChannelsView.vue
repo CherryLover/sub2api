@@ -42,9 +42,17 @@
           :no-pricing-label="t('availableChannels.noPricing')"
           :no-models-label="t('availableChannels.noModels')"
           :empty-label="t('availableChannels.empty')"
+          @select-account="openAccount"
         />
       </template>
     </TablePageLayout>
+
+    <AccountLoadDrawer
+      :show="selectedAccount !== null"
+      :account="selectedAccount"
+      :user-readonly="true"
+      @close="selectedAccount = null"
+    />
   </AppLayout>
 </template>
 
@@ -55,7 +63,8 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import AvailableChannelsTable from '@/components/channels/AvailableChannelsTable.vue'
-import userChannelsAPI, { type UserAvailableChannel } from '@/api/channels'
+import AccountLoadDrawer from '@/components/admin/account/AccountLoadDrawer.vue'
+import userChannelsAPI, { type UserAvailableAccount, type UserAvailableChannel } from '@/api/channels'
 import userGroupsAPI from '@/api/groups'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -67,12 +76,14 @@ const channels = ref<UserAvailableChannel[]>([])
 const userGroupRates = ref<Record<number, number>>({})
 const loading = ref(false)
 const searchQuery = ref('')
+const selectedAccount = ref<UserAvailableAccount | null>(null)
 
 const columnLabels = computed(() => ({
   name: t('availableChannels.columns.name'),
   description: t('availableChannels.columns.description'),
   platform: t('availableChannels.columns.platform'),
   groups: t('availableChannels.columns.groups'),
+  accounts: t('availableChannels.columns.accounts'),
   supportedModels: t('availableChannels.columns.supportedModels'),
 }))
 
@@ -94,6 +105,7 @@ const filteredChannels = computed(() => {
         (p) =>
           p.platform.toLowerCase().includes(q) ||
           p.groups.some((g) => g.name.toLowerCase().includes(q)) ||
+          p.accounts?.some((account) => account.name.toLowerCase().includes(q)) ||
           p.supported_models.some((m) => m.name.toLowerCase().includes(q)),
       )
       if (matchingSections.length === 0) return null
@@ -101,6 +113,10 @@ const filteredChannels = computed(() => {
     })
     .filter((ch): ch is UserAvailableChannel => ch !== null)
 })
+
+function openAccount(account: UserAvailableAccount) {
+  selectedAccount.value = account
+}
 
 async function loadChannels() {
   loading.value = true

@@ -5,6 +5,7 @@
 
 import { apiClient } from './client'
 import type { BillingMode } from '@/constants/channel'
+import type { AccountRecentRequestsParams, AccountRecentRequestsResponse } from '@/api/admin/accounts'
 
 export interface UserAvailableGroup {
   id: number
@@ -50,6 +51,17 @@ export interface UserSupportedModel {
   pricing: UserSupportedModelPricing | null
 }
 
+export interface UserAvailableAccount {
+  id: number
+  name: string
+  platform: string
+  type: string
+  status: string
+  schedulable: boolean
+  last_used_at?: string | null
+  concurrency: number
+}
+
 /**
  * 渠道下单个平台的子视图：用户可访问的分组 + 该平台支持的模型。
  * 后端把一个渠道按平台聚合成 sections，前端可以把渠道名作为 row-group
@@ -59,6 +71,7 @@ export interface UserChannelPlatformSection {
   platform: string
   groups: UserAvailableGroup[]
   supported_models: UserSupportedModel[]
+  accounts?: UserAvailableAccount[]
 }
 
 export interface UserAvailableChannel {
@@ -75,6 +88,14 @@ export async function getAvailable(options?: { signal?: AbortSignal }): Promise<
   return data
 }
 
-export const userChannelsAPI = { getAvailable }
+export async function getAccountRecentRequests(
+  id: number,
+  params: AccountRecentRequestsParams = {}
+): Promise<AccountRecentRequestsResponse> {
+  const { data } = await apiClient.get<AccountRecentRequestsResponse>(`/channels/accounts/${id}/recent-requests`, { params })
+  return data
+}
+
+export const userChannelsAPI = { getAvailable, getAccountRecentRequests }
 
 export default userChannelsAPI

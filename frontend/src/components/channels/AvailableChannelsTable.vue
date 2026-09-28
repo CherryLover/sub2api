@@ -12,19 +12,20 @@
           <th class="w-[200px] px-4 py-3 text-left">{{ columns.description }}</th>
           <th class="w-[140px] px-4 py-3 text-left">{{ columns.platform }}</th>
           <th class="px-4 py-3 text-left">{{ columns.groups }}</th>
+          <th class="px-4 py-3 text-left">{{ columns.accounts }}</th>
           <th class="px-4 py-3 text-left">{{ columns.supportedModels }}</th>
         </tr>
       </thead>
       <tbody v-if="loading">
         <tr>
-          <td colspan="5" class="py-10 text-center">
+          <td colspan="6" class="py-10 text-center">
             <Icon name="refresh" size="lg" class="inline-block animate-spin text-gray-400" />
           </td>
         </tr>
       </tbody>
       <tbody v-else-if="rows.length === 0">
         <tr>
-          <td colspan="5" class="py-12 text-center">
+          <td colspan="6" class="py-12 text-center">
             <Icon name="inbox" size="xl" class="mx-auto mb-3 h-12 w-12 text-gray-400" />
             <p class="text-sm text-gray-500 dark:text-gray-400">{{ emptyLabel }}</p>
           </td>
@@ -144,6 +145,24 @@
                 </div>
               </div>
               <span v-if="section.groups.length === 0" class="text-xs text-gray-400">-</span>
+            </div>
+          </td>
+
+          <!-- 用户可访问的上游账号：只读，点击仅查看近期使用情况。 -->
+          <td class="align-top px-4 py-3">
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="account in sectionAccounts(section)"
+                :key="account.id"
+                type="button"
+                class="inline-flex max-w-full items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-left text-xs text-gray-700 transition-colors hover:border-primary-300 hover:text-primary-600 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:border-primary-700 dark:hover:text-primary-400"
+                :title="`#${account.id} · ${account.platform} · ${account.status}`"
+                @click="emit('select-account', account)"
+              >
+                <span class="max-w-[160px] truncate font-medium">{{ account.name }}</span>
+                <span :class="['h-1.5 w-1.5 flex-shrink-0 rounded-full', accountStatusDot(account.status, account.schedulable)]" />
+              </button>
+              <span v-if="sectionAccounts(section).length === 0" class="text-xs text-gray-400">-</span>
             </div>
           </td>
 
@@ -285,6 +304,25 @@
 
               <div class="min-w-0">
                 <dt class="mb-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                  {{ columns.accounts }}
+                </dt>
+                <dd class="flex min-w-0 flex-wrap gap-1.5">
+                  <button
+                    v-for="account in sectionAccounts(section)"
+                    :key="`mobile-account-${account.id}`"
+                    type="button"
+                    class="inline-flex max-w-full items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-left text-xs text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300"
+                    @click="emit('select-account', account)"
+                  >
+                    <span class="max-w-[180px] truncate font-medium">{{ account.name }}</span>
+                    <span :class="['h-1.5 w-1.5 flex-shrink-0 rounded-full', accountStatusDot(account.status, account.schedulable)]" />
+                  </button>
+                  <span v-if="sectionAccounts(section).length === 0" class="text-xs text-gray-400">-</span>
+                </dd>
+              </div>
+
+              <div class="min-w-0">
+                <dt class="mb-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400">
                   {{ columns.supportedModels }}
                 </dt>
                 <dd class="flex min-w-0 flex-wrap gap-1">
@@ -317,7 +355,7 @@ import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import SupportedModelChip from './SupportedModelChip.vue'
-import type { UserAvailableChannel, UserAvailableGroup, UserChannelPlatformSection } from '@/api/channels'
+import type { UserAvailableAccount, UserAvailableChannel, UserAvailableGroup, UserChannelPlatformSection } from '@/api/channels'
 import type { GroupPlatform } from '@/types'
 import { platformBadgeClass } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
@@ -329,6 +367,7 @@ const props = defineProps<{
     description: string
     platform: string
     groups: string
+    accounts: string
     supportedModels: string
   }
   rows: UserAvailableChannel[]
@@ -339,6 +378,10 @@ const props = defineProps<{
   emptyLabel: string
   /** 用户专属倍率（group_id → multiplier）；无专属时由 GroupBadge 仅显示默认倍率。 */
   userGroupRates: Record<number, number>
+}>()
+
+const emit = defineEmits<{
+  (event: 'select-account', account: UserAvailableAccount): void
 }>()
 
 // Suppress unused warning — props is accessed via template automatically but
@@ -355,6 +398,10 @@ function publicGroups(section: UserChannelPlatformSection): UserAvailableGroup[]
   return section.groups.filter((g) => !g.is_exclusive)
 }
 
+function sectionAccounts(section: UserChannelPlatformSection): UserAvailableAccount[] {
+  return section.accounts ?? []
+}
+
 const appStore = useAppStore()
 
 function hasPeakRate(group: UserAvailableGroup): boolean {
@@ -367,5 +414,11 @@ function peakRateLabel(group: UserAvailableGroup): string {
 
 function peakRateTitle(group: UserAvailableGroup): string {
   return t('common.peakRateTooltip', { window: peakRateLabel(group) }) + t('common.peakRateImageNote')
+}
+
+function accountStatusDot(status: string, schedulable: boolean): string {
+  if (status === 'active' && schedulable) return 'bg-emerald-500'
+  if (status === 'error') return 'bg-red-500'
+  return 'bg-amber-400'
 }
 </script>

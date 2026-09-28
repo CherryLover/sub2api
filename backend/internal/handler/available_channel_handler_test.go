@@ -91,14 +91,31 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 		require.Truef(t, exists, "user DTO must expose %q", key)
 	}
 
-	// 验证 section 的字段（platform / groups / supported_models）。
+	// 验证 section 的字段（platform / groups / accounts / supported_models）。
 	rawSection, err := json.Marshal(row.Platforms[0])
 	require.NoError(t, err)
 	var sectionDecoded map[string]any
 	require.NoError(t, json.Unmarshal(rawSection, &sectionDecoded))
-	for _, key := range []string{"platform", "groups", "supported_models"} {
+	for _, key := range []string{"platform", "groups", "accounts", "supported_models"} {
 		_, exists := sectionDecoded[key]
 		require.Truef(t, exists, "platform section must expose %q", key)
+	}
+
+	account := userAvailableAccount{
+		ID: 7, Name: "upstream-a", Platform: "anthropic", Type: "oauth",
+		Status: service.StatusActive, Schedulable: true, Concurrency: 3,
+	}
+	rawAccount, err := json.Marshal(account)
+	require.NoError(t, err)
+	var accountDecoded map[string]any
+	require.NoError(t, json.Unmarshal(rawAccount, &accountDecoded))
+	for _, key := range []string{"id", "name", "platform", "type", "status", "schedulable", "concurrency"} {
+		_, exists := accountDecoded[key]
+		require.Truef(t, exists, "user account DTO must expose %q", key)
+	}
+	for _, key := range []string{"credentials", "proxy_id", "notes", "error_message", "priority", "rate_multiplier", "extra"} {
+		_, exists := accountDecoded[key]
+		require.Falsef(t, exists, "user account DTO must not expose %q", key)
 	}
 
 	// Group DTO 暴露区分专属/公开、默认倍率和高峰倍率规则所需的字段，
@@ -131,6 +148,33 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 		_, exists := ivDecoded[key]
 		require.Falsef(t, exists, "user pricing interval must not expose %q", key)
 	}
+}
+
+func TestAttachUserVisibleAccounts_OnlySectionGroupsAndPlatform(t *testing.T) {
+	sections := []userChannelPlatformSection{{
+		Platform: "openai",
+		Groups: []userAvailableGroup{
+			{ID: 1, Name: "g1", Platform: "openai"},
+		},
+	}}
+	accounts := []service.Account{
+		{ID: 10, Name: "visible", Platform: "openai", Status: service.StatusActive, GroupIDs: []int64{1}},
+		{ID: 11, Name: "wrong-group", Platform: "openai", Status: service.StatusActive, GroupIDs: []int64{2}},
+		{ID: 12, Name: "wrong-platform", Platform: "anthropic", Status: service.StatusActive, GroupIDs: []int64{1}},
+		{ID: 13, Name: "visible-error", Platform: "openai", Status: service.StatusError, GroupIDs: []int64{1}},
+	}
+
+	attachUserVisibleAccounts(sections, accounts)
+
+	require.Len(t, sections[0].Accounts, 2)
+	require.Equal(t, []int64{10, 13}, []int64{sections[0].Accounts[0].ID, sections[0].Accounts[1].ID})
+}
+
+func TestAccountIntersectsGroups(t *testing.T) {
+	account := &service.Account{GroupIDs: []int64{2, 9}}
+	require.True(t, accountIntersectsGroups(account, map[int64]struct{}{9: {}}))
+	require.False(t, accountIntersectsGroups(account, map[int64]struct{}{1: {}}))
+	require.False(t, accountIntersectsGroups(nil, map[int64]struct{}{9: {}}))
 }
 
 func TestBuildPlatformSections_GroupsByPlatform(t *testing.T) {

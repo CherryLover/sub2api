@@ -423,6 +423,7 @@ export default {
       description: '描述',
       platform: '平台',
       groups: '我可访问的分组',
+      accounts: '上游账号',
       supportedModels: '支持模型'
     },
     pricing: {

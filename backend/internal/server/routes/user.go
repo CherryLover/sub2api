@@ -76,6 +76,7 @@ func RegisterUserRoutes(
 		channels := authenticated.Group("/channels")
 		{
 			channels.GET("/available", h.AvailableChannel.List)
+			channels.GET("/accounts/:id/recent-requests", panelRateLimiter.Heavy(), h.AvailableChannel.GetAccountRecentRequests)
 		}
 
 		// 使用记录（聚合统计属重查询，叠加更严格的按用户限流）

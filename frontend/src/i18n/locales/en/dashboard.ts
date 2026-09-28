@@ -418,6 +418,7 @@ export default {
       description: 'Description',
       platform: 'Platform',
       groups: 'Your Accessible Groups',
+      accounts: 'Upstream Accounts',
       supportedModels: 'Supported Models'
     },
     pricing: {

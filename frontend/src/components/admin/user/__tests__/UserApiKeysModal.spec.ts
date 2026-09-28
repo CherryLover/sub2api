@@ -1,16 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
 
 import type { ApiKey } from '@/types'
 
 const apiMocks = vi.hoisted(() => ({
   getUserApiKeys: vi.fn(),
-  getAllGroups: vi.fn(),
-  updateApiKey: vi.fn(),
-  removeApiKey: vi.fn(),
-  showError: vi.fn(),
-  showSuccess: vi.fn(),
+  routerPush: vi.fn(),
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -18,22 +13,12 @@ vi.mock('@/api/admin', () => ({
     users: {
       getUserApiKeys: apiMocks.getUserApiKeys,
     },
-    groups: {
-      getAll: apiMocks.getAllGroups,
-    },
-    apiKeys: {
-      update: apiMocks.updateApiKey,
-      remove: apiMocks.removeApiKey,
-      updateApiKeyGroup: vi.fn(),
-    },
+
   },
 }))
 
-vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({
-    showError: apiMocks.showError,
-    showSuccess: apiMocks.showSuccess,
-  }),
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push: apiMocks.routerPush }),
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -57,21 +42,6 @@ vi.mock('@/components/common/BaseDialog.vue', () => ({
     props: ['show', 'title', 'width'],
     emits: ['close'],
     template: '<div v-if="show" data-test="base-dialog"><slot /><slot name="footer" /></div>',
-  },
-}))
-
-vi.mock('@/components/common/ConfirmDialog.vue', () => ({
-  default: {
-    name: 'ConfirmDialog',
-    props: ['show', 'title', 'message'],
-    emits: ['confirm', 'cancel'],
-    template: `
-      <div v-if="show" data-test="confirm-dialog">
-        <span data-test="confirm-message">{{ message }}</span>
-        <button data-test="confirm-ok" @click="$emit('confirm')">ok</button>
-        <button data-test="confirm-cancel" @click="$emit('cancel')">cancel</button>
-      </div>
-    `,
   },
 }))
 
@@ -118,8 +88,6 @@ async function mountAndOpen(keys: ApiKey[] = [createApiKey()]) {
     global: {
       stubs: {
         GroupBadge: true,
-        GroupOptionItem: true,
-        Teleport: true,
       },
     },
   })
@@ -130,12 +98,6 @@ async function mountAndOpen(keys: ApiKey[] = [createApiKey()]) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  apiMocks.getAllGroups.mockResolvedValue([])
-  apiMocks.updateApiKey.mockImplementation(async (id: number, payload: Record<string, unknown>) => ({
-    api_key: createApiKey({ id, ...(payload as Partial<ApiKey>) }),
-    auto_granted_group_access: false,
-  }))
-  apiMocks.removeApiKey.mockResolvedValue({ message: 'ok' })
 })
 
 describe('UserApiKeysModal', () => {
@@ -146,86 +108,27 @@ describe('UserApiKeysModal', () => {
     expect(wrapper.get('[data-test="key-status-11"]').text()).toBe('keys.status.active')
   })
 
-  it('启停只提交 status 字段，并用返回的密钥更新卡片', async () => {
-    const wrapper = await mountAndOpen()
-
-    await wrapper.get('[data-test="key-toggle-11"]').trigger('click')
-    await flushPromises()
-
-    expect(apiMocks.updateApiKey).toHaveBeenCalledTimes(1)
-    expect(apiMocks.updateApiKey).toHaveBeenCalledWith(11, { status: 'inactive' })
-    expect(apiMocks.showSuccess).toHaveBeenCalledWith('admin.apiKeys.keyDisabled')
-    expect(wrapper.get('[data-test="key-status-11"]').text()).toBe('keys.status.inactive')
-    // 再点一次变回启用
-    await wrapper.get('[data-test="key-toggle-11"]').trigger('click')
-    await flushPromises()
-    expect(apiMocks.updateApiKey).toHaveBeenLastCalledWith(11, { status: 'active' })
-  })
-
-  it('删除先弹确认；取消不调接口，确认后调用删除接口并从列表移除', async () => {
-    const wrapper = await mountAndOpen()
-    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(false)
-
-    await wrapper.get('[data-test="key-delete-11"]').trigger('click')
-    await nextTick()
-    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(true)
-    expect(wrapper.get('[data-test="confirm-message"]').text()).toContain('mobile')
-    expect(wrapper.get('[data-test="confirm-message"]').text()).toContain('u@example.com')
-
-    await wrapper.get('[data-test="confirm-cancel"]').trigger('click')
-    await nextTick()
-    expect(apiMocks.removeApiKey).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(false)
-
-    await wrapper.get('[data-test="key-delete-11"]').trigger('click')
-    await nextTick()
-    await wrapper.get('[data-test="confirm-ok"]').trigger('click')
-    await flushPromises()
-
-    expect(apiMocks.removeApiKey).toHaveBeenCalledWith(11)
-    expect(apiMocks.showSuccess).toHaveBeenCalledWith('admin.apiKeys.keyDeleted')
-    expect(wrapper.find('[data-test="key-toggle-11"]').exists()).toBe(false)
-    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(false)
-  })
-
-  it('IP 名单编辑：回填现有规则，保存时按行拆分并提交 ip_whitelist / ip_blacklist', async () => {
-    const wrapper = await mountAndOpen([
-      createApiKey({ ip_whitelist: ['192.168.1.1'], ip_blacklist: [] }),
-    ])
-
-    await wrapper.get('[data-test="key-ip-rules-11"]').trigger('click')
-    await nextTick()
-    const editor = wrapper.get('[data-test="ip-editor-11"]')
-    expect((editor.get('[data-test="ip-whitelist-input"]').element as HTMLTextAreaElement).value).toBe('192.168.1.1')
-
-    await editor.get('[data-test="ip-whitelist-input"]').setValue('192.168.1.1\n 10.0.0.0/8 \n\n')
-    await editor.get('[data-test="ip-blacklist-input"]').setValue('1.2.3.4')
-    await editor.get('[data-test="ip-rules-save"]').trigger('click')
-    await flushPromises()
-
-    expect(apiMocks.updateApiKey).toHaveBeenCalledWith(11, {
-      ip_whitelist: ['192.168.1.1', '10.0.0.0/8'],
-      ip_blacklist: ['1.2.3.4'],
-    })
-    expect(apiMocks.updateApiKey.mock.calls[0][1]).not.toHaveProperty('status')
-    expect(apiMocks.updateApiKey.mock.calls[0][1]).not.toHaveProperty('group_id')
-    expect(apiMocks.showSuccess).toHaveBeenCalledWith('admin.apiKeys.keyUpdated')
-    // 保存后编辑区收起
-    expect(wrapper.find('[data-test="ip-editor-11"]').exists()).toBe(false)
-  })
-
-  it('清空 IP 名单时提交空数组（而不是省略字段）', async () => {
+  it('用户 Key 弹窗只读，不提供分组变更、启停、IP 编辑或删除', async () => {
     const wrapper = await mountAndOpen([
       createApiKey({ ip_whitelist: ['192.168.1.1'], ip_blacklist: ['1.2.3.4'] }),
     ])
 
-    await wrapper.get('[data-test="key-ip-rules-11"]').trigger('click')
-    await nextTick()
-    await wrapper.get('[data-test="ip-whitelist-input"]').setValue('')
-    await wrapper.get('[data-test="ip-blacklist-input"]').setValue('')
-    await wrapper.get('[data-test="ip-rules-save"]').trigger('click')
-    await flushPromises()
+    expect(wrapper.find('[data-test="key-toggle-11"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="key-ip-rules-11"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="key-delete-11"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="ip-editor-11"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="key-usage-11"]').exists()).toBe(true)
+  })
 
-    expect(apiMocks.updateApiKey).toHaveBeenCalledWith(11, { ip_whitelist: [], ip_blacklist: [] })
+  it('查看用量跳到全局用量页并同时带用户与 Key 筛选', async () => {
+    const wrapper = await mountAndOpen()
+
+    await wrapper.get('[data-test="key-usage-11"]').trigger('click')
+
+    expect(apiMocks.routerPush).toHaveBeenCalledWith({
+      path: '/admin/usage',
+      query: { user_id: '99', api_key_id: '11' },
+    })
   })
 })
