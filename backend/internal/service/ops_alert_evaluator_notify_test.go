@@ -21,6 +21,7 @@ type notifyStubOpsRepo struct {
 	mu         sync.Mutex
 	rules      []*OpsAlertRule
 	metrics    *OpsSystemMetricsSnapshot
+	overview   *OpsDashboardOverview
 	active     *OpsAlertEvent
 	created    []*OpsAlertEvent
 	resolved   []int64
@@ -34,6 +35,10 @@ func (r *notifyStubOpsRepo) ListAlertRules(context.Context) ([]*OpsAlertRule, er
 
 func (r *notifyStubOpsRepo) GetLatestSystemMetrics(context.Context, int) (*OpsSystemMetricsSnapshot, error) {
 	return r.metrics, nil
+}
+
+func (r *notifyStubOpsRepo) GetDashboardOverview(context.Context, *OpsDashboardFilter) (*OpsDashboardOverview, error) {
+	return r.overview, nil
 }
 
 func (r *notifyStubOpsRepo) GetActiveAlertEvent(context.Context, int64) (*OpsAlertEvent, error) {
@@ -81,15 +86,16 @@ func newNotifyEvaluatorFixture(t *testing.T, barkEnabled bool, notifyOnResolve b
 	repo := &notifyStubOpsRepo{
 		rules: []*OpsAlertRule{{
 			ID:         1,
-			Name:       "CPU 过高",
+			Name:       "用户请求错误率过高",
 			Enabled:    true,
 			Severity:   "P1",
-			MetricType: "cpu_usage_percent",
+			MetricType: "error_rate",
 			Operator:   ">",
-			Threshold:  90,
+			Threshold:  10,
 			Filters:    map[string]any{"platform": "openai", "group_id": float64(3)},
 		}},
-		metrics: &OpsSystemMetricsSnapshot{CPUUsagePercent: float64Ptr(95)},
+		metrics:  &OpsSystemMetricsSnapshot{},
+		overview: &OpsDashboardOverview{RequestCountSLA: 100, ErrorRate: 0.95},
 	}
 
 	sender := &fakeBarkSender{}
@@ -126,10 +132,10 @@ func TestOpsAlertEvaluator_FiringPushesBarkOnce(t *testing.T) {
 	require.Len(t, sends, 1, "触发时只推一次")
 	require.Equal(t, "device-key", sends[0].Target.DeviceKey)
 	require.Equal(t, "https://api.day.app", sends[0].Target.ServerURL)
-	require.Equal(t, "[Sub2API] CPU 过高 · P1 告警", sends[0].Msg.Title)
-	require.Contains(t, sends[0].Msg.Body, "指标：cpu_usage_percent")
+	require.Equal(t, "[Sub2API] 用户请求错误率过高 · P1 告警", sends[0].Msg.Title)
+	require.Contains(t, sends[0].Msg.Body, "指标：error_rate")
 	require.Contains(t, sends[0].Msg.Body, "当前值：95")
-	require.Contains(t, sends[0].Msg.Body, "阈值：> 90")
+	require.Contains(t, sends[0].Msg.Body, "阈值：> 10")
 	require.Contains(t, sends[0].Msg.Body, "作用域：platform=openai group_id=3")
 	require.Contains(t, sends[0].Msg.Body, "触发时间：")
 	require.Equal(t, "sub2api", sends[0].Msg.Group)
@@ -148,7 +154,7 @@ func TestOpsAlertEvaluator_ResolvePushesWhenSwitchOn(t *testing.T) {
 	svc, repo, sender := newNotifyEvaluatorFixture(t, true, true)
 	firedAt := time.Now().UTC().Add(-5 * time.Minute)
 	repo.active = &OpsAlertEvent{ID: 42, RuleID: 1, Status: OpsAlertStatusFiring, FiredAt: firedAt}
-	repo.metrics = &OpsSystemMetricsSnapshot{CPUUsagePercent: float64Ptr(40)}
+	repo.overview = &OpsDashboardOverview{RequestCountSLA: 100, ErrorRate: 0.04}
 
 	svc.evaluateOnce(60 * time.Second)
 
@@ -156,9 +162,9 @@ func TestOpsAlertEvaluator_ResolvePushesWhenSwitchOn(t *testing.T) {
 	require.Empty(t, repo.created)
 	sends := sender.sent()
 	require.Len(t, sends, 1)
-	require.Equal(t, "[Sub2API] CPU 过高 · 已恢复", sends[0].Msg.Title)
-	require.Contains(t, sends[0].Msg.Body, "恢复值：40")
-	require.Contains(t, sends[0].Msg.Body, "告警阈值：> 90")
+	require.Equal(t, "[Sub2API] 用户请求错误率过高 · 已恢复", sends[0].Msg.Title)
+	require.Contains(t, sends[0].Msg.Body, "恢复值：4")
+	require.Contains(t, sends[0].Msg.Body, "告警阈值：> 10")
 	require.Contains(t, sends[0].Msg.Body, "恢复时间：")
 	require.Contains(t, sends[0].Msg.Body, "持续：5 分钟")
 }
@@ -168,7 +174,7 @@ func TestOpsAlertEvaluator_ResolveSkipsPushWhenSwitchOff(t *testing.T) {
 
 	svc, repo, sender := newNotifyEvaluatorFixture(t, true, false)
 	repo.active = &OpsAlertEvent{ID: 7, RuleID: 1, Status: OpsAlertStatusFiring, FiredAt: time.Now().UTC().Add(-time.Minute)}
-	repo.metrics = &OpsSystemMetricsSnapshot{CPUUsagePercent: float64Ptr(10)}
+	repo.overview = &OpsDashboardOverview{RequestCountSLA: 100, ErrorRate: 0.01}
 
 	svc.evaluateOnce(60 * time.Second)
 
@@ -192,7 +198,7 @@ func TestOpsAlertEvaluator_PushFailureDoesNotAffectEventPersistence(t *testing.T
 
 	// 解除时推送失败同样不影响状态更新。
 	repo.active = repo.created[0]
-	repo.metrics = &OpsSystemMetricsSnapshot{CPUUsagePercent: float64Ptr(1)}
+	repo.overview = &OpsDashboardOverview{RequestCountSLA: 100, ErrorRate: 0.01}
 	svc.evaluateOnce(60 * time.Second)
 	require.Equal(t, []int64{1}, repo.resolved)
 	require.Len(t, sender.sent(), 2)

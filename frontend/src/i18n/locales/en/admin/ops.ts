@@ -424,6 +424,16 @@ export default {
           resolved: 'RESOLVED',
           manualResolved: 'MANUAL RESOLVED'
         },
+        urgency: {
+          immediate: 'Immediate action',
+          observe: 'Observe',
+          silent: 'Silent record'
+        },
+        delivery: {
+          barkRealtime: 'Realtime Bark',
+          inApp: 'In-app record',
+          historyOnly: 'History only'
+        },
         detail: {
           title: 'Alert Detail',
           loading: 'Loading detail...',
@@ -450,6 +460,7 @@ export default {
           time: 'Time',
           status: 'Status',
           severity: 'Severity',
+          notification: 'Urgency / Delivery',
           platform: 'Platform',
           ruleId: 'Rule ID',
           title: 'Title',

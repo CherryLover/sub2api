@@ -351,6 +351,8 @@ SELECT
   dimensions,
   fired_at,
   resolved_at,
+  COALESCE(urgency, ''),
+  COALESCE(delivery, ''),
   email_sent,
   created_at
 FROM ops_alert_events
@@ -383,6 +385,8 @@ LIMIT ` + limitArg
 			&dimensionsRaw,
 			&ev.FiredAt,
 			&resolvedAt,
+			&ev.Urgency,
+			&ev.Delivery,
 			&ev.EmailSent,
 			&ev.CreatedAt,
 		); err != nil {
@@ -435,6 +439,8 @@ SELECT
   dimensions,
   fired_at,
   resolved_at,
+  COALESCE(urgency, ''),
+  COALESCE(delivery, ''),
   email_sent,
   created_at
 FROM ops_alert_events
@@ -472,6 +478,8 @@ SELECT
   dimensions,
   fired_at,
   resolved_at,
+  COALESCE(urgency, ''),
+  COALESCE(delivery, ''),
   email_sent,
   created_at
 FROM ops_alert_events
@@ -511,6 +519,8 @@ SELECT
   dimensions,
   fired_at,
   resolved_at,
+  COALESCE(urgency, ''),
+  COALESCE(delivery, ''),
   email_sent,
   created_at
 FROM ops_alert_events
@@ -552,6 +562,8 @@ SELECT
   dimensions,
   fired_at,
   resolved_at,
+  COALESCE(urgency, ''),
+  COALESCE(delivery, ''),
   email_sent,
   created_at
 FROM ops_alert_events
@@ -592,6 +604,8 @@ SELECT
   dimensions,
   fired_at,
   resolved_at,
+  COALESCE(urgency, ''),
+  COALESCE(delivery, ''),
   email_sent,
   created_at
 FROM ops_alert_events
@@ -633,6 +647,8 @@ SELECT
   dimensions,
   fired_at,
   resolved_at,
+  COALESCE(urgency, ''),
+  COALESCE(delivery, ''),
   email_sent,
   created_at
 FROM ops_alert_events
@@ -673,6 +689,8 @@ SELECT
   dimensions,
   fired_at,
   resolved_at,
+  COALESCE(urgency, ''),
+  COALESCE(delivery, ''),
   email_sent,
   created_at
 FROM ops_alert_events
@@ -716,10 +734,12 @@ INSERT INTO ops_alert_events (
   dimensions,
   fired_at,
   resolved_at,
+  urgency,
+  delivery,
   email_sent,
   created_at
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW()
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW()
 )
 RETURNING
   id,
@@ -733,6 +753,8 @@ RETURNING
   dimensions,
   fired_at,
   resolved_at,
+  COALESCE(urgency, ''),
+  COALESCE(delivery, ''),
   email_sent,
   created_at`
 
@@ -749,6 +771,8 @@ RETURNING
 		dimensionsArg,
 		event.FiredAt,
 		opsNullTime(event.ResolvedAt),
+		opsNullString(event.Urgency),
+		opsNullString(event.Delivery),
 		event.EmailSent,
 	)
 	return scanOpsAlertEvent(row)
@@ -925,6 +949,8 @@ func scanOpsAlertEvent(row opsAlertEventRow) (*service.OpsAlertEvent, error) {
 		&dimensionsRaw,
 		&ev.FiredAt,
 		&resolvedAt,
+		&ev.Urgency,
+		&ev.Delivery,
 		&ev.EmailSent,
 		&ev.CreatedAt,
 	); err != nil {

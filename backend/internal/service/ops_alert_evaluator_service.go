@@ -386,10 +386,13 @@ func (s *OpsAlertEvaluatorService) evaluateTarget(
 			}
 		}
 
+		urgency := opsAlertUrgencyForRule(rule)
 		firedEvent := &OpsAlertEvent{
 			RuleID:         rule.ID,
 			Severity:       strings.TrimSpace(rule.Severity),
 			Status:         OpsAlertStatusFiring,
+			Urgency:        urgency,
+			Delivery:       opsAlertDeliveryForUrgency(urgency),
 			Title:          fmt.Sprintf("%s: %s", strings.TrimSpace(rule.Severity), strings.TrimSpace(rule.Name)),
 			Description:    target.description,
 			MetricValue:    float64Ptr(target.value),
@@ -677,9 +680,54 @@ func buildOpsAlertManualDetails(samples []accountMetricSample, rule *OpsAlertRul
 	return lines
 }
 
-// notifyAlertFired 把刚落库的告警事件推到 Bark；通道未启用时是空操作。
+// opsAlertUrgencyForRule separates event importance from delivery channel.
+// Resource/upstream degradation is observed and summarized; only conditions
+// indicating user-visible relay failure or required operator intervention are immediate.
+func opsAlertUrgencyForRule(rule *OpsAlertRule) string {
+	if rule == nil {
+		return OpsAlertUrgencySilent
+	}
+	metric := strings.TrimSpace(rule.MetricType)
+	if IsOpsAlertAccountMetric(metric) || IsOpsAlertAPIKeyMetric(metric) {
+		return OpsAlertUrgencyObserve
+	}
+	switch metric {
+	case "success_rate", "error_rate":
+		// These are measured from completed user requests, so a breach means
+		// users are already seeing failed service rather than mere upstream noise.
+		return OpsAlertUrgencyImmediate
+	case "group_available_accounts":
+		// Only an explicit "no accounts left" rule is an outage. A warning such
+		// as <= 2 available accounts remains an observation and must not page.
+		if rule.Threshold <= 0 && (strings.TrimSpace(rule.Operator) == "<=" || strings.TrimSpace(rule.Operator) == "==") {
+			return OpsAlertUrgencyImmediate
+		}
+		return OpsAlertUrgencyObserve
+	case "account_rate_limited_count", "account_error_count", "account_error_ratio",
+		"account_temp_unscheduled_count", "overload_account_count",
+		"proxy_expired_count", "proxy_expiring_soon_count",
+		"upstream_error_rate", "group_rate_limit_ratio", "group_available_ratio",
+		"cpu_usage_percent", "memory_usage_percent", "concurrency_queue_depth":
+		return OpsAlertUrgencyObserve
+	default:
+		return OpsAlertUrgencySilent
+	}
+}
+
+func opsAlertDeliveryForUrgency(urgency string) string {
+	switch urgency {
+	case OpsAlertUrgencyImmediate:
+		return OpsAlertDeliveryBarkRealtime
+	case OpsAlertUrgencyObserve:
+		return OpsAlertDeliveryInApp
+	default:
+		return OpsAlertDeliveryNone
+	}
+}
+
+// notifyAlertFired only interrupts the administrator for immediate events.
 func (s *OpsAlertEvaluatorService) notifyAlertFired(ctx context.Context, rule *OpsAlertRule, n OpsAlertNotification, firedAt time.Time) {
-	if s == nil || s.alertNotifier == nil || rule == nil {
+	if s == nil || s.alertNotifier == nil || rule == nil || opsAlertUrgencyForRule(rule) != OpsAlertUrgencyImmediate {
 		return
 	}
 	n.FiredAt = firedAt
@@ -689,9 +737,9 @@ func (s *OpsAlertEvaluatorService) notifyAlertFired(ctx context.Context, rule *O
 	}
 }
 
-// notifyAlertResolved 告警解除后推「已恢复」；是否推由 Bark 配置里的 notify_on_resolve 决定。
+// notifyAlertResolved mirrors realtime delivery: observe/silent recovery stays in history.
 func (s *OpsAlertEvaluatorService) notifyAlertResolved(ctx context.Context, rule *OpsAlertRule, n OpsAlertNotification, firedAt, resolvedAt time.Time) {
-	if s == nil || s.alertNotifier == nil || rule == nil {
+	if s == nil || s.alertNotifier == nil || rule == nil || opsAlertUrgencyForRule(rule) != OpsAlertUrgencyImmediate {
 		return
 	}
 	n.FiredAt = firedAt

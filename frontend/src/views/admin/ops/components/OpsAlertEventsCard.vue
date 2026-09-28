@@ -346,6 +346,21 @@ function formatStatusLabel(status: string | undefined): string {
   return s.toUpperCase()
 }
 
+function formatUrgencyLabel(urgency: string | undefined): string {
+  const value = String(urgency || '').trim().toLowerCase()
+  if (value === 'immediate') return t('admin.ops.alertEvents.urgency.immediate')
+  if (value === 'observe') return t('admin.ops.alertEvents.urgency.observe')
+  if (value === 'silent') return t('admin.ops.alertEvents.urgency.silent')
+  return value || '-'
+}
+
+function formatDeliveryLabel(delivery: string | undefined): string {
+  const value = String(delivery || '').trim().toLowerCase()
+  if (value === 'bark_realtime') return t('admin.ops.alertEvents.delivery.barkRealtime')
+  if (value === 'in_app') return t('admin.ops.alertEvents.delivery.inApp')
+  return t('admin.ops.alertEvents.delivery.historyOnly')
+}
+
 const empty = computed(() => events.value.length === 0 && !loading.value)
 </script>
 
@@ -402,6 +417,7 @@ const empty = computed(() => events.value.length === 0 && !loading.value)
               <span class="inline-flex items-center rounded-full px-2 py-1 text-[10px] font-bold ring-1 ring-inset" :class="statusBadgeClass(row.status)">
                 {{ formatStatusLabel(row.status) }}
               </span>
+              <span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400">{{ formatUrgencyLabel(row.urgency) }} · {{ formatDeliveryLabel(row.delivery) }}</span>
               <span class="ml-auto text-[11px] text-gray-500 dark:text-gray-400">
                 {{ formatDateTime(row.fired_at || row.created_at) }}
               </span>
@@ -424,6 +440,9 @@ const empty = computed(() => events.value.length === 0 && !loading.value)
               </th>
               <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 {{ t('admin.ops.alertEvents.table.severity') }}
+              </th>
+              <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {{ t('admin.ops.alertEvents.table.notification') }}
               </th>
               <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 {{ t('admin.ops.alertEvents.table.platform') }}
@@ -462,6 +481,10 @@ const empty = computed(() => events.value.length === 0 && !loading.value)
                     {{ formatStatusLabel(row.status) }}
                   </span>
                 </div>
+              </td>
+              <td class="whitespace-nowrap px-4 py-3 text-[11px] text-gray-600 dark:text-gray-300">
+                <div class="font-semibold">{{ formatUrgencyLabel(row.urgency) }}</div>
+                <div>{{ formatDeliveryLabel(row.delivery) }}</div>
               </td>
               <td class="whitespace-nowrap px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
                 {{ getDimensionString(row, 'platform') || '-' }}
@@ -523,6 +546,7 @@ const empty = computed(() => events.value.length === 0 && !loading.value)
                 <span class="inline-flex items-center rounded-full px-2 py-1 text-[10px] font-bold ring-1 ring-inset" :class="statusBadgeClass(selected.status)">
                   {{ formatStatusLabel(selected.status) }}
                 </span>
+                <span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400">{{ formatUrgencyLabel(selected.urgency) }} · {{ formatDeliveryLabel(selected.delivery) }}</span>
               </div>
               <div class="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
                 {{ selected.title || '-' }}

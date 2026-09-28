@@ -424,6 +424,16 @@ export default {
           resolved: '已恢复',
           manualResolved: '手动已解决'
         },
+        urgency: {
+          immediate: '立即处理',
+          observe: '持续观察',
+          silent: '静默记录'
+        },
+        delivery: {
+          barkRealtime: 'Bark 即时通知',
+          inApp: '站内记录',
+          historyOnly: '仅站内记录'
+        },
         detail: {
           title: '告警详情',
           loading: '加载详情中...',
@@ -450,6 +460,7 @@ export default {
           time: '时间',
           status: '状态',
           severity: '级别',
+          notification: '紧急程度 / 通知',
           platform: '平台',
           ruleId: '规则ID',
           title: '标题',
