@@ -3181,7 +3181,11 @@ func TestOpenAIBuildUpstreamRequestOAuthResponsesPreservesCallerBeta(t *testing.
 		}
 		return c
 	}
-	svc := &OpenAIGatewayService{}
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
 	oauth := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Credentials: map[string]any{"chatgpt_account_id": "chatgpt-acc"}}
 	apiKey := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-api-key"}}
 
