@@ -62,6 +62,7 @@ const rows: UserAvailableChannel[] = [
             is_exclusive: false,
           },
         ],
+        accounts: [{ id: 9, name: 'upstream-a', platform: 'anthropic', type: 'oauth', status: 'active', schedulable: true, concurrency: 3 }],
         supported_models: [{ name: 'claude-test', platform: 'anthropic', pricing: null }],
       },
     ],
@@ -74,6 +75,7 @@ const baseProps = {
     description: 'Description',
     platform: 'Platform',
     groups: 'Groups and rates',
+    accounts: 'Upstream accounts',
     supportedModels: 'Models and pricing',
   },
   rows,
@@ -108,7 +110,7 @@ function mountTable(props = {}) {
 }
 
 describe('AvailableChannelsTable responsive surfaces', () => {
-  it('keeps the five-column table as the desktop-only surface', () => {
+  it('keeps the six-column table as the desktop-only surface', () => {
     const wrapper = mountTable()
     const desktop = wrapper.get('[data-testid="desktop-channels"]')
 
@@ -116,10 +118,11 @@ describe('AvailableChannelsTable responsive surfaces', () => {
     // so these display utilities must remain important at both breakpoints.
     expect(desktop.classes()).toContain('!hidden')
     expect(desktop.classes()).toContain('lg:!table')
-    expect(desktop.findAll('thead th')).toHaveLength(5)
+    expect(desktop.findAll('thead th')).toHaveLength(6)
     expect(desktop.text()).toContain('Primary channel')
     expect(desktop.text()).toContain('Fast and reliable access')
     expect(desktop.findAll('[data-group-badge]')).toHaveLength(2)
+    expect(desktop.text()).toContain('upstream-a')
     expect(desktop.get('[data-model-chip]').text()).toContain('claude-test:No pricing')
   })
 
@@ -132,6 +135,8 @@ describe('AvailableChannelsTable responsive surfaces', () => {
     expect(mobile.text()).toContain('Primary channel')
     expect(mobile.text()).toContain('Fast and reliable access')
     expect(mobile.text()).toContain('Groups and rates')
+    expect(mobile.text()).toContain('Upstream accounts')
+    expect(mobile.text()).toContain('upstream-a')
     expect(mobile.text()).toContain('Models and pricing')
     expect(mobile.text()).toContain('availableChannels.exclusive')
     expect(mobile.text()).toContain('availableChannels.public')
@@ -151,7 +156,7 @@ describe('AvailableChannelsTable responsive surfaces', () => {
         {
           name: 'Fallback channel',
           description: '',
-          platforms: [{ platform: 'openai', groups: [], supported_models: [] }],
+          platforms: [{ platform: 'openai', groups: [], accounts: [], supported_models: [] }],
         },
       ],
     })
@@ -161,6 +166,7 @@ describe('AvailableChannelsTable responsive surfaces', () => {
     expect(mobile.text()).toContain('openai')
     expect(mobile.text()).toContain('No models')
     expect(mobile.findAll('dd')[0].text()).toBe('-')
+    expect(mobile.findAll('dd')[1].text()).toBe('-')
   })
 
   it('provides loading and empty states on both responsive surfaces', async () => {

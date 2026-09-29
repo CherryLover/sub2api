@@ -83,7 +83,7 @@
           :data="apiKeys"
           :loading="loading"
           row-key="id"
-          :actions-count="4"
+          :actions-count="1"
           :server-side-sort="true"
           default-sort-key="created_at"
           default-sort-order="desc"
@@ -179,47 +179,13 @@
           </template>
 
           <template #cell-actions="{ row }">
-            <div class="flex items-center gap-1">
-              <!-- 查用量：跳到管理端用量页并带上密钥筛选 -->
-              <button
-                @click="openKeyUsage(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-primary-50 hover:text-primary-600 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
-              >
-                <Icon name="chartBar" size="sm" />
-                <span class="text-xs">{{ t('admin.apiKeys.viewUsage') }}</span>
-              </button>
-              <!-- 启停 -->
-              <button
-                @click="toggleKeyStatus(row)"
-                :disabled="updatingKeyIds.has(row.id)"
-                :class="[
-                  'flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors disabled:opacity-60',
-                  row.status === 'active'
-                    ? 'hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-900/20 dark:hover:text-orange-400'
-                    : 'hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400'
-                ]"
-              >
-                <Icon v-if="row.status === 'active'" name="ban" size="sm" />
-                <Icon v-else name="checkCircle" size="sm" />
-                <span class="text-xs">{{ row.status === 'active' ? t('admin.apiKeys.disable') : t('admin.apiKeys.enable') }}</span>
-              </button>
-              <!-- 编辑：分组 + IP 名单 -->
-              <button
-                @click="openEditModal(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
-              >
-                <Icon name="edit" size="sm" />
-                <span class="text-xs">{{ t('common.edit') }}</span>
-              </button>
-              <!-- 删除 -->
-              <button
-                @click="confirmDelete(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-              >
-                <Icon name="trash" size="sm" />
-                <span class="text-xs">{{ t('common.delete') }}</span>
-              </button>
-            </div>
+            <button
+              @click="openKeyUsage(row)"
+              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-primary-50 hover:text-primary-600 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
+            >
+              <Icon name="chartBar" size="sm" />
+              <span class="text-xs">{{ t('admin.apiKeys.viewUsage') }}</span>
+            </button>
           </template>
 
           <template #empty>
@@ -243,78 +209,6 @@
       </template>
     </TablePageLayout>
 
-    <!-- 编辑弹窗：分组 + IP 白/黑名单 -->
-    <BaseDialog :show="showEditModal" :title="t('admin.apiKeys.editKey')" @close="closeEditModal">
-      <form v-if="editingKey" class="space-y-4" @submit.prevent="submitEdit">
-        <div class="rounded-xl bg-gray-50 p-3 text-sm dark:bg-dark-700">
-          <div class="font-medium text-gray-900 dark:text-white">{{ editingKey.name }}</div>
-          <div v-if="editingKey.user" class="text-xs text-gray-500 dark:text-dark-400">{{ editingKey.user.email }}</div>
-        </div>
-
-        <div>
-          <label class="input-label">{{ t('admin.apiKeys.group') }}</label>
-          <Select
-            :model-value="editForm.group_id"
-            :options="editGroupOptions"
-            data-test="edit-group-select"
-            @update:model-value="onEditGroupChange"
-          />
-        </div>
-
-        <div>
-          <label class="input-label">{{ t('admin.apiKeys.ipWhitelist') }}</label>
-          <textarea
-            v-model="editForm.ip_whitelist"
-            rows="3"
-            class="input font-mono text-sm"
-            :placeholder="t('admin.apiKeys.ipWhitelistPlaceholder')"
-            data-test="edit-ip-whitelist"
-          />
-          <p class="input-hint">{{ t('admin.apiKeys.ipWhitelistHint') }}</p>
-        </div>
-
-        <div>
-          <label class="input-label">{{ t('admin.apiKeys.ipBlacklist') }}</label>
-          <textarea
-            v-model="editForm.ip_blacklist"
-            rows="3"
-            class="input font-mono text-sm"
-            :placeholder="t('admin.apiKeys.ipBlacklistPlaceholder')"
-            data-test="edit-ip-blacklist"
-          />
-          <p class="input-hint">{{ t('admin.apiKeys.ipBlacklistHint') }}</p>
-        </div>
-      </form>
-
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <button type="button" class="btn btn-secondary" @click="closeEditModal">
-            {{ t('common.cancel') }}
-          </button>
-          <button
-            type="button"
-            class="btn btn-primary"
-            :disabled="submitting"
-            data-test="edit-submit"
-            @click="submitEdit"
-          >
-            {{ t('common.save') }}
-          </button>
-        </div>
-      </template>
-    </BaseDialog>
-
-    <!-- 删除确认 -->
-    <ConfirmDialog
-      :show="showDeleteDialog"
-      :title="t('admin.apiKeys.deleteKey')"
-      :message="deleteConfirmMessage"
-      :confirm-text="t('common.delete')"
-      :cancel-text="t('common.cancel')"
-      :danger="true"
-      @confirm="handleDelete"
-      @cancel="showDeleteDialog = false"
-    />
   </AppLayout>
 </template>
 
@@ -325,7 +219,7 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminAPI } from '@/api/admin'
-import type { AdminApiKeyListFilters, AdminUpdateApiKeyRequest } from '@/api/admin/apiKeys'
+import type { AdminApiKeyListFilters } from '@/api/admin/apiKeys'
 import type { BatchApiKeyUsageStats } from '@/api/admin/dashboard'
 import type { SimpleUser } from '@/api/admin/usage'
 import type { ApiKey, AdminGroup } from '@/types'
@@ -335,8 +229,6 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
-import BaseDialog from '@/components/common/BaseDialog.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
 import SearchInput from '@/components/common/SearchInput.vue'
@@ -368,7 +260,6 @@ const apiKeys = ref<ApiKey[]>([])
 const groups = ref<AdminGroup[]>([])
 const loading = ref(false)
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
-const updatingKeyIds = ref(new Set<number>())
 
 const pagination = ref({
   page: 1,
@@ -580,133 +471,10 @@ const handlePageSizeChange = (pageSize: number) => {
 const hasIpRules = (key: ApiKey) =>
   (key.ip_whitelist?.length ?? 0) > 0 || (key.ip_blacklist?.length ?? 0) > 0
 
-const replaceRow = (updated: ApiKey) => {
-  const idx = apiKeys.value.findIndex((k) => k.id === updated.id)
-  if (idx !== -1) {
-    // 总表接口返回的 user 摘要在更新响应里可能缺失，沿用原行的
-    apiKeys.value[idx] = { ...updated, user: updated.user ?? apiKeys.value[idx].user }
-  }
-}
-
 const openKeyUsage = (key: ApiKey) => {
   const query: Record<string, string> = { api_key_id: String(key.id) }
   if (key.user_id) query.user_id = String(key.user_id)
   router.push({ path: '/admin/usage', query })
-}
-
-const toggleKeyStatus = async (key: ApiKey) => {
-  const newStatus = key.status === 'active' ? 'inactive' : 'active'
-  updatingKeyIds.value.add(key.id)
-  try {
-    const result = await adminAPI.apiKeys.update(key.id, { status: newStatus })
-    replaceRow(result.api_key)
-    appStore.showSuccess(
-      newStatus === 'active' ? t('admin.apiKeys.keyEnabled') : t('admin.apiKeys.keyDisabled')
-    )
-  } catch (error: any) {
-    appStore.showError(error?.message || t('admin.apiKeys.failedToUpdate'))
-  } finally {
-    updatingKeyIds.value.delete(key.id)
-  }
-}
-
-// 编辑弹窗
-const showEditModal = ref(false)
-const submitting = ref(false)
-const editingKey = ref<ApiKey | null>(null)
-const editForm = ref({
-  group_id: 0 as number,
-  ip_whitelist: '',
-  ip_blacklist: ''
-})
-
-const editGroupOptions = computed(() => [
-  { value: 0, label: t('admin.apiKeys.noGroup') },
-  ...groups.value.map((g) => ({ value: g.id, label: g.name }))
-])
-
-const onEditGroupChange = (value: string | number | boolean | null | undefined) => {
-  const parsed = typeof value === 'number' ? value : Number(value)
-  editForm.value.group_id = Number.isFinite(parsed) ? parsed : 0
-}
-
-const openEditModal = (key: ApiKey) => {
-  editingKey.value = key
-  editForm.value = {
-    group_id: key.group_id ?? 0,
-    ip_whitelist: (key.ip_whitelist || []).join('\n'),
-    ip_blacklist: (key.ip_blacklist || []).join('\n')
-  }
-  showEditModal.value = true
-}
-
-const closeEditModal = () => {
-  showEditModal.value = false
-  editingKey.value = null
-}
-
-const parseIPList = (text: string): string[] =>
-  text.split('\n').map((ip) => ip.trim()).filter((ip) => ip.length > 0)
-
-const submitEdit = async () => {
-  const key = editingKey.value
-  if (!key || submitting.value) return
-  submitting.value = true
-  try {
-    const payload: AdminUpdateApiKeyRequest = {
-      ip_whitelist: parseIPList(editForm.value.ip_whitelist),
-      ip_blacklist: parseIPList(editForm.value.ip_blacklist)
-    }
-    // 分组没动就不传，避免触发后端的自动授权逻辑
-    const originalGroupId = key.group_id ?? 0
-    if (editForm.value.group_id !== originalGroupId) {
-      payload.group_id = editForm.value.group_id
-    }
-    const result = await adminAPI.apiKeys.update(key.id, payload)
-    replaceRow(result.api_key)
-    if (result.auto_granted_group_access && result.granted_group_name) {
-      appStore.showSuccess(t('admin.apiKeys.keyUpdatedWithGrant', { group: result.granted_group_name }))
-    } else {
-      appStore.showSuccess(t('admin.apiKeys.keyUpdated'))
-    }
-    closeEditModal()
-  } catch (error: any) {
-    appStore.showError(error?.message || t('admin.apiKeys.failedToUpdate'))
-  } finally {
-    submitting.value = false
-  }
-}
-
-// 删除
-const showDeleteDialog = ref(false)
-const deletingKey = ref<ApiKey | null>(null)
-
-const deleteConfirmMessage = computed(() => {
-  const key = deletingKey.value
-  if (!key) return ''
-  return t('admin.apiKeys.deleteConfirmMessage', {
-    name: key.name,
-    email: key.user?.email ?? `#${key.user_id}`
-  })
-})
-
-const confirmDelete = (key: ApiKey) => {
-  deletingKey.value = key
-  showDeleteDialog.value = true
-}
-
-const handleDelete = async () => {
-  const key = deletingKey.value
-  if (!key) return
-  try {
-    await adminAPI.apiKeys.remove(key.id)
-    appStore.showSuccess(t('admin.apiKeys.keyDeleted'))
-    showDeleteDialog.value = false
-    deletingKey.value = null
-    loadApiKeys()
-  } catch (error: any) {
-    appStore.showError(error?.message || t('admin.apiKeys.failedToDelete'))
-  }
 }
 
 onMounted(() => {

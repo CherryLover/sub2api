@@ -7,7 +7,7 @@
   >
     <template #subtitle>
       <span v-if="account" class="inline-flex min-w-0 items-center gap-1.5" data-testid="load-drawer-account">
-        <PlatformIcon :platform="account.platform" size="xs" />
+        <PlatformIcon :platform="account.platform as GroupPlatform" size="xs" />
         <span class="truncate font-medium text-gray-700 dark:text-gray-200">{{ account.name }}</span>
         <span class="flex-shrink-0 text-gray-400 dark:text-gray-500">#{{ account.id }} · {{ account.platform }}</span>
       </span>
@@ -36,6 +36,7 @@
       <!-- 头部：并发 / 等待 / 窗口内总请求 + 窗口切换 -->
       <div class="flex flex-wrap items-center gap-2">
         <span
+          v-if="!userReadonly"
           :class="['inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium', concurrencyClass]"
           data-testid="load-drawer-concurrency"
         >
@@ -45,6 +46,7 @@
           <span class="font-mono">{{ maxConcurrency }}</span>
         </span>
         <span
+          v-if="!userReadonly"
           class="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 dark:bg-dark-700 dark:text-gray-300"
           data-testid="load-drawer-waiting"
         >
@@ -94,7 +96,7 @@
 
       <template v-else-if="data">
         <!-- 按密钥 / 按模型 chips -->
-        <section class="space-y-1.5" data-testid="load-drawer-by-key">
+        <section v-if="!userReadonly" class="space-y-1.5" data-testid="load-drawer-by-key">
           <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.capacity.load.byApiKey') }}
           </h4>
@@ -107,7 +109,7 @@
             >
               <span class="font-medium">{{ item.name || `#${item.api_key_id}` }}</span>
               <span class="opacity-70">{{ t('admin.accounts.capacity.load.count', { count: item.count }) }}</span>
-              <span class="font-mono opacity-70">{{ formatCost(item.cost) }}</span>
+              <span v-if="!userReadonly" class="font-mono opacity-70">{{ formatCost(item.cost) }}</span>
             </span>
           </div>
           <p v-else class="text-xs text-gray-400 dark:text-gray-500">-</p>
@@ -126,7 +128,7 @@
             >
               <span class="font-medium">{{ item.model }}</span>
               <span class="opacity-70">{{ t('admin.accounts.capacity.load.count', { count: item.count }) }}</span>
-              <span class="font-mono opacity-70">{{ formatCost(item.cost) }}</span>
+              <span v-if="!userReadonly" class="font-mono opacity-70">{{ formatCost(item.cost) }}</span>
             </span>
           </div>
           <p v-else class="text-xs text-gray-400 dark:text-gray-500">-</p>
@@ -156,12 +158,12 @@
                 <tr>
                   <th class="w-[72px] whitespace-nowrap px-1.5 py-1.5 font-medium">{{ t('admin.accounts.capacity.load.columns.time') }}</th>
                   <th class="hidden w-[12%] px-1.5 py-1.5 font-medium sm:table-cell">{{ t('admin.accounts.capacity.load.columns.user') }}</th>
-                  <th class="w-[10%] px-1.5 py-1.5 font-medium">{{ t('admin.accounts.capacity.load.columns.apiKey') }}</th>
+                  <th v-if="!userReadonly" class="w-[10%] px-1.5 py-1.5 font-medium">{{ t('admin.accounts.capacity.load.columns.apiKey') }}</th>
                   <th class="whitespace-nowrap px-1.5 py-1.5 font-medium">{{ t('admin.accounts.capacity.load.columns.model') }}</th>
                   <th class="w-[74px] px-1.5 py-1.5 text-right font-medium">{{ t('admin.accounts.capacity.load.columns.duration') }}</th>
                   <th class="hidden w-[74px] px-1.5 py-1.5 text-right font-medium sm:table-cell">{{ t('admin.accounts.capacity.load.columns.firstToken') }}</th>
-                  <th class="w-[140px] whitespace-nowrap px-1.5 py-1.5 text-right font-medium">{{ t('admin.accounts.capacity.load.columns.tokens') }}</th>
-                  <th class="sticky right-0 w-[88px] whitespace-nowrap bg-gray-50 py-1.5 pl-1.5 pr-3 text-right font-medium dark:bg-dark-700">{{ t('admin.accounts.capacity.load.columns.cost') }}</th>
+                  <th v-if="!userReadonly" class="w-[140px] whitespace-nowrap px-1.5 py-1.5 text-right font-medium">{{ t('admin.accounts.capacity.load.columns.tokens') }}</th>
+                  <th v-if="!userReadonly" class="sticky right-0 w-[88px] whitespace-nowrap bg-gray-50 py-1.5 pl-1.5 pr-3 text-right font-medium dark:bg-dark-700">{{ t('admin.accounts.capacity.load.columns.cost') }}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
@@ -170,7 +172,7 @@
                   <td class="hidden px-1.5 py-1.5 sm:table-cell">
                     <div class="truncate" :title="item.user?.email || ''">{{ item.user?.email || '-' }}</div>
                   </td>
-                  <td class="px-1.5 py-1.5">
+                  <td v-if="!userReadonly" class="px-1.5 py-1.5">
                     <div class="truncate" :title="item.api_key?.name || ''">{{ item.api_key?.name || '-' }}</div>
                   </td>
                   <td class="px-1.5 py-1.5" data-testid="load-request-model">
@@ -192,10 +194,11 @@
                   <td class="whitespace-nowrap px-1.5 py-1.5 text-right font-mono">{{ formatMs(item.duration_ms) }}</td>
                   <td class="hidden whitespace-nowrap px-1.5 py-1.5 text-right font-mono sm:table-cell">{{ formatMs(item.first_token_ms) }}</td>
                   <!-- 输入/输出各自不换行；缓存命中放不下时才折到第二行，不为了极端值把整列钉宽（两段中间的空格是换行点，别删） -->
-                  <td class="px-1.5 py-1.5 text-right font-mono">
+                  <td v-if="!userReadonly" class="px-1.5 py-1.5 text-right font-mono">
                     <span class="whitespace-nowrap">{{ formatNumber(item.input_tokens) }} / {{ formatNumber(item.output_tokens) }}</span> <span v-if="item.cache_read_tokens" class="whitespace-nowrap text-gray-400 dark:text-gray-500">(+{{ formatNumber(item.cache_read_tokens) }})</span>
                   </td>
                   <td
+                    v-if="!userReadonly"
                     class="sticky right-0 whitespace-nowrap bg-white py-1.5 pl-1.5 pr-3 text-right font-mono dark:bg-dark-800"
                     data-testid="load-request-cost"
                   >{{ formatCost(item.actual_cost) }}</td>
@@ -210,7 +213,7 @@
       </template>
 
       <!-- 同期错误：独立读取，失败只提示不阻断 -->
-      <section class="space-y-1.5" data-testid="load-drawer-errors">
+      <section v-if="!userReadonly" class="space-y-1.5" data-testid="load-drawer-errors">
         <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
           {{ t('admin.accounts.capacity.load.errors') }}
           <span v-if="errorLogs.length" class="ml-1 rounded-full bg-red-100 px-1.5 py-px text-[10px] font-medium text-red-600 dark:bg-red-900/30 dark:text-red-400">{{ errorLogs.length }}</span>
@@ -246,10 +249,11 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
+import userChannelsAPI from '@/api/channels'
 import { listErrorLogs } from '@/api/admin/ops'
 import type { OpsErrorLog } from '@/api/admin/ops'
 import type { AccountRecentRequestsResponse } from '@/api/admin/accounts'
-import type { Account } from '@/types'
+import type { GroupPlatform } from '@/types'
 import SideDrawer from '@/components/common/SideDrawer.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -268,10 +272,21 @@ const DEFAULT_WINDOW_MINUTES = 15
 const REQUEST_LIMIT = 50
 const ERROR_LIMIT = 20
 
-const props = defineProps<{
+type AccountLoadTarget = {
+  id: number
+  name: string
+  platform: string
+  concurrency: number
+  current_concurrency?: number
+}
+
+const props = withDefaults(defineProps<{
   show: boolean
-  account: Account | null
-}>()
+  account: AccountLoadTarget | null
+  userReadonly?: boolean
+}>(), {
+  userReadonly: false,
+})
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -321,7 +336,9 @@ const loadRecentRequests = async (accountId: number, minutes: number, seq: numbe
   loading.value = true
   loadError.value = false
   try {
-    const res = await adminAPI.accounts.getRecentRequests(accountId, { minutes, limit: REQUEST_LIMIT })
+    const res = props.userReadonly
+      ? await userChannelsAPI.getAccountRecentRequests(accountId, { minutes, limit: REQUEST_LIMIT })
+      : await adminAPI.accounts.getRecentRequests(accountId, { minutes, limit: REQUEST_LIMIT })
     if (seq !== requestSeq) return
     data.value = res
   } catch {
@@ -366,6 +383,10 @@ const load = async () => {
   const account = props.account
   if (!props.show || !account) return
   const seq = ++requestSeq
+  if (props.userReadonly) {
+    await loadRecentRequests(account.id, windowMinutes.value, seq)
+    return
+  }
   await Promise.all([
     loadRecentRequests(account.id, windowMinutes.value, seq),
     loadWindowErrors(account.id, windowMinutes.value, seq)

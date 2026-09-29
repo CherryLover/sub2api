@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
-const { getRecentRequests, listErrorLogs } = vi.hoisted(() => ({
+const { getRecentRequests, getUserRecentRequests, listErrorLogs } = vi.hoisted(() => ({
   getRecentRequests: vi.fn(),
+  getUserRecentRequests: vi.fn(),
   listErrorLogs: vi.fn(),
 }))
 
@@ -16,6 +17,12 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/api/admin/ops', () => ({
   listErrorLogs,
+}))
+
+vi.mock('@/api/channels', () => ({
+  default: {
+    getAccountRecentRequests: getUserRecentRequests,
+  },
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -122,7 +129,7 @@ const errorLogsResponse = {
   pages: 1,
 }
 
-const mountDrawer = (props: { show: boolean; account: any }) => mount(AccountLoadDrawer, {
+const mountDrawer = (props: { show: boolean; account: any; userReadonly?: boolean }) => mount(AccountLoadDrawer, {
   props,
   global: {
     stubs: {
@@ -138,6 +145,23 @@ describe('AccountLoadDrawer', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-09-07T10:00:00.000Z'))
     getRecentRequests.mockReset().mockResolvedValue(recentRequests)
+    getUserRecentRequests.mockReset().mockResolvedValue({
+      ...recentRequests,
+      current_concurrency: 0,
+      waiting_count: 0,
+      by_api_key: [],
+      by_model: [{ model: 'grok-3-mini', count: 12, cost: 0 }],
+      items: recentRequests.items.map((item) => ({
+        ...item,
+        user: { id: item.user.id, email: `用户 #${item.user.id}` },
+        api_key: null,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        total_cost: 0,
+        actual_cost: 0,
+      })),
+    })
     listErrorLogs.mockReset().mockResolvedValue(errorLogsResponse)
   })
 
@@ -205,6 +229,25 @@ describe('AccountLoadDrawer', () => {
     expect(errorRows).toHaveLength(1)
     expect(errorRows[0].text()).toContain('429')
     expect(errorRows[0].text()).toContain('upstream rate limited')
+  })
+
+  it('user read-only mode uses the user endpoint and hides admin-only usage details', async () => {
+    const wrapper = mountDrawer({ show: true, account, userReadonly: true })
+    await flushPromises()
+
+    expect(getUserRecentRequests).toHaveBeenCalledWith(2, { minutes: 15, limit: 50 })
+    expect(getRecentRequests).not.toHaveBeenCalled()
+    expect(listErrorLogs).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="load-drawer-concurrency"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="load-drawer-waiting"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="load-drawer-by-key"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="load-drawer-errors"]').exists()).toBe(false)
+
+    const rows = wrapper.findAll('[data-testid="load-request-row"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].text()).toContain('用户 #1')
+    expect(rows[0].text()).not.toContain('jerry')
+    expect(rows[0].text()).not.toContain('$0.000072')
   })
 
   it('switches to a 5-minute window and refetches both requests and errors with matching params', async () => {

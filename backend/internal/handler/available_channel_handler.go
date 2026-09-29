@@ -2,6 +2,7 @@ package handler
 
 import (
 	"sort"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -20,9 +21,11 @@ import (
 //  4. 字段白名单：仅返回用户需要的字段（省略 BillingModelSource / RestrictModels
 //     / 内部 ID / Status 等管理字段）。
 type AvailableChannelHandler struct {
-	channelService *service.ChannelService
-	apiKeyService  *service.APIKeyService
-	settingService *service.SettingService
+	channelService      *service.ChannelService
+	apiKeyService       *service.APIKeyService
+	settingService      *service.SettingService
+	accountRepo         service.AccountRepository
+	accountUsageService *service.AccountUsageService
 }
 
 // NewAvailableChannelHandler 创建用户侧可用渠道 handler。
@@ -30,11 +33,15 @@ func NewAvailableChannelHandler(
 	channelService *service.ChannelService,
 	apiKeyService *service.APIKeyService,
 	settingService *service.SettingService,
+	accountRepo service.AccountRepository,
+	accountUsageService *service.AccountUsageService,
 ) *AvailableChannelHandler {
 	return &AvailableChannelHandler{
-		channelService: channelService,
-		apiKeyService:  apiKeyService,
-		settingService: settingService,
+		channelService:      channelService,
+		apiKeyService:       apiKeyService,
+		settingService:      settingService,
+		accountRepo:         accountRepo,
+		accountUsageService: accountUsageService,
 	}
 }
 
@@ -95,13 +102,27 @@ type userSupportedModel struct {
 	Pricing  *userSupportedModelPricing `json:"pricing"`
 }
 
+// userAvailableAccount 是普通用户可见的上游账号最小只读视图。
+// 只暴露识别与运行状态字段，明确排除凭据、代理、备注、错误详情、调度权重和计费配置。
+type userAvailableAccount struct {
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	Platform    string     `json:"platform"`
+	Type        string     `json:"type"`
+	Status      string     `json:"status"`
+	Schedulable bool       `json:"schedulable"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	Concurrency int        `json:"concurrency"`
+}
+
 // userChannelPlatformSection 单渠道内某个平台的子视图：用户可见的分组 + 该平台
 // 支持的模型。按 platform 聚合后让前端可以把渠道名作为 row-group 一次渲染，
 // 后面的平台行按 sections 顺序铺开。
 type userChannelPlatformSection struct {
-	Platform        string               `json:"platform"`
-	Groups          []userAvailableGroup `json:"groups"`
-	SupportedModels []userSupportedModel `json:"supported_models"`
+	Platform        string                 `json:"platform"`
+	Groups          []userAvailableGroup   `json:"groups"`
+	SupportedModels []userSupportedModel   `json:"supported_models"`
+	Accounts        []userAvailableAccount `json:"accounts"`
 }
 
 // userAvailableChannel 用户可见的渠道条目（白名单字段）。
@@ -146,6 +167,15 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		return
 	}
 
+	var accounts []service.Account
+	if h.accountRepo != nil {
+		accounts, err = h.accountRepo.ListAllWithFilters(c.Request.Context(), "", "", "", "", 0, "")
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
+
 	out := make([]userAvailableChannel, 0, len(channels))
 	for _, ch := range channels {
 		if ch.Status != service.StatusActive {
@@ -159,6 +189,7 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		if len(sections) == 0 {
 			continue
 		}
+		attachUserVisibleAccounts(sections, accounts)
 		out = append(out, userAvailableChannel{
 			Name:        ch.Name,
 			Description: ch.Description,
@@ -167,6 +198,56 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 	}
 
 	response.Success(c, out)
+}
+
+func attachUserVisibleAccounts(sections []userChannelPlatformSection, accounts []service.Account) {
+	for i := range sections {
+		groupIDs := make(map[int64]struct{}, len(sections[i].Groups))
+		for _, group := range sections[i].Groups {
+			groupIDs[group.ID] = struct{}{}
+		}
+		seen := make(map[int64]struct{})
+		visible := make([]userAvailableAccount, 0)
+		for j := range accounts {
+			account := &accounts[j]
+			if account.Platform != sections[i].Platform || !accountIntersectsGroups(account, groupIDs) {
+				continue
+			}
+			if _, ok := seen[account.ID]; ok {
+				continue
+			}
+			seen[account.ID] = struct{}{}
+			visible = append(visible, userAvailableAccount{
+				ID:          account.ID,
+				Name:        account.Name,
+				Platform:    account.Platform,
+				Type:        account.Type,
+				Status:      account.Status,
+				Schedulable: account.Schedulable,
+				LastUsedAt:  account.LastUsedAt,
+				Concurrency: account.Concurrency,
+			})
+		}
+		sort.Slice(visible, func(a, b int) bool {
+			if visible[a].Name != visible[b].Name {
+				return visible[a].Name < visible[b].Name
+			}
+			return visible[a].ID < visible[b].ID
+		})
+		sections[i].Accounts = visible
+	}
+}
+
+func accountIntersectsGroups(account *service.Account, allowed map[int64]struct{}) bool {
+	if account == nil || len(allowed) == 0 {
+		return false
+	}
+	for _, groupID := range account.GroupIDs {
+		if _, ok := allowed[groupID]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // buildPlatformSections 把一个渠道按 visibleGroups 的平台集合拆成有序的 section 列表：

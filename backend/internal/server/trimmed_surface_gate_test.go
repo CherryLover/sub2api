@@ -546,8 +546,8 @@ func TestNotificationErrorDigestSurfaceRegistered(t *testing.T) {
 	}
 }
 
-// TestAdminAPIKeySurfaceRegistered 管理端密钥总表三条路由必须齐：跨用户列表、改状态/IP 名单、删除。
-// 列表只回掩码 Key，故只允许挂在 /admin 下，不能出现在用户侧 /api/v1/keys 之外的公开前缀。
+// TestAdminAPIKeySurfaceRegistered 管理端密钥总表只保留跨用户只读列表。
+// 用户自己的 Key 仍由 /api/v1/keys 管理，平台管理员不再通过 /admin/api-keys 替用户编辑或删除。
 func TestAdminAPIKeySurfaceRegistered(t *testing.T) {
 	router, _ := newTrimmedSurfaceRouter(t)
 
@@ -555,21 +555,20 @@ func TestAdminAPIKeySurfaceRegistered(t *testing.T) {
 	for _, route := range router.Routes() {
 		routes[route.Method+" "+route.Path] = struct{}{}
 	}
-	for _, want := range []string{
-		"GET /api/v1/admin/api-keys",
+	_, exists := routes["GET /api/v1/admin/api-keys"]
+	require.True(t, exists, "管理端密钥总表 GET 路由应已注册")
+	for _, removed := range []string{
 		"PUT /api/v1/admin/api-keys/:id",
 		"DELETE /api/v1/admin/api-keys/:id",
+		"POST /api/v1/admin/api-keys/:id/usage-session",
 	} {
-		_, exists := routes[want]
-		require.Truef(t, exists, "管理端密钥总表路由 %s 应已注册", want)
+		_, exists := routes[removed]
+		require.Falsef(t, exists, "管理端密钥总表不应暴露写接口 %s", removed)
 	}
-	// 不新增管理员换用量令牌接口：总表「查用量」直接跳 /admin/usage?api_key_id=。
-	_, tokenRoute := routes["POST /api/v1/admin/api-keys/:id/usage-session"]
-	require.False(t, tokenRoute, "不应存在管理员用 Key 换用量令牌的接口")
 }
 
-// TestAccountRecentRequestsSurfaceRegistered 账号「容量负载」抽屉的最近请求接口必须挂在 /admin 下：
-// 它会回明细里的用户邮箱与 Key 名称，只能给管理员看，不允许出现在用户侧前缀。
+// TestAccountRecentRequestsSurfaceRegistered 管理端保留完整负载明细；用户端只增加
+// 可用渠道账号的只读、隐私缩减明细，用于确认实际使用情况。
 func TestAccountRecentRequestsSurfaceRegistered(t *testing.T) {
 	router, _ := newTrimmedSurfaceRouter(t)
 
@@ -577,12 +576,12 @@ func TestAccountRecentRequestsSurfaceRegistered(t *testing.T) {
 	for _, route := range router.Routes() {
 		routes[route.Method+" "+route.Path] = struct{}{}
 	}
-	_, exists := routes["GET /api/v1/admin/accounts/:id/recent-requests"]
-	require.True(t, exists, "账号最近请求路由 GET /api/v1/admin/accounts/:id/recent-requests 应已注册")
-	for _, route := range router.Routes() {
-		if strings.HasSuffix(route.Path, "/recent-requests") {
-			require.Truef(t, strings.HasPrefix(route.Path, "/api/v1/admin/"), "最近请求接口只能挂在 /admin 下，发现 %s", route.Path)
-		}
+	for _, want := range []string{
+		"GET /api/v1/admin/accounts/:id/recent-requests",
+		"GET /api/v1/channels/accounts/:id/recent-requests",
+	} {
+		_, exists := routes[want]
+		require.Truef(t, exists, "账号最近请求路由 %s 应已注册", want)
 	}
 }
 

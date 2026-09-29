@@ -378,49 +378,17 @@ describe('admin ApiKeysView 用户筛选', () => {
 })
 
 describe('admin ApiKeysView 行操作', () => {
-  it('删除需先确认，确认后调用管理端删除接口并刷新列表', async () => {
+  it('密钥总表只保留查看用量，不提供编辑、启停或删除', async () => {
     const wrapper = await mountView()
-    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(false)
 
-    await getButtonByText(wrapper, 'common.delete').trigger('click')
-    await nextTick()
-
+    const actions = wrapper.get('[data-test="row-actions"]').text()
+    expect(actions).toContain('admin.apiKeys.viewUsage')
+    expect(actions).not.toContain('common.edit')
+    expect(actions).not.toContain('common.delete')
+    expect(actions).not.toContain('admin.apiKeys.disable')
+    expect(actions).not.toContain('admin.apiKeys.enable')
+    expect(updateApiKey).not.toHaveBeenCalled()
     expect(removeApiKey).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(true)
-    expect(wrapper.get('[data-test="confirm-message"]').text()).toContain('prod-key')
-    expect(wrapper.get('[data-test="confirm-message"]').text()).toContain('owner@example.com')
-
-    const listCallsBefore = listApiKeys.mock.calls.length
-    await wrapper.get('[data-test="confirm-ok"]').trigger('click')
-    await flushPromises()
-
-    expect(removeApiKey).toHaveBeenCalledWith(1)
-    expect(showSuccess).toHaveBeenCalledWith('admin.apiKeys.keyDeleted')
-    expect(listApiKeys.mock.calls.length).toBe(listCallsBefore + 1)
-    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(false)
-  })
-
-  it('取消删除不调用接口', async () => {
-    const wrapper = await mountView()
-
-    await getButtonByText(wrapper, 'common.delete').trigger('click')
-    await nextTick()
-    await wrapper.get('[data-test="confirm-cancel"]').trigger('click')
-    await nextTick()
-
-    expect(removeApiKey).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(false)
-  })
-
-  it('启停只提交 status 字段', async () => {
-    const wrapper = await mountView()
-
-    await getButtonByText(wrapper, 'admin.apiKeys.disable').trigger('click')
-    await flushPromises()
-
-    expect(updateApiKey).toHaveBeenCalledWith(1, { status: 'inactive' })
-    expect(showSuccess).toHaveBeenCalledWith('admin.apiKeys.keyDisabled')
-    expect(wrapper.get('[data-test="cell-status"]').text()).toBe('keys.status.inactive')
   })
 
   it('「查用量」跳到管理端用量页并带上 api_key_id', async () => {
@@ -432,25 +400,5 @@ describe('admin ApiKeysView 行操作', () => {
       path: '/admin/usage',
       query: { api_key_id: '1', user_id: '7' },
     })
-  })
-
-  it('编辑弹窗提交 IP 名单；分组未改动时不带 group_id', async () => {
-    const wrapper = await mountView()
-
-    await getButtonByText(wrapper, 'common.edit').trigger('click')
-    await nextTick()
-    expect(wrapper.find('[data-test="base-dialog"]').exists()).toBe(true)
-
-    await wrapper.get('[data-test="edit-ip-whitelist"]').setValue('1.2.3.4\n10.0.0.0/8\n')
-    await wrapper.get('[data-test="edit-ip-blacklist"]').setValue('')
-    await wrapper.get('[data-test="edit-submit"]').trigger('click')
-    await flushPromises()
-
-    expect(updateApiKey).toHaveBeenCalledWith(1, {
-      ip_whitelist: ['1.2.3.4', '10.0.0.0/8'],
-      ip_blacklist: [],
-    })
-    expect(updateApiKey.mock.calls[0][1]).not.toHaveProperty('group_id')
-    expect(wrapper.find('[data-test="base-dialog"]').exists()).toBe(false)
   })
 })

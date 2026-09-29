@@ -244,7 +244,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		return nil, err
 	}
 	passkeyHandler := handler.NewPasskeyHandler(passkeyService, authService, settingService)
-	availableChannelHandler := handler.NewAvailableChannelHandler(channelService, apiKeyService, settingService)
+	availableChannelHandler := handler.NewAvailableChannelHandler(channelService, apiKeyService, settingService, accountRepository, accountUsageService)
 	keyUsageService := service.ProvideKeyUsageService(apiKeyService, usageService, usageLogRepository, configConfig)
 	keyUsageHandler := handler.NewKeyUsageHandler(keyUsageService, gatewayHandler)
 	imageTaskStore := repository.NewImageTaskStore(redisClient)
