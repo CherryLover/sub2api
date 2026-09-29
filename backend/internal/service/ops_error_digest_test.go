@@ -20,9 +20,13 @@ type digestStubOpsRepo struct {
 	OpsRepository
 
 	mu           sync.Mutex
-	rows         []*OpsErrorDigestRow
-	heartbeats   []*OpsJobHeartbeat
-	breakdownErr error
+	rows           []*OpsErrorDigestRow
+	heartbeats     []*OpsJobHeartbeat
+	breakdownErr   error
+	alertEvents    []*OpsAlertEvent
+	alertRules     []*OpsAlertRule
+	alertEventsErr error
+	alertRulesErr  error
 
 	queriedWindows []digestQueriedWindow
 	upserts        []*OpsUpsertJobHeartbeatInput
@@ -54,6 +58,24 @@ func (r *digestStubOpsRepo) UpsertJobHeartbeat(_ context.Context, input *OpsUpse
 	defer r.mu.Unlock()
 	r.upserts = append(r.upserts, input)
 	return nil
+}
+
+func (r *digestStubOpsRepo) ListAlertEvents(_ context.Context, _ *OpsAlertEventFilter) ([]*OpsAlertEvent, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.alertEventsErr != nil {
+		return nil, r.alertEventsErr
+	}
+	return r.alertEvents, nil
+}
+
+func (r *digestStubOpsRepo) ListAlertRules(context.Context) ([]*OpsAlertRule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.alertRulesErr != nil {
+		return nil, r.alertRulesErr
+	}
+	return r.alertRules, nil
 }
 
 // digestRow 造一行分组计数。apiKeyID <= 0 表示 api_key_id 为空（认证阶段就失败的请求）。
@@ -301,6 +323,79 @@ func TestOpsErrorDigest_RendersBody(t *testing.T) {
 	}, "\n"), body)
 }
 
+func TestOpsErrorDigest_RendersObserveAlertWithoutRealtimeNoise(t *testing.T) {
+	t.Parallel()
+
+	svc, _, _ := newErrorDigestFixture(t, true)
+	start := time.Date(2026, 9, 29, 2, 0, 0, 0, time.UTC)
+	end := start.Add(6 * time.Hour)
+	value := 14.81
+	resolved := start.Add(2 * time.Minute)
+	summary := &OpsErrorDigestSummary{
+		Start: start,
+		End:   end,
+		Alerts: []OpsErrorDigestAlert{{
+			RuleName: "错误率过高", MetricType: "error_rate", Value: &value,
+			FiredAt: start, ResolvedAt: &resolved,
+		}},
+	}
+
+	_, body := svc.renderDigest(context.Background(), summary, end)
+	require.Contains(t, body, "观察告警 1 项")
+	require.Contains(t, body, "请求质量波动：错误率 14.81%：已恢复：持续 2 分钟")
+	require.NotContains(t, body, "失败 0 次")
+}
+
+func TestOpsErrorDigest_OnlyCollapsesMatchingSuccessRate(t *testing.T) {
+	t.Parallel()
+
+	svc, repo, _ := newErrorDigestFixture(t, true)
+	start := time.Date(2026, 9, 29, 2, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+	resolved := start.Add(2 * time.Minute)
+	errorValue := 14.81
+	successValue := 85.19
+	otherSuccess := 90.0
+	repo.alertRules = []*OpsAlertRule{
+		{ID: 1, Name: "错误率过高", MetricType: "error_rate"},
+		{ID: 2, Name: "成功率过低", MetricType: "success_rate"},
+		{ID: 3, Name: "OpenAI 成功率过低", MetricType: "success_rate", Filters: map[string]any{"platform": "openai"}},
+	}
+	repo.alertEvents = []*OpsAlertEvent{
+		{ID: 11, RuleID: 1, Urgency: OpsAlertUrgencyObserve, MetricValue: &errorValue, FiredAt: start, ResolvedAt: &resolved},
+		{ID: 12, RuleID: 2, Urgency: OpsAlertUrgencyObserve, MetricValue: &successValue, FiredAt: start, ResolvedAt: &resolved},
+		{ID: 13, RuleID: 3, Urgency: OpsAlertUrgencyObserve, MetricValue: &otherSuccess, FiredAt: start, ResolvedAt: &resolved},
+	}
+
+	alerts, hidden, err := svc.buildObserveAlertSummary(context.Background(), start, end)
+	require.NoError(t, err)
+	require.Zero(t, hidden)
+	require.Len(t, alerts, 2)
+	require.Equal(t, "error_rate", alerts[0].MetricType)
+	require.Equal(t, "success_rate", alerts[1].MetricType, "不同作用域的成功率不能被全局错误率误吞")
+}
+
+func TestOpsErrorDigest_PushesObserveAlertsEvenWhenNoErrorRows(t *testing.T) {
+	t.Parallel()
+
+	svc, repo, sender := newErrorDigestFixture(t, true)
+	now := time.Date(2026, 9, 29, 8, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	value := 88.0
+	resolved := now.Add(-time.Minute)
+	repo.alertRules = []*OpsAlertRule{{ID: 2, Name: "成功率过低", MetricType: "success_rate"}}
+	repo.alertEvents = []*OpsAlertEvent{{
+		ID: 21, RuleID: 2, Urgency: OpsAlertUrgencyObserve, MetricValue: &value,
+		FiredAt: now.Add(-3 * time.Minute), ResolvedAt: &resolved,
+	}}
+
+	result, err := svc.runDigestOnce(context.Background(), now, OpsErrorDigestConfig{SkipWhenEmpty: true, TopKeys: 8})
+	require.NoError(t, err)
+	require.Contains(t, result, "alerts=1 pushed")
+	require.Len(t, sender.sent(), 1)
+	require.Contains(t, sender.sent()[0].Msg.Body, "成功率过低：成功率 88%：已恢复：持续 2 分钟")
+}
+
 func TestOpsErrorDigest_TitleUsesBarkNotificationName(t *testing.T) {
 	t.Parallel()
 
@@ -393,6 +488,28 @@ func TestOpsErrorDigest_PushesSummaryWhenThereAreErrors(t *testing.T) {
 	require.Equal(t, "[Sub2API] 报错汇总 · 11:30", sends[0].Msg.Title)
 	require.Contains(t, sends[0].Msg.Body, "失败 35 次：真故障 30，业务拦截 5")
 	require.Contains(t, sends[0].Msg.Body, "张三 / dev-key：30 次")
+}
+
+func TestOpsErrorDigest_ObserveAlertQueryFailureDoesNotBlockExistingDigest(t *testing.T) {
+	t.Parallel()
+
+	svc, repo, sender := newErrorDigestFixture(t, true)
+	now := time.Date(2026, 9, 16, 3, 30, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	repo.rows = []*OpsErrorDigestRow{
+		digestRow(1, "张三", "dev-key", "upstream_error", 502, false, 3),
+	}
+	repo.alertEventsErr = errors.New("alert events unavailable")
+
+	result, err := svc.runDigestOnce(context.Background(), now, OpsErrorDigestConfig{
+		SkipWhenEmpty: true,
+		TopKeys:       8,
+	})
+
+	require.NoError(t, err, "观察告警只是附加信息，不能拖垮原有报错汇总")
+	require.Contains(t, result, "errors=3")
+	require.Len(t, sender.sent(), 1)
+	require.Contains(t, sender.sent()[0].Msg.Body, "失败 3 次：真故障 3，业务拦截 0")
 }
 
 func TestOpsErrorDigest_SkipsSilentlyWhenBarkDisabled(t *testing.T) {

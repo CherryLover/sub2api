@@ -993,17 +993,32 @@ func buildOpsAlertEventsWhere(filter *service.OpsAlertEventFilter) (string, []an
 		args = append(args, severity)
 		clauses = append(clauses, "severity = $"+itoa(len(args)))
 	}
+	if urgency := strings.TrimSpace(filter.Urgency); urgency != "" {
+		args = append(args, urgency)
+		clauses = append(clauses, "urgency = $"+itoa(len(args)))
+	}
 	if filter.EmailSent != nil {
 		args = append(args, *filter.EmailSent)
 		clauses = append(clauses, "email_sent = $"+itoa(len(args)))
 	}
-	if filter.StartTime != nil && !filter.StartTime.IsZero() {
-		args = append(args, *filter.StartTime)
-		clauses = append(clauses, "fired_at >= $"+itoa(len(args)))
-	}
-	if filter.EndTime != nil && !filter.EndTime.IsZero() {
+	if filter.OverlapWindow && filter.StartTime != nil && !filter.StartTime.IsZero() && filter.EndTime != nil && !filter.EndTime.IsZero() {
 		args = append(args, *filter.EndTime)
-		clauses = append(clauses, "fired_at < $"+itoa(len(args)))
+		endArg := "$" + itoa(len(args))
+		args = append(args, *filter.StartTime)
+		startArg := "$" + itoa(len(args))
+		clauses = append(clauses, fmt.Sprintf(
+			"fired_at < %s AND (resolved_at IS NULL OR resolved_at >= %s)",
+			endArg, startArg,
+		))
+	} else {
+		if filter.StartTime != nil && !filter.StartTime.IsZero() {
+			args = append(args, *filter.StartTime)
+			clauses = append(clauses, "fired_at >= $"+itoa(len(args)))
+		}
+		if filter.EndTime != nil && !filter.EndTime.IsZero() {
+			args = append(args, *filter.EndTime)
+			clauses = append(clauses, "fired_at < $"+itoa(len(args)))
+		}
 	}
 
 	// Cursor pagination (descending by fired_at, then id)

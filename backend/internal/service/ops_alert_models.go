@@ -125,10 +125,14 @@ type OpsAlertEventFilter struct {
 	// Optional filters.
 	Status    string
 	Severity  string
+	Urgency   string
 	EmailSent *bool
 
 	StartTime *time.Time
 	EndTime   *time.Time
+	// OverlapWindow includes events that were active at any point in
+	// [StartTime, EndTime): fired in-window, resolved in-window, or still firing.
+	OverlapWindow bool
 
 	// Dimensions filters (best-effort).
 	Platform string
