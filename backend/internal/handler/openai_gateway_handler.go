@@ -1087,21 +1087,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
-	// Keep the public model as the client-facing identity while resolving the
-	// connection-scoped Composite route before account/channel mapping.
-	wsRouteModel := reqModel
-	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
-		decision, resolveErr := h.compositeResolver.Resolve(c.Request.Context(), apiKey.Group.ID, reqModel, service.CompositeRouteEndpointResponses)
-		if resolveErr != nil {
-			reqLog.Error("openai.websocket_composite_route_failed", zap.Error(resolveErr))
-			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "Failed to resolve composite model route")
-			return
-		}
-		if decision.Matched {
-			c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
-			wsRouteModel = decision.UpstreamModel
-		}
-	}
 	if !openAICompatibleTextTargetAllowed(c, apiKey, reqModel) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
@@ -1874,7 +1859,21 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
 		return
 	}
-	ensureCompositeTargetPlatform(c, apiKey, reqModel)
+	// Keep the public model as the client-facing identity while resolving the
+	// connection-scoped Composite route before account/channel mapping.
+	wsRouteModel := reqModel
+	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
+		decision, resolveErr := h.compositeResolver.Resolve(c.Request.Context(), apiKey.Group.ID, reqModel, service.CompositeRouteEndpointResponses)
+		if resolveErr != nil {
+			reqLog.Error("openai.websocket_composite_route_failed", zap.Error(resolveErr))
+			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "Failed to resolve composite model route")
+			return
+		}
+		if decision.Matched {
+			c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
+			wsRouteModel = decision.UpstreamModel
+		}
+	}
 	ctx = c.Request.Context()
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
 		platform, ok := service.ResolvedTargetPlatformFromContext(ctx)
