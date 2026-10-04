@@ -1,6 +1,10 @@
 package claude
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestDefaultModelsContainsOpus55(t *testing.T) {
 	for _, model := range DefaultModels {
