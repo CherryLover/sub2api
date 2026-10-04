@@ -736,7 +736,7 @@ func FilterThinkingBlocksForRetry(body []byte, mappedModel string) []byte {
 	// Disable top-level thinking mode for retry to avoid structural/signature constraints upstream.
 	thinkingMode := gjson.Get(jsonStr, "thinking.type").String()
 	deleteTopLevelThinking := gjson.Get(jsonStr, "thinking").Exists() &&
-		!(claude.IsSonnet55(mappedModel) && thinkingMode == "between_tools")
+		(!claude.IsSonnet55(mappedModel) || thinkingMode != "between_tools")
 
 	for i := 0; i < len(messages); i++ {
 		msgMap, ok := messages[i].(map[string]any)

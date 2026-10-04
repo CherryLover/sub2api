@@ -1826,10 +1826,11 @@ func TestSonnet55RejectsUnsupportedParametersBeforeMimicry(t *testing.T) {
 			for _, count := range []bool{false, true} {
 				model := "claude-sonnet-5-5"
 				account := &Account{ID: 1, Platform: PlatformAnthropic, Type: typ}
-				if typ == AccountTypeAPIKey {
+				switch typ {
+				case AccountTypeAPIKey:
 					model = "public-sonnet"
 					account.Credentials = map[string]any{"model_mapping": map[string]any{model: "claude-sonnet-5-5"}}
-				} else if typ == AccountTypeBedrock {
+				case AccountTypeBedrock:
 					account.Credentials = map[string]any{"aws_region": "eu-west-1"}
 				}
 				body := []byte(`{"model":"` + model + `","messages":[{"role":"user","content":"hello"}],` + field + `}`)
