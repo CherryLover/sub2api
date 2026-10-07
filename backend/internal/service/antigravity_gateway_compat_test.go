@@ -565,6 +565,9 @@ func TestAntigravityCompatMalformedFunctionCallStillFailovers(t *testing.T) {
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.RequestScopedTransient)
+	require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+	require.False(t, failoverErr.ShouldRetryNextAccount())
 	require.NotContains(t, recorder.Body.String(), `"finish_reason":"stop"`)
 }
 

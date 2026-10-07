@@ -480,11 +480,13 @@ func writeAntigravityCompatStreamError(
 }
 
 func antigravityCompatEmptyStreamError() error {
-	logger.LegacyPrintf("service.antigravity_gateway", "Empty Antigravity compatibility stream, triggering failover")
+	logger.LegacyPrintf("service.antigravity_gateway", "Empty Antigravity compatibility stream, retrying same account only")
 	return &UpstreamFailoverError{
 		StatusCode:             http.StatusBadGateway,
 		ResponseBody:           []byte(`{"error":"empty stream response from upstream"}`),
 		RetryableOnSameAccount: true,
+		RequestScopedTransient: true,
+		NextAccountAction:      NextAccountStop,
 	}
 }
 
