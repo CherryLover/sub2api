@@ -1934,13 +1934,20 @@ func TestWrapV1InternalRequest_AppendsContinuationAfterModelTurn(t *testing.T) {
 
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(wrapped, &got))
-	contents, ok := got["request"].(map[string]any)["contents"].([]any)
+	request, ok := got["request"].(map[string]any)
+	require.True(t, ok)
+	contents, ok := request["contents"].([]any)
 	require.True(t, ok)
 	require.Len(t, contents, 3)
-	last := contents[2].(map[string]any)
+	last, ok := contents[2].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, "user", last["role"])
-	parts := last["parts"].([]any)
-	require.Equal(t, "[Continue]", parts[0].(map[string]any)["text"])
+	parts, ok := last["parts"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, parts)
+	part, ok := parts[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "[Continue]", part["text"])
 }
 
 func TestWrapV1InternalRequest_LeavesUserEndingUntouched(t *testing.T) {
@@ -1952,9 +1959,14 @@ func TestWrapV1InternalRequest_LeavesUserEndingUntouched(t *testing.T) {
 
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(wrapped, &got))
-	contents := got["request"].(map[string]any)["contents"].([]any)
+	request, ok := got["request"].(map[string]any)
+	require.True(t, ok)
+	contents, ok := request["contents"].([]any)
+	require.True(t, ok)
 	require.Len(t, contents, 1)
-	require.Equal(t, "user", contents[0].(map[string]any)["role"])
+	first, ok := contents[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "user", first["role"])
 }
 
 // generateLargeUnwrapJSON 生成指定最小大小的包含 response 包装的 JSON
