@@ -497,10 +497,6 @@ func TestAntigravityCompatTerminalFinishReasonIsFinishedStep(t *testing.T) {
 			name: "empty STOP",
 			body: `data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":""}]},"finishReason":"STOP"}]}}` + "\n\n",
 		},
-		{
-			name: "signature-only MALFORMED_FUNCTION_CALL",
-			body: `data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"thoughtSignature":"sig"}]},"finishReason":"MALFORMED_FUNCTION_CALL"}]}}` + "\n\n",
-		},
 	}
 	runners := []struct {
 		name string
@@ -549,6 +545,27 @@ func TestAntigravityCompatTerminalFinishReasonIsFinishedStep(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestAntigravityCompatMalformedFunctionCallStillFailovers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, nil)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			`data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"thoughtSignature":"sig"}]},"finishReason":"MALFORMED_FUNCTION_CALL"}]}}` + "\n\n",
+		)),
+	}
+
+	result, err := svc.handleChatCompletionsStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high", true)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.NotContains(t, recorder.Body.String(), `"finish_reason":"stop"`)
 }
 
 func TestAntigravityCompatContentFilterFinishReasonStillFailovers(t *testing.T) {
