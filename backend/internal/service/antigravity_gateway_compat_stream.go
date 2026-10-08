@@ -154,10 +154,20 @@ func (s *antigravityCompatStreamSession) noteFinishReason(line string) {
 		return
 	}
 	reason := antigravityCompatCandidateFinishReason(line)
-	if reason == "" || isGeminiContentFilterFinishReason(reason) || reason == "MALFORMED_FUNCTION_CALL" {
+	if reason == "" || isAntigravityCompatContentFilterFinishReason(reason) || reason == "MALFORMED_FUNCTION_CALL" {
 		return
 	}
 	s.sawFinishReason = true
+}
+
+func isAntigravityCompatContentFilterFinishReason(reason string) bool {
+	switch reason {
+	case "SAFETY", "RECITATION", "LANGUAGE", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII",
+		"IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION":
+		return true
+	default:
+		return false
+	}
 }
 
 func antigravityCompatCandidateFinishReason(line string) string {
