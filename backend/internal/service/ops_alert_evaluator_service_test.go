@@ -261,9 +261,13 @@ func TestOpsAlertUrgencyForRule(t *testing.T) {
 		metric    string
 		operator  string
 		threshold float64
+		sustained int
 		want      string
 	}{
-		{name: "user-visible error rate requires action", metric: "error_rate", want: OpsAlertUrgencyImmediate},
+		{name: "success rate is observation only", metric: "success_rate", operator: "<", threshold: 95, sustained: 5, want: OpsAlertUrgencyObserve},
+		{name: "ordinary error rate is observation only", metric: "error_rate", operator: ">", threshold: 5, sustained: 5, want: OpsAlertUrgencyObserve},
+		{name: "severe but short error rate is observation only", metric: "error_rate", operator: ">", threshold: 20, sustained: 1, want: OpsAlertUrgencyObserve},
+		{name: "severe sustained error rate requires action", metric: "error_rate", operator: ">=", threshold: 20, sustained: 5, want: OpsAlertUrgencyImmediate},
 		{name: "zero available accounts requires action", metric: "group_available_accounts", operator: "<=", threshold: 0, want: OpsAlertUrgencyImmediate},
 		{name: "low available accounts is observed", metric: "group_available_accounts", operator: "<=", threshold: 2, want: OpsAlertUrgencyObserve},
 		{name: "upstream degradation is observed", metric: "upstream_error_rate", want: OpsAlertUrgencyObserve},
@@ -276,7 +280,13 @@ func TestOpsAlertUrgencyForRule(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			rule := &OpsAlertRule{MetricType: tt.metric, Operator: tt.operator, Threshold: tt.threshold, NotifyEmail: true}
+			rule := &OpsAlertRule{
+				MetricType:       tt.metric,
+				Operator:         tt.operator,
+				Threshold:        tt.threshold,
+				SustainedMinutes: tt.sustained,
+				NotifyEmail:      true,
+			}
 			got := opsAlertUrgencyForRule(rule)
 			require.Equal(t, tt.want, got)
 			if got == OpsAlertUrgencyImmediate {

@@ -90,10 +90,11 @@ func newNotifyEvaluatorFixture(t *testing.T, barkEnabled bool, notifyOnResolve b
 			Enabled:    true,
 			NotifyEmail: true,
 			Severity:   "P1",
-			MetricType: "error_rate",
-			Operator:   ">",
-			Threshold:  10,
-			Filters:    map[string]any{"platform": "openai", "group_id": float64(3)},
+			MetricType:       "error_rate",
+			Operator:         ">",
+			Threshold:        20,
+			SustainedMinutes: 5,
+			Filters:          map[string]any{"platform": "openai", "group_id": float64(3)},
 		}},
 		metrics:  &OpsSystemMetricsSnapshot{},
 		overview: &OpsDashboardOverview{RequestCountSLA: 100, ErrorRate: 0.95},
@@ -124,7 +125,7 @@ func TestOpsAlertEvaluator_FiringPushesBarkOnce(t *testing.T) {
 	t.Parallel()
 
 	svc, repo, sender := newNotifyEvaluatorFixture(t, true, true)
-	svc.evaluateOnce(60 * time.Second)
+	svc.evaluateOnce(5 * time.Minute)
 
 	require.Len(t, repo.created, 1, "事件应先落库")
 	require.Equal(t, OpsAlertStatusFiring, repo.created[0].Status)
@@ -136,7 +137,7 @@ func TestOpsAlertEvaluator_FiringPushesBarkOnce(t *testing.T) {
 	require.Equal(t, "[Sub2API] 用户请求错误率过高 · P1 告警", sends[0].Msg.Title)
 	require.Contains(t, sends[0].Msg.Body, "指标：error_rate")
 	require.Contains(t, sends[0].Msg.Body, "当前值：95")
-	require.Contains(t, sends[0].Msg.Body, "阈值：> 10")
+	require.Contains(t, sends[0].Msg.Body, "阈值：> 20")
 	require.Contains(t, sends[0].Msg.Body, "作用域：platform=openai group_id=3")
 	require.Contains(t, sends[0].Msg.Body, "触发时间：")
 	require.Equal(t, "sub2api", sends[0].Msg.Group)
@@ -144,7 +145,7 @@ func TestOpsAlertEvaluator_FiringPushesBarkOnce(t *testing.T) {
 
 	// 同一告警仍活跃时再评估一轮：不再落库也不再推送。
 	repo.active = repo.created[0]
-	svc.evaluateOnce(60 * time.Second)
+	svc.evaluateOnce(5 * time.Minute)
 	require.Len(t, repo.created, 1)
 	require.Len(t, sender.sent(), 1)
 }
@@ -157,7 +158,7 @@ func TestOpsAlertEvaluator_ResolvePushesWhenSwitchOn(t *testing.T) {
 	repo.active = &OpsAlertEvent{ID: 42, RuleID: 1, Status: OpsAlertStatusFiring, FiredAt: firedAt}
 	repo.overview = &OpsDashboardOverview{RequestCountSLA: 100, ErrorRate: 0.04}
 
-	svc.evaluateOnce(60 * time.Second)
+	svc.evaluateOnce(5 * time.Minute)
 
 	require.Equal(t, []int64{42}, repo.resolved)
 	require.Empty(t, repo.created)
@@ -165,7 +166,7 @@ func TestOpsAlertEvaluator_ResolvePushesWhenSwitchOn(t *testing.T) {
 	require.Len(t, sends, 1)
 	require.Equal(t, "[Sub2API] 用户请求错误率过高 · 已恢复", sends[0].Msg.Title)
 	require.Contains(t, sends[0].Msg.Body, "恢复值：4")
-	require.Contains(t, sends[0].Msg.Body, "告警阈值：> 10")
+	require.Contains(t, sends[0].Msg.Body, "告警阈值：> 20")
 	require.Contains(t, sends[0].Msg.Body, "恢复时间：")
 	require.Contains(t, sends[0].Msg.Body, "持续：5 分钟")
 }
@@ -177,7 +178,7 @@ func TestOpsAlertEvaluator_ResolveSkipsPushWhenSwitchOff(t *testing.T) {
 	repo.active = &OpsAlertEvent{ID: 7, RuleID: 1, Status: OpsAlertStatusFiring, FiredAt: time.Now().UTC().Add(-time.Minute)}
 	repo.overview = &OpsDashboardOverview{RequestCountSLA: 100, ErrorRate: 0.01}
 
-	svc.evaluateOnce(60 * time.Second)
+	svc.evaluateOnce(5 * time.Minute)
 
 	require.Equal(t, []int64{7}, repo.resolved, "解除仍要落库")
 	require.Empty(t, sender.sent(), "notify_on_resolve=false 时不推恢复")
@@ -189,7 +190,7 @@ func TestOpsAlertEvaluator_PushFailureDoesNotAffectEventPersistence(t *testing.T
 	svc, repo, sender := newNotifyEvaluatorFixture(t, true, true)
 	sender.sendErr = errors.New("bark unreachable")
 
-	svc.evaluateOnce(60 * time.Second)
+	svc.evaluateOnce(5 * time.Minute)
 
 	require.Len(t, repo.created, 1, "推送失败不影响事件落库")
 	require.Len(t, sender.sent(), 1, "确实尝试过推送")
@@ -200,7 +201,7 @@ func TestOpsAlertEvaluator_PushFailureDoesNotAffectEventPersistence(t *testing.T
 	// 解除时推送失败同样不影响状态更新。
 	repo.active = repo.created[0]
 	repo.overview = &OpsDashboardOverview{RequestCountSLA: 100, ErrorRate: 0.01}
-	svc.evaluateOnce(60 * time.Second)
+	svc.evaluateOnce(5 * time.Minute)
 	require.Equal(t, []int64{1}, repo.resolved)
 	require.Len(t, sender.sent(), 2)
 }
@@ -209,7 +210,7 @@ func TestOpsAlertEvaluator_NoPushWhenBarkDisabledOrAbsent(t *testing.T) {
 	t.Parallel()
 
 	svc, repo, sender := newNotifyEvaluatorFixture(t, false, true)
-	svc.evaluateOnce(60 * time.Second)
+	svc.evaluateOnce(5 * time.Minute)
 	require.Len(t, repo.created, 1)
 	require.Empty(t, sender.sent(), "Bark 关闭时评估流程照旧但不外发")
 
@@ -218,7 +219,7 @@ func TestOpsAlertEvaluator_NoPushWhenBarkDisabledOrAbsent(t *testing.T) {
 		opsRepo:    &notifyStubOpsRepo{rules: repo.rules, metrics: repo.metrics},
 		ruleStates: map[opsAlertRuleStateKey]*opsAlertRuleState{},
 	}
-	require.NotPanics(t, func() { bare.evaluateOnce(60 * time.Second) })
+	require.NotPanics(t, func() { bare.evaluateOnce(5 * time.Minute) })
 }
 
 func TestOpsAlertEvaluator_ImmediateWithoutRealtimeDeliveryStaysInApp(t *testing.T) {
@@ -226,10 +227,30 @@ func TestOpsAlertEvaluator_ImmediateWithoutRealtimeDeliveryStaysInApp(t *testing
 
 	svc, repo, sender := newNotifyEvaluatorFixture(t, true, true)
 	repo.rules[0].NotifyEmail = false
-	svc.evaluateOnce(60 * time.Second)
+	svc.evaluateOnce(5 * time.Minute)
 
 	require.Len(t, repo.created, 1)
 	require.Equal(t, OpsAlertUrgencyImmediate, repo.created[0].Urgency)
 	require.Equal(t, OpsAlertDeliveryInApp, repo.created[0].Delivery)
 	require.Empty(t, sender.sent())
+}
+
+func TestOpsAlertEvaluator_OrdinaryRequestQualityAlertStaysInApp(t *testing.T) {
+	t.Parallel()
+
+	svc, repo, sender := newNotifyEvaluatorFixture(t, true, true)
+	repo.rules[0].Threshold = 5
+	repo.rules[0].SustainedMinutes = 5
+	svc.evaluateOnce(5 * time.Minute)
+
+	require.Len(t, repo.created, 1)
+	require.Equal(t, OpsAlertUrgencyObserve, repo.created[0].Urgency)
+	require.Equal(t, OpsAlertDeliveryInApp, repo.created[0].Delivery)
+	require.Empty(t, sender.sent(), "普通错误率波动只入站内历史，不应实时 Bark")
+
+	repo.active = repo.created[0]
+	repo.overview = &OpsDashboardOverview{RequestCountSLA: 100, ErrorRate: 0.01}
+	svc.evaluateOnce(5 * time.Minute)
+	require.Equal(t, []int64{1}, repo.resolved)
+	require.Empty(t, sender.sent(), "观察类恢复也不应实时 Bark")
 }

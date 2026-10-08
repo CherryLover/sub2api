@@ -680,9 +680,16 @@ func buildOpsAlertManualDetails(samples []accountMetricSample, rule *OpsAlertRul
 	return lines
 }
 
+const (
+	// opsAlertRealtimeErrorRateThreshold 复用现有“错误率极高”的 20% 口径。
+	// 短时或轻度错误率波动只观察；只有达到这个量级并持续至少 5 分钟才打扰管理员。
+	opsAlertRealtimeErrorRateThreshold = 20.0
+	opsAlertRealtimeSustainedMinutes   = 5
+)
+
 // opsAlertUrgencyForRule separates event importance from delivery channel.
 // Resource/upstream degradation is observed and summarized; only conditions
-// indicating user-visible relay failure or required operator intervention are immediate.
+// indicating a real user-facing outage that needs operator action are immediate.
 func opsAlertUrgencyForRule(rule *OpsAlertRule) string {
 	if rule == nil {
 		return OpsAlertUrgencySilent
@@ -692,10 +699,19 @@ func opsAlertUrgencyForRule(rule *OpsAlertRule) string {
 		return OpsAlertUrgencyObserve
 	}
 	switch metric {
-	case "success_rate", "error_rate":
-		// These are measured from completed user requests, so a breach means
-		// users are already seeing failed service rather than mere upstream noise.
-		return OpsAlertUrgencyImmediate
+	case "success_rate":
+		// success_rate 与 error_rate 高度相关，只作为观察指标，避免同一波动双重实时推送。
+		return OpsAlertUrgencyObserve
+	case "error_rate":
+		// 普通错误率波动不打扰管理员。只有复用“错误率极高”量级、并明确持续至少 5 分钟
+		// 的规则才代表“用户持续报错”，允许升级为实时 Bark。
+		operator := strings.TrimSpace(rule.Operator)
+		if rule.Threshold >= opsAlertRealtimeErrorRateThreshold &&
+			rule.SustainedMinutes >= opsAlertRealtimeSustainedMinutes &&
+			(operator == ">" || operator == ">=") {
+			return OpsAlertUrgencyImmediate
+		}
+		return OpsAlertUrgencyObserve
 	case "group_available_accounts":
 		// Only an explicit "no accounts left" rule is an outage. A warning such
 		// as <= 2 available accounts remains an observation and must not page.

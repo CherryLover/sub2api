@@ -53,6 +53,8 @@ const (
 	opsErrorDigestMaxTopKeys = 50
 	// opsErrorDigestTopErrorTypes 每个密钥下最多列几种错误类型，剩下的不展开。
 	opsErrorDigestTopErrorTypes = 3
+	// opsErrorDigestMaxAlertLines 定时汇总里最多展开几条观察告警，避免 Bark 正文过长。
+	opsErrorDigestMaxAlertLines = 8
 
 	// opsErrorDigestFallbackWindow 首次运行、或距上次成功已超过这个时长时的兜底区间。
 	// 再往前捞既慢又没意义：站长关心的是刚过去的这一段。
@@ -151,6 +153,17 @@ type OpsErrorDigestGroup struct {
 	Types []OpsErrorDigestTypeLine `json:"types"`
 }
 
+// OpsErrorDigestAlert 是定时汇总里的观察类告警。触发与恢复合成一条，
+// 避免同一个短暂波动分别推“告警”和“已恢复”。
+type OpsErrorDigestAlert struct {
+	RuleName    string     `json:"rule_name"`
+	MetricType  string     `json:"metric_type"`
+	Description string     `json:"description,omitempty"`
+	Value       *float64   `json:"value,omitempty"`
+	FiredAt     time.Time  `json:"fired_at"`
+	ResolvedAt  *time.Time `json:"resolved_at,omitempty"`
+}
+
 // OpsErrorDigestSummary 一次汇总的全部结果。
 //
 // SLA 是真故障，Limited 是业务拦截（余额不足、额度用尽之类）。两者分开计数是这个功能的重点：
@@ -168,6 +181,9 @@ type OpsErrorDigestSummary struct {
 	Groups       []OpsErrorDigestGroup `json:"groups"`
 	HiddenGroups int                   `json:"hidden_groups"`
 	HiddenTotal  int64                 `json:"hidden_total"`
+
+	Alerts       []OpsErrorDigestAlert `json:"alerts"`
+	HiddenAlerts int                   `json:"hidden_alerts"`
 }
 
 // OpsErrorDigestTestResult 「立即试推」的返回：算出来的汇总原样回给前端，
@@ -429,7 +445,7 @@ func (s *OpsErrorDigestService) runDigestOnce(
 		return "", err
 	}
 
-	if summary.Total == 0 && cfg.SkipWhenEmpty {
+	if summary.Total == 0 && len(summary.Alerts) == 0 && cfg.SkipWhenEmpty {
 		return "no errors in window, push skipped", nil
 	}
 
@@ -439,9 +455,11 @@ func (s *OpsErrorDigestService) runDigestOnce(
 		return "", err
 	}
 	if !pushed {
-		return fmt.Sprintf("errors=%d (sla=%d limited=%d), bark disabled", summary.Total, summary.SLA, summary.Limited), nil
+		return fmt.Sprintf("errors=%d (sla=%d limited=%d) alerts=%d, bark disabled",
+			summary.Total, summary.SLA, summary.Limited, len(summary.Alerts)+summary.HiddenAlerts), nil
 	}
-	return fmt.Sprintf("errors=%d (sla=%d limited=%d) pushed", summary.Total, summary.SLA, summary.Limited), nil
+	return fmt.Sprintf("errors=%d (sla=%d limited=%d) alerts=%d pushed",
+		summary.Total, summary.SLA, summary.Limited, len(summary.Alerts)+summary.HiddenAlerts), nil
 }
 
 // RunManualDigest 「立即试推」：不看 schedule、不看 skip_when_empty，按最近 24 小时算一份并推送，
@@ -499,7 +517,127 @@ func (s *OpsErrorDigestService) buildSummary(
 	if err != nil {
 		return nil, fmt.Errorf("query error digest breakdown: %w", err)
 	}
-	return buildOpsErrorDigestSummary(rows, start, end, topKeys), nil
+	summary := buildOpsErrorDigestSummary(rows, start, end, topKeys)
+	alerts, hidden, alertErr := s.buildObserveAlertSummary(ctx, start, end)
+	if alertErr != nil {
+		// 观察告警是现有报错汇总上的附加信息；查询失败不能拖垮原本的错误汇总。
+		logger.LegacyPrintf("service.ops_error_digest", "[OpsDigest] observe alert summary unavailable: %v", alertErr)
+	} else {
+		summary.Alerts = alerts
+		summary.HiddenAlerts = hidden
+	}
+	return summary, nil
+}
+
+func (s *OpsErrorDigestService) buildObserveAlertSummary(
+	ctx context.Context,
+	start, end time.Time,
+) ([]OpsErrorDigestAlert, int, error) {
+	if s == nil || s.opsRepo == nil {
+		return []OpsErrorDigestAlert{}, 0, nil
+	}
+	events, err := s.opsRepo.ListAlertEvents(ctx, &OpsAlertEventFilter{
+		Limit:         500,
+		Urgency:       OpsAlertUrgencyObserve,
+		StartTime:     &start,
+		EndTime:       &end,
+		OverlapWindow: true,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("query observe alert events: %w", err)
+	}
+	if len(events) == 0 {
+		return []OpsErrorDigestAlert{}, 0, nil
+	}
+	rules, err := s.opsRepo.ListAlertRules(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query alert rules for digest: %w", err)
+	}
+	rulesByID := make(map[int64]*OpsAlertRule, len(rules))
+	for _, rule := range rules {
+		if rule != nil {
+			rulesByID[rule.ID] = rule
+		}
+	}
+
+	all := make([]OpsErrorDigestAlert, 0, len(events))
+	for _, event := range events {
+		if event == nil || strings.TrimSpace(event.Urgency) != OpsAlertUrgencyObserve {
+			continue
+		}
+		rule := rulesByID[event.RuleID]
+		if rule == nil {
+			continue
+		}
+		metric := strings.TrimSpace(rule.MetricType)
+		// success_rate 与 error_rate 是同一请求质量波动的镜像指标；
+		// 只在作用域相同且时间段实际重叠时折叠，避免误吞其他独立告警。
+		if metric == "success_rate" && hasMatchingErrorRateEvent(event, rule, events, rulesByID) {
+			continue
+		}
+		all = append(all, OpsErrorDigestAlert{
+			RuleName:    strings.TrimSpace(rule.Name),
+			MetricType:  metric,
+			Description: strings.TrimSpace(event.Description),
+			Value:       event.MetricValue,
+			FiredAt:     event.FiredAt,
+			ResolvedAt:  event.ResolvedAt,
+		})
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].FiredAt.Equal(all[j].FiredAt) {
+			if all[i].MetricType != all[j].MetricType {
+				return all[i].MetricType < all[j].MetricType
+			}
+			return all[i].RuleName < all[j].RuleName
+		}
+		return all[i].FiredAt.After(all[j].FiredAt)
+	})
+	if len(all) <= opsErrorDigestMaxAlertLines {
+		return all, 0, nil
+	}
+	return all[:opsErrorDigestMaxAlertLines], len(all) - opsErrorDigestMaxAlertLines, nil
+}
+
+func hasMatchingErrorRateEvent(
+	successEvent *OpsAlertEvent,
+	successRule *OpsAlertRule,
+	events []*OpsAlertEvent,
+	rulesByID map[int64]*OpsAlertRule,
+) bool {
+	if successEvent == nil || successRule == nil {
+		return false
+	}
+	successScope := FormatOpsAlertScope(successRule.Filters)
+	for _, candidate := range events {
+		if candidate == nil || candidate.ID == successEvent.ID {
+			continue
+		}
+		rule := rulesByID[candidate.RuleID]
+		if rule == nil || strings.TrimSpace(rule.MetricType) != "error_rate" {
+			continue
+		}
+		if FormatOpsAlertScope(rule.Filters) != successScope {
+			continue
+		}
+		if opsAlertEventsOverlap(successEvent, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func opsAlertEventsOverlap(a, b *OpsAlertEvent) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a.ResolvedAt != nil && !b.FiredAt.Before(*a.ResolvedAt) {
+		return false
+	}
+	if b.ResolvedAt != nil && !a.FiredAt.Before(*b.ResolvedAt) {
+		return false
+	}
+	return true
 }
 
 // resolveWindow 算这次汇总覆盖的区间：从上次成功运行到现在。
@@ -786,6 +924,7 @@ func buildOpsErrorDigestSummary(
 		Start:  start,
 		End:    end,
 		Groups: []OpsErrorDigestGroup{},
+		Alerts: []OpsErrorDigestAlert{},
 	}
 
 	buckets := map[opsErrorDigestGroupKey]*opsErrorDigestGroupBucket{}
@@ -963,8 +1102,25 @@ func buildOpsErrorDigestBody(summary *OpsErrorDigestSummary, loc *time.Location)
 			formatBarkDuration(summary.End.Sub(summary.Start)),
 		),
 	}
-	if summary.Total == 0 {
+	if summary.Total == 0 && len(summary.Alerts) == 0 {
 		return strings.Join(append(lines, "区间内没有报错"), "\n")
+	}
+
+	if len(summary.Alerts) > 0 {
+		lines = append(lines, fmt.Sprintf("观察告警 %d 项", len(summary.Alerts)+summary.HiddenAlerts))
+		for _, alert := range summary.Alerts {
+			lines = append(lines, formatOpsErrorDigestAlert(alert, summary.End))
+		}
+		if summary.HiddenAlerts > 0 {
+			lines = append(lines, fmt.Sprintf("另有 %d 项观察告警未展开", summary.HiddenAlerts))
+		}
+		if summary.Total > 0 {
+			lines = append(lines, "")
+		}
+	}
+
+	if summary.Total == 0 {
+		return strings.Join(lines, "\n")
 	}
 
 	lines = append(lines,
@@ -981,6 +1137,54 @@ func buildOpsErrorDigestBody(summary *OpsErrorDigestSummary, loc *time.Location)
 		lines = append(lines, fmt.Sprintf("另有 %d 个密钥共 %d 次", summary.HiddenGroups, summary.HiddenTotal))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func formatOpsErrorDigestAlert(alert OpsErrorDigestAlert, windowEnd time.Time) string {
+	name := strings.TrimSpace(alert.RuleName)
+	if name == "" {
+		name = strings.TrimSpace(alert.MetricType)
+	}
+	if name == "" {
+		name = "运行告警"
+	}
+
+	value := ""
+	if alert.Value != nil {
+		switch strings.TrimSpace(alert.MetricType) {
+		case "error_rate":
+			value = fmt.Sprintf("错误率 %s%%", formatBarkNumber(*alert.Value))
+		case "success_rate":
+			value = fmt.Sprintf("成功率 %s%%", formatBarkNumber(*alert.Value))
+		default:
+			value = "当前值 " + formatBarkNumber(*alert.Value)
+		}
+	}
+	if strings.TrimSpace(alert.MetricType) == "error_rate" {
+		name = "请求质量波动"
+	}
+
+	status := "持续中"
+	durationEnd := windowEnd
+	if alert.ResolvedAt != nil && !alert.ResolvedAt.IsZero() {
+		status = "已恢复"
+		durationEnd = *alert.ResolvedAt
+	}
+	duration := durationEnd.Sub(alert.FiredAt)
+	if duration < 0 {
+		duration = 0
+	}
+
+	parts := []string{name}
+	description := strings.TrimSpace(alert.Description)
+	if description != "" &&
+		strings.TrimSpace(alert.MetricType) != "error_rate" &&
+		strings.TrimSpace(alert.MetricType) != "success_rate" {
+		parts = []string{description}
+	} else if value != "" {
+		parts = append(parts, value)
+	}
+	parts = append(parts, status, "持续 "+formatBarkDuration(duration))
+	return strings.Join(parts, "：")
 }
 
 func formatOpsErrorDigestTypes(types []OpsErrorDigestTypeLine) string {
