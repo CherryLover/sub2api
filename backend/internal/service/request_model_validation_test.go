@@ -20,6 +20,10 @@ func TestValidateRequestModelCarriersJSON(t *testing.T) {
 		err := ValidateRequestModelCarriers("application/json", []byte(`{"model":"cheap","MODEL":"expensive"}`), false)
 		require.EqualError(t, err, "model is specified more than once")
 	})
+	t.Run("unicode escaped duplicate model", func(t *testing.T) {
+		err := ValidateRequestModelCarriers("application/json", []byte(`{"model":"cheap","\u006dodel":"expensive"}`), false)
+		require.EqualError(t, err, "model is specified more than once")
+	})
 	t.Run("nested model does not count", func(t *testing.T) {
 		err := ValidateRequestModelCarriers("application/json", []byte(`{"model":"a","messages":[{"model":"b"}]}`), false)
 		require.NoError(t, err)
@@ -70,6 +74,14 @@ func TestReplaceModelInBodyCollapsesCaseVariantDuplicates(t *testing.T) {
 	out := ReplaceModelInBody(body, "mapped")
 	require.False(t, HasDuplicateTopLevelKey(out, "model"))
 	require.Equal(t, "mapped", gjson.GetBytes(out, "model").String())
+}
+
+func TestReplaceModelInBodyCollapsesUnicodeEscapedDuplicates(t *testing.T) {
+	body := []byte(`{"alpha":1,"\u006dodel":"cheap","messages":[],"MODEL":"expensive","omega":2}`)
+	out := ReplaceModelInBody(body, "mapped")
+	require.False(t, HasDuplicateTopLevelKey(out, "model"))
+	require.Equal(t, "mapped", gjson.GetBytes(out, "model").String())
+	require.Contains(t, string(out), `"model":"mapped"`)
 }
 
 func TestValidateLiveCallRequestRejectsDuplicateSessionModel(t *testing.T) {

@@ -70,8 +70,8 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 	// Extract model and stream using gjson (like OpenAI handler)
 	// 重复的 model 键会被不同解析器绑定到不同值（gjson 首键 vs encoding/json 末键），在边界直接拒绝。
-	if service.HasDuplicateTopLevelKey(body, "model") {
-		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is specified more than once")
+	if err := service.ValidateRequestModelCarriers(c.GetHeader("Content-Type"), body, false); err != nil {
+		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
 	modelResult := gjson.GetBytes(body, "model")

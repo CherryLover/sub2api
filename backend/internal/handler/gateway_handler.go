@@ -155,8 +155,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 
 	// 重复的 model 键会被不同解析器绑定到不同值（gjson 首键 vs encoding/json 末键），在边界直接拒绝。
-	if service.HasDuplicateTopLevelKey(body, "model") {
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is specified more than once")
+	if err := service.ValidateRequestModelCarriers(c.GetHeader("Content-Type"), body, false); err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
 
