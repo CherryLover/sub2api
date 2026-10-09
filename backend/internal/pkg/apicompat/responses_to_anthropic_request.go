@@ -559,7 +559,7 @@ func convertResponsesUserToAnthropicContent(raw json.RawMessage, audioParts ...m
 				})
 			}
 		case "input_file":
-			src := dataURIToAnthropicFileSource(p.FileData)
+			src := dataURIToAnthropicImageSource(p.FileData)
 			if src != nil {
 				blockType := "document"
 				if len(audioParts) > 0 && audioParts[0][partIndex] != "" && audioParts[0][partIndex] == p.FileData {

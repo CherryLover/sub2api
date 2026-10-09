@@ -105,9 +105,6 @@ func chatCompletionsToResponses(req *ChatCompletionsRequest, allowAudio bool) (*
 		}
 	}
 	req = &converted
-	if err := openai.ValidateGPT61SolReasoningEffort(req.Model, req.ReasoningEffort); err != nil {
-		return nil, err
-	}
 	var input []ResponsesInputItem
 	var inputAudio map[int]map[int]string
 	for messageIndex, message := range req.Messages {
