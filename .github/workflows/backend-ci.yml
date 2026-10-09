@@ -33,7 +33,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.6'
+          go version | grep -q 'go1.26.9'
       # embed_on.go 带 //go:build embed，而 unit / integration / golangci-lint
       # 三种编译都不带该 tag —— 等于无人检查它，只有 Dockerfile 构建生产镜像时
       # 才会编译到，编译错误要等出镜像才暴露（批次 2 因此连挂两轮）。
@@ -88,7 +88,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.6'
+          go version | grep -q 'go1.26.9'
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
