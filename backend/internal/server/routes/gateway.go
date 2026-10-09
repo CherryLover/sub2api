@@ -536,6 +536,14 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 			return
 		}
 
+		includeSession := strings.Contains(c.Request.URL.Path, "/realtime/calls") ||
+			strings.HasSuffix(strings.TrimRight(c.Request.URL.Path, "/"), "/live")
+		if err := service.ValidateRequestModelCarriers(c.GetHeader("Content-Type"), body, includeSession); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
+			c.Abort()
+			return
+		}
+
 		model := compositeRequestModelFromBody(c.GetHeader("Content-Type"), body)
 		if model != "" {
 			decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, compositeRouteEndpointForPath(c.Request.URL.Path))
