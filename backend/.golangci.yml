@@ -128,11 +128,11 @@ linters:
       # existing per-protocol idle timeout and PING behavior until migrated.
       - path: 'internal/(repository/http_upstream(_http2_keepalive_test)?|server/http)\.go$'
         linters: [ staticcheck ]
-        text: 'SA1019: (\(golang\.org/x/net/http2\.(Server|Transport)\)\.|golang\.org/x/net/http2\.(ConfigureServer|ConfigureTransports|Server|Transport)\b)'
+        text: 'SA1019: (http2\.(ConfigureServer|ConfigureTransports|Transport)|h2\.(ReadIdleTimeout|PingTimeout))'
       # Upstream libraries may still return the legacy typed GOAWAY error.
       - path: 'internal/service/openai_codex_models_service(_test)?\.go$'
         linters: [ staticcheck ]
-        text: 'SA1019: golang\.org/x/net/http2\.GoAwayError\b'
+        text: 'SA1019: http2\.GoAwayError\b'
 
 formatters:
   enable:
