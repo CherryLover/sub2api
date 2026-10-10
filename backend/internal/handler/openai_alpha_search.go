@@ -68,6 +68,10 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
+	if err := service.ValidateRequestModelCarriers(c.GetHeader("Content-Type"), body, false); err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
 
 	modelResult := gjson.GetBytes(body, "model")
 	if !modelResult.Exists() || modelResult.Type != gjson.String || strings.TrimSpace(modelResult.String()) == "" {

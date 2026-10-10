@@ -188,6 +188,9 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	}
 
 	contentType := strings.TrimSpace(c.GetHeader("Content-Type"))
+	if err := ValidateRequestModelCarriers(contentType, body, false); err != nil {
+		return nil, err
+	}
 	req := &OpenAIImagesRequest{
 		Endpoint:    endpoint,
 		ContentType: contentType,

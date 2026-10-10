@@ -600,9 +600,42 @@ func checkRestricted(lk *channelLookup, groupID int64, model string) bool {
 }
 
 // ReplaceModelInBody 替换请求体 JSON 中的 model 字段。
+// 若请求体携带重复 model 键，sjson 只改写第一个键，剩余键会被末键优先的
+// 上游解析器执行，因此先把重复键收敛为单一键（保留最后一个键的原位，
+// 其余键的相对顺序不变），再写入新值。
 func ReplaceModelInBody(body []byte, newModel string) []byte {
 	if len(body) == 0 {
 		return body
+	}
+	if HasDuplicateTopLevelKey(body, "model") && gjson.ValidBytes(body) {
+		object := gjson.ParseBytes(body)
+		lastModel := 0
+		object.ForEach(func(key, _ gjson.Result) bool {
+			if strings.EqualFold(key.String(), "model") {
+				lastModel = key.Index
+			}
+			return true
+		})
+		normalized := make([]byte, 0, len(body))
+		normalized = append(normalized, '{')
+		object.ForEach(func(key, value gjson.Result) bool {
+			isModel := strings.EqualFold(key.String(), "model")
+			if isModel && key.Index != lastModel {
+				return true
+			}
+			if len(normalized) > 1 {
+				normalized = append(normalized, ',')
+			}
+			if isModel {
+				normalized = append(normalized, `"model"`...)
+			} else {
+				normalized = append(normalized, key.Raw...)
+			}
+			normalized = append(normalized, ':')
+			normalized = append(normalized, value.Raw...)
+			return true
+		})
+		body = append(normalized, '}')
 	}
 	if current := gjson.GetBytes(body, "model"); current.Exists() && current.String() == newModel {
 		return body

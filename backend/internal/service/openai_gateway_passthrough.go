@@ -177,7 +177,10 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		if normalized {
 			body = normalizedBody
 		}
-		reqStream = gjson.GetBytes(body, "stream").Bool()
+		// 保持客户端原始 stream 标志；compact 始终为非流式。
+		if isOpenAIResponsesCompactPath(c) {
+			reqStream = false
+		}
 
 		stageCodexFingerprintIDs(c, nil)
 		// 指纹收敛：与非透传路径同门控（仅 OAuth、legacy compact 形态跳过）。
@@ -1908,6 +1911,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 		return nil, fmt.Errorf("restore OpenAI Responses client tools: %w", err)
 	}
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
+		c.Writer.Header().Set("Content-Type", contentType)
 		c.Data(resp.StatusCode, contentType, body)
 	}
 	return &openaiNonStreamingResultPassthrough{
@@ -1925,7 +1929,11 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 // rewrite model fields back to the original requested model.
 func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c *gin.Context, account *Account, body []byte, originalModel string, mappedModel string) (*openaiNonStreamingResultPassthrough, error) {
 	bodyText := string(body)
+	terminalType, terminalPayload, terminalOK := extractOpenAISSETerminalEvent(bodyText)
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
+	if !ok && terminalOK {
+		finalResponse, ok = extractOpenAINonCompletedTerminalResponse(terminalType, terminalPayload)
+	}
 
 	usage := &OpenAIUsage{}
 	if ok {
@@ -1954,7 +1962,6 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		}
 		body = restoredBody
 	} else {
-		terminalType, terminalPayload, terminalOK := extractOpenAISSETerminalEvent(bodyText)
 		if terminalOK && (terminalType == "response.failed" || terminalType == "error") {
 			msg := extractOpenAISSEErrorMessage(terminalPayload)
 			if msg == "" {
@@ -1982,6 +1989,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		}
 	}
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
+		c.Writer.Header().Set("Content-Type", contentType)
 		c.Data(resp.StatusCode, contentType, body)
 	}
 

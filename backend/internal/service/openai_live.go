@@ -109,6 +109,9 @@ func ValidateLiveCallRequest(request *LiveCallRequest) error {
 	if len(request.Session) == 0 || !json.Valid(request.Session) {
 		return errors.New("session must be valid JSON")
 	}
+	if HasDuplicateTopLevelKey(request.Session, "model") {
+		return errors.New("session.model is specified more than once")
+	}
 	var sessionObject map[string]json.RawMessage
 	if err := json.Unmarshal(request.Session, &sessionObject); err != nil {
 		return errors.New("session must be a JSON object")

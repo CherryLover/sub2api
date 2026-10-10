@@ -95,10 +95,14 @@ func (b AnthropicContentBlock) MarshalJSON() ([]byte, error) {
 			anthropicContentBlock
 		}{Text: b.Text, anthropicContentBlock: anthropicContentBlock(b)})
 	case "thinking":
+		// Anthropic always sends `signature` on thinking blocks (empty on
+		// content_block_start); strict clients such as Grok Build reject the
+		// block with "missing field `signature`" when the key is absent.
 		return json.Marshal(struct {
-			Thinking string `json:"thinking"`
+			Thinking  string `json:"thinking"`
+			Signature string `json:"signature"`
 			anthropicContentBlock
-		}{Thinking: b.Thinking, anthropicContentBlock: anthropicContentBlock(b)})
+		}{Thinking: b.Thinking, Signature: b.Signature, anthropicContentBlock: anthropicContentBlock(b)})
 	default:
 		return json.Marshal(base)
 	}
@@ -227,6 +231,7 @@ type AnthropicDelta struct {
 
 // ResponsesRequest is the request body for POST /v1/responses.
 type ResponsesRequest struct {
+	chatInputAudio     map[int]map[int]string
 	PromptCacheOptions json.RawMessage     `json:"prompt_cache_options,omitempty"`
 	Model              string              `json:"model"`
 	Instructions       string              `json:"instructions,omitempty"`
@@ -651,6 +656,7 @@ type ResponsesStreamEvent struct {
 
 // ChatCompletionsRequest is the request body for POST /v1/chat/completions.
 type ChatCompletionsRequest struct {
+	ambiguousInputAudio bool
 	PromptCacheOptions  json.RawMessage    `json:"prompt_cache_options,omitempty"`
 	Model               string             `json:"model"`
 	Messages            []ChatMessage      `json:"messages"`
@@ -700,6 +706,7 @@ type ChatContentPart struct {
 	Text                  string          `json:"text,omitempty"`
 	ImageURL              *ChatImageURL   `json:"image_url,omitempty"`
 	File                  *ChatFile       `json:"file,omitempty"`
+	InputAudio            json.RawMessage `json:"input_audio,omitempty"`
 }
 
 // ChatImageURL contains the URL for an image content part.
