@@ -40,8 +40,8 @@ type textRedactPatterns struct {
 }
 
 var (
-	reGOCSPX = regexp.MustCompile(`GOCSPX-[0-9A-Za-z_-]{24,}`)
-	reAIza   = regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`)
+	reGOCSPX        = regexp.MustCompile(`GOCSPX-[0-9A-Za-z_-]{24,}`)
+	reAIza          = regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`)
 	reGeminiAuthKey = regexp.MustCompile(`AQ\.Ab[0-9A-Za-z_-]{40,}`)
 
 	defaultTextRedactPatterns = compileTextRedactPatterns(nil)
