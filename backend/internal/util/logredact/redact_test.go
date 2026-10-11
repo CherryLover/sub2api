@@ -82,3 +82,11 @@ func countExtraTextPatternCacheEntries() int {
 	})
 	return count
 }
+
+func TestRedactTextGeminiAuthKey(t *testing.T) {
+	key := "AQ.Ab" + strings.Repeat("X", 48)
+	result := RedactText(key)
+	if strings.Contains(result, key) || result != "AQ.***" {
+		t.Fatalf("key not masked: %q", result)
+	}
+}
