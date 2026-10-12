@@ -2420,6 +2420,21 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(accountID int64
 	scheduler.ReportResult(accountID, success, firstTokenMs)
 }
 
+// ReportOpenAIAccountScheduleFailure skips account-wide error penalties for
+// model-specific refusals that already receive account/model cooldown.
+func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleFailure(account *Account, model string, observedErr error) {
+	if account == nil {
+		return
+	}
+	var upstreamErr *UpstreamFailoverError
+	if errors.As(observedErr, &upstreamErr) {
+		if _, _, isModelRefusal := upstreamModelUnavailableCooldown(account, upstreamErr.StatusCode, upstreamErr.ResponseBody); isModelRefusal {
+			return
+		}
+	}
+	s.ReportOpenAIAccountScheduleResult(account.ID, model, false, nil)
+}
+
 func (s *OpenAIGatewayService) RecordOpenAIAccountSwitch() {
 	scheduler := s.getOpenAIAccountScheduler(context.Background())
 	if scheduler == nil {

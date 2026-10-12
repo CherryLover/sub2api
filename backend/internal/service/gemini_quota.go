@@ -373,6 +373,10 @@ func geminiQuotaTierKeyForAccount(account *Account) string {
 	if account == nil || account.Platform != PlatformGemini {
 		return ""
 	}
+	// Third-party and Vertex accounts are not subject to AI Studio simulated quotas.
+	if account.IsGeminiThirdPartyAPIKey() || account.IsVertexServiceAccount() {
+		return ""
+	}
 
 	// Note: GeminiOAuthType() already defaults legacy (project_id present) to code_assist.
 	oauthType := strings.ToLower(strings.TrimSpace(account.GeminiOAuthType()))

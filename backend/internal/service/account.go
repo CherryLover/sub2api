@@ -332,6 +332,29 @@ func (a *Account) IsGeminiGoogleOne() bool {
 	return a.Platform == PlatformGemini && a.Type == AccountTypeOAuth && a.GeminiOAuthType() == "google_one"
 }
 
+// IsGeminiThirdPartyAPIKey distinguishes non-Google Gemini API key relays from AI Studio.
+func (a *Account) IsGeminiThirdPartyAPIKey() bool {
+	return a != nil && a.Platform == PlatformGemini && a.Type == AccountTypeAPIKey &&
+		!isOfficialGeminiAPIBaseURL(a.GetCredential("base_url"))
+}
+
+// The unset base URL uses the official endpoint. Only the exact HTTPS official
+// origin (without alternate port/path/query/userinfo) is considered AI Studio.
+func isOfficialGeminiAPIBaseURL(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return true
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Scheme, "https") &&
+		strings.EqualFold(u.Hostname(), "generativelanguage.googleapis.com") &&
+		u.Port() == "" && strings.TrimRight(u.Path, "/") == "" &&
+		u.RawQuery == "" && u.User == nil && u.Fragment == ""
+}
+
 func (a *Account) CanGetUsage() bool {
 	return a.Type == AccountTypeOAuth
 }

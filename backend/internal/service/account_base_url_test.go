@@ -396,3 +396,9 @@ func TestGetGrokMediaBaseURLHonorsOAuthCustomRegardlessOfUnsafeOverrides(t *test
 
 	require.Equal(t, "https://custom.example.com/v1", account.GetGrokMediaBaseURL())
 }
+
+func TestGeminiThirdPartyQuotaBypass(t *testing.T) {
+	a := &Account{Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://relay.example.com"}}
+	require.True(t, a.IsGeminiThirdPartyAPIKey())
+	require.Empty(t, geminiQuotaTierKeyForAccount(a))
+}
