@@ -758,7 +758,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		// dedicated 模式下每次获取均新建连接，避免跨会话复用残留上下文。
 		req.ForceNewConn = dedicatedMode
 		acquireCtx, acquireCancel := context.WithTimeout(ctx, acquireTimeout)
-		lease, acquireErr := pool.Acquire(acquireCtx, req)
+		lease, acquireErr := s.acquireOpenAIWSWithOAuthRecovery(acquireCtx, &req)
+		if req.Headers.Get("Authorization") != baseAcquireReq.Headers.Get("Authorization") {
+			baseAcquireReq.Headers = req.Headers
+			token = strings.TrimPrefix(req.Headers.Get("Authorization"), "Bearer ")
+		}
 		acquireCancel()
 		var dialErr *openAIWSDialError
 		if acquireErr != nil && s.isAgentIdentityAccount(ctx, account) && errors.As(acquireErr, &dialErr) && isAgentIdentityTaskInvalidWSDialError(dialErr) && !agentTaskRecoveryTried {
