@@ -1398,21 +1398,22 @@ func applyChannelTokenPriceOverrides(pricing *ModelPricing, channelPricing *Chan
 
 // CostInput 统一计费输入
 type CostInput struct {
-	Ctx                       context.Context
-	Model                     string
-	GroupID                   *int64 // 用于渠道定价查找
-	Group                     *Group
-	Tokens                    UsageTokens
-	RequestCount              int     // 按次计费时使用
-	UsageUnits                float64 // 音频等连续计量单位（分钟/小时/百万字符）
-	SizeTier                  string  // 按次/图片模式的层级标签（"1K","2K","4K","HD" 等）
-	RateMultiplier            float64
-	PricingAt                 time.Time             // 渠道分时定价使用的计费时刻
-	ServiceTier               string                // "priority","flex","" 等
-	ReasoningEffort           string                // 最终转发的推理等级；按渠道配置倍率计费
-	Resolver                  *ModelPricingResolver // 定价解析器
-	Resolved                  *ResolvedPricing      // 可选：预解析的定价结果（避免重复 Resolve 调用）
-	LongContextBillingEnabled *bool
+	Ctx                            context.Context
+	Model                          string
+	GroupID                        *int64 // 用于渠道定价查找
+	Group                          *Group
+	Tokens                         UsageTokens
+	RequestCount                   int     // 按次计费时使用
+	UsageUnits                     float64 // 音频等连续计量单位（分钟/小时/百万字符）
+	SizeTier                       string  // 按次/图片模式的层级标签（"1K","2K","4K","HD" 等）
+	RateMultiplier                 float64
+	PricingAt                      time.Time             // 渠道分时定价使用的计费时刻
+	ServiceTier                    string                // "priority","flex","" 等
+	ReasoningEffort                string                // 最终转发的推理等级；按渠道配置倍率计费
+	Resolver                       *ModelPricingResolver // 定价解析器
+	Resolved                       *ResolvedPricing      // 可选：预解析的定价结果（避免重复 Resolve 调用）
+	LongContextBillingEnabled      *bool
+	DisableModelLongContextPricing bool
 }
 
 // CalculateCostUnified 统一计费入口，支持三种计费模式。
@@ -1430,7 +1431,7 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 			input.RateMultiplier,
 			input.ServiceTier,
 			nil,
-			applyLongContextBilling,
+			applyLongContextBilling && !input.DisableModelLongContextPricing,
 		)
 		if err != nil || breakdown == nil || strings.TrimSpace(input.ReasoningEffort) == "" {
 			return breakdown, err
@@ -1521,7 +1522,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	}
 
 	// 官方长上下文阶梯仅在无区间定价时应用（区间定价已包含上下文分层）。
-	applyLongCtx := len(resolved.Intervals) == 0 && contextTierPricingEnabled
+	applyLongCtx := len(resolved.Intervals) == 0 && contextTierPricingEnabled && !input.DisableModelLongContextPricing
 
 	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongCtx)
 	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, input.PricingAt))

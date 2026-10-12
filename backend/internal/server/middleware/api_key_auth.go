@@ -169,7 +169,7 @@ func apiKeyAuth(apiKeyService *service.APIKeyService, cfg *config.Config) gin.Ha
 		// Async image task polling only reads data that already belongs to the
 		// authenticated key and must remain available after the completed
 		// generation consumes the key's remaining quota.
-		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || isAsyncImageTaskRead(c.Request.Method, c.Request.URL.Path)
+		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || isAsyncImageTaskRead(c.Request.Method, c.Request.URL.Path) || isAsyncVideoTaskRead(c.Request.Method, c.FullPath())
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
@@ -280,6 +280,25 @@ func isAsyncImageTaskRead(method, path string) bool {
 		return false
 	}
 	return strings.HasPrefix(path, "/v1/images/tasks/") || strings.HasPrefix(path, "/images/tasks/")
+}
+
+// Read-only video result routes remain accessible after quota exhaustion.
+// Task ownership remains enforced by the video handler.
+func isAsyncVideoTaskRead(method, route string) bool {
+	if method != http.MethodGet {
+		return false
+	}
+	switch strings.TrimPrefix(route, "/v1") {
+	case "/videos/:request_id", "/videos/:request_id/content",
+		"/videos/generations/:request_id", "/videos/generations/:request_id/content",
+		"/videos/edits/:request_id", "/videos/edits/:request_id/content",
+		"/videos/extensions/:request_id", "/videos/extensions/:request_id/content",
+		"/api/v3/contents/generations/tasks/:task_id", "/v3/contents/generations/tasks/:task_id",
+		"/contents/generations/tasks/:task_id":
+		return true
+	default:
+		return false
+	}
 }
 
 // GetAPIKeyFromContext 从上下文中获取API key
