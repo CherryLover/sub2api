@@ -326,6 +326,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	}
 
 	agentTaskRecoveryTried := false
+	httpOAuth401RecoveryTried := false
 	var resp *http.Response
 	for {
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
@@ -352,6 +353,13 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		probeBody := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(probeBody))
+		if !httpOAuth401RecoveryTried && resp.StatusCode == http.StatusUnauthorized {
+			httpOAuth401RecoveryTried = true
+			if nextToken, recovered := s.tryRefreshOpenAIHTTP401(ctx, account, resp.StatusCode, probeBody, token); recovered {
+				token = nextToken
+				continue
+			}
+		}
 		if !agentTaskRecoveryTried && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, probeBody) {
 			agentTaskRecoveryTried = true
 			expectedTaskID := account.GetCredential("task_id")
