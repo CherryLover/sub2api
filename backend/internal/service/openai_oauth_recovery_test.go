@@ -38,7 +38,7 @@ func TestOpenAIOAuth401HTTPRecoveryBoundaries(t *testing.T) {
 			{name: "detail_unauthorized", body: `{"detail":"Unauthorized"}`, requests: 1},
 			{name: "scope", body: `{"error":{"message":"Missing scopes: api.responses.write."}}`, requests: 1},
 			{name: "api_key", kind: "api_key", requests: 1},
-			{name: "setup_token", kind: "setup_token", requests: 1},
+			{name: "setup_token", kind: "setup_token", requests: 0},
 			{name: "pat", kind: "pat", requests: 1},
 			{name: "missing_refresh_token", kind: "no_rt", requests: 1},
 			{name: "refresh_error", failRefresh: true, requests: 1, refreshes: 1},

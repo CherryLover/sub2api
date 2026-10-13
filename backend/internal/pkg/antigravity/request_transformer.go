@@ -556,7 +556,9 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 // toolResultMediaParts preserves base64 images/documents returned by tools.
 func toolResultMediaParts(content json.RawMessage) []GeminiPart {
 	var blocks []ContentBlock
-	if err := json.Unmarshal(content, &blocks); err != nil { return nil }
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return nil
+	}
 	var parts []GeminiPart
 	for _, b := range blocks {
 		if (b.Type == "image" || b.Type == "document") && b.Source != nil && b.Source.Type == "base64" && strings.TrimSpace(b.Source.Data) != "" {

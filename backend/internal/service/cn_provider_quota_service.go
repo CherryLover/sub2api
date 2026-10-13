@@ -408,7 +408,7 @@ func classifyZhipuWindowUnit(unit int64) cnZhipuWindow {
 // 老套餐只回 1 条 TOKENS_LIMIT，自然降级为仅 5h；新套餐回 2 条。
 func parseZhipuTokenTiers(data gjson.Result) []CNQuotaTier {
 	type entry struct {
-		window cnZhipuWindow
+		window     cnZhipuWindow
 		resetMs    int64
 		hasReset   bool
 		percentage float64

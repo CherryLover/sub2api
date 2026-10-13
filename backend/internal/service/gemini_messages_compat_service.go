@@ -3427,7 +3427,9 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 					}
 					resultText := extractClaudeContentText(bm["content"])
 					images := extractClaudeToolResultImageParts(bm["content"])
-					if resultText == "" && len(images)>0 { resultText = "[image attached below]" }
+					if resultText == "" && len(images) > 0 {
+						resultText = "[image attached below]"
+					}
 					toolImageParts = append(toolImageParts, images...)
 					parts = append(parts, map[string]any{
 						"functionResponse": map[string]any{
@@ -3478,17 +3480,25 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 
 func extractClaudeToolResultImageParts(v any) []any {
 	blocks, ok := v.([]any)
-	if !ok { return nil }
+	if !ok {
+		return nil
+	}
 	var parts []any
 	for _, block := range blocks {
 		item, ok := block.(map[string]any)
-		if !ok || item["type"] != "image" { continue }
+		if !ok || item["type"] != "image" {
+			continue
+		}
 		src, ok := item["source"].(map[string]any)
-		if !ok || src["type"] != "base64" { continue }
+		if !ok || src["type"] != "base64" {
+			continue
+		}
 		mime, _ := src["media_type"].(string)
 		data, _ := src["data"].(string)
-		if mime == "" || data == "" { continue }
-		parts=append(parts,map[string]any{"inlineData":map[string]any{"mimeType":mime,"data":data}})
+		if mime == "" || data == "" {
+			continue
+		}
+		parts = append(parts, map[string]any{"inlineData": map[string]any{"mimeType": mime, "data": data}})
 	}
 	return parts
 }
