@@ -118,7 +118,7 @@ func (a *Account) modelRateLimitFamilyKeys(ctx context.Context, requestedModel, 
 	keys := []string{modelKey}
 	switch a.Platform {
 	case PlatformAntigravity:
-		if isAntigravityGeminiModel(modelKey) && modelKey != antigravityGeminiModelRateLimitKey {
+		if isAntigravityGeminiModel(modelKey) && !isAntigravityGeminiImageModel(modelKey) && modelKey != antigravityGeminiModelRateLimitKey {
 			keys = append(keys, antigravityGeminiModelRateLimitKey)
 		}
 	case PlatformOpenAI:
@@ -331,10 +331,16 @@ func antigravityModelRateLimitKeys(model string) []string {
 		return nil
 	}
 	keys := []string{model}
-	if isAntigravityGeminiModel(model) && model != antigravityGeminiModelRateLimitKey {
+	if isAntigravityGeminiModel(model) && !isAntigravityGeminiImageModel(model) && model != antigravityGeminiModelRateLimitKey {
 		keys = append(keys, antigravityGeminiModelRateLimitKey)
 	}
 	return keys
+}
+
+// Image generation cooldowns are per-model; do not share the text-model family key.
+func isAntigravityGeminiImageModel(model string) bool {
+	normalized := normalizeAntigravityModelName(model)
+	return strings.HasPrefix(normalized, "gemini-") && strings.Contains(normalized, "-image")
 }
 
 func (a *Account) modelRateLimitResetAt(scope string) *time.Time {

@@ -19,7 +19,7 @@ import (
 type digestStubOpsRepo struct {
 	OpsRepository
 
-	mu           sync.Mutex
+	mu             sync.Mutex
 	rows           []*OpsErrorDigestRow
 	heartbeats     []*OpsJobHeartbeat
 	breakdownErr   error

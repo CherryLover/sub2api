@@ -1578,7 +1578,7 @@ func (a *Account) GetCodingPlanProvider() string {
 	}
 	baseURL := strings.ToLower(a.GetOpenAIBaseURL())
 	switch {
-	case strings.Contains(baseURL, "api.kimi.com/coding"):
+	case isKimiCodingBaseURL(a.GetOpenAIBaseURL()):
 		return PlatformKimi
 	case strings.Contains(baseURL, "bigmodel.cn"), strings.Contains(baseURL, "api.z.ai"):
 		return PlatformZhipu
