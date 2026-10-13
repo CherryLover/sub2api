@@ -3384,6 +3384,7 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 		case []any:
 			// 如果只有一个 block，不过滤空白（让上游 API 报错）
 			singleBlock := len(content) == 1
+			var toolImageParts []any
 
 			for _, block := range content {
 				bm, ok := block.(map[string]any)
@@ -3424,11 +3425,15 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 					if name == "" {
 						name = "tool"
 					}
+					resultText := extractClaudeContentText(bm["content"])
+					images := extractClaudeToolResultImageParts(bm["content"])
+					if resultText == "" && len(images)>0 { resultText = "[image attached below]" }
+					toolImageParts = append(toolImageParts, images...)
 					parts = append(parts, map[string]any{
 						"functionResponse": map[string]any{
 							"name": name,
 							"response": map[string]any{
-								"content": extractClaudeContentText(bm["content"]),
+								"content": resultText,
 							},
 						},
 					})
@@ -3458,6 +3463,7 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 					}
 				}
 			}
+			parts = append(parts, toolImageParts...)
 		default:
 			// ignore
 		}
@@ -3468,6 +3474,23 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 		})
 	}
 	return out, nil
+}
+
+func extractClaudeToolResultImageParts(v any) []any {
+	blocks, ok := v.([]any)
+	if !ok { return nil }
+	var parts []any
+	for _, block := range blocks {
+		item, ok := block.(map[string]any)
+		if !ok || item["type"] != "image" { continue }
+		src, ok := item["source"].(map[string]any)
+		if !ok || src["type"] != "base64" { continue }
+		mime, _ := src["media_type"].(string)
+		data, _ := src["data"].(string)
+		if mime == "" || data == "" { continue }
+		parts=append(parts,map[string]any{"inlineData":map[string]any{"mimeType":mime,"data":data}})
+	}
+	return parts
 }
 
 func extractClaudeContentText(v any) string {
