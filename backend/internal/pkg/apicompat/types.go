@@ -276,6 +276,8 @@ type ResponsesInputItem struct {
 
 	// type=reasoning (multi-turn replay of encrypted reasoning)
 	EncryptedContent string `json:"encrypted_content,omitempty"`
+	// Responses requires summary, even when no summary content exists.
+	Summary json.RawMessage `json:"summary,omitempty"`
 
 	// type=function_call
 	CallID    string `json:"call_id,omitempty"`

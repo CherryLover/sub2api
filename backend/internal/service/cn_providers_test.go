@@ -126,6 +126,17 @@ func TestParseZhipuTokenTiers_UnitClassification(t *testing.T) {
 	require.InDelta(t, 70.0, tiers[1].UsedPercent, 1e-9)
 }
 
+// CREDIT_LIMIT-only plans must use unit classification, even if weekly resets first.
+func TestParseZhipuTokenTiersCreditOnlyByUnit(t *testing.T) {
+	data := gjson.Parse(`{"limits":[{"type":"CREDIT_LIMIT","unit":6,"percentage":70,"nextResetTime":1700000000000},{"type":"CREDIT_LIMIT","unit":3,"percentage":20,"nextResetTime":1700000099999}]}`)
+	tiers := parseZhipuTokenTiers(data)
+	require.Len(t, tiers, 2)
+	require.Equal(t, "5h", tiers[0].Window)
+	require.InDelta(t, 20.0, tiers[0].UsedPercent, 1e-9)
+	require.Equal(t, "weekly", tiers[1].Window)
+	require.InDelta(t, 70.0, tiers[1].UsedPercent, 1e-9)
+}
+
 // TestParseZhipuTokenTiers_SingleTierOldPlan 老套餐仅回 1 条 → 降级为仅 5h。
 func TestParseZhipuTokenTiers_SingleTierOldPlan(t *testing.T) {
 	t.Parallel()
