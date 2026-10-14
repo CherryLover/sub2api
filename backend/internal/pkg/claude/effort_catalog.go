@@ -51,6 +51,28 @@ func IsSonnet55(model string) bool {
 	return normalizeEffortModelID(model) == "claude-sonnet-5-5"
 }
 
+// SupportsMidConversationSystem applies only to Claude 5.x and later. Older
+// Claude models require instruction content in the top-level system parameter.
+func SupportsMidConversationSystem(model string) bool {
+	id := normalizeEffortModelID(model)
+	parts := strings.Split(id, "-")
+	if len(parts) < 3 || parts[0] != "claude" {
+		return false
+	}
+	major := 0
+	version := strings.SplitN(parts[2], ".", 2)[0]
+	if version == "" {
+		return false
+	}
+	for _, ch := range version {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+		major = major*10 + int(ch-'0')
+	}
+	return major >= 5
+}
+
 func normalizeEffortModelID(model string) string {
 	id := strings.ToLower(strings.TrimSpace(model))
 	id = strings.TrimPrefix(id, "models/")
