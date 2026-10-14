@@ -250,7 +250,7 @@ func isOpenAIImagesMainModelError(status int, body []byte) bool {
 		return false
 	}
 	message := extractUpstreamErrorMessage(body)
-	model := openAIImagesResponsesMainModelValue()
+	model := openAIImagesResponsesMainModel
 	return strings.Contains(message, "'"+model+"'") ||
 		strings.Contains(message, `"`+model+`"`)
 }
@@ -273,8 +273,8 @@ func codexDirectImagesUsage(body []byte) (OpenAIUsage, bool) {
 		usage.CacheReadInputTokens = min(imageTokens, max(usage.InputTokens, 0))
 		usage.CacheReadInputTokens += min(textTokens, max(usage.InputTokens-usage.CacheReadInputTokens, 0))
 	}
-	imageCached, _ := boundedJSONNonNegativeInt(cached.Get("image_tokens"))
-	usage.ImageCacheReadTokens = min(imageCached, max(usage.ImageInputTokens, 0), max(usage.CacheReadInputTokens, 0))
+	// The lite usage structure tracks cached input tokens in aggregate; do not
+	// invent a per-image cache field that the billing pipeline does not consume.
 	return usage, true
 }
 
