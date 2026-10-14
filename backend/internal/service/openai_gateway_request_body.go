@@ -1731,6 +1731,17 @@ func normalizeOpenAIReasoningEffortForModel(raw, model string) string {
 	return normalizeOpenAIReasoningEffort(raw)
 }
 
+func hasEffectiveGPT61SolCompatEffort(body []byte) bool {
+	for _, path := range []string{"reasoning.effort", "reasoning_effort"} {
+		effort := gjson.GetBytes(body, path)
+		if effort.Type == gjson.String && strings.TrimSpace(effort.String()) != "" {
+			return true
+		}
+	}
+	outputEffort := gjson.GetBytes(body, "output_config.effort")
+	return outputEffort.Type == gjson.String && outputEffort.String() != ""
+}
+
 // validateGPT61SolCompatRequest rejects unsupported reasoning settings before
 // protocol conversion can silently discard explicit user intent.
 func validateGPT61SolCompatRequest(body []byte, model string) error {
@@ -1745,10 +1756,12 @@ func validateGPT61SolCompatRequest(body []byte, model string) error {
 	if gjson.GetBytes(body, "thinking.type").String() == "disabled" {
 		return openai.ValidateGPT61SolReasoningEffort(model, "none")
 	}
-	requestedModel := openai.CanonicalizeOpenAIModelAliasSpelling(gjson.GetBytes(body, "model").String())
-	for _, effort := range []string{"none", "minimal"} {
-		if strings.HasSuffix(requestedModel, "-"+effort) {
-			return openai.ValidateGPT61SolReasoningEffort(model, effort)
+	if !hasEffectiveGPT61SolCompatEffort(body) {
+		requestedModel := openai.CanonicalizeOpenAIModelAliasSpelling(gjson.GetBytes(body, "model").String())
+		if openai.IsGPT61SolModelSpelling(requestedModel) {
+			if effort, ok := strings.CutPrefix(requestedModel, "gpt-6.1-sol-"); ok && effort != "openai-compact" {
+				return openai.ValidateGPT61SolReasoningEffort(model, effort)
+			}
 		}
 	}
 	return nil
