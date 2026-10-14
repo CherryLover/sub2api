@@ -9,6 +9,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestChannelMonitorV2CacheRateExcludesCacheWrites(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		input, creation, read int64
+		wantDenom             int64
+		wantRate              float64
+	}{
+		{name: "writes and reads", input: 100, creation: 300, read: 100, wantDenom: 200, wantRate: 0.5},
+		{name: "only writes", creation: 150, wantDenom: 0, wantRate: 0},
+		{name: "cache hits only", read: 75, wantDenom: 75, wantRate: 1},
+		{name: "uncached input", input: 80, wantDenom: 80, wantRate: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newMetricAccumulator()
+			a.input, a.cacheCreation, a.cacheRead = tc.input, tc.creation, tc.read
+			got := a.metric(5, false)
+			require.Equal(t, tc.read, got.CacheRateNumerator)
+			require.Equal(t, tc.wantDenom, got.CacheRateDenominator)
+			require.InDelta(t, tc.wantRate, got.CacheRate, 1e-9)
+			require.Equal(t, tc.input+tc.creation+tc.read, got.TokenCount)
+		})
+	}
+}
+
 func TestChannelMonitorV2DisplayModelIsPlatformScoped(t *testing.T) {
 	cfg := service.ChannelMonitorV2Config{Platforms: []service.ChannelMonitorV2PlatformConfig{
 		{Platform: "openai", Enabled: true, Models: []string{"shared", "gpt-5"}},
