@@ -17,10 +17,6 @@ import (
 
 type openAIImagesForceResponsesContextKey struct{}
 
-func withOpenAIImagesForceResponses(ctx context.Context) context.Context {
-	return context.WithValue(ctx, openAIImagesForceResponsesContextKey{}, true)
-}
-
 func isOpenAIImagesForceResponses(ctx context.Context) bool {
 	if ctx == nil {
 		return false
@@ -243,16 +239,6 @@ func codexDirectImageURL(body []byte, path, outputFormat string) []byte {
 		body, _ = sjson.DeleteBytes(body, path+"b64_json")
 	}
 	return body
-}
-
-func isOpenAIImagesMainModelError(status int, body []byte) bool {
-	if !isOpenAICodexPlanGatedModelError(status, body) {
-		return false
-	}
-	message := extractUpstreamErrorMessage(body)
-	model := openAIImagesResponsesMainModel
-	return strings.Contains(message, "'"+model+"'") ||
-		strings.Contains(message, `"`+model+`"`)
 }
 
 // Images 端点只输出图片；未提供输出分类时，output_tokens 全部是图片 token。
