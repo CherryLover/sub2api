@@ -441,6 +441,7 @@ const DummyThoughtSignature = "skip_thought_signature_validator"
 // allowDummyThought: 只有 Gemini 模型支持 dummy thought signature
 func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDummyThought bool) ([]GeminiPart, bool, error) {
 	var parts []GeminiPart
+	var toolResultMedia []GeminiPart
 	strippedThinking := false
 
 	// 尝试解析为字符串
@@ -534,6 +535,7 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 
 			// 解析 content
 			resultContent := parseToolResultContent(block.Content, block.IsError)
+			toolResultMedia = append(toolResultMedia, toolResultMediaParts(block.Content)...)
 
 			parts = append(parts, GeminiPart{
 				FunctionResponse: &GeminiFunctionResponse{
@@ -547,7 +549,23 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 		}
 	}
 
+	parts = append(parts, toolResultMedia...)
 	return parts, strippedThinking, nil
+}
+
+// toolResultMediaParts preserves base64 images/documents returned by tools.
+func toolResultMediaParts(content json.RawMessage) []GeminiPart {
+	var blocks []ContentBlock
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return nil
+	}
+	var parts []GeminiPart
+	for _, b := range blocks {
+		if (b.Type == "image" || b.Type == "document") && b.Source != nil && b.Source.Type == "base64" && strings.TrimSpace(b.Source.Data) != "" {
+			parts = append(parts, GeminiPart{InlineData: &GeminiInlineData{MimeType: b.Source.MediaType, Data: b.Source.Data}})
+		}
+	}
+	return parts
 }
 
 // parseToolResultContent 解析 tool_result 的 content

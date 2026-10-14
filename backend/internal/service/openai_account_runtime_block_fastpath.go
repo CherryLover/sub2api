@@ -99,7 +99,8 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	// Isolate a custom temporary-unschedulable match to the known upstream
 	// model before entering the generic account error path. This keeps the
 	// account available to other models and avoids the account runtime blocker.
-	if s.rateLimitService != nil && statusCode != http.StatusUnauthorized && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
+	if s.rateLimitService != nil && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
+		tempUnschedRulesApply(account, statusCode, responseBody, canonicalModel[0]) &&
 		s.rateLimitService.HandleTempUnschedulable(stateCtx, account, statusCode, responseBody, canonicalModel[0]) {
 		return true
 	}
@@ -115,7 +116,8 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	// 这里补传不会改变其它分支的行为：model-not-found 与模型级 temp-unschedulable 规则
 	// 在上面 96 / 102 行已经用同一个 canonicalModel 判过并提前 return 了。
 	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, canonicalModel...)
-	modelTempMatched := statusCode != http.StatusUnauthorized && tempUnschedulableModel(stateCtx, nil) != "" &&
+	tempModel := tempUnschedulableModel(stateCtx, canonicalModel)
+	modelTempMatched := tempModel != "" && tempUnschedRulesApply(account, statusCode, responseBody, tempModel) &&
 		len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0
 	if shouldDisable && !modelTempMatched {
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")
@@ -427,16 +429,46 @@ func (s *OpenAIGatewayService) isOpenAIAccountModelRuntimeBlocked(account *Accou
 	if s == nil || account == nil {
 		return false
 	}
+	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, requestedModel)
+	return s.isOpenAIAccountModelRuntimeBlockedForFinalModel(account, canonicalModel)
+}
+
+// isOpenAIAccountModelRuntimeBlockedForFinalModel 按「已经是最终上游模型名」的键查
+// 模型级 runtime blocker，不再做 canonicalOpenAIAccountSchedulingModel 映射。
+// 调用方已经自己算出最终键时必须走这条路：再映射一次会被账号的 `*` 通配 / 链式
+// model_mapping 改写成别的键，查到的就不是记录时用的那个模型了。
+func (s *OpenAIGatewayService) isOpenAIAccountModelRuntimeBlockedForFinalModel(account *Account, finalModel string) bool {
+	if s == nil || account == nil {
+		return false
+	}
 	state := s.getOpenAIAccountModelTransientState()
 	if state == nil {
 		return false
 	}
-	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, requestedModel)
-	return state.isBlocked(account.ID, openAIAccountModelTransientModel(canonicalModel), time.Now())
+	return state.isBlocked(account.ID, openAIAccountModelTransientModel(finalModel), time.Now())
 }
 
 func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string) bool {
 	return s != nil && (s.isOpenAIAccountRuntimeBlocked(account) || s.isOpenAIAccountModelRuntimeBlocked(account, requestedModel))
+}
+
+// isOpenAIAccountRequestRuntimeBlockedForFinalModel 与
+// isOpenAIAccountRequestRuntimeBlocked 同口径，但模型级判定直接用调用方给的最终
+// 上游模型名，不再二次映射。
+func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlockedForFinalModel(account *Account, finalModel string) bool {
+	if s == nil {
+		return false
+	}
+	if s.openAIAccountLevelRuntimeBlocked(account) {
+		return true
+	}
+	return s.isOpenAIAccountModelRuntimeBlockedForFinalModel(account, finalModel)
+}
+
+// openAIAccountLevelRuntimeBlocked 只判账号级 runtime block（与模型无关），
+// 并在持久化冷却字段全部失效时顺带清掉过期的进程内块。
+func (s *OpenAIGatewayService) openAIAccountLevelRuntimeBlocked(account *Account) bool {
+	return s != nil && s.isOpenAIAccountRuntimeBlocked(account)
 }
 
 func (s *OpenAIGatewayService) recordOpenAIOAuth429() {

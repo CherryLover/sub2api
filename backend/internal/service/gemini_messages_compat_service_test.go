@@ -1187,3 +1187,36 @@ func parseAnthropicContentBlockEvents(t *testing.T, raw string) []anthropicConte
 	}
 	return events
 }
+
+func TestGeminiCompatPreservesToolResultImage(t *testing.T) {
+	req := map[string]any{"messages": []any{
+		map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": "call1", "name": "inspect", "input": map[string]any{}}}},
+		map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": "call1", "content": []any{map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": "AAAA"}}}}}},
+	}}
+	body, err := json.Marshal(req)
+	require.NoError(t, err)
+	converted, err := convertClaudeMessagesToGeminiGenerateContent(body)
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(converted, &got))
+	contents, ok := got["contents"].([]any)
+	require.True(t, ok)
+	require.Len(t, contents, 2)
+	content, ok := contents[1].(map[string]any)
+	require.True(t, ok)
+	parts, ok := content["parts"].([]any)
+	require.True(t, ok)
+	require.Len(t, parts, 2)
+	responsePart, ok := parts[0].(map[string]any)
+	require.True(t, ok)
+	functionResponse, ok := responsePart["functionResponse"].(map[string]any)
+	require.True(t, ok)
+	response, ok := functionResponse["response"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "[image attached below]", response["content"])
+	imagePart, ok := parts[1].(map[string]any)
+	require.True(t, ok)
+	inlineData, ok := imagePart["inlineData"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "AAAA", inlineData["data"])
+}

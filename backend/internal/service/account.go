@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type Account struct {
@@ -129,11 +130,20 @@ func isOpenAIPersonalAccessTokenAuthMode(value string) bool {
 	}
 }
 
+// TempUnschedulableRule.Scope 的取值：命中后隔离的粒度。
+const (
+	TempUnschedScopeAccount = "account"
+	TempUnschedScopeModel   = "model"
+)
+
 type TempUnschedulableRule struct {
 	ErrorCode       int      `json:"error_code"`
 	Keywords        []string `json:"keywords"`
 	DurationMinutes int      `json:"duration_minutes"`
 	Description     string   `json:"description"`
+	// Scope 决定命中后的隔离粒度：account 暂停整个账号，model 只冷却本次请求的模型。
+	// 为空时模型已知且非 401 走模型级，否则账号级。
+	Scope string `json:"scope,omitempty"`
 }
 
 func (a *Account) IsActive() bool {
@@ -476,6 +486,7 @@ func (a *Account) GetTempUnschedulableRules() []TempUnschedulableRule {
 			Keywords:        parseTempUnschedStrings(entry["keywords"]),
 			DurationMinutes: parseTempUnschedInt(entry["duration_minutes"]),
 			Description:     parseTempUnschedString(entry["description"]),
+			Scope:           normalizeTempUnschedScope(entry["scope"]),
 		}
 
 		if rule.ErrorCode <= 0 || rule.DurationMinutes <= 0 || len(rule.Keywords) == 0 {
@@ -486,6 +497,18 @@ func (a *Account) GetTempUnschedulableRules() []TempUnschedulableRule {
 	}
 
 	return rules
+}
+
+// normalizeTempUnschedScope 只认 account / model 两个值，其余一律视为未设置。
+func normalizeTempUnschedScope(raw any) string {
+	switch strings.ToLower(strings.TrimSpace(parseTempUnschedString(raw))) {
+	case TempUnschedScopeAccount:
+		return TempUnschedScopeAccount
+	case TempUnschedScopeModel:
+		return TempUnschedScopeModel
+	default:
+		return ""
+	}
 }
 
 func parseTempUnschedString(value any) string {
@@ -1577,7 +1600,7 @@ func (a *Account) GetCodingPlanProvider() string {
 	}
 	baseURL := strings.ToLower(a.GetOpenAIBaseURL())
 	switch {
-	case strings.Contains(baseURL, "api.kimi.com/coding"):
+	case isKimiCodingBaseURL(a.GetOpenAIBaseURL()):
 		return PlatformKimi
 	case strings.Contains(baseURL, "bigmodel.cn"), strings.Contains(baseURL, "api.z.ai"):
 		return PlatformZhipu
@@ -1987,7 +2010,16 @@ func (a *Account) GetOpenAITokenExpiresAt() *time.Time {
 	if !a.IsOpenAIOAuth() {
 		return nil
 	}
-	return a.GetCredentialAsTime("expires_at")
+	if expiry := a.GetCredentialAsTime("expires_at"); expiry != nil {
+		return expiry
+	}
+	// JWT expiry is scheduling metadata, not signature validation.
+	claims := &jwt.RegisteredClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(a.GetOpenAIAccessToken(), claims); err != nil || claims.ExpiresAt == nil || claims.ExpiresAt.Unix() <= 0 {
+		return nil
+	}
+	expiry := claims.ExpiresAt.Time
+	return &expiry
 }
 
 func (a *Account) IsOpenAITokenExpired() bool {

@@ -645,7 +645,7 @@ func TestHandleGeminiUpstreamError_VertexFallbackUsesShortCooldown(t *testing.T)
 			"project_id": "my-vertex-project",
 		},
 	}
-	body := []byte(`{"error":{"code":429,"message":"Resource exhausted. Please try again later.","status":"RESOURCE_EXHAUSTED"}}`)
+	body := []byte(`{"error":{"code":429,"message":"Quota exceeded for requests per minute per project.","status":"RESOURCE_EXHAUSTED"}}`)
 
 	before := time.Now()
 	svc.handleGeminiUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body)

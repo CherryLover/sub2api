@@ -325,7 +325,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				requestModel = mappedModel
 			}
 		}
-		upstreamModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(requestModel))
+		upstreamModel := openAIWSUpstreamModelForAccount(account, requestModel)
 		if modelMissing || upstreamModel != originalModel {
 			next, setErr := applyPayloadMutation(normalized, "model", upstreamModel)
 			if setErr != nil {
@@ -758,7 +758,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		// dedicated 模式下每次获取均新建连接，避免跨会话复用残留上下文。
 		req.ForceNewConn = dedicatedMode
 		acquireCtx, acquireCancel := context.WithTimeout(ctx, acquireTimeout)
-		lease, acquireErr := pool.Acquire(acquireCtx, req)
+		lease, acquireErr := s.acquireOpenAIWSWithOAuthRecovery(acquireCtx, &req)
+		if req.Headers.Get("Authorization") != baseAcquireReq.Headers.Get("Authorization") {
+			baseAcquireReq.Headers = req.Headers
+			token = strings.TrimPrefix(req.Headers.Get("Authorization"), "Bearer ")
+		}
 		acquireCancel()
 		var dialErr *openAIWSDialError
 		if acquireErr != nil && s.isAgentIdentityAccount(ctx, account) && errors.As(acquireErr, &dialErr) && isAgentIdentityTaskInvalidWSDialError(dialErr) && !agentTaskRecoveryTried {
@@ -889,7 +893,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		if originalModel != "" {
 			mappedModel = strings.TrimSpace(gjson.GetBytes(payload, "model").String())
 			if mappedModel == "" {
-				mappedModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
+				mappedModel = openAIWSUpstreamModelForAccount(account, originalModel)
 			}
 			needModelReplace = mappedModel != "" && mappedModel != originalModel
 			if needModelReplace {

@@ -85,11 +85,11 @@ func newNotifyEvaluatorFixture(t *testing.T, barkEnabled bool, notifyOnResolve b
 
 	repo := &notifyStubOpsRepo{
 		rules: []*OpsAlertRule{{
-			ID:         1,
-			Name:       "用户请求错误率过高",
-			Enabled:    true,
-			NotifyEmail: true,
-			Severity:   "P1",
+			ID:               1,
+			Name:             "用户请求错误率过高",
+			Enabled:          true,
+			NotifyEmail:      true,
+			Severity:         "P1",
 			MetricType:       "error_rate",
 			Operator:         ">",
 			Threshold:        20,

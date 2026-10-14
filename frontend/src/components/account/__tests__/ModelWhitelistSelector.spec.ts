@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 const copyToClipboard = vi.fn().mockResolvedValue(true)
+const { syncUpstreamModels } = vi.hoisted(() => ({ syncUpstreamModels: vi.fn() }))
+vi.mock('@/api/admin/accounts', () => ({
+  accountsAPI: { syncUpstreamModels, syncUpstreamModelsPreview: vi.fn() }
+}))
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -85,5 +89,20 @@ describe('ModelWhitelistSelector', () => {
 
     expect(wrapper.emitted('update:modelValue')).toEqual([[['gpt-5.6-sol']]])
     expect(copyToClipboard).not.toHaveBeenCalled()
+  })
+
+  it('treats upstream sync as candidates without auto-enabling models', async () => {
+    syncUpstreamModels.mockResolvedValue({ models: ['upstream-special-model', 'gpt-5.6-sol'] })
+    const wrapper = mount(ModelWhitelistSelector, {
+      props: { modelValue: ['gpt-5.6-sol'], platform: 'openai', accountId: 23 },
+      global: { stubs: { ModelIcon: true } }
+    })
+    const syncButton = wrapper.findAll('button').find(button => button.text().includes('admin.accounts.syncUpstreamModels'))
+    expect(syncButton).toBeDefined()
+    await syncButton!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="upstream-model-candidates"]').text()).toContain('2')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(findModelRow(wrapper, 'upstream-special-model').exists()).toBe(true)
   })
 })

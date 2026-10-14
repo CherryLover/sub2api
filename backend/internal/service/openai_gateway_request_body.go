@@ -801,7 +801,7 @@ func extractOpenAIRequestMetaFromBody(body []byte) (model string, stream bool, p
 }
 
 func normalizeGPT6ResponsesSampling(body []byte, model string) ([]byte, bool, error) {
-	if !openai.IsGPT6SolOrLunaModelSpelling(model) || gjson.GetBytes(body, "reasoning.effort").String() == "none" {
+	if (!openai.IsGPT6SolOrLunaModelSpelling(model) && !openai.IsGPT61SolModelSpelling(model)) || gjson.GetBytes(body, "reasoning.effort").String() == "none" {
 		return body, false, nil
 	}
 	out := body
@@ -1729,6 +1729,42 @@ func normalizeOpenAIReasoningEffortForModel(raw, model string) string {
 		return "max"
 	}
 	return normalizeOpenAIReasoningEffort(raw)
+}
+
+func hasEffectiveGPT61SolCompatEffort(body []byte) bool {
+	for _, path := range []string{"reasoning.effort", "reasoning_effort"} {
+		effort := gjson.GetBytes(body, path)
+		if effort.Type == gjson.String && strings.TrimSpace(effort.String()) != "" {
+			return true
+		}
+	}
+	outputEffort := gjson.GetBytes(body, "output_config.effort")
+	return outputEffort.Type == gjson.String && outputEffort.String() != ""
+}
+
+// validateGPT61SolCompatRequest rejects unsupported reasoning settings before
+// protocol conversion can silently discard explicit user intent.
+func validateGPT61SolCompatRequest(body []byte, model string) error {
+	if !openai.IsGPT61SolModelSpelling(model) {
+		return nil
+	}
+	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {
+		if err := openai.ValidateGPT61SolReasoningEffort(model, gjson.GetBytes(body, path).String()); err != nil {
+			return err
+		}
+	}
+	if gjson.GetBytes(body, "thinking.type").String() == "disabled" {
+		return openai.ValidateGPT61SolReasoningEffort(model, "none")
+	}
+	if !hasEffectiveGPT61SolCompatEffort(body) {
+		requestedModel := openai.CanonicalizeOpenAIModelAliasSpelling(gjson.GetBytes(body, "model").String())
+		if openai.IsGPT61SolModelSpelling(requestedModel) {
+			if effort, ok := strings.CutPrefix(requestedModel, "gpt-6.1-sol-"); ok && effort != "openai-compact" {
+				return openai.ValidateGPT61SolReasoningEffort(model, effort)
+			}
+		}
+	}
+	return nil
 }
 
 // supportsOpenAIReasoningEffortMax reports model families whose upstream scale

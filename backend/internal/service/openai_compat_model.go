@@ -4,9 +4,13 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
 func NormalizeOpenAICompatRequestedModel(model string) string {
+	if openai.IsGPT61SolModelSpelling(model) {
+		return "gpt-6.1-sol"
+	}
 	trimmed := strings.TrimSpace(model)
 	if trimmed == "" {
 		return ""
@@ -24,6 +28,19 @@ func applyOpenAICompatModelNormalization(req *apicompat.AnthropicRequest) {
 		return
 	}
 
+	if openai.IsGPT61SolModelSpelling(req.Model) {
+		canonical := openai.CanonicalizeOpenAIModelAliasSpelling(req.Model)
+		if effort, ok := strings.CutPrefix(canonical, "gpt-6.1-sol-"); ok && effort != "openai-compact" {
+			req.Model = "gpt-6.1-sol"
+			if req.OutputConfig == nil {
+				req.OutputConfig = &apicompat.AnthropicOutputConfig{}
+			}
+			if req.OutputConfig.Effort == "" {
+				req.OutputConfig.Effort = effort
+			}
+			return
+		}
+	}
 	originalModel := strings.TrimSpace(req.Model)
 	if originalModel == "" {
 		return

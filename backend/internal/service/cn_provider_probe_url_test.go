@@ -72,15 +72,14 @@ func (r *fakeCNProbeAccountRepo) GetByID(ctx context.Context, id int64) (*Accoun
 	return r.account, nil
 }
 
-// kimi coding 账号的 base_url 指向中转（含 api.kimi.com/coding 路径段即可被识别
-// 为 kimi coding plan）→ 衍生额度端点落在中转主机上，白名单未列名必须拒绝。
+// 官方国际 Kimi Coding 端点若未列入管理员 URL 白名单，额度探测必须拒绝。
 func TestCNProviderQuotaService_RejectsURLBlockedByPolicy(t *testing.T) {
 	repo := &fakeCNProbeAccountRepo{account: &Account{
 		ID: 1, Platform: PlatformKimi, Type: AccountTypeAPIKey, Status: StatusActive,
 		Credentials: map[string]any{
 			"account_mode": "coding",
 			"api_key":      "sk-test",
-			"base_url":     "https://relay.attacker.example/api.kimi.com/coding",
+			"base_url":     "https://api.kimi.ai/coding",
 		},
 	}}
 	upstream := &recordingHTTPUpstream{}
@@ -90,6 +89,24 @@ func TestCNProviderQuotaService_RejectsURLBlockedByPolicy(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "CN_QUOTA_URL_REJECTED")
 	require.Zero(t, upstream.calls, "probe must not issue any upstream request when URL policy rejects the target")
+}
+
+// 非官方中转地址即使在路径中伪装 api.kimi.com/coding，也不能被识别为 Coding Plan。
+func TestCNProviderQuotaService_RejectsSpoofedCodingHost(t *testing.T) {
+	repo := &fakeCNProbeAccountRepo{account: &Account{
+		ID: 6, Platform: PlatformKimi, Type: AccountTypeAPIKey, Status: StatusActive,
+		Credentials: map[string]any{
+			"account_mode": "coding",
+			"api_key":      "sk-test",
+			"base_url":     "https://relay.attacker.example/api.kimi.com/coding",
+		},
+	}}
+	upstream := &recordingHTTPUpstream{}
+	svc := NewCNProviderQuotaService(repo, nil, upstream, cnProbeAllowlistConfig("api.kimi.com"))
+	_, err := svc.QueryUsage(context.Background(), 6)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "CN_QUOTA_NOT_CODING_PLAN")
+	require.Zero(t, upstream.calls, "invalid coding provider must not issue network requests")
 }
 
 // deepseek payg 账号自定义 base_url → 余额端点落在中转主机上，必须先过策略。
