@@ -3046,6 +3046,12 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (Google One OAuth, tier=%s, project=%s) rate limited, cooldown=%v", account.ID, tierID, projectID, time.Until(ra).Truncate(time.Second))
 			}
 		} else if account.IsVertexServiceAccount() {
+			// Vertex 的共享容量不足不是账号级配额，不应将账号从调度池中冷却。
+			// 请求自身的退避重试与 failover 仍正常执行。
+			if isVertexSharedCapacity429(body) {
+				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (Vertex service account, project=%s) shared capacity exhausted, account stays schedulable", account.ID, projectID)
+				return
+			}
 			// Vertex 按量付费：短窗限速，无每日配额，短冷却后即可恢复
 			ra = time.Now().Add(geminiVertexFallbackCooldown)
 			logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (Vertex service account, project=%s) rate limited, cooldown=%v", account.ID, projectID, time.Until(ra).Truncate(time.Second))
@@ -3069,6 +3075,26 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 	_ = s.accountRepo.SetRateLimited(ctx, account.ID, resetTime)
 	logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d rate limited until %v (oauth_type=%s, tier=%s)",
 		account.ID, resetTime, oauthType, tierID)
+}
+
+// isVertexSharedCapacity429 strictly distinguishes transient shared capacity exhaustion
+// from project-level limits, retry hints and provisioned throughput quota errors.
+func isVertexSharedCapacity429(body []byte) bool {
+	errObj := gjson.GetBytes(body, "error")
+	if !errObj.Exists() {
+		errObj = gjson.GetBytes(body, "0.error")
+	}
+	if !errObj.IsObject() || !strings.EqualFold(strings.TrimSpace(errObj.Get("status").String()), "RESOURCE_EXHAUSTED") {
+		return false
+	}
+	if len(errObj.Get("details").Array()) > 0 {
+		return false
+	}
+	msg := strings.ToLower(errObj.Get("message").String())
+	return strings.Contains(msg, "resource exhausted") &&
+		strings.Contains(msg, "try again later") &&
+		!strings.Contains(msg, "quota") &&
+		!strings.Contains(msg, "provisioned throughput")
 }
 
 // Third-party relays do not share Google AI Studio daily quota/reset semantics.
