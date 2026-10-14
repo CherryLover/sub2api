@@ -92,6 +92,10 @@
       </div>
     </div>
 
+    <p v-if="upstreamModelIds !== null" data-testid="upstream-model-candidates" class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+      {{ upstreamModelIds.length }} upstream model candidates; select models individually to enable them.
+    </p>
+
     <!-- Quick Actions -->
     <div class="mb-4 flex flex-wrap gap-2">
       <button
@@ -182,6 +186,8 @@ const searchQuery = ref('')
 const customModel = ref('')
 const isComposing = ref(false)
 const isSyncingUpstream = ref(false)
+// Sync discovers upstream candidates; it does not alter the saved whitelist.
+const upstreamModelIds = ref<string[] | null>(null)
 const normalizedPlatforms = computed(() => {
   const rawPlatforms =
     props.platforms && props.platforms.length > 0
@@ -221,6 +227,11 @@ const canSyncUpstream = computed(() => {
 })
 
 const availableOptions = computed(() => {
+  if (upstreamModelIds.value !== null) {
+    const byID = new Map(allModels.map(m => [m.value, m]))
+    const ids = new Set([...upstreamModelIds.value, ...props.modelValue])
+    return [...ids].map(value => byID.get(value) ?? { value, label: value })
+  }
   if (normalizedPlatforms.value.length === 0) {
     return allModels
   }
@@ -312,21 +323,10 @@ const syncUpstreamModels = async () => {
       return
     }
 
-    const newModels = [...props.modelValue]
-    let addedCount = 0
-    for (const model of upstreamModels) {
-      if (!newModels.includes(model)) {
-        newModels.push(model)
-        addedCount += 1
-      }
-    }
-
-    emit('update:modelValue', newModels)
-    if (addedCount > 0) {
-      appStore.showSuccess(t('admin.accounts.syncUpstreamModelsSuccess', { count: addedCount, total: upstreamModels.length }))
-    } else {
-      appStore.showInfo(t('admin.accounts.syncUpstreamModelsNoChanges', { count: upstreamModels.length }))
-    }
+    upstreamModelIds.value = [...new Set(upstreamModels)]
+    searchQuery.value = ''
+    showDropdown.value = true
+    appStore.showInfo(t('admin.accounts.modelCount', { count: upstreamModelIds.value.length }))
   } catch (error) {
     const message = error instanceof Error ? error.message : t('admin.accounts.syncUpstreamModelsFailed')
     appStore.showError(t('admin.accounts.syncUpstreamModelsError', { message }))
