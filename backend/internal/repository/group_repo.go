@@ -194,6 +194,14 @@ func (r *groupRepository) CreateFromSource(ctx context.Context, groupIn *service
 	if count, countErr := result.RowsAffected(); countErr == nil {
 		groupIn.AccountCount = count
 	}
+	// 复制分组时保留原有渠道绑定，和账号关系一起在同一事务中提交。
+	if _, err := txClient.ExecContext(ctx,
+		`INSERT INTO channel_groups (channel_id, group_id)
+		 SELECT channel_id, $2 FROM channel_groups WHERE group_id = $1`,
+		sourceGroupID, groupIn.ID,
+	); err != nil {
+		return err
+	}
 	if err := enqueueSchedulerOutbox(ctx, txClient, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
 		return err
 	}
