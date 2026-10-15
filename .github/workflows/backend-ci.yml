@@ -76,6 +76,14 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Frontend typecheck and critical vitest
         run: make test-frontend
+      # Critical-only validation missed a missing import in the model preset tests.
+      # Keep the existing lint/typecheck gate, and execute every frontend suite.
+      - name: Full frontend Vitest suite
+        working-directory: frontend
+        run: pnpm run test:run --maxWorkers=2 --minWorkers=1
+      - name: Frontend production build
+        working-directory: frontend
+        run: pnpm run build
 
   golangci-lint:
     runs-on: ubuntu-latest
