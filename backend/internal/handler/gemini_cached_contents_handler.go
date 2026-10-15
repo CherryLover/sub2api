@@ -196,6 +196,10 @@ func (h *GatewayHandler) GeminiCachedContentsCreate(c *gin.Context) {
 		}
 		fields := clientRequestedUsageFields(c, mapping, req.Model, mapped)
 		input := &service.RecordUsageInput{Result: &service.ForwardResult{RequestID: service.GeminiCachedContentCreateUsageRequestID(publicID), Model: model, UpstreamModel: mapped}, APIKey: key, User: key.User, Account: account, APIKeyService: h.apiKeyService, PricingAt: pricingAt, ChannelUsageFields: fields, InboundEndpoint: "/v1beta/cachedContents", UpstreamEndpoint: "/v1beta/cachedContents", RequestPayloadHash: service.HashUsageRequestPayload(body)}
+		// Preflight both input and storage tariffs before creating anything
+		// upstream. This one-token quote is never persisted or charged; the
+		// actual upstream token count replaces it below.
+		input.Result.Usage.InputTokens = 1
 		if _, quoteErr := h.gatewayService.QuoteGeminiCachedContent(c.Request.Context(), input, 1); quoteErr != nil {
 			release()
 			writeGeminiCacheError(c, quoteErr)
@@ -428,7 +432,7 @@ func (h *GatewayHandler) GeminiCachedContentsPatch(c *gin.Context) {
 	additional := max(time.Duration(0), newExpiry.Sub(mutation.Baseline()))
 	pricingAt := svc.Now()
 	input := &service.RecordUsageInput{Result: &service.ForwardResult{RequestID: service.GeminiCachedContentPatchUsageRequestID(record.PublicID), Model: record.Model, UpstreamModel: record.UpstreamModelID()}, APIKey: key, User: key.User, Account: account, APIKeyService: h.apiKeyService, PricingAt: pricingAt, ChannelUsageFields: record.ChannelUsage, InboundEndpoint: "/v1beta/cachedContents", UpstreamEndpoint: "/v1beta/cachedContents", RequestPayloadHash: service.HashUsageRequestPayload(body)}
-	quote, err := h.gatewayService.QuoteGeminiCachedContent(ctx, input, service.GeminiCachedContentStorageTokenHours(record.TotalTokenCount, additional))
+	_, err = h.gatewayService.QuoteGeminiCachedContent(ctx, input, service.GeminiCachedContentStorageTokenHours(record.TotalTokenCount, additional))
 	if err != nil {
 		_ = svc.ReleaseMutation(ctx, mutation)
 		writeGeminiCacheError(c, err)
@@ -454,7 +458,7 @@ func (h *GatewayHandler) GeminiCachedContentsPatch(c *gin.Context) {
 		return
 	}
 	additional = max(time.Duration(0), newExpiry.Sub(mutation.Baseline()))
-	quote, err = h.gatewayService.QuoteGeminiCachedContent(ctx, input, service.GeminiCachedContentStorageTokenHours(record.TotalTokenCount, additional))
+	quote, err := h.gatewayService.QuoteGeminiCachedContent(ctx, input, service.GeminiCachedContentStorageTokenHours(record.TotalTokenCount, additional))
 	if err != nil {
 		_ = svc.RollbackMutation(ctx, mutation)
 		writeGeminiCacheError(c, err)
@@ -481,7 +485,7 @@ func (h *GatewayHandler) GeminiCachedContentsPatch(c *gin.Context) {
 	c.JSON(200, service.GeminiCachedContentView(record))
 }
 func (h *GatewayHandler) GeminiCachedContentsDelete(c *gin.Context) {
-	key, _, _, ok := h.geminiCachePreamble(c)
+	key, subject, _, ok := h.geminiCachePreamble(c)
 	if !ok {
 		return
 	}
@@ -490,6 +494,20 @@ func (h *GatewayHandler) GeminiCachedContentsDelete(c *gin.Context) {
 		return
 	}
 	svc := h.geminiCachedContentService
+	if h.concurrencyHelper == nil {
+		googleError(c, 503, "Gateway is unavailable")
+		return
+	}
+	helper := NewConcurrencyHelper(h.concurrencyHelper.concurrencyService, SSEPingFormatNone, 0)
+	started := false
+	releaseUser, err := helper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, false, &started)
+	if err != nil {
+		googleError(c, 429, "Too many concurrent requests")
+		return
+	}
+	if releaseUser != nil {
+		defer releaseUser()
+	}
 	ctx, cancel := geminiCachePersistContext(c)
 	defer cancel()
 	mutation, err := svc.BeginMutation(ctx, record)
@@ -504,9 +522,20 @@ func (h *GatewayHandler) GeminiCachedContentsDelete(c *gin.Context) {
 		return
 	}
 	if account != nil {
+		// Cleanup must remain possible for a quota-limited or unschedulable
+		// account, while still respecting its concurrent connection limit.
+		releaseAccount, slotErr := helper.AcquireAccountSlotWithWaitTimeout(c, account.ID, account.Concurrency, 30*time.Second, false, &started)
+		if slotErr != nil {
+			_ = svc.ReleaseMutation(ctx, mutation)
+			googleError(c, 429, "No cache cleanup concurrency slot available")
+			return
+		}
+		if releaseAccount != nil {
+			defer releaseAccount()
+		}
 		err = svc.DeleteUpstream(ctx, account, record)
 		var upErr *service.GeminiCachedContentUpstreamError
-		if err != nil && !(errors.As(err, &upErr) && upErr.NotFound()) {
+		if err != nil && (!errors.As(err, &upErr) || !upErr.NotFound()) {
 			writeGeminiCacheError(c, err)
 			return
 		}

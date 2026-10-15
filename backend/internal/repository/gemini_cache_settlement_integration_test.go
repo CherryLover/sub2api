@@ -29,6 +29,31 @@ func newGeminiCacheSettlementFixture(t *testing.T, quota float64) *geminiCacheSe
 	group := mustCreateGroup(t, client, &service.Group{Name: "gemini-cache-" + uuid.NewString(), Platform: service.PlatformGemini, RateMultiplier: 1})
 	account := mustCreateAccount(t, client, &service.Account{Name: "gemini-cache-" + uuid.NewString(), Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey, Extra: map[string]any{"quota_limit": 100.0}})
 	key := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, GroupID: &group.ID, Key: "sk-cache-" + uuid.NewString(), Quota: quota, RateLimit5h: 100, RateLimit1d: 100, RateLimit7d: 100})
+	// These tests intentionally commit real transactions (including concurrent
+	// ones), unlike the rollback-scoped repository suites. Remove only this
+	// fixture's rows so later whole-site aggregates keep their clean baseline.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		for _, step := range []struct {
+			query string
+			id    int64
+		}{
+			{`DELETE FROM gemini_cached_contents WHERE api_key_id=$1`, key.ID},
+			{`DELETE FROM usage_logs WHERE api_key_id=$1`, key.ID},
+			{`DELETE FROM usage_billing_dedup WHERE api_key_id=$1`, key.ID},
+			{`DELETE FROM usage_billing_dedup_archive WHERE api_key_id=$1`, key.ID},
+			{`DELETE FROM api_keys WHERE id=$1`, key.ID},
+			{`DELETE FROM account_groups WHERE account_id=$1`, account.ID},
+			{`DELETE FROM accounts WHERE id=$1`, account.ID},
+			{`DELETE FROM groups WHERE id=$1`, group.ID},
+			{`DELETE FROM users WHERE id=$1`, user.ID},
+		} {
+			if _, err := integrationDB.ExecContext(ctx, step.query, step.id); err != nil {
+				t.Errorf("cache fixture cleanup failed (%s): %v", step.query, err)
+			}
+		}
+	})
 	return &geminiCacheSettlementFixture{repo: &geminiCachedContentRepository{sql: integrationDB}, key: key, account: account, group: group, user: user}
 }
 func (f *geminiCacheSettlementFixture) quote(amount float64) (*service.GeminiCachedContent, *service.GeminiCachedContentSettlement) {

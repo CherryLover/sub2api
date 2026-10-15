@@ -1009,13 +1009,17 @@ func (s *GeminiCachedContentService) PatchUpstream(ctx context.Context, account 
 	if err != nil {
 		return nil, err
 	}
-	out := &GeminiCachedContentUpstream{Name: record.UpstreamName}
-	if raw := gjson.GetBytes(respBody, "expireTime").String(); raw != "" {
-		if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-			out.ExpireTime = t
-		}
+	if !json.Valid(respBody) || !gjson.ParseBytes(respBody).IsObject() {
+		return nil, &GeminiCachedContentMalformedResponseError{Name: record.UpstreamName, Err: errors.New("invalid cache renewal JSON")}
 	}
-	return out, nil
+	if name := gjson.GetBytes(respBody, "name"); name.Exists() && (name.Type != gjson.String || name.String() != record.UpstreamName) {
+		return nil, &GeminiCachedContentMalformedResponseError{Name: record.UpstreamName, Err: errors.New("cache renewal returned a different resource")}
+	}
+	expire, err := time.Parse(time.RFC3339Nano, gjson.GetBytes(respBody, "expireTime").String())
+	if err != nil {
+		return nil, &GeminiCachedContentMalformedResponseError{Name: record.UpstreamName, Err: errors.New("cache renewal is missing a valid expireTime")}
+	}
+	return &GeminiCachedContentUpstream{Name: record.UpstreamName, ExpireTime: expire}, nil
 }
 
 // DeleteUpstream 删除上游缓存。
@@ -1131,14 +1135,20 @@ func parseGeminiCachedContentUpstream(body []byte) (*GeminiCachedContentUpstream
 	if !geminiCachedContentAIStudioName.MatchString(name) && !geminiCachedContentVertexName.MatchString(name) {
 		return nil, &GeminiCachedContentMalformedResponseError{Err: fmt.Errorf("unexpected name %q", name)}
 	}
-	out := &GeminiCachedContentUpstream{
-		Name:            name,
-		TotalTokenCount: gjson.GetBytes(body, "usageMetadata.totalTokenCount").Int(),
-	}
-	if raw := gjson.GetBytes(body, "expireTime").String(); raw != "" {
-		if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-			out.ExpireTime = t
+	out := &GeminiCachedContentUpstream{Name: name}
+	if count := gjson.GetBytes(body, "usageMetadata.totalTokenCount"); count.Exists() {
+		tokens, ok := boundedJSONNonNegativeInt(count)
+		if !ok {
+			return nil, &GeminiCachedContentMalformedResponseError{Name: name, Err: errors.New("invalid cache token count")}
 		}
+		out.TotalTokenCount = int64(tokens)
+	}
+	if raw := gjson.GetBytes(body, "expireTime"); raw.Exists() {
+		expire, err := time.Parse(time.RFC3339Nano, raw.String())
+		if raw.Type != gjson.String || err != nil {
+			return nil, &GeminiCachedContentMalformedResponseError{Name: name, Err: errors.New("invalid cache expiry")}
+		}
+		out.ExpireTime = expire
 	}
 	return out, nil
 }

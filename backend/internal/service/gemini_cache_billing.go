@@ -34,6 +34,10 @@ type GeminiCachedContentBillingRepository interface {
 // configured price fails closed instead of silently falling back to free storage.
 // Built-in Standard prices are sourced from https://ai.google.dev/gemini-api/docs/pricing.
 func (s *BillingService) CacheStoragePricePerTokenHour(model string) float64 {
+	return s.cacheStoragePriceAt(model, time.Now())
+}
+
+func (s *BillingService) cacheStoragePriceAt(model string, at time.Time) float64 {
 	if s == nil {
 		return 0
 	}
@@ -67,7 +71,7 @@ func (s *BillingService) CacheStoragePricePerTokenHour(model string) float64 {
 	}
 	if has("flash") {
 		// The upstream #8006 promotional Flash rate expires on 2027-01-01.
-		if !has("lite") && !has("cyber") && time.Now().Before(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		if !has("lite") && !has("cyber") && at.Before(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)) {
 			for _, prefix := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"} {
 				if name == prefix || strings.HasPrefix(name, prefix+"-") {
 					return 0.5e-6
@@ -104,9 +108,13 @@ func (s *GatewayService) QuoteGeminiCachedContent(ctx context.Context, input *Re
 		model = input.ChannelMappedModel
 	}
 	model = s.billableModelWithFallback(ctx, key, model, r.UpstreamModel, r.Model)
-	storagePrice := s.billingService.CacheStoragePricePerTokenHour(model)
+	at := input.PricingAt
+	if at.IsZero() {
+		at = time.Now()
+	}
+	storagePrice := s.billingService.cacheStoragePriceAt(model, at)
 	if storagePrice <= 0 {
-		storagePrice = s.billingService.CacheStoragePricePerTokenHour(r.UpstreamModel)
+		storagePrice = s.billingService.cacheStoragePriceAt(r.UpstreamModel, at)
 	}
 	if storagePrice <= 0 {
 		return nil, ErrModelPricingUnavailable
@@ -115,10 +123,6 @@ func (s *GatewayService) QuoteGeminiCachedContent(ctx context.Context, input *Re
 		return nil, ErrModelPricingUnavailable
 	}
 	rate := s.ResolveUserGroupRateMultiplier(ctx, user.ID, *key.GroupID, key.Group.RateMultiplier)
-	at := input.PricingAt
-	if at.IsZero() {
-		at = time.Now()
-	}
 	rate, imageRate := computePeakAwareMultipliers(key, rate, at)
 	if rate < 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
 		return nil, ErrGeminiCacheBillingUnavailable
@@ -152,12 +156,20 @@ func (s *GatewayService) QuoteGeminiCachedContent(ctx context.Context, input *Re
 			*log.AccountStatsCost += storageCost
 		}
 	}
-	params := &postUsageBillingParams{Cost: cost, User: user, APIKey: key, Account: account, RequestPayloadHash: input.RequestPayloadHash, AccountRateMultiplier: accountRate, APIKeyService: input.APIKeyService, Platform: PlatformGemini, SimpleModeKeyRateLimitOnly: simpleModeKeyRateLimitBillingEnabled(s.cfg, key)}
+	params := &postUsageBillingParams{Cost: cost, User: user, APIKey: key, Account: account, RequestPayloadHash: input.RequestPayloadHash, AccountRateMultiplier: accountRate, APIKeyService: input.APIKeyService, Platform: PlatformGemini, SimpleModeKeyRateLimitOnly: s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && s.cfg.SimpleModeKeyRateLimitEnabled}
 	cmd := buildUsageBillingCommand(r.RequestID, log, params)
 	if cmd == nil {
 		return nil, ErrGeminiCacheBillingUnavailable
 	}
 	simple := s.cfg != nil && s.cfg.RunMode == config.RunModeSimple
+	if !simple || params.SimpleModeKeyRateLimitOnly {
+		// A long upstream create can outlive a Key limit change. Carry the
+		// full charge to the SQL-authoritative window guard even if the
+		// admission snapshot did not yet advertise spending limits.
+		cmd.APIKeyRateLimitCost = cost.ActualCost
+		cmd.RequestFingerprint = ""
+		cmd.Normalize()
+	}
 	if simple && !params.SimpleModeKeyRateLimitOnly {
 		cmd.APIKeyQuotaCost = 0
 		cmd.APIKeyRateLimitCost = 0
