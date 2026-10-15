@@ -143,8 +143,10 @@ func APIKeyAuthGoogle(apiKeyService *service.APIKeyService, cfg *config.Config) 
 		// Key 状态检查（状态字段可能因后台异步刷新而滞后，故显式拦截）。
 		switch apiKey.Status {
 		case service.StatusAPIKeyQuotaExhausted:
-			abortWithGoogleError(c, 429, "API key 额度已用完")
-			return
+			if !isGeminiCacheQuotaExemptRead(c) {
+				abortWithGoogleError(c, 429, "API key 额度已用完")
+				return
+			}
 		case service.StatusAPIKeyExpired:
 			abortWithGoogleError(c, 403, "API key 已过期")
 			return
@@ -155,7 +157,7 @@ func APIKeyAuthGoogle(apiKeyService *service.APIKeyService, cfg *config.Config) 
 			abortWithGoogleError(c, 403, "API key 已过期")
 			return
 		}
-		if apiKey.IsQuotaExhausted() {
+		if apiKey.IsQuotaExhausted() && !isGeminiCacheQuotaExemptRead(c) {
 			abortWithGoogleError(c, 429, "API key 额度已用完")
 			return
 		}

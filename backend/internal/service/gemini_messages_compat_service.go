@@ -1424,7 +1424,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				sleepGeminiBackoff(attempt)
 				continue
 			}
-			if action == "countTokens" {
+			if action == "countTokens" && !geminiCachedContentBoundFromContext(ctx) {
 				estimated := estimateGeminiCountTokens(body)
 				c.JSON(http.StatusOK, map[string]any{"totalTokens": estimated})
 				return &ForwardResult{
