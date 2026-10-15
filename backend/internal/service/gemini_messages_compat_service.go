@@ -1339,6 +1339,11 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
+			// A cache reference cannot move to another account, and its hidden
+			// tokens cannot be estimated from the request body alone.
+			if geminiCachedContentBoundFromContext(ctx) {
+				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Cached content upstream request failed")
+			}
 			// countTokens remains local-fallback because switching accounts cannot improve the estimate.
 			if action == "countTokens" {
 				estimated := estimateGeminiCountTokens(body)
@@ -1358,6 +1363,12 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				StatusCode:   http.StatusBadGateway,
 				ResponseBody: []byte(`{"error":{"code":502,"message":"Upstream request failed","status":"INTERNAL"}}`),
 			}
+		}
+
+		// Cache-local errors must be resolved before account-wide error
+		// policies or retries. A bound upstream cache must never switch owners.
+		if handled, cacheErr := s.handleGeminiCachedContentForwardError(ctx, c, account, resp, body); handled {
+			return nil, cacheErr
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
