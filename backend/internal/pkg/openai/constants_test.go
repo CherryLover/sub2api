@@ -31,6 +31,19 @@ func TestDefaultModelsIncludeGPT6SolAndLuna(t *testing.T) {
 	require.False(t, IsGPT6SolOrLunaModelSpelling("gpt-6-astra"))
 }
 
+func TestGPT61SolModelRecognizesAliasesAndRejectsDisabledReasoning(t *testing.T) {
+	require.Contains(t, DefaultModelIDs(), "gpt-6.1-sol")
+	for _, name := range []string{"gpt-6.1-sol", "openai/gpt-6.1-sol-xhigh", "gpt-6.1-sol-openai-compact"} {
+		require.True(t, IsGPT61SolModelSpelling(name), name)
+	}
+	require.False(t, IsGPT61SolModelSpelling("gpt-6.1-sol-fictional"))
+	for _, effort := range []string{"none", "minimal"} {
+		require.Error(t, ValidateGPT61SolReasoningEffort("openai/gpt-6.1-sol", effort))
+	}
+	require.NoError(t, ValidateGPT61SolReasoningEffort("gpt-6.1-sol", "xhigh"))
+	require.NoError(t, ValidateGPT61SolReasoningEffort("gpt-6-sol", "none"))
+}
+
 func TestDefaultModelsPreferConcreteGPT56SolForAccountTests(t *testing.T) {
 	require.NotEmpty(t, DefaultModels)
 	require.Equal(t, "gpt-5.6-sol", DefaultModels[0].ID)

@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -575,7 +576,14 @@ func (s *OpenAIGatewayService) ResolveChannelMappingAndRestrict(ctx context.Cont
 	return s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, model)
 }
 
+// isCodexImageGenerationBridgeEnabled 决定是否为 Codex 客户端自动注入 hosted
+// image_generation 工具。该工具是 OpenAI Responses 专属能力，Kimi / DeepSeek /
+// MiniMax 等经 OpenAI 网关转发的原生 Responses 上游不识别，注入后会被 400 拒绝，
+// 因此非 OpenAI 平台账号一律不桥接，后续再按账号 → 渠道 → 全局的优先级取开关。
 func (s *OpenAIGatewayService) isCodexImageGenerationBridgeEnabled(ctx context.Context, account *Account, apiKey *APIKey) bool {
+	if account == nil || account.Platform != PlatformOpenAI {
+		return false
+	}
 	if override := account.CodexImageGenerationBridgeOverride(); override != nil {
 		return *override
 	}
@@ -1153,6 +1161,43 @@ func hashSensitiveValueForLog(raw string) string {
 	}
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:8])
+}
+
+// tryRefreshOpenAIOAuth401 refreshes a rejected OAuth token before any output or WS request is sent.
+func (s *OpenAIGatewayService) tryRefreshOpenAIOAuth401(ctx context.Context, account *Account, status int, body []byte, rejectedToken string) (string, bool) {
+	if s == nil || s.openAITokenProvider == nil || status != http.StatusUnauthorized || account == nil {
+		return "", false
+	}
+	switch extractUpstreamErrorCode(body) {
+	case "token_invalidated", "token_revoked", "insufficient_scope":
+		return "", false
+	}
+	if gjson.GetBytes(body, "detail").String() == "Unauthorized" ||
+		strings.Contains(strings.ToLower(extractUpstreamErrorMessage(body)), "missing scopes:") {
+		return "", false
+	}
+	if account.IsShadow() {
+		if s.accountRepo == nil {
+			return "", false
+		}
+		owner, err := resolveCredentialAccount(ctx, s.accountRepo, account)
+		if err != nil || owner == nil {
+			return "", false
+		}
+		// Do not retry through a proxy different from the rejected request.
+		if (account.ProxyID == nil) != (owner.ProxyID == nil) ||
+			(account.ProxyID != nil && *account.ProxyID != *owner.ProxyID) {
+			return "", false
+		}
+		account = owner
+	}
+	token, err := s.openAITokenProvider.refreshRejectedAccessToken(ctx, account, rejectedToken)
+	if err != nil {
+		// Neither provider error bodies nor credentials belong in the recovery log.
+		slog.Debug("openai_oauth_401_recovery_unavailable", "account_id", account.ID)
+		return "", false
+	}
+	return token, true
 }
 
 // GetAccessToken gets the access token for an OpenAI account

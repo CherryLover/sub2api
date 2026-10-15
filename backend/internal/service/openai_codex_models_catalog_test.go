@@ -89,6 +89,21 @@ func TestConfiguredCodexNewModelsExposeCapabilities(t *testing.T) {
 	})
 }
 
+func TestGPT61SolGeneratedCatalogUses500KContext(t *testing.T) {
+	for _, model := range []string{"gpt-6.1-sol", "openai/gpt-6.1-sol-high"} {
+		descriptor := newConfiguredCodexModelDescriptor(model)
+		require.Equal(t, int64(500_000), descriptor.ContextWindow)
+		require.Equal(t, int64(configuredCodexGPT56MaxContext), descriptor.MaxContextWindow)
+		require.Equal(t, "low", *descriptor.DefaultReasoningLevel)
+		require.Equal(t, "xhigh", *descriptor.MultiAgentReasoningEffort)
+		require.Equal(t, "v2", descriptor.MultiAgentVersion)
+		require.NotEmpty(t, descriptor.ServiceTiers)
+		require.Contains(t, descriptor.SupportedReasoningLevels, configuredCodexReasoningLevel{
+			Effort: "max", Description: configuredCodexReasoningLevelDescription("max"),
+		})
+	}
+}
+
 func TestConvertOpenAIModelListToCodexManifestForAccountMarksImageInput(t *testing.T) {
 	body := []byte(`{"object":"list","data":[{"id":"gpt-5.4"},{"id":"custom-text-only"}]}`)
 	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}

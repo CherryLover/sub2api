@@ -185,7 +185,11 @@ func startPassthroughLifecycleServer(
 		req := r.Clone(controlCtx)
 		req.Header = req.Header.Clone()
 		ginCtx.Request = req
-		serverErr <- svc.ProxyResponsesWebSocketFromClient(controlCtx, ginCtx, conn, account, "sk-test", firstMessage, nil)
+		token := "sk-test"
+		if account.IsOpenAIOAuth() {
+			token = account.GetOpenAIAccessToken()
+		}
+		serverErr <- svc.ProxyResponsesWebSocketFromClient(controlCtx, ginCtx, conn, account, token, firstMessage, nil)
 	}))
 	return server, serverErr
 }

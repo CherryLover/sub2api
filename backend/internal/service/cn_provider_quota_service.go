@@ -408,6 +408,7 @@ func classifyZhipuWindowUnit(unit int64) cnZhipuWindow {
 // 老套餐只回 1 条 TOKENS_LIMIT，自然降级为仅 5h；新套餐回 2 条。
 func parseZhipuTokenTiers(data gjson.Result) []CNQuotaTier {
 	type entry struct {
+		window     cnZhipuWindow
 		resetMs    int64
 		hasReset   bool
 		percentage float64
@@ -421,8 +422,8 @@ func parseZhipuTokenTiers(data gjson.Result) []CNQuotaTier {
 		unclassified []entry
 	)
 
-	classify := func(item gjson.Result, e entry) {
-		switch classifyZhipuWindowUnit(item.Get("unit").Int()) {
+	classify := func(e entry) {
+		switch e.window {
 		case cnZhipuWindow5h:
 			if !fiveHourSet {
 				fiveHour, fiveHourSet = e, true
@@ -467,10 +468,10 @@ func parseZhipuTokenTiers(data gjson.Result) []CNQuotaTier {
 				hasReset = resetISO != ""
 			}
 		}
-		e := entry{resetMs: resetMs, hasReset: hasReset, percentage: percentage, resetISO: resetISO}
+		e := entry{window: classifyZhipuWindowUnit(item.Get("unit").Int()), resetMs: resetMs, hasReset: hasReset, percentage: percentage, resetISO: resetISO}
 		if limitType == "TOKENS_LIMIT" {
 			hasTokensLimit = true
-			classify(item, e)
+			classify(e)
 		} else {
 			creditFallback = append(creditFallback, e)
 		}
@@ -479,7 +480,9 @@ func parseZhipuTokenTiers(data gjson.Result) []CNQuotaTier {
 
 	// 无任何 TOKENS_LIMIT 条目（部分套餐只报信用额度）：降级用 CREDIT_LIMIT 展示。
 	if !hasTokensLimit {
-		unclassified = append(unclassified, creditFallback...)
+		for _, e := range creditFallback {
+			classify(e)
+		}
 	}
 
 	// 无 reset 的条目排前，再按 reset 升序，依次填入仍空缺的槽位。
