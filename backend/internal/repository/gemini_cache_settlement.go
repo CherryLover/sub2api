@@ -159,11 +159,15 @@ func guardGeminiCacheKey(ctx context.Context, tx *sql.Tx, record *service.Gemini
 		keyCost = 0
 		windowCost = 0
 	}
+	// Match incrementUsageBillingAPIKeyRateLimit exactly: legacy nonzero
+	// counters with a NULL window start are carried forward, not reset.
+	// Treating them as zero here would allow an accepted charge to exceed
+	// the window when the shared settlement SQL subsequently adds it.
 	err := tx.QueryRowContext(ctx, `SELECT user_id,group_id,status,expires_at,
  ($2::numeric>0 AND quota>0 AND quota_used+$2::numeric>quota),
- ($3::numeric>0 AND rate_limit_5h>0 AND (CASE WHEN window_5h_start IS NULL OR window_5h_start+INTERVAL '5 hours'<=NOW() THEN 0 ELSE usage_5h END)+$3::numeric>rate_limit_5h),
- ($3::numeric>0 AND rate_limit_1d>0 AND (CASE WHEN window_1d_start IS NULL OR window_1d_start+INTERVAL '24 hours'<=NOW() THEN 0 ELSE usage_1d END)+$3::numeric>rate_limit_1d),
- ($3::numeric>0 AND rate_limit_7d>0 AND (CASE WHEN window_7d_start IS NULL OR window_7d_start+INTERVAL '7 days'<=NOW() THEN 0 ELSE usage_7d END)+$3::numeric>rate_limit_7d)
+ ($3::numeric>0 AND rate_limit_5h>0 AND (CASE WHEN window_5h_start IS NOT NULL AND window_5h_start+INTERVAL '5 hours'<=NOW() THEN 0 ELSE usage_5h END)+$3::numeric>rate_limit_5h),
+ ($3::numeric>0 AND rate_limit_1d>0 AND (CASE WHEN window_1d_start IS NOT NULL AND window_1d_start+INTERVAL '24 hours'<=NOW() THEN 0 ELSE usage_1d END)+$3::numeric>rate_limit_1d),
+ ($3::numeric>0 AND rate_limit_7d>0 AND (CASE WHEN window_7d_start IS NOT NULL AND window_7d_start+INTERVAL '7 days'<=NOW() THEN 0 ELSE usage_7d END)+$3::numeric>rate_limit_7d)
  FROM api_keys WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, record.APIKeyID, keyCost, windowCost).Scan(&userID, &groupID, &status, &expires, &quotaExceeded, &fiveHourExceeded, &dayExceeded, &weekExceeded)
 	if errors.Is(err, sql.ErrNoRows) {
 		return service.ErrAPIKeyNotFound

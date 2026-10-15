@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -136,11 +138,23 @@ func parseCodexDirectImagesResponse(body []byte) ([]openAIResponsesImageResult, 
 	if upstreamErr := openAIImagesUpstreamErrorFromGJSON(root.Get("error"), ""); upstreamErr != nil {
 		return nil, upstreamErr
 	}
+	data := root.Get("data")
+	if !root.IsObject() || !data.IsArray() {
+		return nil, fmt.Errorf("invalid Images API data array")
+	}
 	var results []openAIResponsesImageResult
-	for _, item := range root.Get("data").Array() {
-		result := strings.TrimSpace(item.Get("b64_json").String())
-		if result == "" {
-			continue
+	for _, item := range data.Array() {
+		value := item.Get("b64_json")
+		result := strings.TrimSpace(value.String())
+		if !item.IsObject() || value.Type != gjson.String || result == "" {
+			return nil, fmt.Errorf("invalid Images API image output")
+		}
+		encoding := base64.StdEncoding
+		if len(result)%4 != 0 {
+			encoding = base64.RawStdEncoding
+		}
+		if _, err := io.Copy(io.Discard, base64.NewDecoder(encoding, strings.NewReader(result))); err != nil {
+			return nil, fmt.Errorf("invalid Images API base64 output: %w", err)
 		}
 		meta := func(key string) string {
 			if value := item.Get(key).String(); value != "" {

@@ -66,6 +66,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		oauthSvc,
 		openAIOAuthSvc,
 		geminiOAuthSvc,
+		service.NewGeminiCachedContentService(nil, nil, cfg),
 		antigravityOAuthSvc,
 		nil, // grokOAuth
 		nil, // openAIGateway
