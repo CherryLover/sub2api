@@ -658,6 +658,13 @@ func ProvideBackupService(
 	return svc
 }
 
+// ProvideGeminiCachedContentService wires durable cache mutation recovery.
+func ProvideGeminiCachedContentService(repo GeminiCachedContentRepository, compat *GeminiMessagesCompatService, cfg *config.Config) *GeminiCachedContentService {
+	svc := NewGeminiCachedContentService(repo, compat, cfg)
+	svc.Start()
+	return svc
+}
+
 // ProvideOpsService constructs OpsService and wires the SettingService-backed quota
 // auto-pause cache sink. Mirrors the SetCleanupReloader pattern: OpsService doesn't
 // hold a *SettingService reference, but wire injects a tiny callback so writes to
@@ -812,6 +819,7 @@ var ProviderSet = wire.NewSet(
 	ProvideOAuthRefreshAPI,
 	ProvideGeminiTokenProvider,
 	NewGeminiMessagesCompatService,
+	ProvideGeminiCachedContentService,
 	ProvideAntigravityTokenProvider,
 	ProvideGrokTokenProvider,
 	ProvideOpenAITokenProvider,

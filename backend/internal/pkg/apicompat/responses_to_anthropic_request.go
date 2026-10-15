@@ -14,10 +14,20 @@ import (
 // enables Anthropic platform groups to accept OpenAI Responses API requests
 // by converting them to the native /v1/messages format before forwarding upstream.
 func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, error) {
+	return ResponsesToAnthropicRequestWithOptions(req, ResponsesAnthropicOptions{})
+}
+
+// ResponsesAnthropicOptions describes opt-in capabilities of the actual
+// upstream. The default preserves legacy system-message hoisting.
+type ResponsesAnthropicOptions struct {
+	MidConversationSystem bool
+}
+
+func ResponsesToAnthropicRequestWithOptions(req *ResponsesRequest, opts ResponsesAnthropicOptions) (*AnthropicRequest, error) {
 	isOpus55 := claude.IsOpus55(req.Model)
 	isSonnet55 := claude.IsSonnet55(req.Model)
 	isHaiku55 := claude.IsHaiku55(req.Model)
-	system, messages, err := convertResponsesInputToAnthropic(req.Instructions, req.Input, isOpus55 || isSonnet55 || isHaiku55, req.chatInputAudio)
+	system, messages, err := convertResponsesInputToAnthropicWithSystem(req.Instructions, req.Input, isOpus55 || isSonnet55 || isHaiku55, opts.MidConversationSystem, req.chatInputAudio)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +190,10 @@ func mapResponsesEffortToAnthropic(effort string) string {
 // a Responses API instructions + input array. Returns the system as raw JSON
 // (for Anthropic's polymorphic system field) and a list of Anthropic messages.
 func convertResponsesInputToAnthropic(instructions string, inputRaw json.RawMessage, preserveThinking bool, audioInputs ...map[int]map[int]string) (json.RawMessage, []AnthropicMessage, error) {
+	return convertResponsesInputToAnthropicWithSystem(instructions, inputRaw, preserveThinking, false, audioInputs...)
+}
+
+func convertResponsesInputToAnthropicWithSystem(instructions string, inputRaw json.RawMessage, preserveThinking, inlineSystem bool, audioInputs ...map[int]map[int]string) (json.RawMessage, []AnthropicMessage, error) {
 	var systemParts []string
 	if strings.TrimSpace(instructions) != "" {
 		systemParts = append(systemParts, strings.TrimSpace(instructions))
@@ -212,7 +226,11 @@ func convertResponsesInputToAnthropic(instructions string, inputRaw json.RawMess
 		case item.Role == "system" || item.Role == "developer":
 			text := extractTextFromContent(item.Content)
 			if text != "" {
-				systemParts = append(systemParts, text)
+				if inlineSystem && len(messages) > 0 {
+					messages = append(messages, anthropicMessageFromBlocks("system", []AnthropicContentBlock{{Type: "text", Text: text}}))
+				} else {
+					systemParts = append(systemParts, text)
+				}
 			}
 
 		case item.Type == "function_call":
@@ -329,6 +347,13 @@ func convertResponsesInputToAnthropic(instructions string, inputRaw json.RawMess
 	// sat between a call and its output), so a second merge restores alternation.
 	messages = mergeConsecutiveMessages(messages)
 	messages = normalizeAnthropicToolPairing(messages)
+	if inlineSystem {
+		var err error
+		messages, err = placeAnthropicSystemMessages(messages)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	messages = mergeConsecutiveMessages(messages)
 
 	var system json.RawMessage

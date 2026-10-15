@@ -1380,6 +1380,14 @@ func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
 	if isOpenAIContextWindowError(message, payload) {
 		return false
 	}
+	// OpenAI-compatible relays can signal a pre-output request budget timeout
+	// inside an HTTP 200 SSE error event. Retrying is safe before semantic output.
+	combined := strings.ToLower(strings.TrimSpace(message + " " +
+		gjson.GetBytes(payload, "error.message").String() + " " +
+		gjson.GetBytes(payload, "response.error.message").String()))
+	if strings.Contains(combined, "pre-output time budget exhausted") {
+		return true
+	}
 	return isOpenAITransientProcessingError(http.StatusBadRequest, message, payload)
 }
 

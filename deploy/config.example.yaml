@@ -246,6 +246,10 @@ gateway:
   # Enable Gemini upstream response header debug logs (default: false)
   # 是否开启 Gemini 上游响应头调试日志（默认 false）
   gemini_debug_response_headers: false
+  # Gemini explicit cachedContents: maximum TTL for create/renew (seconds).
+  # Gemini 显式缓存创建与续期的最大有效期，默认 24 小时；未传 TTL 的请求默认 1 小时。
+  # API Key/分组/持有账号绑定及存储计费始终执行；详情见 docs/GEMINI_EXPLICIT_CACHE.md。
+  gemini_cached_content_max_ttl_seconds: 86400
   # Connection pool isolation strategy:
   # 连接池隔离策略：
   # - proxy: Isolate by proxy, same proxy shares connection pool (suitable for few proxies, many accounts)

@@ -30,6 +30,7 @@ const (
 	EndpointVideosExtensions     = "/v1/videos/extensions"
 	EndpointVideos               = "/v1/videos"
 	EndpointGeminiModels         = "/v1beta/models"
+	EndpointGeminiCachedContents = "/v1beta/cachedContents"
 )
 
 const EndpointAntigravityGenerateContent = "/v1internal:streamGenerateContent"
@@ -109,6 +110,8 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointResponsesCompact
 	case strings.Contains(path, EndpointResponses) || isResponsesRootAliasPath(path):
 		return EndpointResponses
+	case isBareOrSubpathOf(path, EndpointGeminiCachedContents):
+		return EndpointGeminiCachedContents
 	case strings.Contains(path, EndpointGeminiModels):
 		return EndpointGeminiModels
 	default:

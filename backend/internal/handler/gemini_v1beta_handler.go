@@ -235,6 +235,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		modelName = channelMapping.MappedModel
 	}
 
+	boundCache, body, ok := h.resolveGeminiCachedContentBinding(c, apiKey, modelName, body)
+	if !ok {
+		return
+	}
 	// For Gemini native API, do not send Claude-style ping frames.
 	geminiConcurrency := NewConcurrencyHelper(h.concurrencyHelper.concurrencyService, SSEPingFormatNone, 0)
 
@@ -286,6 +290,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		sessionKey = "gemini:" + sessionHash
 	}
 
+	if boundCache != nil {
+		sessionKey = ""
+	}
 	// 查询粘性会话绑定的账号 ID（用于检测账号切换）
 	var sessionBoundAccountID int64
 	if sessionKey != "" {
@@ -300,6 +307,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		}
 	}
 
+	if boundCache != nil {
+		sessionBoundAccountID = boundCache.AccountID
+	}
 	// === Gemini 内容摘要会话 Fallback 逻辑 ===
 	// 当原有会话标识无效时（sessionBoundAccountID == 0），尝试基于内容摘要链匹配
 	var geminiDigestChain string
@@ -380,8 +390,20 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	}
 
 	for {
-		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, modelName, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
+		excluded := fs.FailedAccountIDs
+		if boundCache != nil {
+			excluded, err = h.gatewayService.GeminiExplicitCacheExclusions(c.Request.Context(), apiKey.GroupID, boundCache.AccountID)
+			if err != nil {
+				googleError(c, 503, "Cached content account is unavailable")
+				return
+			}
+		}
+		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, modelName, excluded, "", int64(0))
 		if err != nil {
+			if boundCache != nil {
+				googleError(c, 503, "Cached content account is unavailable")
+				return
+			}
 			if len(fs.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, modelName, modelName, service.PlatformGemini)
 				if !cls.ModelNotFound {
@@ -409,6 +431,13 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			}
 		}
 		account := selection.Account
+		if boundCache != nil && (account.ID != boundCache.AccountID || !service.IsGeminiExplicitCacheAccount(account) || account.GetMappedModel(modelName) != boundCache.UpstreamModelID()) {
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+			googleError(c, 503, "Cached content account or model configuration has changed")
+			return
+		}
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		// 检测账号切换：如果粘性会话绑定的账号与当前选择的账号不同，清除 thoughtSignature
@@ -489,6 +518,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
+			if boundCache != nil {
+				googleError(c, 503, "Cached content account is unavailable")
+				return
+			}
 			reqLog.Debug("gemini.account_slot_profit_vetoed", zap.Int64("account_id", account.ID), zap.String("reason", reason))
 			if fs.RecordProfitVeto(account.ID) == FailoverExhausted {
 				reqLog.Warn("gemini.profit_veto_attempts_exhausted", zap.Int("profit_veto_count", fs.ProfitVetoCount()))
@@ -500,6 +533,13 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		}
 		account = latest
 		selection.Account = latest
+		if boundCache != nil && (account.ID != boundCache.AccountID || !service.IsGeminiExplicitCacheAccount(account) || account.GetMappedModel(modelName) != boundCache.UpstreamModelID()) {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			googleError(c, 503, "Cached content account or model configuration has changed")
+			return
+		}
 		// 等待路径保持既有 eager 绑定（无门时 helper 直接绑定）；调度器已抢槽
 		// 的直达路径无门时由选号内部绑定，这里只在门下补准入后绑定。
 		if selection.ProfitGateActive() || !selection.Acquired {
@@ -538,6 +578,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
+				if boundCache != nil {
+					h.handleGeminiFailoverExhausted(c, failoverErr)
+					return
+				}
 				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 				switch failoverAction {
 				case FailoverContinue:

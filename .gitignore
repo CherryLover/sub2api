@@ -136,6 +136,8 @@ docs/*
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/ASYNC_IMAGE_TASKS.md
+!docs/GEMINI_EXPLICIT_CACHE.md
+!docs/CODEX_DIRECT_IMAGES.md
 !docs/legal/
 !docs/legal/*.md
 .serena/
