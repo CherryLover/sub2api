@@ -2,8 +2,6 @@ package setup
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,8 +12,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin/binding"
-	"github.com/lib/pq"
-	"gopkg.in/yaml.v3"
 )
 
 func TestDecideAdminBootstrap(t *testing.T) {
@@ -455,7 +451,7 @@ func TestBootstrapAdminUserCreatesAdminWithGeneratedCredentials(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO users")).
 		WithArgs(
 			sqlmock.AnyArg(), sqlmock.AnyArg(), service.RoleAdmin, sqlmock.AnyArg(),
-			sqlmock.AnyArg(), service.StatusActive, sqlmock.AnyArg(), sqlmock.AnyArg(),
+			service.StatusActive, sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
