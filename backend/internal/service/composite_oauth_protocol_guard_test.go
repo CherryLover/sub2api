@@ -10,9 +10,9 @@ import (
 
 func TestAnthropicMessagesCredentialGuardRejectsForeignOAuthWithoutAccountPenalty(t *testing.T) {
 	tests := []struct {
-		platform string
+		platform    string
 		accountType string
-		allowed bool
+		allowed     bool
 	}{
 		{PlatformOpenAI, AccountTypeOAuth, false},
 		{PlatformOpenAI, AccountTypeSetupToken, false},
@@ -39,7 +39,6 @@ func TestAnthropicMessagesCredentialGuardRejectsForeignOAuthWithoutAccountPenalt
 		require.False(t, failover.IsCredentialFailure())
 	}
 }
-
 
 func TestBuildUpstreamRequestRejectsForeignOAuthBeforeNetworkRequest(t *testing.T) {
 	svc := &GatewayService{}

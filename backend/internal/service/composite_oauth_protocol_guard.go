@@ -2,6 +2,15 @@ package service
 
 import "net/http"
 
+func isOpenAIGatewayProtocolPlatform(platform string) bool {
+	switch platform {
+	case PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek:
+		return true
+	default:
+		return false
+	}
+}
+
 // anthropicMessagesCredentialAllowed checks whether an account credential can
 // be sent to an Anthropic Messages upstream. OAuth/SetupToken credentials from
 // providers using OpenAI's gateway must never be sent to Anthropic.
@@ -9,12 +18,7 @@ func anthropicMessagesCredentialAllowed(account *Account) bool {
 	if account == nil || !account.IsOAuth() {
 		return true
 	}
-	switch account.Platform {
-	case PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek:
-		return false
-	default:
-		return true
-	}
+	return !isOpenAIGatewayProtocolPlatform(account.Platform)
 }
 
 const anthropicMessagesForeignOAuthReason GatewayFailureReason = "anthropic_messages_foreign_oauth"
@@ -27,7 +31,7 @@ func checkAnthropicMessagesCredential(account *Account) error {
 	}
 	return &UpstreamFailoverError{
 		StatusCode: http.StatusBadGateway,
-		Reason: anthropicMessagesForeignOAuthReason,
-		Scope: GatewayFailureScopeRequest,
+		Reason:     anthropicMessagesForeignOAuthReason,
+		Scope:      GatewayFailureScopeRequest,
 	}
 }
