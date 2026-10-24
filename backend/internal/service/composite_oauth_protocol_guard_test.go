@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -37,4 +38,19 @@ func TestAnthropicMessagesCredentialGuardRejectsForeignOAuthWithoutAccountPenalt
 		require.True(t, failover.ShouldRetryNextAccount())
 		require.False(t, failover.IsCredentialFailure())
 	}
+}
+
+
+func TestBuildUpstreamRequestRejectsForeignOAuthBeforeNetworkRequest(t *testing.T) {
+	svc := &GatewayService{}
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	request, forwardedBody, err := svc.buildUpstreamRequest(
+		context.Background(), nil, account, []byte(`{"model":"gpt-6"}`),
+		"never-send-this-token", "oauth", "gpt-6", false, false,
+	)
+	require.Nil(t, request)
+	require.Nil(t, forwardedBody)
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Equal(t, GatewayFailureScopeRequest, failover.Scope)
 }
