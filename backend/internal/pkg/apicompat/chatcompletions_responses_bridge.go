@@ -339,7 +339,38 @@ func responsesInputToChatMessagesWithOptions(instructions string, inputRaw json.
 	if err != nil {
 		return nil, err
 	}
-	return normalizeChatMessagesWithToolOutputMedia(built, mediaByCallID), nil
+	return normalizeResponsesLeadingChatInstructions(normalizeChatMessagesWithToolOutputMedia(built, mediaByCallID)), nil
+}
+
+// normalizeResponsesLeadingChatInstructions combines only consecutive leading
+// system/developer messages so strict Chat upstreams receive one initial
+// system message. Unlike the upstream #7094 patch, it does not demote
+// mid-conversation developer or system instructions into user messages.
+func normalizeResponsesLeadingChatInstructions(messages []ChatMessage) []ChatMessage {
+	leading := 0
+	for leading < len(messages) && (messages[leading].Role == "system" || messages[leading].Role == "developer") {
+		leading++
+	}
+	if leading <= 1 {
+		return messages
+	}
+	texts := make([]string, 0, leading)
+	for _, item := range messages[:leading] {
+		text := strings.TrimSpace(chatMessageContentText(item.Content))
+		if text == "" {
+			// Do not silently discard unsupported structured instructions.
+			return messages
+		}
+		texts = append(texts, text)
+	}
+	content, err := json.Marshal(strings.Join(texts, "\n\n"))
+	if err != nil {
+		return messages
+	}
+	result := make([]ChatMessage, 0, len(messages)-leading+1)
+	result = append(result, ChatMessage{Role: "system", Content: content})
+	result = append(result, messages[leading:]...)
+	return result
 }
 
 // buildChatMessagesFromItems walks the Responses input items and appends the
