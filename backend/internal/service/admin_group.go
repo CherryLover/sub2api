@@ -96,6 +96,12 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 			candidates = append(candidates, model)
 		}
 	}
+	// Admin candidate lists must not advertise a retired OAuth-only model
+	// as routable. Keep the entry whenever an API-key account still serves
+	// that model or the group has no OAuth claimant at all.
+	if platform == PlatformOpenAI || platform == PlatformComposite {
+		candidates = filterRetiredOpenAIModelIDs(accounts, candidates)
+	}
 	return candidates, nil
 }
 

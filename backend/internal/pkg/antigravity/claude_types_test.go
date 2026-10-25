@@ -38,6 +38,9 @@ func TestDefaultModels_ContainsNewAndLegacyImageModels(t *testing.T) {
 		"gemini-3.8-flash-low",
 		"gemini-3.8-flash-medium",
 		"gemini-3.8-flash-tiered",
+		"gemini-4-argon-high",
+		"gemini-4-argon-low",
+		"gemini-4-argon-medium",
 	}
 
 	for _, id := range requiredIDs {
@@ -64,5 +67,13 @@ func TestClaudeContentItem_ThinkingAlwaysHasSignature(t *testing.T) {
 	}
 	if got, want := string(data), `{"type":"text","text":"hi"}`; got != want {
 		t.Fatalf("text block = %s, want %s", got, want)
+	}
+}
+
+func TestGemini4ArgonReasoningClassification(t *testing.T) {
+	for _, model := range []string{"gemini-4-argon", "gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high"} {
+		if !IsGeminiReasoningModel(model) {
+			t.Fatalf("expected %s to be a Gemini reasoning model", model)
+		}
 	}
 }
