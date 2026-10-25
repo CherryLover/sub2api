@@ -42,18 +42,20 @@ type anthropicNativeLineEvent struct {
 // anthropicNativeLinePump 以独立 goroutine 泵送 scanner 的行，并对逐行到达
 // 间隔施加 interval 上限（<=0 表示禁用，可经 enableInterval 启用）。
 type anthropicNativeLinePump struct {
-	events   chan anthropicNativeLineEvent
-	done     chan struct{}
-	timer    *time.Timer
-	interval time.Duration
+	events     chan anthropicNativeLineEvent
+	done       chan struct{}
+	timer      *time.Timer
+	interval   time.Duration
+	lastDataAt time.Time
 }
 
 // newAnthropicNativeLinePump 启动泵 goroutine；调用方 defer pump.stop()。
 func newAnthropicNativeLinePump(scanner *bufio.Scanner, interval time.Duration) *anthropicNativeLinePump {
 	p := &anthropicNativeLinePump{
-		events:   make(chan anthropicNativeLineEvent, 16),
-		done:     make(chan struct{}),
-		interval: interval,
+		events:     make(chan anthropicNativeLineEvent, 16),
+		done:       make(chan struct{}),
+		interval:   interval,
+		lastDataAt: time.Now(),
 	}
 	if interval > 0 {
 		p.timer = time.NewTimer(interval)
@@ -90,6 +92,30 @@ func (p *anthropicNativeLinePump) next() (string, error) {
 // nextOrClientGone 与 next 相同，另在等待期间 clientGone 关闭时返回
 // errAnthropicNativeClientGone。clientGone 为 nil 时不监听。
 func (p *anthropicNativeLinePump) nextOrClientGone(clientGone <-chan struct{}) (string, error) {
+	// Give an already-expired data-idle deadline precedence over buffered
+	// heartbeats. Without this check, a continuously readable heartbeat
+	// channel can win the select repeatedly under heavy CI/CPU contention.
+	if p.timer != nil {
+		// Absolute monotonic deadline also covers timers whose channel wakeup
+		// loses selection against a continuous buffer of heartbeat events.
+		if time.Since(p.lastDataAt) >= p.interval {
+			// An actual buffered response may have arrived during event
+			// conversion. Prefer that over declaring a false timeout.
+			select {
+			case ev, ok := <-p.events:
+				if ok && ev.err == nil && !anthropicSSELineIsHeartbeat(ev.line) {
+					return p.deliver(ev, ok)
+				}
+			default:
+			}
+			return "", errAnthropicNativeStreamIdle
+		}
+		select {
+		case <-p.timer.C:
+			return "", errAnthropicNativeStreamIdle
+		default:
+		}
+	}
 	var timeoutCh <-chan time.Time
 	if p.timer != nil {
 		timeoutCh = p.timer.C
@@ -128,6 +154,7 @@ func (p *anthropicNativeLinePump) enableInterval(interval time.Duration) {
 		return
 	}
 	p.interval = interval
+	p.lastDataAt = time.Now()
 	p.timer = time.NewTimer(interval)
 }
 
@@ -136,6 +163,7 @@ func (p *anthropicNativeLinePump) resetTimer() {
 	if p.timer == nil {
 		return
 	}
+	p.lastDataAt = time.Now()
 	if !p.timer.Stop() {
 		select {
 		case <-p.timer.C:

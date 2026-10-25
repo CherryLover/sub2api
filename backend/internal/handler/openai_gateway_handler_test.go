@@ -1677,8 +1677,6 @@ type openAIResponsesWSUsageLogCase struct {
 	simpleModeRejectAtRead int
 	// accountRateMultiplier 覆盖账号倍率（利润门测试用）。
 	accountRateMultiplier *float64
-	// firstFrameCloseExpected：首帧即被拒（连接被 1008 关闭），不期待任何响应帧。
-	firstFrameCloseExpected bool
 	// secondTurnCloseExpected：第二个 turn 被拒（连接被 1008 关闭）。
 	secondTurnCloseExpected bool
 }
