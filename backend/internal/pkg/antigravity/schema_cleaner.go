@@ -119,6 +119,25 @@ func cleanJSONSchemaRecursive(value any) any {
 	// 0. [NEW] 合并 allOf
 	mergeAllOf(schemaMap)
 
+	// Draft 2020-12 tuple definitions (prefixItems) are not accepted by
+	// Gemini's tool schema. If "items" is absent or Boolean (e.g. false
+	// for a closed tuple), select the most representative prefix schema;
+	// preserve an explicit "items" object when supplied.
+	if prefix, ok := schemaMap["prefixItems"]; ok {
+		if variants, ok := prefix.([]any); ok && len(variants) > 0 {
+			current, hasItems := schemaMap["items"]
+			_, isBool := current.(bool)
+			if !hasItems || current == nil || isBool {
+				best := extractBestSchemaFromUnion(variants)
+				if best == nil {
+					best = map[string]any{"type": "string"}
+				}
+				schemaMap["items"] = best
+			}
+		}
+		delete(schemaMap, "prefixItems")
+	}
+
 	// 1. [CRITICAL] 深度递归处理子项
 	if props, ok := schemaMap["properties"].(map[string]any); ok {
 		for _, v := range props {
