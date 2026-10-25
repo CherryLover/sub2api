@@ -29,7 +29,10 @@ func TestCleanJSONSchemaDraft202012TuplePrefixItems(t *testing.T) {
 				prop["items"] = tt.items
 			}
 			cleaned := CleanJSONSchema(map[string]any{"type": "object", "properties": map[string]any{"tuple": prop}})
-			item := cleaned["properties"].(map[string]any)["tuple"].(map[string]any)
+			props, ok := cleaned["properties"].(map[string]any)
+			require.True(t, ok)
+			item, ok := props["tuple"].(map[string]any)
+			require.True(t, ok)
 			require.NotContains(t, item, "prefixItems")
 			child, ok := item["items"].(map[string]any)
 			require.True(t, ok)
@@ -45,11 +48,15 @@ func TestCleanJSONSchemaTupleKeepsExplicitAdditionalItemsSchema(t *testing.T) {
 		"items":       map[string]any{"type": "boolean"},
 	})
 	require.NotContains(t, cleaned, "prefixItems")
-	require.Equal(t, "boolean", cleaned["items"].(map[string]any)["type"])
+	items, ok := cleaned["items"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "boolean", items["type"])
 }
 
 func TestCleanJSONSchemaEmptyTupleDropsUnsupportedKeyword(t *testing.T) {
 	cleaned := CleanJSONSchema(map[string]any{"type": "array", "prefixItems": []any{}, "items": map[string]any{"type": "string"}})
 	require.NotContains(t, cleaned, "prefixItems")
-	require.Equal(t, "string", cleaned["items"].(map[string]any)["type"])
+	items, ok := cleaned["items"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "string", items["type"])
 }

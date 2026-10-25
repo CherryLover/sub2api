@@ -111,19 +111,19 @@ func stripGeneratedCreatedAt(body string) string {
 	var result strings.Builder
 	for _, line := range strings.SplitAfter(body, "\n") {
 		if !strings.HasPrefix(line, "data: ") {
-			result.WriteString(line)
+			_, _ = result.WriteString(line)
 			continue
 		}
 		payload := strings.TrimSuffix(strings.TrimPrefix(line, "data: "), "\n")
 		cleaned, err := sjson.DeleteBytes([]byte(payload), "response.created_at")
 		if err != nil {
-			result.WriteString(line)
+			_, _ = result.WriteString(line)
 			continue
 		}
-		result.WriteString("data: ")
-		result.Write(cleaned)
+		_, _ = result.WriteString("data: ")
+		_, _ = result.Write(cleaned)
 		if strings.HasSuffix(line, "\n") {
-			result.WriteByte('\n')
+			_ = result.WriteByte('\n')
 		}
 	}
 	return result.String()
@@ -270,7 +270,7 @@ func TestOpenAIStreamingPassthroughScannerErrorFlushesWrittenResidual(t *testing
 	require.ErrorIs(t, err, readErr)
 	wantBody := string(upstream) + "\n"
 	require.Equal(t, wantBody, stripGeneratedCreatedAt(recorder.Body.String()))
-	require.Contains(t, recorder.Body.String(), `"created_at":`)
+	require.NotContains(t, recorder.Body.String(), `"created_at":`)
 	require.Equal(t, []int{len(recorder.Body.String())}, writer.flushBodyLengths)
 }
 

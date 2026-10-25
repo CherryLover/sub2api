@@ -35,3 +35,10 @@
 - C03、C14 对 DeepSeek 图片输入和并行工具的补丁必须先查 lite 是否存在相应基础行为，禁止扩张产品边界。
 - Gemini 映射及 upstream_models.go 另一工作树上的未合并冲突始终保持原状。
 - 本批 PR 须基于独立最终 SHA 经 CI 和 Security Scan 全通过，失败不得作为通过处理。
+
+
+## 独立基线首次 CI 修补记录
+
+- SHA 75f0dae65：基于 lite/main 的第三批无前置依赖版本已推送；对应 fork CI #40182912990：lint 报 8 个 errcheck，完整 Go 单测复现 TestOpenAIStreamingPassthroughScannerErrorFlushesWrittenResidual 失败。Security Scan #40182913073 前后端成功。
+- 本次修复：测试用例仅输出 output_text.delta，没有 response 生命周期对象，因此不能断言 created_at 必定存在；保留其原始输出、scan error 和 flush 行为检查。补齐 schema 类型断言的 comma-ok、strings.Builder 的错误值处理，以符合现有 lint。
+- 修改后定向 Go 单测 (internal/service, internal/pkg/antigravity) 全部通过。独立第三批整体尚未完成，不提交 PR，不擅自合并。
