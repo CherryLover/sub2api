@@ -616,6 +616,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	if err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	if geminiImageGenerationDenied(c, geminiReq, originalModel, mappedModel) {
+		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", ImageGenerationPermissionMessage())
+	}
 	geminiReq = ensureGeminiFunctionCallThoughtSignatures(geminiReq)
 	originalClaudeBody := body
 
@@ -1167,6 +1170,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	mappedModel := originalModel
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
+	}
+	if action != "countTokens" && geminiImageGenerationDenied(c, body, originalModel, mappedModel) {
+		return nil, s.writeGoogleError(c, http.StatusBadRequest, ImageGenerationPermissionMessage())
 	}
 
 	proxyURL := ""
