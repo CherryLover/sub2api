@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -137,7 +138,68 @@ func normalizeDeepSeekResponsesRequestBody(account *Account, body []byte) []byte
 	if stripped, err := sjson.DeleteBytes(normalized, "previous_response_id"); err == nil {
 		normalized = stripped
 	}
-	return normalized
+
+	var requestBody map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(normalized))
+	decoder.UseNumber()
+	if err := decoder.Decode(&requestBody); err != nil {
+		return normalized
+	}
+	input, exists := requestBody["input"]
+	if !exists {
+		return normalized
+	}
+	liftedInput, lifted := apicompat.LiftResponsesToolOutputMedia(input)
+	imageNormalized := normalizeDeepSeekResponsesInputImages(liftedInput)
+	if !lifted && !imageNormalized {
+		return normalized
+	}
+	requestBody["input"] = liftedInput
+	rebuilt, err := marshalOpenAIUpstreamJSON(requestBody)
+	if err != nil {
+		return normalized
+	}
+	return rebuilt
+}
+
+// normalizeDeepSeekResponsesInputImages keeps only the canonical image_url
+// field for input_image parts. Upstream's serde parser can reject the
+// duplicate "url" alias; do not rewrite any other vendor's request. Tool
+// output images lifted into a synthetic user message go through the same
+// sanitizer before dispatch.
+func normalizeDeepSeekResponsesInputImages(input any) bool {
+	changed := false
+	var cleanItem func(any)
+	cleanItem = func(value any) {
+		switch v := value.(type) {
+		case map[string]any:
+			if v["type"] == "input_image" {
+				url, _ := v["image_url"].(string)
+				if strings.TrimSpace(url) == "" {
+					if fallback, ok := v["url"].(string); ok && strings.TrimSpace(fallback) != "" {
+						v["image_url"] = fallback
+						changed = true
+					}
+				}
+				if _, exists := v["url"]; exists {
+					delete(v, "url")
+					changed = true
+				}
+				return
+			}
+			for key, child := range v {
+				if key == "content" || key == "input" {
+					cleanItem(child)
+				}
+			}
+		case []any:
+			for _, child := range v {
+				cleanItem(child)
+			}
+		}
+	}
+	cleanItem(input)
+	return changed
 }
 
 func trimOpenAIEncryptedReasoningItems(reqBody map[string]any) bool {

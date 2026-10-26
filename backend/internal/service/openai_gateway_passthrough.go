@@ -1567,6 +1567,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 
 	usage := &OpenAIUsage{}
 	imageCounter := newOpenAIImageOutputCounter()
+	var createdAtStamper responsesCreatedAtStamper
 	var firstTokenMs *int
 	responseID := ""
 	clientDisconnected := false
@@ -1761,6 +1762,14 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				trimmedData = strings.TrimSpace(string(sanitizedData))
 				line = "data: " + string(sanitizedData)
 			}
+			// Passthrough Responses must apply the same created_at contract as
+			// the non-passthrough stream. Only actual response objects are
+			// stamped; usage, accounting and error categorization stay intact.
+			if stamped, changed := createdAtStamper.Stamp(dataBytes, eventType); changed {
+				dataBytes = stamped
+				trimmedData = strings.TrimSpace(string(stamped))
+				line = "data: " + string(stamped)
+			}
 			lineStartsClientOutput = forceFlushFailedEvent || openAIStreamDataStartsClientOutput(trimmedData, eventType)
 			if lineStartsClientOutput && trimmedData != "[DONE]" && !openAIStreamEventTypeIsTerminal(eventType) {
 				semanticOutputSeen = true
@@ -1926,6 +1935,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if err != nil {
 		return nil, fmt.Errorf("restore OpenAI Responses client tools: %w", err)
 	}
+	body = ensureOpenAIResponseObjectCreatedAt(body)
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Writer.Header().Set("Content-Type", contentType)
 		c.Data(resp.StatusCode, contentType, body)
@@ -1976,7 +1986,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		if restoreErr != nil {
 			return nil, fmt.Errorf("restore OpenAI passthrough namespace response: %w", restoreErr)
 		}
-		body = restoredBody
+		body = ensureOpenAIResponseObjectCreatedAt(restoredBody)
 	} else {
 		if terminalOK && (terminalType == "response.failed" || terminalType == "error") {
 			msg := extractOpenAISSEErrorMessage(terminalPayload)

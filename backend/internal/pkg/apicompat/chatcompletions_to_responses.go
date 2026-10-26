@@ -107,7 +107,20 @@ func chatCompletionsToResponses(req *ChatCompletionsRequest, allowAudio bool) (*
 	req = &converted
 	var input []ResponsesInputItem
 	var inputAudio map[int]map[int]string
+	legacyIDs := legacyFunctionCallIDs{msgs: req.Messages}
 	for messageIndex, message := range req.Messages {
+		// Convert old Chat function_call / role=function histories using stable
+		// call IDs. Preserve the existing multimodal audio conversion flow.
+		switch {
+		case message.Role == "assistant" && message.FunctionCall != nil && len(message.ToolCalls) == 0:
+			message.ToolCalls = []ChatToolCall{{
+				ID:       legacyIDs.assign(message.FunctionCall.Name),
+				Type:     "function",
+				Function: *message.FunctionCall,
+			}}
+		case message.Role == "function" && message.ToolCallID == "":
+			message.ToolCallID = legacyIDs.claim(message.Name)
+		}
 		items, err := chatMessageToResponsesItems(message)
 		if err != nil {
 			return nil, err
@@ -184,10 +197,11 @@ func chatCompletionsToResponses(req *ChatCompletionsRequest, allowAudio bool) (*
 		out.Tools = convertChatToolsToResponses(req.Tools, req.Functions)
 	}
 
-	// tool_choice: already compatible format — pass through directly.
+	// tool_choice: strings and Responses-shaped objects pass through; a named
+	// Chat choice nests the name under "function" and must be flattened.
 	// Legacy function_call needs mapping.
 	if len(req.ToolChoice) > 0 {
-		out.ToolChoice = req.ToolChoice
+		out.ToolChoice = convertChatToolChoiceToResponses(req.ToolChoice)
 	} else if len(req.FunctionCall) > 0 {
 		tc, err := convertChatFunctionCallToToolChoice(req.FunctionCall)
 		if err != nil {
@@ -238,11 +252,63 @@ func validateChatAudioParts(parts []json.RawMessage) error {
 	return nil
 }
 
+// legacyFunctionCallIDs pairs legacy function calls with their results. Legacy
+// function calling carries no call IDs: the assistant turn has function_call
+// and the role=function result refers to it only by name, while the Responses
+// API pairs function_call and function_call_output by call_id. IDs follow
+// message order, so a replayed history converts to the same input, and skip
+// IDs already used by tool_calls in the same conversation.
+type legacyFunctionCallIDs struct {
+	msgs    []ChatMessage
+	used    map[string]bool
+	next    int
+	pending map[string][]string
+}
+
+// assign returns a new call ID for a legacy function call and queues it for
+// the next result with the same function name.
+func (ids *legacyFunctionCallIDs) assign(name string) string {
+	if ids.used == nil {
+		ids.used = make(map[string]bool)
+		ids.pending = make(map[string][]string)
+		for _, m := range ids.msgs {
+			for _, tc := range m.ToolCalls {
+				ids.used[tc.ID] = true
+			}
+			if m.ToolCallID != "" {
+				ids.used[m.ToolCallID] = true
+			}
+		}
+	}
+	var id string
+	for {
+		ids.next++
+		id = fmt.Sprintf("call_legacy_%d", ids.next)
+		if !ids.used[id] {
+			break
+		}
+	}
+	ids.used[id] = true
+	ids.pending[name] = append(ids.pending[name], id)
+	return id
+}
+
+// claim returns the oldest unanswered call ID for name, or "" when no legacy
+// call with that name precedes the result.
+func (ids *legacyFunctionCallIDs) claim(name string) string {
+	queue := ids.pending[name]
+	if len(queue) == 0 {
+		return ""
+	}
+	ids.pending[name] = queue[1:]
+	return queue[0]
+}
+
 // chatMessageToResponsesItems converts a single ChatMessage into one or more
 // ResponsesInputItem values.
 func chatMessageToResponsesItems(m ChatMessage) ([]ResponsesInputItem, error) {
 	switch m.Role {
-	case "system":
+	case "system", "developer":
 		return chatSystemToResponses(m)
 	case "user":
 		return chatUserToResponses(m)
@@ -257,7 +323,9 @@ func chatMessageToResponsesItems(m ChatMessage) ([]ResponsesInputItem, error) {
 	}
 }
 
-// chatSystemToResponses converts a system message.
+// chatSystemToResponses converts a system or developer message, keeping its
+// role: the Responses API accepts both, and developer must not be demoted to
+// a user turn.
 func chatSystemToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
 	parsed, err := parseChatMessageContent(m.Content)
 	if err != nil {
@@ -267,7 +335,7 @@ func chatSystemToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []ResponsesInputItem{{Role: "system", Content: content}}, nil
+	return []ResponsesInputItem{{Type: "message", Role: m.Role, Content: content}}, nil
 }
 
 // chatUserToResponses converts a user message, handling both plain strings and
@@ -281,7 +349,7 @@ func chatUserToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []ResponsesInputItem{{Role: "user", Content: content}}, nil
+	return []ResponsesInputItem{{Type: "message", Role: "user", Content: content}}, nil
 }
 
 // chatAssistantToResponses converts an assistant message. If there is both
@@ -316,7 +384,7 @@ func chatAssistantToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, ResponsesInputItem{Role: "assistant", Content: partsJSON})
+		items = append(items, ResponsesInputItem{Type: "message", Role: "assistant", Content: partsJSON})
 	}
 
 	// Emit one function_call item per tool_call.
@@ -434,9 +502,13 @@ func chatFunctionToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
 	if output == "" {
 		output = "(empty)"
 	}
+	callID := m.ToolCallID
+	if callID == "" {
+		callID = m.Name
+	}
 	return []ResponsesInputItem{{
 		Type:   "function_call_output",
-		CallID: m.Name,
+		CallID: callID,
 		Output: output,
 	}}, nil
 }
@@ -609,6 +681,34 @@ func defaultStrictFalse(src *bool) *bool {
 		return &value
 	}
 	return src
+}
+
+// convertChatToolChoiceToResponses maps a Chat Completions tool_choice to the
+// Responses API shape.
+//
+//	{"type":"function","function":{"name":"X"}} → {"type":"function","name":"X"}
+//
+// Strings ("auto", "none", "required") and objects that already use the
+// Responses shape are returned unchanged.
+func convertChatToolChoiceToResponses(raw json.RawMessage) json.RawMessage {
+	var choice struct {
+		Type     string `json:"type"`
+		Function *struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(raw, &choice); err != nil || choice.Type != "function" || choice.Function == nil {
+		return raw
+	}
+	name := strings.TrimSpace(choice.Function.Name)
+	if name == "" {
+		return raw
+	}
+	flat, err := json.Marshal(map[string]string{"type": "function", "name": name})
+	if err != nil {
+		return raw
+	}
+	return flat
 }
 
 // convertChatFunctionCallToToolChoice maps the legacy function_call field to a
