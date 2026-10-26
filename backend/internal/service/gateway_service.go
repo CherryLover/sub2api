@@ -812,6 +812,14 @@ type GatewayService struct {
 	userPlatformQuotaRepo UserPlatformQuotaRepository
 }
 
+// GetCompositeRouteModels lists exact aliases without changing dispatch rules.
+func (s *GatewayService) GetCompositeRouteModels(ctx context.Context, groupID *int64, endpoint string) ([]string, error) {
+	if s == nil || s.compositeResolver == nil || groupID == nil {
+		return nil, nil
+	}
+	return s.compositeResolver.ListExactPublicModels(ctx, *groupID, endpoint)
+}
+
 // NewGatewayService creates a new GatewayService
 func NewGatewayService(
 	accountRepo AccountRepository,

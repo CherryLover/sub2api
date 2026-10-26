@@ -1185,6 +1185,16 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 			models = append(models, model)
 		}
 	}
+	// The account-derived catalog alone omits explicitly configured public
+	// route aliases. Preserve lite's CustomModelsList filtering in Models.
+	if routeModels, err := h.gatewayService.GetCompositeRouteModels(ctx, groupID, ""); err == nil {
+		for _, model := range routeModels {
+			if _, exists := seen[model]; !exists {
+				seen[model] = struct{}{}
+				models = append(models, model)
+			}
+		}
+	}
 	return models
 }
 

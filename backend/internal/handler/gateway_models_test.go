@@ -53,12 +53,31 @@ func (s *gatewayModelsAccountRepoStub) ListSchedulableByGroupID(ctx context.Cont
 	return out, nil
 }
 
-func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHandler {
+type compositeModelListingRoutesStub struct {
+	service.CompositeModelRouteRepository
+	routes []service.CompositeModelRoute
+}
+
+func (r compositeModelListingRoutesStub) ListByGroup(_ context.Context, groupID int64, _ bool) ([]service.CompositeModelRoute, error) {
+	out := make([]service.CompositeModelRoute, 0)
+	for _, route := range r.routes {
+		if route.GroupID == groupID && route.Enabled {
+			out = append(out, route)
+		}
+	}
+	return out, nil
+}
+
+func newGatewayModelsHandlerForTest(repo service.AccountRepository, routeRepos ...service.CompositeModelRouteRepository) *GatewayHandler {
+	var routes *service.CompositeRouteResolver
+	if len(routeRepos) > 0 && routeRepos[0] != nil {
+		routes = service.NewCompositeRouteResolver(routeRepos[0])
+	}
 	return &GatewayHandler{
 		gatewayService: service.NewGatewayService(
 			repo,
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, routes, nil,
 		),
 	}
 }
@@ -897,4 +916,54 @@ func modelIDsForTest(models []gatewayModelItemForTest) []string {
 		ids = append(ids, model.ID)
 	}
 	return ids
+}
+
+// Explicit aliases appear in composite catalogs but CustomModelsList remains
+// authoritative; disabled routes and prefix patterns never become model IDs.
+func TestGatewayModelsCompositeAliasesRespectCustomList(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(7749)
+	repo := &gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+		groupID: {{ID: 1, Platform: service.PlatformOpenAI, Credentials: map[string]any{
+			"model_mapping": map[string]any{"internal-model": "gpt-5.5"},
+		}}},
+	}}
+	routes := compositeModelListingRoutesStub{routes: []service.CompositeModelRoute{
+		{GroupID: groupID, PublicModel: "router/public", MatchType: service.CompositeRouteMatchExact, Enabled: true},
+		{GroupID: groupID, PublicModel: "router/prefix-", MatchType: service.CompositeRouteMatchPrefix, Enabled: true},
+		{GroupID: groupID, PublicModel: "router/disabled", MatchType: service.CompositeRouteMatchExact, Enabled: false},
+		{GroupID: groupID + 1, PublicModel: "other-group", MatchType: service.CompositeRouteMatchExact, Enabled: true},
+	}}
+	for _, tt := range []struct {
+		name     string
+		selected []string
+		present  []string
+		hidden   []string
+	}{
+		{name: "unfiltered", present: []string{"router/public", "internal-model"}, hidden: []string{"router/prefix-", "router/disabled", "other-group"}},
+		{name: "custom list", selected: []string{"router/public"}, present: []string{"router/public"}, hidden: []string{"router/prefix-", "router/disabled", "other-group", "internal-model"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newGatewayModelsHandlerForTest(repo, routes)
+			group := &service.Group{ID: groupID, Platform: service.PlatformComposite}
+			if tt.selected != nil {
+				group.ModelsListConfig = service.GroupModelsListConfig{Enabled: true, Models: tt.selected}
+			}
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+			c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{Group: group})
+			h.Models(c)
+			require.Equal(t, http.StatusOK, rec.Code)
+			var got gatewayModelsResponseForTest
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			ids := modelIDsForTest(got.Data)
+			for _, model := range tt.present {
+				require.Contains(t, ids, model)
+			}
+			for _, model := range tt.hidden {
+				require.NotContains(t, ids, model)
+			}
+		})
+	}
 }
