@@ -23,6 +23,13 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		return fmt.Errorf("parse request: empty request")
 	}
 
+	// These credentials are not valid for Anthropic count_tokens; return an
+	// unsupported endpoint, without attempting upstream auth or cooling accounts.
+	if account != nil && !anthropicMessagesCredentialAllowed(account) {
+		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported for this account platform")
+		return nil
+	}
+
 	validationModel := parsed.Model
 	if account != nil {
 		if account.IsBedrock() {
