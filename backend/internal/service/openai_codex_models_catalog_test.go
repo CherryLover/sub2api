@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -222,4 +223,18 @@ func TestBuildGroupConfiguredCodexModelsManifestReturnsFalseWithoutConfiguration
 	require.NoError(t, err)
 	require.False(t, configured)
 	require.Nil(t, manifest)
+}
+
+func TestCodexGeneratedManifestInstructionsAvoidForeignGPTIdentity(t *testing.T) {
+	for _, model := range []string{"claude-opus-5-5", "gemini-3.8-pro", "gpt-oss-120b"} {
+		base := openai.CodexBaseInstructionsForModel(model)
+		got := newConfiguredCodexModelDescriptor(model).ModelMessages.InstructionsTemplate
+		require.NotContains(t, got, "based on GPT-", model)
+		if strings.Contains(base, "You are GPT-") {
+			require.NotContains(t, got, "You are GPT-", model)
+		}
+	}
+	gpt := "gpt-6-sol"
+	require.Equal(t, openai.CodexBaseInstructionsForModel(gpt),
+		newConfiguredCodexModelDescriptor(gpt).ModelMessages.InstructionsTemplate)
 }

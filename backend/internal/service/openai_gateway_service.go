@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -457,6 +458,11 @@ type OpenAIGatewayService struct {
 	openaiModelTransient           *openAIAccountModelTransientState
 	openaiProxyStreamCircuit       *openAIProxyStreamCircuit
 	openaiProxyStreamFailOpenLogAt atomic.Int64
+
+	invalidEncryptedLineageOnce   sync.Once
+	invalidEncryptedLineageMu     sync.Mutex
+	invalidEncryptedLineageActive atomic.Bool
+	invalidEncryptedLineage       *gocache.Cache
 
 	openaiWSFallbackUntil               sync.Map // key: int64(accountID), value: time.Time
 	openaiAccountRuntimeBlockUntil      sync.Map // key: int64(accountID), value: time.Time

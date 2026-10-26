@@ -177,6 +177,15 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		if normalized {
 			body = normalizedBody
 		}
+		if !isOpenAIResponsesCompactPath(c) {
+			responsesLite := isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) ||
+				isOpenAIResponsesLiteWebSocketPayload(body)
+			if withHistoryTool, changed, toolErr := ensureOpenAIOAuthWebSearchToolForHistoryBody(body, responsesLite); toolErr != nil {
+				return nil, fmt.Errorf("normalize oauth web search history: %w", toolErr)
+			} else if changed {
+				body = withHistoryTool
+			}
+		}
 		// 保持客户端原始 stream 标志；compact 始终为非流式。
 		if isOpenAIResponsesCompactPath(c) {
 			reqStream = false
@@ -969,7 +978,7 @@ func openAIStreamClientOutputStarted(c *gin.Context, localStarted bool) bool {
 
 func openAIStreamEventIsPreamble(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
-	case "response.created", "response.in_progress":
+	case "response.created", "response.queued", "response.in_progress", "response.metadata", "keepalive":
 		return true
 	default:
 		return false
@@ -1031,7 +1040,7 @@ func openAIStreamAddedEventStartsClientOutput(payload []byte, eventType string) 
 		default:
 			return true
 		}
-	case "response.content_part.added":
+	case "response.content_part.added", "response.content_part.done":
 		part := gjson.GetBytes(payload, "part")
 		if !part.Exists() || !part.IsObject() {
 			return true
@@ -1044,7 +1053,7 @@ func openAIStreamAddedEventStartsClientOutput(payload []byte, eventType string) 
 		default:
 			return true
 		}
-	case "response.reasoning_summary_part.added":
+	case "response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
 		part := gjson.GetBytes(payload, "part")
 		if !part.Exists() || !part.IsObject() || strings.TrimSpace(part.Get("type").String()) != "summary_text" {
 			return true
@@ -1060,6 +1069,7 @@ func openAIStreamDataStartsClientOutput(data, eventType string) bool {
 	if trimmed == "" {
 		return false
 	}
+	field := ""
 	switch strings.TrimSpace(eventType) {
 	case "response.failed":
 		return false
@@ -1071,8 +1081,20 @@ func openAIStreamDataStartsClientOutput(data, eventType string) bool {
 		// （content_policy / invalid_request 等）维持原样转发，保留上游错误细节。
 		payload := []byte(trimmed)
 		return !openAIStreamFailedEventShouldFailover(payload, extractOpenAISSEErrorMessage(payload))
-	case "response.output_item.added", "response.content_part.added", "response.reasoning_summary_part.added":
+	case "response.output_item.added", "response.content_part.added", "response.reasoning_summary_part.added",
+		"response.content_part.done", "response.reasoning_summary_part.done":
 		return openAIStreamAddedEventStartsClientOutput([]byte(trimmed), eventType)
+	case "response.output_text.delta", "response.reasoning_summary_text.delta", "response.reasoning_text.delta",
+		"response.function_call_arguments.delta", "response.custom_tool_call_input.delta", "response.refusal.delta":
+		field = "delta"
+	case "response.output_text.done", "response.reasoning_summary_text.done", "response.reasoning_text.done":
+		field = "text"
+	case "response.refusal.done":
+		field = "refusal"
+	}
+	if field != "" && gjson.Valid(trimmed) {
+		value := gjson.Get(trimmed, field)
+		return value.Type != gjson.String || value.String() != ""
 	}
 	return !openAIStreamEventIsPreamble(eventType)
 }
@@ -1219,7 +1241,27 @@ func sanitizeOpenAICapacityShedErrorCodeForClient(payload []byte) ([]byte, bool)
 	return updated, changed
 }
 
+// OpenAI-compatible SSE producers may use either status_code or status.
+var openAIStreamErrorStatusPaths = []string{
+	"response.error.status_code", "response.error.status",
+	"error.status_code", "error.status", "status_code", "status",
+}
+
+func openAIExplicitStreamErrorStatus(payload []byte) int {
+	for _, path := range openAIStreamErrorStatusPaths {
+		status := int(gjson.GetBytes(payload, path).Int())
+		switch status {
+		case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, 529:
+			return status
+		}
+	}
+	return 0
+}
+
 func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
+	if explicitStatus := openAIExplicitStreamErrorStatus(payload); explicitStatus != 0 {
+		return explicitStatus
+	}
 	if isOpenAIContextWindowError(message, payload) {
 		return http.StatusBadRequest
 	}
@@ -1253,6 +1295,9 @@ func openAIStreamFailureStatus(payload []byte, message string) int {
 	// Keep the existing 502 failover behavior for other response.failed events.
 	// Only rate limits need promotion because they participate in the account's
 	// configurable 429 same-account retry policy.
+	if status := openAIExplicitStreamErrorStatus(payload); status != 0 {
+		return status
+	}
 	if openAIStreamFailedEventSemanticStatus(payload, message) == http.StatusTooManyRequests {
 		return http.StatusTooManyRequests
 	}

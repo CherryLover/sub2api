@@ -328,7 +328,7 @@ func (s *AccountRepoSuite) TestListOAuthRefreshCandidatePage_GrokCursorAndExclus
 		},
 	})
 	unschedulable := mustCreateAccount(s.T(), s.client, &service.Account{
-		Name:        "grok-oauth-unschedulable-excluded",
+		Name:        "grok-oauth-paused-still-refreshable",
 		Platform:    service.PlatformGrok,
 		Type:        service.AccountTypeOAuth,
 		Status:      service.StatusActive,
@@ -393,15 +393,14 @@ func (s *AccountRepoSuite) TestListOAuthRefreshCandidatePage_GrokCursorAndExclus
 	s.Require().NoError(err)
 	first := firstPage.Accounts
 	s.Require().Len(first, 2)
-	s.Require().Equal([]int64{valid1.ID, valid2.ID}, []int64{first[0].ID, first[1].ID})
-	s.Require().NotContains([]int64{first[0].ID, first[1].ID}, unschedulable.ID)
+	s.Require().Equal([]int64{valid1.ID, unschedulable.ID}, []int64{first[0].ID, first[1].ID}, "paused active OAuth accounts must remain eligible for refresh")
 
 	options.AfterID = first[len(first)-1].ID
 	secondPage, err := s.repo.ListOAuthRefreshCandidatePage(s.ctx, options)
 	s.Require().NoError(err)
 	second := secondPage.Accounts
-	s.Require().Len(second, 1)
-	s.Require().Equal(valid3.ID, second[0].ID)
+	s.Require().Len(second, 2)
+	s.Require().Equal([]int64{valid2.ID, valid3.ID}, []int64{second[0].ID, second[1].ID})
 	s.Require().NotContains([]int64{first[0].ID, first[1].ID}, second[0].ID)
 }
 

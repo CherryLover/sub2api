@@ -239,7 +239,36 @@ func TierIDToPlanType(tierID string) string {
 		if tierID == "" {
 			return "Free"
 		}
+		if tier := paidPlanFromTierID(tierID); tier != "" {
+			return tier
+		}
 		return tierID
+	}
+}
+
+// paidPlanFromTierID recognizes later paid-tier variants without treating
+// unknown (or free) subscription tiers as paid.
+func paidPlanFromTierID(tierID string) string {
+	id := strings.ToLower(strings.TrimSpace(tierID))
+	if !strings.HasSuffix(id, "-tier") {
+		return ""
+	}
+	switch {
+	case strings.HasPrefix(id, "g1-ultra-"):
+		return "Ultra"
+	case strings.HasPrefix(id, "g1-pro-"):
+		return "Pro"
+	default:
+		return ""
+	}
+}
+
+func IsPaidPlanType(planType string) bool {
+	switch strings.ToLower(strings.TrimSpace(planType)) {
+	case "pro", "ultra":
+		return true
+	default:
+		return paidPlanFromTierID(planType) != ""
 	}
 }
 
@@ -657,6 +686,21 @@ type FetchAvailableModelsResponse struct {
 // FetchAvailableModels 获取可用模型和配额信息，返回解析后的结构体和原始 JSON
 // 支持 URL fallback：sandbox → daily → prod
 func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectID string) (*FetchAvailableModelsResponse, map[string]any, error) {
+	return c.fetchAvailableModels(ctx, BaseURLs, accessToken, projectID, false)
+}
+
+// FetchAvailableModelsFromURL reads only from the account's selected serving
+// endpoint. Fetching via another tier's endpoint can advertise models that
+// this account cannot actually generate with.
+func (c *Client) FetchAvailableModelsFromURL(ctx context.Context, baseURL, accessToken, projectID string) (*FetchAvailableModelsResponse, map[string]any, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return nil, nil, errors.New("fetchAvailableModels base URL is required")
+	}
+	return c.fetchAvailableModels(ctx, []string{baseURL}, accessToken, projectID, true)
+}
+
+func (c *Client) fetchAvailableModels(ctx context.Context, availableURLs []string, accessToken, projectID string, fixedEndpoint bool) (*FetchAvailableModelsResponse, map[string]any, error) {
 	if c == nil || c.httpClient == nil {
 		return nil, nil, errors.New("antigravity client is not configured")
 	}
@@ -667,10 +711,11 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 		return nil, nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	// 固定顺序：prod -> daily
-	availableURLs := BaseURLs
-
 	fetchClient := c.fetchAvailableModelsHTTPClient()
+	if fixedEndpoint {
+		// No redirect to a different tier's host for account-scoped discovery.
+		fetchClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 	var lastErr error
 	for urlIdx, baseURL := range availableURLs {
 		apiURL := baseURL + "/v1internal:fetchAvailableModels"

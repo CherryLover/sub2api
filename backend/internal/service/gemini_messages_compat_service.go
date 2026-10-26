@@ -781,12 +781,17 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 
 	var resp *http.Response
+	var checkedPolicy *ErrorPolicyResult
 	signatureRetryStage := 0
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
+		checkedPolicy = nil
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
+			}
+			if failoverErr := s.handleVertexServiceAccountNotFound(ctx, c, account, err); failoverErr != nil {
+				return nil, failoverErr
 			}
 			// Local build error: don't retry.
 			if strings.Contains(err.Error(), "missing project_id") {
@@ -798,6 +803,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				return nil, err
+			}
+			s.tempUnscheduleGeminiTransportError(ctx, account, err)
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
@@ -886,11 +895,11 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
-			resp = rebuilt
+		checked, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel)
+		resp = rebuilt
+		checkedPolicy = checked
+		if checked != nil && *checked != ErrorPolicyNone {
 			break
-		} else {
-			resp = rebuilt
 		}
 
 		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
@@ -956,7 +965,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		respBody := s.readUpstreamErrorBody(resp)
 		// 统一错误策略：自定义错误码 + 临时不可调度
 		if s.rateLimitService != nil {
-			policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
+			policy := s.finalErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel, checkedPolicy)
 			switch policy {
 			case ErrorPolicySkipped:
 				upstreamReqID := resp.Header.Get(requestIDHeader)
@@ -1326,11 +1335,15 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 
 	var resp *http.Response
+	var checkedPolicy *ErrorPolicyResult
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
+			}
+			if failoverErr := s.handleVertexServiceAccountNotFound(ctx, c, account, err); failoverErr != nil {
+				return nil, failoverErr
 			}
 			// Local build error: don't retry.
 			if strings.Contains(err.Error(), "missing project_id") {
@@ -1342,6 +1355,10 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				return nil, err
+			}
+			s.tempUnscheduleGeminiTransportError(ctx, account, err)
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
@@ -1384,11 +1401,11 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
-			resp = rebuilt
+		checked, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel)
+		resp = rebuilt
+		checkedPolicy = checked
+		if checked != nil && *checked != ErrorPolicyNone {
 			break
-		} else {
-			resp = rebuilt
 		}
 
 		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
@@ -1493,7 +1510,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 		// 统一错误策略：自定义错误码 + 临时不可调度
 		if s.rateLimitService != nil {
-			policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
+			policy := s.finalErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel, checkedPolicy)
 			switch policy {
 			case ErrorPolicySkipped:
 				if failoverErr := s.skippedErrorPolicyFailoverError(c, account, resp.StatusCode, respBody, requestID); failoverErr != nil {
@@ -1653,9 +1670,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 // 返回 false 表示 ErrorPolicyNone，resp 已重建，调用者继续走重试逻辑。
 func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
 	ctx context.Context, account *Account, resp *http.Response, mappedModel string,
-) (matched bool, rebuilt *http.Response) {
+) (checked *ErrorPolicyResult, rebuilt *http.Response) {
 	if resp.StatusCode < 400 || s.rateLimitService == nil {
-		return false, resp
+		return nil, resp
 	}
 	body := s.readUpstreamErrorBody(resp)
 	_ = resp.Body.Close()
@@ -1665,7 +1682,16 @@ func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
 	policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, body, mappedModel)
-	return policy != ErrorPolicyNone, rebuilt
+	return &policy, rebuilt
+}
+
+func (s *GeminiMessagesCompatService) finalErrorPolicy(
+	ctx context.Context, account *Account, statusCode int, body []byte, mappedModel string, checked *ErrorPolicyResult,
+) ErrorPolicyResult {
+	if checked != nil {
+		return *checked
+	}
+	return s.rateLimitService.CheckErrorPolicy(ctx, account, statusCode, body, mappedModel)
 }
 
 func (s *GeminiMessagesCompatService) shouldRetryGeminiUpstreamError(account *Account, statusCode int) bool {
