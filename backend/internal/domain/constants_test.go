@@ -122,3 +122,16 @@ func TestDefaultBedrockModelMapping_ContainsNewClaudeModels(t *testing.T) {
 		}
 	}
 }
+
+func TestGemini4ArgonDefaultAntigravityModelMapping(t *testing.T) {
+	for requested, expected := range map[string]string{
+		"gemini-4-argon":        "gemini-4-argon-high",
+		"gemini-4-argon-high":   "gemini-4-argon-high",
+		"gemini-4-argon-medium": "gemini-4-argon-medium",
+		"gemini-4-argon-low":    "gemini-4-argon-low",
+	} {
+		if got := DefaultAntigravityModelMapping[requested]; got != expected {
+			t.Fatalf("%s -> %q, want %q", requested, got, expected)
+		}
+	}
+}

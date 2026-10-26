@@ -23,9 +23,11 @@ var _ AccountRepository = (*stubAntigravityAccountRepo)(nil)
 var _ SchedulerCache = (*stubSchedulerCache)(nil)
 
 type stubAntigravityUpstream struct {
-	firstBase  string
-	secondBase string
-	calls      []string
+	firstBase   string
+	secondBase  string
+	firstStatus int
+	firstBody   string
+	calls       []string
 }
 
 type recordingOKUpstream struct {
@@ -49,10 +51,18 @@ func (s *stubAntigravityUpstream) Do(req *http.Request, proxyURL string, account
 	url := req.URL.String()
 	s.calls = append(s.calls, url)
 	if strings.HasPrefix(url, s.firstBase) {
+		status := s.firstStatus
+		if status == 0 {
+			status = http.StatusTooManyRequests
+		}
+		body := s.firstBody
+		if body == "" {
+			body = `{"error":{"message":"Resource has been exhausted"}}`
+		}
 		return &http.Response{
-			StatusCode: http.StatusTooManyRequests,
+			StatusCode: status,
 			Header:     http.Header{},
-			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Resource has been exhausted"}}`)),
+			Body:       io.NopCloser(strings.NewReader(body)),
 		}, nil
 	}
 	return &http.Response{
@@ -1310,6 +1320,80 @@ func TestNormalizeAntigravityModelName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			actual := normalizeAntigravityModelName(tt.model)
 			require.Equal(t, tt.expected, actual)
+		})
+	}
+}
+
+// Check the permitted account tier, explicit URL mode, and the exact
+// catalog-404 predicate. Never interpret all 404s as retryable.
+func TestResolveAntigravityForwardBaseURLs_PaidOnlyAndOverride(t *testing.T) {
+	old := append([]string(nil), antigravity.BaseURLs...)
+	defer func() { antigravity.BaseURLs = old }()
+	antigravity.BaseURLs = []string{"https://prod.test", "https://daily.test"}
+	t.Setenv(antigravityForwardBaseURLEnv, "")
+	paid := &Account{Credentials: map[string]any{"plan_type": "pro"}}
+	free := &Account{Credentials: map[string]any{"plan_type": "free"}}
+	require.Equal(t, []string{"https://daily.test", "https://prod.test"}, resolveAntigravityForwardBaseURLs(paid))
+	require.Equal(t, []string{"https://prod.test"}, resolveAntigravityForwardBaseURLs(free))
+	t.Setenv(antigravityForwardBaseURLEnv, "prod")
+	require.Equal(t, []string{"https://prod.test"}, resolveAntigravityForwardBaseURLs(paid))
+	t.Setenv(antigravityForwardBaseURLEnv, "daily")
+	require.Equal(t, []string{"https://daily.test"}, resolveAntigravityForwardBaseURLs(paid))
+}
+
+func TestAntigravityCatalog404FallbackPredicate(t *testing.T) {
+	catalogMiss := []byte(`{"error":{"code":404,"status":"NOT_FOUND","message":"Requested entity was not found."}}`)
+	require.True(t, isAntigravityCatalog404Fallback("gemini-3.7-flash-tiered", catalogMiss))
+	require.False(t, isAntigravityCatalog404Fallback("gemini-3.6-flash", catalogMiss))
+	require.False(t, isAntigravityCatalog404Fallback("gemini-3.7-flash-tiered", []byte(`{"error":{"message":"Invalid input","code":404}}`)))
+}
+
+func TestAntigravityRetryLoop_PaidCatalog404AndURL429Fallback(t *testing.T) {
+	old := append([]string(nil), antigravity.BaseURLs...)
+	oldAvailability := antigravity.DefaultURLAvailability
+	defer func() { antigravity.BaseURLs = old; antigravity.DefaultURLAvailability = oldAvailability }()
+	antigravity.BaseURLs = []string{"https://prod.test", "https://daily.test"}
+	antigravity.DefaultURLAvailability = antigravity.NewURLAvailability(time.Minute)
+	t.Setenv(antigravityForwardBaseURLEnv, "")
+
+	for _, tc := range []struct {
+		name, model string
+		status      int
+		body        string
+		want        int
+	}{
+		{"catalog 404", "gemini-3.7-flash-tiered", 404, `{"error":{"code":404,"status":"NOT_FOUND","message":"Requested entity was not found."}}`, 200},
+		{"generic 404", "gemini-3.6-flash", 404, `{"error":{"code":404,"status":"NOT_FOUND","message":"Requested entity was not found."}}`, 404},
+		{"URL 429", "gemini-3.7-flash-tiered", 429, `{"error":{"message":"Resource has been exhausted"}}`, 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := &stubAntigravityUpstream{
+				firstBase:   "https://daily.test",
+				secondBase:  "https://prod.test",
+				firstStatus: tc.status, firstBody: tc.body,
+			}
+			svc := &AntigravityGatewayService{}
+			result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
+				ctx: context.Background(), prefix: "[test]", account: &Account{ID: 1, Platform: PlatformAntigravity, Name: "paid", Status: StatusActive, Schedulable: true, Concurrency: 1, Credentials: map[string]any{"plan_type": "pro"}},
+				accessToken: "token", action: "generateContent", body: []byte(`{"input":"test"}`),
+				httpUpstream: upstream, requestedModel: tc.model,
+				handleError: func(context.Context, string, *Account, int, http.Header, []byte, string, int64, string, bool) *handleModelRateLimitResult {
+					return nil
+				},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.NotNil(t, result.resp)
+			defer result.resp.Body.Close()
+			require.Equal(t, tc.want, result.resp.StatusCode)
+			expectedCalls := 1
+			if tc.want == 200 {
+				expectedCalls = 2
+			}
+			require.Len(t, upstream.calls, expectedCalls)
+			if expectedCalls == 2 {
+				require.Contains(t, upstream.calls[1], "https://prod.test")
+			}
 		})
 	}
 }

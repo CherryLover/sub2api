@@ -298,7 +298,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		}
 		if event.Type == "content_block_delta" && event.Delta != nil && finalResp != nil && event.Index != nil {
 			idx := *event.Index
-			if idx < len(finalResp.Content) {
+			if idx >= 0 && idx < len(finalResp.Content) {
 				switch event.Delta.Type {
 				case "text_delta":
 					finalResp.Content[idx].Text += event.Delta.Text
@@ -435,9 +435,6 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		if event == nil {
 			return
 		}
-		// Drop Anthropic keepalive pings before OpenAI conversion:
-		// leaking `event: ping` frames crashes OpenAI-stream clients.
-		// Error events must still forward — they carry upstream failures.
 		if event.Type == "ping" {
 			if stream.clientDisconnected {
 				return
@@ -448,14 +445,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			}
 			c.Writer.Flush()
 			return
-
 		}
-		if firstChunk {
-			firstChunk = false
-			ms := int(time.Since(startTime).Milliseconds())
-			firstTokenMs = &ms
-		}
-
 		// Extract usage from message_delta
 		if event.Type == "message_delta" && event.Usage != nil {
 			mergeAnthropicUsage(&usage, *event.Usage)
@@ -466,6 +456,11 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		}
 		if stream.clientDisconnected {
 			return
+		}
+		if firstChunk {
+			firstChunk = false
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
 		}
 
 		// Keep the outward Responses/Chat usage on the same normalized buckets used

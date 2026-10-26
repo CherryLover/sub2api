@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -272,7 +273,7 @@ func openAIConfiguredCodexModelIDs(accounts []Account) []string {
 
 func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []string {
 	models := supplementUnmappedOpenAIModels(accounts, openAIConfiguredCodexModelIDs(accounts))
-	return FilterCodexModelIDsForGroup(models, group)
+	return filterRetiredOpenAIModelIDs(accounts, FilterCodexModelIDsForGroup(models, group))
 }
 
 func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescriptor {
@@ -292,7 +293,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		Priority:                          configuredCodexModelPriority,
 		AdditionalSpeedTiers:              []string{},
 		ServiceTiers:                      []configuredCodexServiceTier{},
-		ModelMessages:                     configuredCodexModelMessages{InstructionsTemplate: openai.CodexBaseInstructionsForModel(modelID)},
+		ModelMessages:                     configuredCodexModelMessages{InstructionsTemplate: codexInstructionsTemplateForModel(modelID)},
 		SupportsReasoningSummaryParameter: true,
 		DefaultReasoningSummary:           "auto",
 		WebSearchToolType:                 "text",
@@ -492,6 +493,47 @@ func configuredCodexGPTReasoningLevels(modelID string) []configuredCodexReasonin
 	return levels
 }
 
+// codexGPTIdentityPatterns match the GPT self-identification that the bundled
+// Codex prompts open with:
+//   - "You are Codex, a coding agent based on GPT-5." / "…an agent based on GPT-6." / "You are Codex, based on GPT-5."
+//   - "You are GPT-5.1 running in the Codex CLI, …"
+var codexGPTIdentityPatterns = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	{regexp.MustCompile(`,?\s*based on GPT-\d+(?:\.\d+)?(?:-[A-Za-z0-9]+)*`), ""},
+	{regexp.MustCompile(`\bYou are GPT-\d+(?:\.\d+)?(?:-[A-Za-z0-9]+)*`), "You are Codex"},
+}
+
+// codexInstructionsTemplateForModel returns the Codex base prompt advertised for
+// modelID in the models manifest.
+//
+// OpenAI GPT models keep the bundled prompt verbatim. Every other family the
+// manifest can list (Gemini, Claude, DeepSeek, Grok, gpt-oss, custom aliases)
+// gets the same prompt without the GPT self-identification: the claim is false
+// for those models, and Google's Antigravity backend answers requests whose
+// system prompt is the Codex prompt carrying a "GPT-5" identity with
+// 429 RESOURCE_EXHAUSTED — which also puts the account into rate-limit
+// cooldown. Codex sends this template as `instructions` for the selected model.
+func codexInstructionsTemplateForModel(modelID string) string {
+	base := openai.CodexBaseInstructionsForModel(modelID)
+	if codexModelKeepsGPTIdentity(modelID) {
+		return base
+	}
+	for _, p := range codexGPTIdentityPatterns {
+		base = p.re.ReplaceAllString(base, p.repl)
+	}
+	return base
+}
+
+// codexModelKeepsGPTIdentity reports whether modelID is an OpenAI GPT model
+// whose Codex prompt may claim a GPT identity. gpt-oss models are open-weight
+// and typically served by non-OpenAI providers, so they do not.
+func codexModelKeepsGPTIdentity(modelID string) bool {
+	return isOpenAICodexGPTModel(modelID) &&
+		!strings.HasPrefix(canonicalizeOpenAIModelAliasSpelling(modelID), "gpt-oss")
+}
+
 func isOpenAICodexGPTModel(modelID string) bool {
 	normalized := canonicalizeOpenAIModelAliasSpelling(modelID)
 	if normalized == "" || strings.HasPrefix(normalized, "gpt-image") {
@@ -586,6 +628,7 @@ func claudeCodexDisplayName(modelID string) string {
 }
 
 func buildCodexModelsManifestForAccounts(modelIDs []string, accounts []Account) ([]byte, error) {
+	modelIDs = filterRetiredOpenAIModelIDs(accounts, modelIDs)
 	imageInputModels := make(map[string]bool, len(modelIDs))
 	searchToolModels := make(map[string]bool, len(modelIDs))
 	for _, modelID := range modelIDs {

@@ -380,9 +380,14 @@ func TestOpenAIResponseFlush_FailedAndErrorEventsFlushAtBoundaries(t *testing.T)
 		require.NotNil(t, result)
 		require.Equal(t, 3, result.usage.InputTokens)
 		gotBody, flushes := recorder.snapshot()
-		expectedBody := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"a\"}\n\n" +
-			"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"safety_error\",\"message\":\"blocked\"}}}\n"
-		require.Equal(t, expectedBody, gotBody)
+		// created_at is intentionally generated for strict Responses consumers;
+		// do not compare an exact timestamp in the final SSE frame.
+		require.Contains(t, gotBody, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"a\"}\n\n")
+		require.Contains(t, gotBody, "\"type\":\"response.failed\"")
+		require.Contains(t, gotBody, "\"code\":\"safety_error\"")
+		require.Contains(t, gotBody, "\"message\":\"blocked\"")
+		require.Contains(t, gotBody, "\"created_at\":")
+		require.NotContains(t, gotBody, "\"usage\":")
 		require.Len(t, flushes, 2)
 		require.Contains(t, flushes[1], "response.failed")
 	})

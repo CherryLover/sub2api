@@ -99,8 +99,8 @@ func TestOpenAIScheduler_LoadBalanceSkipsModelRateLimitedAccount(t *testing.T) {
 	require.Contains(t, err.Error(), "model_rate_limited",
 		"具名 reason 必须出现在过滤统计里，便于排查『无可用账号』")
 
-	// 同一个账号，主池模型仍然完全可用。
-	for _, model := range []string{"gpt-6-astra", "gpt-5.5", "gpt-5.6-sol"} {
+	// 同一账号的未退役主池模型仍可用；gpt-5.5 OAuth 已在 2026-10-14 退役，另由 R06 回归单独验证。
+	for _, model := range []string{"gpt-6-astra", "gpt-5.6-sol"} {
 		selection, _, _, _, err := scheduler.selectByLoadBalance(context.Background(), OpenAIAccountScheduleRequest{
 			Platform:       PlatformOpenAI,
 			RequestedModel: model,

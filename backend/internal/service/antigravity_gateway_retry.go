@@ -70,6 +70,39 @@ func resolveAntigravityForwardBaseURL(account *Account) string {
 	return baseURLs[0]
 }
 
+// resolveAntigravityForwardBaseURLs keeps the existing configured primary URL,
+// and permits fallback only when the account is explicitly known to have a paid
+// tier. Free/unknown tokens must not be sent to daily automatically (see #3611).
+// Explicit environment modes always select one endpoint.
+func resolveAntigravityForwardBaseURLs(account *Account) []string {
+	primary := resolveAntigravityForwardBaseURL(account)
+	if primary == "" {
+		return nil
+	}
+	if strings.TrimSpace(os.Getenv(antigravityForwardBaseURLEnv)) != "" ||
+		!accountHasAntigravityPaidTier(account) {
+		return []string{primary}
+	}
+	result := []string{primary}
+	for _, candidate := range antigravity.BaseURLs {
+		if candidate != "" && candidate != primary {
+			result = append(result, candidate)
+		}
+	}
+	return result
+}
+
+// Only a known catalog synchronization miss for Gemini 3.7 permits an
+// endpoint retry. A generic 404 or a model typo is not an endpoint outage.
+func isAntigravityCatalog404Fallback(model string, body []byte) bool {
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gemini-3.7-flash") {
+		return false
+	}
+	lower := strings.ToLower(string(body))
+	return strings.Contains(lower, "requested entity was not found") ||
+		(strings.Contains(lower, "not_found") && strings.Contains(lower, "model"))
+}
+
 func accountHasAntigravityPaidTier(account *Account) bool {
 	if account == nil || account.Credentials == nil {
 		return false
@@ -78,12 +111,7 @@ func accountHasAntigravityPaidTier(account *Account) bool {
 	if !ok {
 		return false
 	}
-	switch strings.ToLower(strings.TrimSpace(planType)) {
-	case "pro", "ultra":
-		return true
-	default:
-		return false
-	}
+	return antigravity.IsPaidPlanType(planType)
 }
 
 // smartRetryAction 智能重试的处理结果
@@ -504,11 +532,10 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 		}
 	}
 
-	baseURL := resolveAntigravityForwardBaseURL(p.account)
-	if baseURL == "" {
+	availableURLs := resolveAntigravityForwardBaseURLs(p.account)
+	if len(availableURLs) == 0 {
 		return nil, errors.New("no antigravity forward base url configured")
 	}
-	availableURLs := []string{baseURL}
 
 	var resp *http.Response
 	var usedBaseURL string
@@ -577,6 +604,15 @@ urlFallbackLoop:
 			if resp.StatusCode >= 400 {
 				respBody := s.readUpstreamErrorBody(resp)
 				_ = resp.Body.Close()
+
+				// No account cooldown or policy penalties for a provider
+				// endpoint catalog miss: retry the eligible next URL first.
+				if resp.StatusCode == http.StatusNotFound &&
+					urlIdx < len(availableURLs)-1 &&
+					isAntigravityCatalog404Fallback(p.requestedModel, respBody) {
+					logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (catalog 404): %s -> %s", p.prefix, baseURL, availableURLs[urlIdx+1])
+					continue urlFallbackLoop
+				}
 
 				if overagesInjected && shouldMarkCreditsExhausted(resp, respBody, nil) {
 					modelKey := resolveCreditsOveragesModelKey(p.ctx, p.account, "", p.requestedModel)
@@ -849,10 +885,12 @@ func sleepAntigravityBackoffWithContext(ctx context.Context, attempt int) bool {
 	}
 }
 
-// isSingleAccountRetry 检查 context 中是否设置了单账号退避重试标记
+// isSingleAccountRetry 检查是否处于单账号退避重试模式：显式标记优先，否则使用请求挂载的延迟判定。
 func isSingleAccountRetry(ctx context.Context) bool {
-	v, _ := SingleAccountRetryFromContext(ctx)
-	return v
+	if v, ok := SingleAccountRetryFromContext(ctx); ok {
+		return v
+	}
+	return singleAccountRetryProbeResult(ctx)
 }
 
 // setModelRateLimitByModelName 使用官方模型 ID 设置模型级限流

@@ -2296,3 +2296,16 @@ func TestNewModelPricingAliasesRetainExplicitOverrides(t *testing.T) {
 		require.Same(t, zero, svc.GetModelPricing(model))
 	}
 }
+
+func TestGemini4ArgonModelPricing(t *testing.T) {
+	svc := newTestBillingService()
+	for _, model := range []string{"gemini-4-argon", "gemini-4-argon-high", "gemini-4-argon-low", "gemini-4-argon-medium"} {
+		got := svc.getFallbackPricing(model)
+		require.NotNil(t, got, model)
+		require.InDelta(t, 2e-6, got.InputPricePerToken, 1e-13)
+		require.InDelta(t, 10e-6, got.OutputPricePerToken, 1e-13)
+	}
+	cyber := svc.getFallbackPricing("gemini-4-argon-cyber-permissive")
+	require.NotNil(t, cyber)
+	require.InDelta(t, 4e-6, cyber.InputPricePerToken, 1e-13)
+}

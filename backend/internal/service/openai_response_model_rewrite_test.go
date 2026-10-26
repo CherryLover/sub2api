@@ -11,6 +11,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 func TestMappedResponseModelPreservesOtherData(t *testing.T) {
@@ -84,11 +86,27 @@ func TestMappedResponseModelForwarding(t *testing.T) {
 							}
 						}
 						require.NoError(t, err)
-						require.Contains(t, rec.Body.String(), want)
+						if kind == "responses" {
+							payload := strings.TrimSpace(strings.TrimPrefix(strings.SplitN(rec.Body.String(), "\n", 2)[0], "data: "))
+							require.JSONEq(t, want, string(removeResponseCreatedAtForComparison([]byte(payload))))
+							require.Positive(t, gjson.GetBytes([]byte(payload), "response.created_at").Int())
+						} else {
+							require.Contains(t, rec.Body.String(), want)
+						}
 						require.Equal(t, returned, observedUpstreamResponseModel(c))
 					})
 				}
 			}
 		}
 	}
+}
+
+// removeResponseCreatedAtForComparison verifies that the only structural
+// addition to an otherwise unchanged Responses terminal event is created_at.
+func removeResponseCreatedAtForComparison(body []byte) []byte {
+	without, err := sjson.DeleteBytes(body, "response.created_at")
+	if err != nil {
+		return body
+	}
+	return without
 }
