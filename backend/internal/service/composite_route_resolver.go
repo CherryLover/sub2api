@@ -8,7 +8,8 @@ import (
 )
 
 type CompositeRouteResolver struct {
-	repo CompositeModelRouteRepository
+	repo                   CompositeModelRouteRepository
+	modelOwnershipResolver CompositeModelOwnershipResolver
 }
 
 func NewCompositeRouteResolver(repo CompositeModelRouteRepository) *CompositeRouteResolver {
@@ -47,6 +48,22 @@ func (r *CompositeRouteResolver) ListExactPublicModels(ctx context.Context, grou
 	return models, nil
 }
 
+const compositeRouteReasonOAuthAmbiguous = "model is exposed by multiple provider platforms including OpenAI-family OAuth credentials"
+
+func (d CompositeRouteDecision) OAuthAmbiguous() bool {
+	return !d.Matched && d.Reason == compositeRouteReasonOAuthAmbiguous
+}
+
+func (d CompositeRouteDecision) AmbiguousMessage() string {
+	return fmt.Sprintf("Model %q is mapped on multiple provider platforms in this group; configure an explicit composite route", d.PublicModel)
+}
+
+func (r *CompositeRouteResolver) SetModelOwnershipResolver(resolve CompositeModelOwnershipResolver) {
+	if r != nil {
+		r.modelOwnershipResolver = resolve
+	}
+}
+
 func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, model, endpoint string) (CompositeRouteDecision, error) {
 	model = strings.TrimSpace(model)
 	endpoint = normalizeCompositeRouteEndpoint(endpoint)
@@ -80,6 +97,23 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 				Endpoint:       endpoint,
 				Route:          &route,
 			}, nil
+		}
+	}
+
+	// Explicit routes win; otherwise reject only a dangerous cross-platform
+	// ambiguity involving OpenAI-family OAuth credentials. Other cases keep
+	// the lite resolver's historical detector behavior.
+	if r != nil && r.modelOwnershipResolver != nil && groupID > 0 {
+		ownership, err := r.modelOwnershipResolver(ctx, groupID, model)
+		if err != nil {
+			if _, detectable := DetectModelPlatform(model); !detectable {
+				return decision, fmt.Errorf("resolve account model ownership: %w", err)
+			}
+		} else if ownership.Ambiguous && ownership.OpenAIGatewayOAuthClaimed {
+			if guessed, ok := DetectModelPlatform(model); ok && isOpenAIGatewayProtocolPlatform(guessed) {
+				decision.Reason = compositeRouteReasonOAuthAmbiguous
+				return decision, nil
+			}
 		}
 	}
 

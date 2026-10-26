@@ -162,6 +162,12 @@ func isAllowedHost(host string, allowlist []string) bool {
 	return false
 }
 
+// IsBlockedHost exposes the existing literal-host SSRF check to independent
+// outbound-request components. DNS validation remains the caller's duty.
+func IsBlockedHost(host string) bool {
+	return isBlockedHost(strings.ToLower(strings.TrimSpace(host)))
+}
+
 func isBlockedHost(host string) bool {
 	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		return true

@@ -449,6 +449,17 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown: false,
 	}
 
+	// Gemini 4 Argon: $2/$10/$0.10 per MTok introductory rates until
+	// 2026-11-30; these explicit fallbacks cover Antigravity aliases.
+	s.fallbackPrices["gemini-4-argon"] = &ModelPricing{
+		InputPricePerToken: 2e-6, OutputPricePerToken: 10e-6,
+		CacheReadPricePerToken: 0.1e-6, SupportsCacheBreakdown: false,
+	}
+	// Cyber Permissive has separate Vertex pricing; do not apply Argon discount.
+	s.fallbackPrices["gemini-4-argon-cyber-permissive"] = &ModelPricing{
+		InputPricePerToken: 4e-6, OutputPricePerToken: 20e-6,
+		CacheReadPricePerToken: 0.2e-6, SupportsCacheBreakdown: false,
+	}
 	// OpenAI GPT-5.4（业务指定价格）
 	s.fallbackPrices["gpt-5.4"] = &ModelPricing{
 		InputPricePerToken:             2.5e-6,  // $2.5 per MTok
@@ -1028,6 +1039,12 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 	if strings.Contains(modelLower, "gemini-3.7-flash") || strings.Contains(modelLower, "gemini-3-7-flash") {
 		return s.fallbackPrices["gemini-3.7-flash"]
+	}
+	if strings.Contains(modelLower, "gemini-4-argon-cyber") {
+		return s.fallbackPrices["gemini-4-argon-cyber-permissive"]
+	}
+	if strings.Contains(modelLower, "gemini-4-argon") {
+		return s.fallbackPrices["gemini-4-argon"]
 	}
 	if strings.Contains(modelLower, "gemini-3.8-flash") || strings.Contains(modelLower, "gemini-3-8-flash") {
 		return s.fallbackPrices["gemini-3.8-flash"]

@@ -23,6 +23,7 @@ const (
 
 	CompositeRouteSourceExplicit = "route"
 	CompositeRouteSourceDetector = "detector"
+	CompositeRouteSourceAccount  = "account_model"
 )
 
 var (
@@ -32,6 +33,17 @@ var (
 
 // CompositeModelRoute maps one public model identifier in a composite group to
 // the concrete provider/model that should handle the request.
+// A conflicting exact account mapping may require rejecting a request before
+// guessing the gateway from a public model name.
+type CompositeModelOwnership struct {
+	TargetPlatform            string
+	Matched                   bool
+	Ambiguous                 bool
+	OpenAIGatewayOAuthClaimed bool
+}
+
+type CompositeModelOwnershipResolver func(context.Context, int64, string) (CompositeModelOwnership, error)
+
 type CompositeModelRoute struct {
 	ID             int64     `json:"id"`
 	GroupID        int64     `json:"group_id"`

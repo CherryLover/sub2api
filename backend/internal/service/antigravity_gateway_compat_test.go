@@ -228,22 +228,25 @@ func TestAntigravityCompatRejectsUnsupportedAccountType(t *testing.T) {
 func TestBuildAntigravityCompatGeminiBody_ConfiguresMixedToolInvocations(t *testing.T) {
 	svc := &AntigravityGatewayService{}
 	tests := []struct {
-		name      string
-		tools     string
-		wantField bool
+		name       string
+		tools      string
+		wantFuncs  bool
+		wantGoogle bool
 	}{
 		{
 			name:      "mixed server and client tools",
 			tools:     `[{"name":"get_weather","input_schema":{"type":"object"}},{"type":"web_search_20250305","name":"web_search"}]`,
-			wantField: true,
+			wantFuncs: true,
 		},
 		{
-			name:  "client tools only",
-			tools: `[{"name":"get_weather","input_schema":{"type":"object"}}]`,
+			name:      "client tools only",
+			wantFuncs: true,
+			tools:     `[{"name":"get_weather","input_schema":{"type":"object"}}]`,
 		},
 		{
-			name:  "server tools only",
-			tools: `[{"type":"web_search_20250305","name":"web_search"}]`,
+			name:       "server tools only",
+			wantGoogle: true,
+			tools:      `[{"type":"web_search_20250305","name":"web_search"}]`,
 		},
 	}
 
@@ -258,19 +261,29 @@ func TestBuildAntigravityCompatGeminiBody_ConfiguresMixedToolInvocations(t *test
 			require.NoError(t, json.Unmarshal(body, &wrapped))
 			request, ok := wrapped["request"].(map[string]any)
 			require.True(t, ok)
-			toolConfig, exists := request["toolConfig"].(map[string]any)
-			if !tt.wantField {
-				require.False(t, exists)
-				return
+			hasFuncs, hasGoogle := false, false
+			if tools, ok := request["tools"].([]any); ok {
+				for _, raw := range tools {
+					if tool, ok := raw.(map[string]any); ok {
+						if decls, ok := tool["functionDeclarations"].([]any); ok && len(decls) > 0 {
+							hasFuncs = true
+						}
+						if _, ok := tool["googleSearch"]; ok {
+							hasGoogle = true
+						}
+					}
+				}
 			}
-			require.True(t, exists)
-			require.Equal(t, true, toolConfig["includeServerSideToolInvocations"])
-			require.NotContains(t, toolConfig, "include_server_side_tool_invocations")
+			require.Equal(t, tt.wantFuncs, hasFuncs)
+			require.Equal(t, tt.wantGoogle, hasGoogle)
+			if toolConfig, exists := request["toolConfig"].(map[string]any); exists {
+				require.NotContains(t, toolConfig, "includeServerSideToolInvocations")
+			}
 		})
 	}
 }
 
-func TestAntigravityCompatChatMixedBuiltInToolsEnableServerSideInvocations(t *testing.T) {
+func TestAntigravityCompatChatMixedBuiltInToolsPreferClientFunctions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
 	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
@@ -293,10 +306,12 @@ func TestAntigravityCompatChatMixedBuiltInToolsEnableServerSideInvocations(t *te
 	require.NotNil(t, result)
 	require.Len(t, upstream.requestBodies, 1)
 	requestBody := upstream.requestBodies[0]
-	require.True(t, gjson.GetBytes(requestBody, "request.toolConfig.includeServerSideToolInvocations").Bool())
+	require.False(t, gjson.GetBytes(requestBody, "request.toolConfig.includeServerSideToolInvocations").Exists())
 	require.Len(t, gjson.GetBytes(requestBody, "request.tools.0.functionDeclarations").Array(), 2)
-	require.True(t, gjson.GetBytes(requestBody, "request.tools.1.googleSearch").Exists())
-	require.True(t, gjson.GetBytes(requestBody, "request.tools.2.codeExecution").Exists())
+	for _, tool := range gjson.GetBytes(requestBody, "request.tools").Array() {
+		require.False(t, tool.Get("googleSearch").Exists())
+		require.False(t, tool.Get("codeExecution").Exists())
+	}
 }
 
 func TestAntigravityCompatPreservesChatTokenLimit(t *testing.T) {

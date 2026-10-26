@@ -212,3 +212,58 @@ func TestAdminService_CNProviderModelsListCandidatesKeepClaudeDefaults(t *testin
 		require.Equal(t, want, defaultModelsListCandidateIDs(platform), "platform=%s", platform)
 	}
 }
+
+// GPT-5.5 no longer routes through ChatGPT OAuth, but API-key accounts may
+// continue serving it. Apply this distinction to admin model picker as well.
+func TestAdminServiceRetiredGPT55CandidateVisibility(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		accounts   []Account
+		wantGPT55  bool
+		wantCustom bool
+	}{
+		{
+			name: "subscription only",
+			accounts: []Account{
+				{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive,
+					Credentials: map[string]any{"model_mapping": map[string]any{"custom-retired": "gpt-5.5", "gpt-5.5": "gpt-5.5"}}},
+			},
+			wantGPT55:  false,
+			wantCustom: false,
+		},
+		{
+			name: "subscription and API key",
+			accounts: []Account{
+				{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive,
+					Credentials: map[string]any{"model_mapping": map[string]any{"custom-retired": "gpt-5.5", "gpt-5.5": "gpt-5.5"}}},
+				{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive,
+					Credentials: map[string]any{"model_mapping": map[string]any{"custom-retired": "gpt-5.5", "gpt-5.5": "gpt-5.5"}}},
+			},
+			wantGPT55:  true,
+			wantCustom: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, platform := range []string{PlatformOpenAI, PlatformComposite} {
+				svc := &adminServiceImpl{
+					accountRepo: &accountRepoStubForCompositeModelsList{accounts: tt.accounts},
+					groupRepo: &groupRepoStubForAdmin{getByIDByID: map[int64]*Group{
+						99: {ID: 99, Platform: platform},
+					}},
+				}
+				models, err := svc.GetGroupModelsListCandidates(context.Background(), 99, platform)
+				require.NoError(t, err)
+				if tt.wantGPT55 {
+					require.Contains(t, models, "gpt-5.5")
+				} else {
+					require.NotContains(t, models, "gpt-5.5")
+				}
+				if tt.wantCustom {
+					require.Contains(t, models, "custom-retired")
+				} else {
+					require.NotContains(t, models, "custom-retired")
+				}
+			}
+		})
+	}
+}
