@@ -213,6 +213,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
+	if geminiImageGenerationRejected(c, apiKey, nil, reqModel, channelMapping.MappedModel) {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", service.ImageGenerationPermissionMessage())
+		return
+	}
+
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.SecurityAuditProtocolAnthropicMessages, reqModel, body); decision != nil && !decision.AllowNextStage {
 		h.anthropicSecurityAuditError(c, decision)
 		return

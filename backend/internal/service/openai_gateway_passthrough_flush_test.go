@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/sjson"
 )
 
 type passthroughFlushTestWriter struct {
@@ -104,6 +105,30 @@ func runPassthroughFlushTest(
 	return result, recorder, writer, err
 }
 
+// stripGeneratedCreatedAt retains the original SSE bytes except for the
+// required Responses timestamp added to lifecycle response objects.
+func stripGeneratedCreatedAt(body string) string {
+	var result strings.Builder
+	for _, line := range strings.SplitAfter(body, "\n") {
+		if !strings.HasPrefix(line, "data: ") {
+			_, _ = result.WriteString(line)
+			continue
+		}
+		payload := strings.TrimSuffix(strings.TrimPrefix(line, "data: "), "\n")
+		cleaned, err := sjson.DeleteBytes([]byte(payload), "response.created_at")
+		if err != nil {
+			_, _ = result.WriteString(line)
+			continue
+		}
+		_, _ = result.WriteString("data: ")
+		_, _ = result.Write(cleaned)
+		if strings.HasSuffix(line, "\n") {
+			_ = result.WriteByte('\n')
+		}
+	}
+	return result.String()
+}
+
 func TestOpenAIStreamingPassthroughFlushesAtCompleteEventBoundaries(t *testing.T) {
 	firstEvent := "event: response.output_text.delta\n" +
 		"id: event-1\n" +
@@ -117,11 +142,12 @@ func TestOpenAIStreamingPassthroughFlushesAtCompleteEventBoundaries(t *testing.T
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, upstream, recorder.Body.String())
+	require.Equal(t, upstream, stripGeneratedCreatedAt(recorder.Body.String()))
+	require.Contains(t, recorder.Body.String(), `"created_at":`)
 	require.Equal(t, []int{
 		len(firstEvent),
 		len(firstEvent) + len(heartbeat),
-		len(upstream),
+		len(recorder.Body.String()),
 	}, writer.flushBodyLengths)
 	require.Equal(t, 3, result.usage.InputTokens)
 	require.Equal(t, 2, result.usage.OutputTokens)
@@ -138,10 +164,13 @@ func TestOpenAIStreamingPassthroughKeepsPreamblePendingUntilFirstOutputBoundary(
 	_, recorder, writer, err := runPassthroughFlushTest(t, io.NopCloser(strings.NewReader(upstream)), -1)
 
 	require.NoError(t, err)
-	require.Equal(t, upstream, recorder.Body.String())
+	require.Equal(t, upstream, stripGeneratedCreatedAt(recorder.Body.String()))
+	require.Contains(t, recorder.Body.String(), `"created_at":`)
+	firstOutputEnd := strings.Index(recorder.Body.String(), firstOutput) + len(firstOutput)
+	require.GreaterOrEqual(t, firstOutputEnd, len(firstOutput))
 	require.Equal(t, []int{
-		len(preamble) + len(firstOutput),
-		len(upstream),
+		firstOutputEnd,
+		len(recorder.Body.String()),
 	}, writer.flushBodyLengths)
 }
 
@@ -154,8 +183,9 @@ func TestOpenAIStreamingPassthroughFlushesTerminalEventAtEOFWithoutBlankLine(t *
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, wantBody, recorder.Body.String())
-	require.Equal(t, []int{len(wantBody)}, writer.flushBodyLengths)
+	require.Equal(t, wantBody, stripGeneratedCreatedAt(recorder.Body.String()))
+	require.Contains(t, recorder.Body.String(), `"created_at":`)
+	require.Equal(t, []int{len(recorder.Body.String())}, writer.flushBodyLengths)
 	require.Equal(t, 5, result.usage.InputTokens)
 	require.Equal(t, 2, result.usage.OutputTokens)
 }
@@ -239,8 +269,9 @@ func TestOpenAIStreamingPassthroughScannerErrorFlushesWrittenResidual(t *testing
 
 	require.ErrorIs(t, err, readErr)
 	wantBody := string(upstream) + "\n"
-	require.Equal(t, wantBody, recorder.Body.String())
-	require.Equal(t, []int{len(wantBody)}, writer.flushBodyLengths)
+	require.Equal(t, wantBody, stripGeneratedCreatedAt(recorder.Body.String()))
+	require.NotContains(t, recorder.Body.String(), `"created_at":`)
+	require.Equal(t, []int{len(recorder.Body.String())}, writer.flushBodyLengths)
 }
 
 func TestOpenAIStreamingPassthroughNamespaceRestoreErrorFlushesWrittenResidualOnce(t *testing.T) {

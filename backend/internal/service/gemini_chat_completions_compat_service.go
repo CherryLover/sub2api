@@ -42,6 +42,16 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 	clientStream := ccReq.Stream
 	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
 
+	// Preserve the lite-native audio-aware conversion while removing stale
+	// assistant reasoning history, which Gemini cannot validate without
+	// matching thoughtSignature continuity.
+	for i := range ccReq.Messages {
+		ccReq.Messages[i].ReasoningContent = ""
+		ccReq.Messages[i].Reasoning = ""
+		if ccReq.Messages[i].Role == "assistant" {
+			ccReq.Messages[i].Content = dropChatReasoningContentParts(ccReq.Messages[i].Content)
+		}
+	}
 	responsesReq, err := apicompat.ChatCompletionsToResponsesForGemini(&ccReq)
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -92,7 +102,11 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	if geminiImageGenerationDenied(c, geminiReq, originalModel, req.Model, mappedModel) {
+		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", ImageGenerationPermissionMessage())
+	}
 	geminiReq = ensureGeminiFunctionCallThoughtSignatures(geminiReq)
+	geminiReq = applyGeminiCompatThinkingConfig(geminiReq, claudeBody, mappedModel, clientStream)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -206,6 +220,13 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	// 国产模型默认 effort 补充（本路径上游是 Gemini，不会命中 passback-required）。
 	// 保持与 OpenAI 网关路径调用模式一致，便于未来上游变异时语义一致。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, originalChatBody, mappedModel)
+	// Charge/report the effective upstream tier, not the caller's spelling:
+	// Gemini 3+ normalizes Chat effort "none" into thinkingLevel "minimal".
+	// Gemini 2.5's budget-only configuration has no explicit level, so retain
+	// the legacy effort fallback in that case.
+	if upstreamEffort := extractGeminiReasoningEffortFromBody(geminiReq); upstreamEffort != nil {
+		reasoningEffort = upstreamEffort
+	}
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
@@ -583,6 +604,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	openBlockIndex := -1
 	openBlockType := ""
 	seenText := ""
+	seenThought := ""
 	openToolIndex := -1
 	openToolName := ""
 	seenToolJSON := ""
@@ -637,6 +659,41 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 						}
 
 						for _, part := range extractGeminiParts(geminiResp) {
+							if text, ok := part["text"].(string); ok && isGeminiThoughtPart(part) {
+								delta, newSeen := computeGeminiTextDelta(seenThought, text)
+								seenThought = newSeen
+								if delta == "" {
+									continue
+								}
+								if openToolIndex >= 0 {
+									if closeOpenTool() {
+										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+									}
+								}
+								if openBlockType != "thinking" {
+									if closeOpenBlock() {
+										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+									}
+									idx := nextBlockIndex
+									nextBlockIndex++
+									openBlockIndex = idx
+									openBlockType = "thinking"
+									if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
+										Type:         "content_block_start",
+										Index:        &idx,
+										ContentBlock: &apicompat.AnthropicContentBlock{Type: "thinking"},
+									}) {
+										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+									}
+								}
+								if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
+									Type:  "content_block_delta",
+									Delta: &apicompat.AnthropicDelta{Type: "thinking_delta", Thinking: delta},
+								}) {
+									return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+								}
+								continue
+							}
 							if text, ok := part["text"].(string); ok && text != "" {
 								if openToolIndex >= 0 {
 									if closeOpenTool() {

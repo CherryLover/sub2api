@@ -328,6 +328,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 
 	needModelReplace := originalModel != mappedModel
+	var createdAtStamper responsesCreatedAtStamper
 	streamOutputAccumulator := apicompat.NewBufferedResponseAccumulator()
 	streamDoneItems := newResponsesStreamOutputItems()
 	streamImageOutputs := make([]json.RawMessage, 0, 1)
@@ -593,6 +594,12 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			); sanitized {
 				dataBytes = sanitizedData
 				data = string(sanitizedData)
+				line = "data: " + data
+			}
+			// Preserve one timestamp across the stream when upstream omitted it.
+			if stampedData, stamped := createdAtStamper.Stamp(dataBytes, eventType); stamped {
+				dataBytes = stampedData
+				data = string(stampedData)
 				line = "data: " + data
 			}
 			// Replace model in response if needed.
@@ -1342,6 +1349,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	if err != nil {
 		return nil, fmt.Errorf("restore OpenAI namespace response: %w", err)
 	}
+	body = ensureOpenAIResponseObjectCreatedAt(body)
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	// Codex 协议要求 /responses/compact JSON 响应携带 x-codex-turn-state
 	// （codex-api/src/endpoint/compact.rs 从响应头捕获），显式回传。
@@ -1432,7 +1440,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		if restoreErr != nil {
 			return nil, fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
 		}
-		body = restoredBody
+		body = ensureOpenAIResponseObjectCreatedAt(restoredBody)
 	} else {
 		if terminalOK && (terminalType == "response.failed" || terminalType == "error") {
 			msg := extractOpenAISSEErrorMessage(terminalPayload)
