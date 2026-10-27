@@ -26,6 +26,7 @@ type grokQuotaHandlerAccountRepo struct {
 	service.AccountRepository
 	account *service.Account
 	updates map[int64]map[string]any
+	mu      sync.Mutex
 }
 
 func (r *grokQuotaHandlerAccountRepo) GetByID(_ context.Context, id int64) (*service.Account, error) {
@@ -36,6 +37,8 @@ func (r *grokQuotaHandlerAccountRepo) GetByID(_ context.Context, id int64) (*ser
 }
 
 func (r *grokQuotaHandlerAccountRepo) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.updates == nil {
 		r.updates = make(map[int64]map[string]any)
 	}
@@ -159,7 +162,9 @@ func TestGrokOAuthHandlerQueryQuotaProbesUpstream(t *testing.T) {
 	}
 	require.True(t, responsesProbeSeen)
 	require.True(t, modelsSyncSeen)
+	repo.mu.Lock()
 	require.NotNil(t, repo.updates[42])
+	repo.mu.Unlock()
 }
 
 func TestGrokOAuthHandlerResetQuotaReturnsUnsupported(t *testing.T) {

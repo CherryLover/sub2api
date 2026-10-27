@@ -53,7 +53,7 @@ func TestHandleCCStreamingFromNativeAnthropic_PingDoesNotSetFirstToken(t *testin
 
 	result, err := (&OpenAIGatewayService{}).handleCCStreamingFromNativeAnthropic(
 		&http.Response{Body: io.NopCloser(strings.NewReader("event: ping\ndata: {\"type\":\"ping\"}\n\n"))},
-		context, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(), false,
+		context, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(),
 	)
 	require.NoError(t, err)
 	require.Nil(t, result.FirstTokenMs)
@@ -69,7 +69,7 @@ func TestHandleCCStreamingFromNativeAnthropic_PingWriteFailureStopsDownstream(t 
 		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
 	result, err := (&OpenAIGatewayService{}).handleCCStreamingFromNativeAnthropic(
 		&http.Response{Body: io.NopCloser(strings.NewReader(stream))},
-		context, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(), false,
+		context, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(),
 	)
 	require.NoError(t, err)
 	require.True(t, writer.failed)
@@ -94,7 +94,7 @@ func TestHandleCCStreamingFromNativeAnthropic_PingFlushesImmediately(t *testing.
 	finished := make(chan outcome, 1)
 	go func() {
 		result, err := (&OpenAIGatewayService{}).handleCCStreamingFromNativeAnthropic(
-			&http.Response{Body: reader}, context, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(), true,
+			&http.Response{Body: reader}, context, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(),
 		)
 		finished <- outcome{result: result, err: err}
 	}()

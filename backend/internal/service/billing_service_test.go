@@ -1345,6 +1345,58 @@ func TestGetModelPricing_Grok47OfficialFallback(t *testing.T) {
 	}
 }
 
+func TestGetModelPricing_Grok47FastOfficialFallback(t *testing.T) {
+	svc := newTestBillingService()
+
+	for _, model := range []string{"grok-4.7-fast", "grok-4.7-build-fast", "GROK-4.7-FAST"} {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			pricing, err := svc.GetModelPricing(model)
+			require.NoError(t, err)
+			require.InDelta(t, 4e-6, pricing.InputPricePerToken, 1e-12)
+			require.InDelta(t, 12e-6, pricing.OutputPricePerToken, 1e-12)
+			require.InDelta(t, 1e-6, pricing.CacheReadPricePerToken, 1e-12)
+			require.Equal(t, 200000, pricing.LongContextInputThreshold)
+			require.True(t, pricing.LongContextThresholdInclusive)
+			require.InDelta(t, 1.5, pricing.LongContextInputMultiplier, 1e-12)
+			require.InDelta(t, 1.5, pricing.LongContextOutputMultiplier, 1e-12)
+			require.False(t, pricing.SupportsCacheBreakdown)
+		})
+	}
+	require.True(t, svc.HasIdentifiedTokenPricing("grok-4.7-fast"))
+}
+
+// Issue #8119: Grok 4.7 Fast used to inherit the unknown-Grok card and bill at
+// the standard grok-4.7 rate.
+func TestCalculateCost_Grok47FastUsesFastCard(t *testing.T) {
+	svc := newTestBillingService()
+
+	short := UsageTokens{InputTokens: 100_000, CacheReadTokens: 50_000, OutputTokens: 10_000}
+	standard, err := svc.CalculateCost("grok-4.7", short, 1)
+	require.NoError(t, err)
+	fast, err := svc.CalculateCost("grok-4.7-fast", short, 1)
+	require.NoError(t, err)
+	require.InDelta(t, 0.4, fast.InputCost, 1e-12)
+	require.InDelta(t, 0.05, fast.CacheReadCost, 1e-12)
+	require.InDelta(t, 0.12, fast.OutputCost, 1e-12)
+	require.False(t, fast.LongContextBillingApplied)
+	// Below 200k the Fast card is exactly twice the standard card.
+	require.InDelta(t, standard.TotalCost*2, fast.TotalCost, 1e-12)
+
+	// Reaching 200k prompt tokens moves the whole request to $6 / $1.50 / $18.
+	long := UsageTokens{InputTokens: 150_000, CacheReadTokens: 50_000, OutputTokens: 10_000}
+	standardLong, err := svc.CalculateCost("grok-4.7", long, 1)
+	require.NoError(t, err)
+	fastLong, err := svc.CalculateCost("grok-4.7-fast", long, 1)
+	require.NoError(t, err)
+	require.True(t, fastLong.LongContextBillingApplied)
+	require.InDelta(t, 0.9, fastLong.InputCost, 1e-12)
+	require.InDelta(t, 0.075, fastLong.CacheReadCost, 1e-12)
+	require.InDelta(t, 0.18, fastLong.OutputCost, 1e-12)
+	// Long-context Fast is 1.5x the standard long-context card.
+	require.InDelta(t, standardLong.TotalCost*1.5, fastLong.TotalCost, 1e-12)
+}
+
 func TestGetModelPricing_GrokOfficialFamilyCards(t *testing.T) {
 	svc := newTestBillingService()
 	for _, tc := range []struct {
@@ -2002,19 +2054,49 @@ func TestGetModelPricingWithChannel_UnknownModelReturnsError(t *testing.T) {
 	require.Contains(t, err.Error(), "pricing not found")
 }
 
-func TestGetModelPricingWithChannel_NilImageOutputPriceZerosAndMarksExplicit(t *testing.T) {
-	svc := newTestBillingService()
+func TestGetModelPricingWithChannel_NilImagePricesInheritCatalog(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
+		"gpt-image-2": {
+			Mode:                    "image_generation",
+			InputCostPerToken:       5e-6,
+			OutputCostPerToken:      10e-6,
+			InputCostPerImageToken:  8e-6,
+			OutputCostPerImageToken: 30e-6,
+		},
+	}))
 
 	chPricing := &ChannelModelPricing{
-		InputPrice:  testPtrFloat64(10e-6),
-		OutputPrice: testPtrFloat64(20e-6),
-		// ImageOutputPrice intentionally nil
+		InputPrice:  testPtrFloat64(6e-6),
+		OutputPrice: testPtrFloat64(12e-6),
+		// ImageInputPrice / ImageOutputPrice intentionally nil
 	}
-	pricing, err := svc.GetModelPricingWithChannel("claude-sonnet-4", chPricing)
+	pricing, err := svc.GetModelPricingWithChannel("gpt-image-2", chPricing)
 	require.NoError(t, err)
 
+	require.InDelta(t, 6e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 30e-6, pricing.ImageOutputPricePerToken, 1e-12)
+	require.False(t, pricing.ImageOutputPriceExplicit)
+	require.InDelta(t, 8e-6, pricing.ImageInputPricePerToken, 1e-12)
+}
+
+func TestGetModelPricingWithChannel_ExplicitImagePricesOverrideCatalog(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
+		"gpt-image-2": {
+			Mode:                    "image_generation",
+			InputCostPerToken:       5e-6,
+			InputCostPerImageToken:  8e-6,
+			OutputCostPerImageToken: 30e-6,
+		},
+	}))
+
+	pricing, err := svc.GetModelPricingWithChannel("gpt-image-2", &ChannelModelPricing{
+		ImageInputPrice:  testPtrFloat64(9e-6),
+		ImageOutputPrice: testPtrFloat64(0),
+	})
+	require.NoError(t, err)
 	require.Equal(t, 0.0, pricing.ImageOutputPricePerToken)
-	require.True(t, pricing.ImageOutputPriceExplicit)
+	require.True(t, pricing.ImageOutputPriceExplicit, "显式 0 仍表示图片输出免费")
+	require.InDelta(t, 9e-6, pricing.ImageInputPricePerToken, 1e-12)
 }
 
 func TestComputeTokenBreakdown_ExplicitZeroImagePrice_NoFallback(t *testing.T) {

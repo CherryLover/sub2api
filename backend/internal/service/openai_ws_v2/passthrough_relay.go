@@ -25,6 +25,7 @@ type FrameConn interface {
 
 type Usage struct {
 	InputTokens              int
+	ImageInputTokens         int
 	OutputTokens             int
 	CacheCreationInputTokens int
 	CacheReadInputTokens     int
@@ -995,8 +996,23 @@ func parseUsageAndAccumulate(
 		cachedResult = gjson.GetBytes(message, "response.usage.prompt_tokens_details.cached_tokens")
 	}
 	imageTokens := usageResult.Get("output_tokens_details.image_tokens").Int()
-	if imageTokens == 0 {
+	if imageTokens <= 0 {
 		imageTokens = usageResult.Get("completion_tokens_details.image_tokens").Int()
+	}
+	imageInputTokens := usageResult.Get("input_tokens_details.image_tokens").Int()
+	if imageInputTokens <= 0 {
+		imageInputTokens = usageResult.Get("prompt_tokens_details.image_tokens").Int()
+	}
+	// Prefer reported usage over hosted image_gen tool counters.
+	imageGen := gjson.GetBytes(message, "response.tool_usage.image_gen")
+	if !imageGen.Exists() {
+		imageGen = gjson.GetBytes(message, "tool_usage.image_gen")
+	}
+	if imageTokens <= 0 {
+		imageTokens = imageGen.Get("output_tokens_details.image_tokens").Int()
+	}
+	if imageInputTokens <= 0 {
+		imageInputTokens = imageGen.Get("input_tokens_details.image_tokens").Int()
 	}
 
 	inputTokens, inputOK := parseUsageIntField(inputResult, true)
@@ -1021,6 +1037,7 @@ func parseUsageAndAccumulate(
 	}
 	parsedUsage := Usage{
 		InputTokens:              inputTokens,
+		ImageInputTokens:         max(int(imageInputTokens), 0),
 		OutputTokens:             outputTokens,
 		CacheCreationInputTokens: openAICacheCreationTokensFromUsage(usageResult),
 		CacheReadInputTokens:     cachedTokens,
@@ -1028,6 +1045,7 @@ func parseUsageAndAccumulate(
 	}
 
 	state.usage.InputTokens += parsedUsage.InputTokens
+	state.usage.ImageInputTokens += parsedUsage.ImageInputTokens
 	state.usage.OutputTokens += parsedUsage.OutputTokens
 	state.usage.CacheCreationInputTokens += parsedUsage.CacheCreationInputTokens
 	state.usage.CacheReadInputTokens += parsedUsage.CacheReadInputTokens

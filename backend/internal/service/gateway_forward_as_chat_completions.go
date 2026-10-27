@@ -42,7 +42,6 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	}
 	originalModel := ccReq.Model
 	clientStream := ccReq.Stream
-	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
 
 	// 2. Convert CC → Responses → Anthropic (chained conversion)
 	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
@@ -198,7 +197,15 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	var result *ForwardResult
 	var handleErr error
 	if clientStream {
-		result, handleErr = s.handleCCStreamingFromAnthropic(resp, c, originalModel, mappedModel, reasoningEffort, startTime, includeUsage)
+		writerSizeBeforeStream := c.Writer.Size()
+		result, handleErr = s.handleCCStreamingFromAnthropic(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
+		var sseErr *sseStreamErrorEventError
+		switch {
+		case errors.As(handleErr, &sseErr):
+			return nil, s.sseStreamErrorEventFailover(ctx, c, account, resp, sseErr.RawData, mappedModel, c.Writer.Size() != writerSizeBeforeStream)
+		case errors.Is(handleErr, errAnthropicNativeStreamIdle) && s.rateLimitService != nil:
+			s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+		}
 	} else {
 		result, handleErr = s.handleCCBufferedFromAnthropic(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
 	}
@@ -370,7 +377,6 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	mappedModel string,
 	reasoningEffort *string,
 	startTime time.Time,
-	includeUsage bool,
 ) (*ForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
@@ -388,29 +394,26 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	anthState.Model = originalModel
 	ccState := apicompat.NewResponsesEventToChatState()
 	ccState.Model = originalModel
-	ccState.IncludeUsage = includeUsage
 
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
+	writerSizeBeforeStream := c.Writer.Size()
 
-	scanner := bufio.NewScanner(resp.Body)
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
-	}
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	stream := newAnthropicCompatStream(s.cfg, c, resp, "forward_as_cc", requestID)
+	defer stream.stop()
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:       requestID,
-			Usage:           usage,
-			Model:           originalModel,
-			UpstreamModel:   mappedModel,
-			ReasoningEffort: reasoningEffort,
-			Stream:          true,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    firstTokenMs,
+			RequestID:        requestID,
+			Usage:            usage,
+			Model:            originalModel,
+			UpstreamModel:    mappedModel,
+			ReasoningEffort:  reasoningEffort,
+			Stream:           true,
+			Duration:         time.Since(startTime),
+			FirstTokenMs:     firstTokenMs,
+			ClientDisconnect: stream.clientDisconnected,
 		}
 	}
 
@@ -428,23 +431,21 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		return false
 	}
 
-	processAnthropicEvent := func(event *apicompat.AnthropicStreamEvent) bool {
+	processAnthropicEvent := func(event *apicompat.AnthropicStreamEvent) {
 		if event == nil {
-			return false
+			return
 		}
 		if event.Type == "ping" {
+			if stream.clientDisconnected {
+				return
+			}
 			if _, err := fmt.Fprint(c.Writer, ": ping\n\n"); err != nil {
-				return true
+				stream.markClientDisconnected()
+				return
 			}
 			c.Writer.Flush()
-			return false
+			return
 		}
-		if firstChunk {
-			firstChunk = false
-			ms := int(time.Since(startTime).Milliseconds())
-			firstTokenMs = &ms
-		}
-
 		// Extract usage from message_delta
 		if event.Type == "message_delta" && event.Usage != nil {
 			mergeAnthropicUsage(&usage, *event.Usage)
@@ -453,6 +454,19 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		if event.Type == "message_start" && event.Message != nil {
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
+		if stream.clientDisconnected {
+			return
+		}
+		if firstChunk {
+			firstChunk = false
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+		}
+
+		// Keep the outward Responses/Chat usage on the same normalized buckets used
+		// for billing, including converter handlers that consume event usage.
+		syncAnthropicResponsesUsage(anthState, usage)
+		normalizeAnthropicEventUsageForResponses(event, usage)
 
 		// Chain: Anthropic event → Responses events → CC chunks
 		responsesEvents := apicompat.AnthropicEventToResponsesEvents(event, anthState)
@@ -460,25 +474,29 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			ccChunks := apicompat.ResponsesEventToChatChunks(&resEvt, ccState)
 			for _, chunk := range ccChunks {
 				if disconnected := writeChunk(chunk); disconnected {
-					return true
+					stream.markClientDisconnected()
+					return
 				}
 			}
 		}
 		c.Writer.Flush()
-		return false
 	}
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		line, ok := stream.nextLine()
+		if !ok {
+			break
+		}
 		// 与缓冲路径一致：接受 SSE 紧凑格式（冒号后无空格，#4653 同根因）。
 		if _, ok := extractOpenAISSEEventLine(line); !ok {
 			continue
 		}
 
-		if !scanner.Scan() {
+		dataLine, ok := stream.nextLine()
+		if !ok {
 			break
 		}
-		payload, ok := extractOpenAISSEDataLine(scanner.Text())
+		payload, ok := extractOpenAISSEDataLine(dataLine)
 		if !ok {
 			continue
 		}
@@ -488,18 +506,24 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			continue
 		}
 
-		if processAnthropicEvent(&event) {
-			return resultWithUsage(), nil
+		// Forward received usage regardless of the client stream_options.
+		// The intermediate Responses converter synthesizes usage even when absent.
+		ccState.IncludeUsage = ccState.IncludeUsage || anthropicChatStreamHasUsage(&event, payload)
+
+		stream.observe(&event, payload)
+		if stream.upstreamErrType != "" {
+			break
 		}
+		processAnthropicEvent(&event)
 	}
 
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn("forward_as_cc stream: read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-		}
+	if failure := stream.failure(); failure != nil {
+		return finishAnthropicCompatStreamFailure(c, writerSizeBeforeStream, failure, resultWithUsage(), func() {
+			writeAnthropicCompatCCStreamFailure(c, failure)
+		})
+	}
+	if stream.clientDisconnected {
+		return resultWithUsage(), nil
 	}
 
 	// Finalize both state machines
@@ -532,4 +556,17 @@ func writeGatewayCCError(c *gin.Context, statusCode int, errType, message string
 			"message": message,
 		},
 	})
+}
+
+// anthropicChatStreamHasUsage distinguishes an explicit zero-valued usage object
+// from omitted/null usage before the Anthropic→Responses conversion loses that distinction.
+func anthropicChatStreamHasUsage(event *apicompat.AnthropicStreamEvent, payload string) bool {
+	switch event.Type {
+	case "message_start":
+		return event.Message != nil && gjson.Get(payload, "message.usage").IsObject()
+	case "message_delta":
+		return event.Usage != nil
+	default:
+		return false
+	}
 }
