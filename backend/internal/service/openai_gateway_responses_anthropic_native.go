@@ -171,7 +171,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 	var usage ClaudeUsage
 
 	// 读间隔上限：上游挂住 SSE 时中止组装（缓冲路径尚未提交响应头，可回 502）。
-	streamInterval := s.anthropicNativeStreamInterval()
+	streamInterval := anthropicNativeStreamInterval(s.cfg)
 	pump := newAnthropicNativeLinePump(scanner, streamInterval)
 	defer pump.stop()
 
@@ -365,7 +365,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 	// 读间隔上限：上游挂住 SSE（不发数据也不断连）时结束转换循环。上游 ctx 为
 	// WithoutCancel 且 http.Client 无整体 Timeout，无此界限则 scanner.Scan()
 	// 永久阻塞（见 anthropic native pump 文件注释）。
-	streamInterval := s.anthropicNativeStreamInterval()
+	streamInterval := anthropicNativeStreamInterval(s.cfg)
 	pump := newAnthropicNativeLinePump(scanner, streamInterval)
 	defer pump.stop()
 
@@ -403,6 +403,12 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 		if event.Type == "message_start" && event.Message != nil {
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
+
+		// Keep terminal Responses usage aligned with the normalized billing
+		// buckets. Normalize converter input too so raw overlapping totals cannot
+		// overwrite the state when message_start/message_delta handlers run.
+		syncAnthropicResponsesUsage(state, usage)
+		normalizeAnthropicEventUsageForResponses(event, usage)
 
 		events := apicompat.AnthropicEventToResponsesEvents(event, state)
 		if clientDisconnected {

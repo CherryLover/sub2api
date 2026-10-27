@@ -193,7 +193,15 @@ func (s *GatewayService) ForwardAsResponses(
 	var result *ForwardResult
 	var handleErr error
 	if clientStream {
+		writerSizeBeforeStream := c.Writer.Size()
 		result, handleErr = s.handleResponsesStreamingResponse(resp, c, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
+		var sseErr *sseStreamErrorEventError
+		switch {
+		case errors.As(handleErr, &sseErr):
+			return nil, s.sseStreamErrorEventFailover(ctx, c, account, resp, sseErr.RawData, mappedModel, c.Writer.Size() != writerSizeBeforeStream)
+		case errors.Is(handleErr, errAnthropicNativeStreamIdle) && s.rateLimitService != nil:
+			s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+		}
 	} else {
 		result, handleErr = s.handleResponsesBufferedStreamingResponse(resp, c, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
 	}
@@ -281,22 +289,22 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 		return
 	}
 
+	cacheReadTokens := src.CacheReadInputTokens
+	if cacheReadTokens == 0 && src.CachedTokens > 0 {
+		cacheReadTokens = src.CachedTokens
+	}
+	if cacheReadTokens == 0 && src.PromptTokensDetails != nil && src.PromptTokensDetails.CachedTokens > 0 {
+		cacheReadTokens = src.PromptTokensDetails.CachedTokens
+	}
+	if cacheReadTokens == 0 && src.PromptCacheHitTokens != nil {
+		cacheReadTokens = max(*src.PromptCacheHitTokens, 0)
+	}
+
 	// Some Anthropic-compatible providers retain OpenAI-style prompt/cache
 	// fields. Prefer those authoritative totals or hit/miss buckets over the
 	// overloaded input_tokens field. This covers Kimi's changing stream
 	// semantics as well as GLM/DeepSeek cache aliases.
 	if src.PromptTokens > 0 || src.PromptCacheHitTokens != nil || src.PromptCacheMissTokens != nil {
-		cacheReadTokens := src.CacheReadInputTokens
-		if cacheReadTokens == 0 && src.CachedTokens > 0 {
-			cacheReadTokens = src.CachedTokens
-		}
-		if cacheReadTokens == 0 && src.PromptTokensDetails != nil && src.PromptTokensDetails.CachedTokens > 0 {
-			cacheReadTokens = src.PromptTokensDetails.CachedTokens
-		}
-		if cacheReadTokens == 0 && src.PromptCacheHitTokens != nil {
-			cacheReadTokens = max(*src.PromptCacheHitTokens, 0)
-		}
-
 		if src.PromptCacheMissTokens != nil {
 			dst.InputTokens = max(*src.PromptCacheMissTokens, 0)
 		} else {
@@ -305,13 +313,16 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 		dst.CacheReadInputTokens = cacheReadTokens
 		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
 	} else {
+		// Without an authoritative prompt total or miss bucket, input_tokens is
+		// provider-specific: it may already be the uncached bucket, or it may be
+		// a total from an earlier event. Do not infer a subtraction merely because
+		// a later event contains cache buckets; that would corrupt providers whose
+		// stream uses independent input and cache fields.
 		if src.InputTokens > 0 {
 			dst.InputTokens = src.InputTokens
 		}
-		if src.CacheReadInputTokens > 0 {
-			dst.CacheReadInputTokens = src.CacheReadInputTokens
-		} else if src.CachedTokens > 0 {
-			dst.CacheReadInputTokens = src.CachedTokens
+		if cacheReadTokens > 0 {
+			dst.CacheReadInputTokens = cacheReadTokens
 		}
 		if src.CacheCreationInputTokens > 0 {
 			dst.CacheCreationInputTokens = src.CacheCreationInputTokens
@@ -319,6 +330,29 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	}
 	if src.OutputTokens > 0 {
 		dst.OutputTokens = src.OutputTokens
+	}
+}
+
+func syncAnthropicResponsesUsage(state *apicompat.AnthropicEventToResponsesState, usage ClaudeUsage) {
+	state.InputTokens = usage.InputTokens
+	state.OutputTokens = usage.OutputTokens
+	state.CacheReadInputTokens = usage.CacheReadInputTokens
+	state.CacheCreationInputTokens = usage.CacheCreationInputTokens
+}
+
+func normalizeAnthropicEventUsageForResponses(event *apicompat.AnthropicStreamEvent, usage ClaudeUsage) {
+	normalize := func(dst *apicompat.AnthropicUsage) {
+		if dst == nil {
+			return
+		}
+		dst.InputTokens = usage.InputTokens
+		dst.OutputTokens = usage.OutputTokens
+		dst.CacheReadInputTokens = usage.CacheReadInputTokens
+		dst.CacheCreationInputTokens = usage.CacheCreationInputTokens
+	}
+	normalize(event.Usage)
+	if event.Message != nil {
+		normalize(&event.Message.Usage)
 	}
 }
 
@@ -509,29 +543,27 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
+	writerSizeBeforeStream := c.Writer.Size()
 
-	scanner := bufio.NewScanner(resp.Body)
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
-	}
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	stream := newAnthropicCompatStream(s.cfg, c, resp, "forward_as_responses", requestID)
+	defer stream.stop()
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:       requestID,
-			Usage:           usage,
-			Model:           originalModel,
-			UpstreamModel:   mappedModel,
-			ReasoningEffort: reasoningEffort,
-			Stream:          true,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    firstTokenMs,
+			RequestID:        requestID,
+			Usage:            usage,
+			Model:            originalModel,
+			UpstreamModel:    mappedModel,
+			ReasoningEffort:  reasoningEffort,
+			Stream:           true,
+			Duration:         time.Since(startTime),
+			FirstTokenMs:     firstTokenMs,
+			ClientDisconnect: stream.clientDisconnected,
 		}
 	}
 
 	// processEvent handles a single parsed Anthropic SSE event.
-	processEvent := func(event *apicompat.AnthropicStreamEvent) bool {
+	processEvent := func(event *apicompat.AnthropicStreamEvent) {
 		if firstChunk {
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
@@ -546,6 +578,15 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		if event.Type == "message_start" && event.Message != nil {
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
+		if stream.clientDisconnected {
+			return
+		}
+
+		// Keep the terminal Responses usage aligned with the normalized billing
+		// buckets. Normalize the converter input too, so message handlers cannot
+		// restore the provider's overlapping raw input total.
+		syncAnthropicResponsesUsage(state, usage)
+		normalizeAnthropicEventUsageForResponses(event, usage)
 
 		// Convert to Responses events
 		events := apicompat.AnthropicEventToResponsesEvents(event, state)
@@ -570,20 +611,25 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			for _, restored := range payloads {
 				eventType := gjson.GetBytes(restored, "type").String()
 				if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", eventType, restored); err != nil {
-					logger.L().Info("forward_as_responses stream: client disconnected",
-						zap.String("request_id", requestID),
-					)
-					return true // client disconnected
+					stream.markClientDisconnected()
+					return
 				}
 			}
 		}
 		if len(events) > 0 {
 			c.Writer.Flush()
 		}
-		return false
 	}
 
 	finalizeStream := func() (*ForwardResult, error) {
+		if failure := stream.failure(); failure != nil {
+			return finishAnthropicCompatStreamFailure(c, writerSizeBeforeStream, failure, resultWithUsage(), func() {
+				writeAnthropicCompatResponsesStreamFailure(c, state, clientToolRestorer, failure)
+			})
+		}
+		if stream.clientDisconnected {
+			return resultWithUsage(), nil
+		}
 		if finalEvents := apicompat.FinalizeAnthropicResponsesStream(state); len(finalEvents) > 0 {
 			for _, evt := range finalEvents {
 				sse, err := apicompat.ResponsesEventToSSE(evt)
@@ -599,18 +645,21 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	}
 
 	// Read Anthropic SSE events
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		line, ok := stream.nextLine()
+		if !ok {
+			break
+		}
 		eventType, ok := parseAnthropicSSEField(line, "event")
 		if !ok {
 			continue
 		}
 
 		// Read data line
-		if !scanner.Scan() {
+		dataLine, ok := stream.nextLine()
+		if !ok {
 			break
 		}
-		dataLine := scanner.Text()
 		payload, ok := parseAnthropicSSEField(dataLine, "data")
 		if !ok {
 			continue
@@ -626,18 +675,11 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			continue
 		}
 
-		if processEvent(&event) {
-			return resultWithUsage(), nil
+		stream.observe(&event, payload)
+		if stream.upstreamErrType != "" {
+			break
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn("forward_as_responses stream: read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-		}
+		processEvent(&event)
 	}
 
 	return finalizeStream()
