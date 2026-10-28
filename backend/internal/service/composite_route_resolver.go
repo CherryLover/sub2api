@@ -16,6 +16,38 @@ func NewCompositeRouteResolver(repo CompositeModelRouteRepository) *CompositeRou
 	return &CompositeRouteResolver{repo: repo}
 }
 
+// ListExactPublicModels exposes only explicit, enabled exact-match aliases.
+// Prefix and wildcard rules cannot safely be listed as concrete model IDs.
+func (r *CompositeRouteResolver) ListExactPublicModels(ctx context.Context, groupID int64, endpoint string) ([]string, error) {
+	if r == nil || r.repo == nil || groupID <= 0 {
+		return nil, nil
+	}
+	routes, err := r.repo.ListByGroup(ctx, groupID, false)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(routes))
+	models := make([]string, 0, len(routes))
+	endpoint = normalizeCompositeRouteEndpoint(endpoint)
+	for _, route := range routes {
+		if !route.Enabled || route.MatchType != CompositeRouteMatchExact {
+			continue
+		}
+		target := normalizeCompositeRouteEndpoint(route.Endpoint)
+		if endpoint != CompositeRouteEndpointAny && target != CompositeRouteEndpointAny && target != endpoint {
+			continue
+		}
+		if model := strings.TrimSpace(route.PublicModel); model != "" {
+			if _, ok := seen[model]; !ok {
+				seen[model] = struct{}{}
+				models = append(models, model)
+			}
+		}
+	}
+	sort.Strings(models)
+	return models, nil
+}
+
 const compositeRouteReasonOAuthAmbiguous = "model is exposed by multiple provider platforms including OpenAI-family OAuth credentials"
 
 func (d CompositeRouteDecision) OAuthAmbiguous() bool {

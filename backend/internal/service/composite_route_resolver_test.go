@@ -281,3 +281,26 @@ func TestCompositeRouteResolverExplicitRoutesCoverBucketTwoProviders(t *testing.
 		})
 	}
 }
+
+// Catalog aliases are concrete route IDs, not wildcard routing rules, and
+// must honor endpoint restrictions and the currently selected group.
+func TestCompositeRouteResolverListExactPublicModels(t *testing.T) {
+	routes := []CompositeModelRoute{
+		{GroupID: 7, PublicModel: "alias-b", MatchType: CompositeRouteMatchExact, Endpoint: CompositeRouteEndpointAny, Enabled: true},
+		{GroupID: 7, PublicModel: "alias-a", MatchType: CompositeRouteMatchExact, Endpoint: CompositeRouteEndpointResponses, Enabled: true},
+		{GroupID: 7, PublicModel: "alias-b", MatchType: CompositeRouteMatchExact, Endpoint: CompositeRouteEndpointResponses, Enabled: true},
+		{GroupID: 7, PublicModel: "prefix-", MatchType: CompositeRouteMatchPrefix, Enabled: true},
+		{GroupID: 7, PublicModel: "disabled", MatchType: CompositeRouteMatchExact, Enabled: false},
+		{GroupID: 9, PublicModel: "other-group", MatchType: CompositeRouteMatchExact, Enabled: true},
+	}
+	resolver := NewCompositeRouteResolver(compositeRouteRepoStub{routes: routes})
+	all, err := resolver.ListExactPublicModels(context.Background(), 7, "")
+	require.NoError(t, err)
+	require.Equal(t, []string{"alias-a", "alias-b"}, all)
+	responses, err := resolver.ListExactPublicModels(context.Background(), 7, CompositeRouteEndpointResponses)
+	require.NoError(t, err)
+	require.Equal(t, []string{"alias-a", "alias-b"}, responses)
+	chat, err := resolver.ListExactPublicModels(context.Background(), 7, CompositeRouteEndpointChatCompletions)
+	require.NoError(t, err)
+	require.Equal(t, []string{"alias-b"}, chat)
+}

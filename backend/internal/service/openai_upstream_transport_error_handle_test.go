@@ -275,3 +275,27 @@ func TestHandleOpenAIAccountUpstreamError_RecordsOllamaActivityOnly(t *testing.T
 	_, ok = deferred.lastUsedUpdates.Load(int64(505))
 	require.False(t, ok, "non-Ollama non-2xx must not schedule Ollama activity")
 }
+
+// O03: Scheduler memoization must not regress the independent runtime
+// cooldown guarantee: failed persistence never makes a broken account usable.
+type failingCooldownPersistenceRepo struct {
+	AccountRepository
+	writes int
+}
+
+func (r *failingCooldownPersistenceRepo) SetTempUnschedulable(context.Context, int64, time.Time, string) error {
+	r.writes++
+	return errors.New("database unavailable")
+}
+func TestTransportCooldownRemainsInMemoryWhenDatabaseWriteFails(t *testing.T) {
+	repo := &failingCooldownPersistenceRepo{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := &Account{ID: 993, Platform: PlatformOpenAI, Name: "temporarily failing"}
+	svc.tempUnscheduleOpenAITransportError(context.Background(), account, "proxy unavailable")
+	require.Equal(t, 1, repo.writes)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	// An independently copied cached account still resolves through the
+	// runtime blocker keyed by ID, not through a durable snapshot field.
+	copied := *account
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(&copied))
+}

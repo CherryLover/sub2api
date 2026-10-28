@@ -46,24 +46,52 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 
-	// 强制 antigravity 模式：返回 antigravity 支持的模型列表
-	if forcePlatform == service.PlatformAntigravity {
-		c.JSON(http.StatusOK, antigravity.FallbackGeminiModelsList())
+	// Keep lite's explicit group catalog authoritative. Forced AG routes
+	// intentionally ignore this group-level list, as before.
+	if forcePlatform != service.PlatformAntigravity {
+		if models, ok := customGeminiModelsList(apiKey.Group); ok {
+			c.JSON(http.StatusOK, models)
+			return
+		}
+	}
+	if h.geminiCompatService == nil {
+		if forcePlatform == service.PlatformAntigravity {
+			c.JSON(http.StatusOK, antigravity.FallbackGeminiModelsList())
+			return
+		}
+		googleError(c, http.StatusServiceUnavailable, "Gemini model listing is unavailable")
 		return
 	}
 
-	if models, ok := customGeminiModelsList(apiKey.Group); ok {
-		c.JSON(http.StatusOK, models)
+	// The model directory follows effective schedulable mappings, not a
+	// global static list. On a mixed Gemini group only opted-in AG accounts
+	// contribute public Gemini model IDs.
+	agIDs, agErr := h.geminiCompatService.AntigravityGeminiModelIDs(
+		c.Request.Context(), apiKey.GroupID, forcePlatform != service.PlatformAntigravity,
+	)
+	if agErr != nil {
+		// Fail safely for forced AG; for ordinary Gemini groups keep the
+		// upstream list accessible even if AG discovery temporarily fails.
+		if forcePlatform == service.PlatformAntigravity {
+			googleError(c, http.StatusServiceUnavailable, "Unable to list Antigravity models")
+			return
+		}
+		agIDs = nil
+	}
+	agModels := make([]gemini.Model, 0, len(agIDs))
+	for _, id := range agIDs {
+		agModels = append(agModels, gemini.FallbackModel(id))
+	}
+	if forcePlatform == service.PlatformAntigravity {
+		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: agModels})
 		return
 	}
 
 	account, err := h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
 	if err != nil {
 		// 没有 gemini 账户，检查是否有 antigravity 账户可用
-		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
-		if hasAntigravity {
-			// antigravity 账户使用静态模型列表
-			c.JSON(http.StatusOK, gemini.FallbackModelsList())
+		if len(agModels) > 0 {
+			c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: agModels})
 			return
 		}
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -77,10 +105,75 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	if shouldFallbackGeminiModels(res) {
-		c.JSON(http.StatusOK, gemini.FallbackModelsList())
+		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: mergeGeminiModelLists(gemini.DefaultModels(), agModels)})
 		return
 	}
+	if res.StatusCode == http.StatusOK && len(agModels) > 0 {
+		if merged, ok := appendUpstreamGeminiModels(res.Body, agModels); ok {
+			res.Body = merged
+		}
+	}
 	writeUpstreamResponse(c, res)
+}
+
+// mergeGeminiModelLists preserves native metadata on duplicate IDs.
+func mergeGeminiModelLists(native, additional []gemini.Model) []gemini.Model {
+	result := append([]gemini.Model(nil), native...)
+	seen := make(map[string]struct{}, len(result))
+	for _, m := range result {
+		seen[m.Name] = struct{}{}
+	}
+	for _, m := range additional {
+		if _, ok := seen[m.Name]; !ok {
+			seen[m.Name] = struct{}{}
+			result = append(result, m)
+		}
+	}
+	return result
+}
+
+// appendUpstreamGeminiModels keeps arbitrary native fields and pagination
+// metadata; only new AG model entries are added, with no response rewrite on
+// malformed or unsupported upstream envelopes.
+func appendUpstreamGeminiModels(body []byte, additional []gemini.Model) ([]byte, bool) {
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(body, &envelope) != nil || envelope == nil {
+		return body, false
+	}
+	var models []json.RawMessage
+	raw, ok := envelope["models"]
+	if !ok || json.Unmarshal(raw, &models) != nil {
+		return body, false
+	}
+	seen := make(map[string]struct{}, len(models))
+	for _, raw := range models {
+		var m struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(raw, &m) != nil {
+			return body, false
+		}
+		seen[m.Name] = struct{}{}
+	}
+	changed := false
+	for _, m := range additional {
+		if _, ok := seen[m.Name]; ok {
+			continue
+		}
+		raw, err := json.Marshal(m)
+		if err != nil {
+			return body, false
+		}
+		models = append(models, raw)
+		seen[m.Name] = struct{}{}
+		changed = true
+	}
+	if !changed {
+		return body, true
+	}
+	envelope["models"], _ = json.Marshal(models)
+	merged, err := json.Marshal(envelope)
+	return merged, err == nil
 }
 
 func customGeminiModelsList(group *service.Group) (gemini.ModelsListResponse, bool) {

@@ -1886,14 +1886,11 @@ func (p *openAIWSConnPool) effectiveMaxConnsByAccount(account *Account) int {
 	if hardCap <= 0 {
 		return 0
 	}
-	if p.modeRouterV2Enabled() {
-		if account == nil {
-			return hardCap
-		}
-		if account.Concurrency <= 0 {
-			return 0
-		}
-		return min(account.Concurrency, hardCap)
+	// A v2 ctx_pool account with no concurrency must remain ineligible,
+	// but eligible accounts use the same dynamic capacity/factor policy as
+	// the legacy pool rather than silently ignoring configured multipliers.
+	if p.modeRouterV2Enabled() && account != nil && account.Concurrency <= 0 {
+		return 0
 	}
 	if account == nil || !p.dynamicMaxConnsEnabled() {
 		return hardCap
