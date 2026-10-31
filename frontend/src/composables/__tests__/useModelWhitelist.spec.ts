@@ -17,10 +17,12 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-5.6')
     expect(models).toContain('gpt-6')
     expect(models).toContain('gpt-6-astra')
+    expect(models).toContain('gpt-6.1-terra')
     expect(models).toContain('gpt-6-sol')
     expect(models).toContain('gpt-6-luna')
   })
 
+    expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([expect.objectContaining({ from: 'gpt-6.1-terra', to: 'gpt-6.1-terra' })]))
   it('openai 模型列表不再暴露已下线的 ChatGPT 登录 Codex 模型', () => {
     const models = getModelsByPlatform('openai')
 
