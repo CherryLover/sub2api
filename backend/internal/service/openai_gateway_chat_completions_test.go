@@ -158,9 +158,9 @@ func TestNormalizeResponsesBodyServiceTier(t *testing.T) {
 func TestValidateChatCompletionsTokenLimits(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name	string
-		body	string
-		wantErr	string
+		name    string
+		body    string
+		wantErr string
 	}{
 		{name: "omitted", body: `{"model":"gpt-5.4","messages":[]}`},
 		{name: "max_tokens zero", body: `{"max_tokens":0}`},
@@ -187,9 +187,9 @@ func TestValidateChatCompletionsTokenLimits(t *testing.T) {
 func TestForwardAsChatCompletions_RejectsNegativeTokenLimitBeforeUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, tc := range []struct {
-		name	string
-		body	string
-		message	string
+		name    string
+		body    string
+		message string
 	}{
 		{"max_tokens", `{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"max_tokens":-1}`, "max_tokens must be greater than or equal to 0"},
 		{"max_completion_tokens", `{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":-1}`, "max_completion_tokens must be greater than or equal to 0"},
