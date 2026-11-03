@@ -155,6 +155,66 @@ func TestNormalizeResponsesBodyServiceTier(t *testing.T) {
 	require.False(t, gjson.GetBytes(body, "service_tier").Exists())
 }
 
+func TestValidateChatCompletionsTokenLimits(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name	string
+		body	string
+		wantErr	string
+	}{
+		{name: "omitted", body: `{"model":"gpt-5.4","messages":[]}`},
+		{name: "max_tokens zero", body: `{"max_tokens":0}`},
+		{name: "max_completion_tokens positive", body: `{"max_completion_tokens":32}`},
+		{name: "negative max_tokens", body: `{"max_tokens":-1}`, wantErr: "max_tokens must be greater than or equal to 0"},
+		{name: "negative max_completion_tokens", body: `{"max_completion_tokens":-2}`, wantErr: "max_completion_tokens must be greater than or equal to 0"},
+		{name: "higher priority positive", body: `{"max_tokens":-1,"max_completion_tokens":64}`},
+		{name: "higher priority zero", body: `{"max_tokens":-1,"max_completion_tokens":0}`},
+		{name: "null higher priority", body: `{"max_tokens":-1,"max_completion_tokens":null}`, wantErr: "max_tokens must be greater than or equal to 0"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateChatCompletionsTokenLimits([]byte(tc.body))
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestForwardAsChatCompletions_RejectsNegativeTokenLimitBeforeUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name	string
+		body	string
+		message	string
+	}{
+		{"max_tokens", `{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"max_tokens":-1}`, "max_tokens must be greater than or equal to 0"},
+		{"max_completion_tokens", `{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":-1}`, "max_completion_tokens must be greater than or equal to 0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := []byte(tc.body)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+			upstream := &httpUpstreamRecorder{}
+			svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+			account := &Account{
+				ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+				Credentials: map[string]any{"api_key": "sk-test"},
+			}
+			result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+			require.Error(t, err)
+			require.Nil(t, result)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			require.Contains(t, rec.Body.String(), tc.message)
+			require.Nil(t, upstream.lastReq)
+		})
+	}
+}
+
 func TestForwardAsChatCompletions_UnknownModelWithoutMessagesDispatchKeepsRequestedModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
