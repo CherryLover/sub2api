@@ -114,3 +114,13 @@ describe('AccountActionMenu 状态到期', () => {
     wrapper.unmount()
   })
 })
+
+
+describe('monthly quota reset menu', () => {
+  it.each([['apikey', 100, true], ['upstream', 100, false], ['bedrock', 100, true], ['service_account', 100, true], ['oauth', 100, false], ['apikey', 0, false]])('%s monthly=%s visible=%s', (type, limit, visible) => {
+    const account = makeAccount({ type: type as Account['type'], quota_monthly_limit: limit as number })
+    const wrapper = mount(AccountActionMenu, { props: { show: true, account, anchorRect }, attachTo: document.body })
+    expect(bodyText().includes('admin.accounts.resetQuota')).toBe(visible)
+    wrapper.unmount()
+  })
+})

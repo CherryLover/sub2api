@@ -128,7 +128,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 
 	// Keep lite's existing account type and missing-account settlement policy.
 	if cmd.AccountQuotaCost > 0 && (strings.EqualFold(cmd.AccountType, service.AccountTypeAPIKey) || strings.EqualFold(cmd.AccountType, service.AccountTypeBedrock) || strings.EqualFold(cmd.AccountType, service.AccountTypeServiceAccount)) {
-		quotaState, err := incrementUsageBillingAccountQuota(ctx, tx, cmd.AccountID, cmd.AccountQuotaCost, cmd.AccountQuotaHasDailyLimit, cmd.AccountQuotaHasWeeklyLimit)
+		quotaState, err := incrementUsageBillingAccountQuota(ctx, tx, cmd.AccountID, cmd.AccountQuotaCost, cmd.AccountQuotaHasDailyLimit, cmd.AccountQuotaHasWeeklyLimit, cmd.AccountQuotaHasMonthlyLimit)
 		if err != nil {
 			return err
 		}
@@ -229,6 +229,19 @@ const accountQuotaWeeklyIncrementExpr = `
 				   ELSE '{}'::jsonb END
 			ELSE '{}'::jsonb END`
 
+// accountQuotaMonthlyIncrementExpr resets expired monthly windows before settlement.
+const accountQuotaMonthlyIncrementExpr = `
+            || CASE WHEN COALESCE((extra->>'quota_monthly_limit')::numeric, 0) > 0 THEN
+                jsonb_build_object(
+                    'quota_monthly_used', CASE WHEN ` + monthlyExpiredExpr + ` THEN $1
+                        ELSE COALESCE((extra->>'quota_monthly_used')::numeric, 0) + $1 END,
+                    'quota_monthly_start', CASE WHEN ` + monthlyExpiredExpr + ` THEN ` + nowUTC + `
+                        ELSE COALESCE(extra->>'quota_monthly_start', ` + nowUTC + `) END)
+                || CASE WHEN ` + monthlyExpiredExpr + ` AND ` + nextMonthlyResetAtExpr + ` IS NOT NULL
+                    THEN jsonb_build_object('quota_monthly_reset_at', ` + nextMonthlyResetAtExpr + `)
+                    ELSE '{}'::jsonb END
+            ELSE '{}'::jsonb END`
+
 // accountQuotaExtraIsObjectCond 要求 extra 为 JSON 对象：省略某个维度的语句只在对象上与完整语句等价。
 //
 // accountQuotaDailyLimitUnsetCond / accountQuotaWeeklyLimitUnsetCond 在库中未设置日/周上限时为真：
@@ -242,6 +255,9 @@ const (
 	accountQuotaWeeklyLimitUnsetCond = `(extra->'quota_weekly_limit' IS NULL
 			OR jsonb_typeof(extra->'quota_weekly_limit') = 'null'
 			OR (jsonb_typeof(extra->'quota_weekly_limit') = 'number' AND extra->'quota_weekly_limit' <= '0'::jsonb))`
+	accountQuotaMonthlyLimitUnsetCond = `(extra->'quota_monthly_limit' IS NULL
+            OR jsonb_typeof(extra->'quota_monthly_limit') = 'null'
+            OR (jsonb_typeof(extra->'quota_monthly_limit') = 'number' AND extra->'quota_monthly_limit' <= '0'::jsonb))`
 )
 
 const accountQuotaIncrementReturning = `
@@ -251,14 +267,16 @@ const accountQuotaIncrementReturning = `
 			COALESCE((extra->>'quota_daily_used')::numeric, 0),
 			COALESCE((extra->>'quota_daily_limit')::numeric, 0),
 			COALESCE((extra->>'quota_weekly_used')::numeric, 0),
-			COALESCE((extra->>'quota_weekly_limit')::numeric, 0)`
+			COALESCE((extra->>'quota_weekly_limit')::numeric, 0),
+            COALESCE((extra->>'quota_monthly_used')::numeric, 0),
+            COALESCE((extra->>'quota_monthly_limit')::numeric, 0)`
 
-// accountQuotaIncrementSQLs 按 accountQuotaIncrementSQLIndex 存放账号配额累加语句。省略日或周维度的语句
+// accountQuotaIncrementSQLs 按 accountQuotaIncrementSQLIndex 存放账号配额累加语句。省略日、周或月维度的语句
 // 在 WHERE 中附加 accountQuotaExtraIsObjectCond 与被省略维度的未设置条件，条件不成立时命中 0 行；
-// 同时包含日、周维度的语句不附加这些条件，对任何账号配置都给出完整的累加结果。
+// 同时包含日、周、月维度的语句不附加这些条件，对任何账号配置都给出完整的累加结果。
 var accountQuotaIncrementSQLs = buildAccountQuotaIncrementSQLs()
 
-func accountQuotaIncrementSQLIndex(daily, weekly bool) int {
+func accountQuotaIncrementSQLIndex(daily, weekly bool, monthlyHint ...bool) int {
 	index := 0
 	if daily {
 		index |= 1
@@ -266,40 +284,50 @@ func accountQuotaIncrementSQLIndex(daily, weekly bool) int {
 	if weekly {
 		index |= 2
 	}
+	if len(monthlyHint) > 0 && monthlyHint[0] {
+		index |= 4
+	}
 	return index
 }
 
-func buildAccountQuotaIncrementSQLs() [4]string {
-	var sqls [4]string
+func buildAccountQuotaIncrementSQLs() [8]string {
+	var sqls [8]string
 	for _, daily := range []bool{false, true} {
 		for _, weekly := range []bool{false, true} {
-			set := accountQuotaTotalIncrementExpr
-			where := "id = $2 AND deleted_at IS NULL"
-			if !daily || !weekly {
-				where += "\n\t\t\tAND " + accountQuotaExtraIsObjectCond
+			for _, monthly := range []bool{false, true} {
+				set := accountQuotaTotalIncrementExpr
+				where := "id = $2 AND deleted_at IS NULL"
+				if !daily || !weekly || !monthly {
+					where += "\n\t\t\tAND " + accountQuotaExtraIsObjectCond
+				}
+				if daily {
+					set += accountQuotaDailyIncrementExpr
+				} else {
+					where += "\n\t\t\tAND " + accountQuotaDailyLimitUnsetCond
+				}
+				if weekly {
+					set += accountQuotaWeeklyIncrementExpr
+				} else {
+					where += "\n\t\t\tAND " + accountQuotaWeeklyLimitUnsetCond
+				}
+				if monthly {
+					set += accountQuotaMonthlyIncrementExpr
+				} else {
+					where += "\n\t\t\tAND " + accountQuotaMonthlyLimitUnsetCond
+				}
+				sqls[accountQuotaIncrementSQLIndex(daily, weekly, monthly)] = "UPDATE accounts SET extra = (\n\t\t\t" + set +
+					"\n\t\t), updated_at = NOW()\n\t\tWHERE " + where + accountQuotaIncrementReturning
 			}
-			if daily {
-				set += accountQuotaDailyIncrementExpr
-			} else {
-				where += "\n\t\t\tAND " + accountQuotaDailyLimitUnsetCond
-			}
-			if weekly {
-				set += accountQuotaWeeklyIncrementExpr
-			} else {
-				where += "\n\t\t\tAND " + accountQuotaWeeklyLimitUnsetCond
-			}
-			sqls[accountQuotaIncrementSQLIndex(daily, weekly)] = "UPDATE accounts SET extra = (\n\t\t\t" + set +
-				"\n\t\t), updated_at = NOW()\n\t\tWHERE " + where + accountQuotaIncrementReturning
 		}
 	}
 	return sqls
 }
 
-// incrementUsageBillingAccountQuota 累加账号配额并返回累加后的状态。hasDaily/hasWeekly 是调用方所见的
-// 账号日/周上限设置，只决定先执行哪条语句；该语句的附加条件不成立而命中 0 行时，再执行同时包含日、周维度的语句。
-func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountID int64, amount float64, hasDaily, hasWeekly bool) (*service.AccountQuotaState, error) {
-	index := accountQuotaIncrementSQLIndex(hasDaily, hasWeekly)
-	fullIndex := accountQuotaIncrementSQLIndex(true, true)
+// incrementUsageBillingAccountQuota 累加账号配额并返回累加后的状态。hasDaily/hasWeekly/monthlyHint 是调用方所见的
+// 账号日/周/月上限设置，只决定先执行哪条语句；该语句的附加条件不成立而命中 0 行时，再执行同时包含日、周、月维度的语句。
+func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountID int64, amount float64, hasDaily, hasWeekly bool, monthlyHint ...bool) (*service.AccountQuotaState, error) {
+	index := accountQuotaIncrementSQLIndex(hasDaily, hasWeekly, monthlyHint...)
+	fullIndex := accountQuotaIncrementSQLIndex(true, true, true)
 	state, err := execAccountQuotaIncrement(ctx, tx, accountQuotaIncrementSQLs[index], accountID, amount)
 	if err != nil {
 		return nil, err
@@ -321,7 +349,8 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 	crossedTotal := state.TotalLimit > 0 && state.TotalUsed >= state.TotalLimit && (state.TotalUsed-amount) < state.TotalLimit
 	crossedDaily := state.DailyLimit > 0 && state.DailyUsed >= state.DailyLimit && (state.DailyUsed-amount) < state.DailyLimit
 	crossedWeekly := state.WeeklyLimit > 0 && state.WeeklyUsed >= state.WeeklyLimit && (state.WeeklyUsed-amount) < state.WeeklyLimit
-	if crossedTotal || crossedDaily || crossedWeekly {
+	crossedMonthly := state.MonthlyLimit > 0 && state.MonthlyUsed >= state.MonthlyLimit && (state.MonthlyUsed-amount) < state.MonthlyLimit
+	if crossedTotal || crossedDaily || crossedWeekly || crossedMonthly {
 		if err := enqueueSchedulerOutbox(ctx, tx, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
 			logger.LegacyPrintf("repository.usage_billing", "[SchedulerOutbox] enqueue quota exceeded failed: account=%d err=%v", accountID, err)
 			return nil, err
@@ -344,6 +373,7 @@ func execAccountQuotaIncrement(ctx context.Context, tx *sql.Tx, query string, ac
 			&state.TotalUsed, &state.TotalLimit,
 			&state.DailyUsed, &state.DailyLimit,
 			&state.WeeklyUsed, &state.WeeklyLimit,
+			&state.MonthlyUsed, &state.MonthlyLimit,
 		); err != nil {
 			_ = rows.Close()
 			return nil, err

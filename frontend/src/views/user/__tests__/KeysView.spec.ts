@@ -165,7 +165,7 @@ const TablePageLayoutStub = {
 
 const DataTableStub = {
   name: 'DataTable',
-  props: ['columns', 'data'],
+  props: ['columns', 'data', 'sortKey', 'sortOrder'],
   emits: ['sort'],
   template: `
     <div>
@@ -174,6 +174,7 @@ const DataTableStub = {
       <button data-test="sort-current-concurrency" @click="$emit('sort', 'current_concurrency', 'asc')">
         Sort Current Concurrency
       </button>
+      <button data-test="sort-group" @click="$emit('sort', 'group', sortKey === 'group' && sortOrder === 'asc' ? 'desc' : 'asc')">Sort Group</button>
       <button data-test="sort-usage" @click="$emit('sort', 'usage', 'desc')">Sort Usage</button>
       <button data-test="sort-last-used-at" @click="$emit('sort', 'last_used_at', 'asc')">
         Sort Last Used
@@ -186,6 +187,7 @@ const DataTableStub = {
           <slot name="cell-id" :value="row.id" :row="row" />
         </div>
         <slot name="cell-name" :value="row.name" :row="row" />
+        <div data-test="group-cell"><slot name="cell-group" :row="row" /></div>
         <div data-test="current-concurrency">
           <slot name="cell-current_concurrency" :value="row.current_concurrency" :row="row" />
         </div>
@@ -230,6 +232,7 @@ const PaginationStub = {
   emits: ['update:page', 'update:pageSize'],
   template: `
     <div>
+      <button data-test="page-2" @click="$emit('update:page', 2)">Page 2</button>
       <button data-test="page-size-50" @click="$emit('update:pageSize', 50)">50</button>
     </div>
   `,
@@ -457,6 +460,44 @@ describe('user KeysView column settings', () => {
     expect(meta.find((column) => column.key === 'last_used_at')?.sortable).toBe(true)
   })
 
+  it('keeps the server group sort after changing a group from its cell', async () => {
+    getAvailableGroups.mockResolvedValue([{ id: 42, name: 'OpenAI', platform: 'openai', rate_multiplier: 1 }])
+    const wrapper = await mountView()
+    await wrapper.get('[data-test="sort-group"]').trigger('click')
+    await flushPromises()
+    listKeys.mockClear()
+    await wrapper.get('[data-test="group-cell"] button').trigger('click')
+    await nextTick()
+    const option = wrapper.findAllComponents({ name: 'GroupOptionItem' }).find(item => item.attributes('name') === 'OpenAI')
+    expect(option).toBeDefined()
+    option!.element.parentElement!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    expect(listKeys).toHaveBeenLastCalledWith(1, expect.any(Number), expect.objectContaining({ sort_by: 'group_name', sort_order: 'asc' }), expect.anything())
+  })
+
+  it('sorts group names ascending then descending on the server and synchronizes mobile/default state', async () => {
+    const wrapper = await mountView()
+    expect(listKeys).toHaveBeenLastCalledWith(1, expect.any(Number), expect.objectContaining({ sort_by: 'created_at', sort_order: 'desc' }), expect.anything())
+    expect(visibleColumnMeta(wrapper).find(column => column.key === 'group')?.sortable).toBe(true)
+    await wrapper.get('[data-test="page-size-50"]').trigger('click')
+    await wrapper.get('[data-test="page-2"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="sort-group"]').trigger('click')
+    await flushPromises()
+    expect(listKeys).toHaveBeenLastCalledWith(1, 50, expect.objectContaining({ sort_by: 'group_name', sort_order: 'asc' }), expect.anything())
+    expect((wrapper.get('[data-test="mobile-sort"]').element as HTMLSelectElement).value).toBe('group:asc')
+    await wrapper.get('[data-test="sort-group"]').trigger('click')
+    await flushPromises()
+    expect(listKeys).toHaveBeenLastCalledWith(1, 50, expect.objectContaining({ sort_by: 'group_name', sort_order: 'desc' }), expect.anything())
+    await wrapper.get('[data-test="mobile-sort"]').setValue('group:asc')
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'DataTable' }).props()).toMatchObject({ sortKey: 'group', sortOrder: 'asc' })
+    await wrapper.get('[data-test="mobile-sort"]').setValue('created_at:desc')
+    await flushPromises()
+    expect(listKeys).toHaveBeenLastCalledWith(1, 50, expect.objectContaining({ sort_by: 'created_at', sort_order: 'desc' }), expect.anything())
+    expect(wrapper.findComponent({ name: 'DataTable' }).props()).toMatchObject({ sortKey: 'created_at', sortOrder: 'desc' })
+  })
+
   it("sorts by today's usage on the server when the usage header is clicked", async () => {
     const wrapper = await mountView()
     listKeys.mockClear()
@@ -518,7 +559,10 @@ describe('user KeysView column settings', () => {
     expect(currentConcurrencyColumn?.sortable).toBe(true)
   })
 
-  it('keeps filters and selected page size when sorting by current concurrency', async () => {
+  it.each([
+    ['current-concurrency', 'current_concurrency'],
+    ['group', 'group_name'],
+  ])('keeps filters and selected page size when sorting by %s', async (column, sortBy) => {
     getAvailableGroups.mockResolvedValue([{ id: 42, name: 'OpenAI' }])
     const wrapper = await mountView()
 
@@ -537,7 +581,7 @@ describe('user KeysView column settings', () => {
 
     listKeys.mockClear()
 
-    await wrapper.get('[data-test="sort-current-concurrency"]').trigger('click')
+    await wrapper.get(`[data-test="sort-${column}"]`).trigger('click')
     await flushPromises()
 
     expect(listKeys).toHaveBeenLastCalledWith(
@@ -547,7 +591,7 @@ describe('user KeysView column settings', () => {
         search: 'target',
         status: 'active',
         group_id: 42,
-        sort_by: 'current_concurrency',
+        sort_by: sortBy,
         sort_order: 'asc',
       },
       expect.objectContaining({ signal: expect.any(AbortSignal) })

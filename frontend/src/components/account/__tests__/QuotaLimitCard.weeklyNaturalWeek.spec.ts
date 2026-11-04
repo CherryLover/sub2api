@@ -30,11 +30,16 @@ vi.mock('vue-i18n', async () => {
 })
 
 import QuotaLimitCard from '../QuotaLimitCard.vue'
+import QuotaDimensionRow from '../QuotaDimensionRow.vue'
 
 type QuotaFormState = {
   totalLimit: number | null
   dailyLimit: number | null
   weeklyLimit: number | null
+  monthlyLimit: number | null
+  monthlyResetMode: 'rolling' | 'fixed' | null
+  monthlyResetDay: number | null
+  monthlyResetHour: number | null
   dailyResetMode: 'rolling' | 'fixed' | null
   dailyResetHour: number | null
   weeklyResetMode: 'rolling' | 'fixed' | null
@@ -48,6 +53,10 @@ function emptyState(): QuotaFormState {
     totalLimit: null,
     dailyLimit: null,
     weeklyLimit: null,
+    monthlyLimit: null,
+    monthlyResetMode: null,
+    monthlyResetDay: null,
+    monthlyResetHour: null,
     dailyResetMode: null,
     dailyResetHour: null,
     weeklyResetMode: null,
@@ -72,6 +81,14 @@ function mountCard(initial: Partial<QuotaFormState> = {}) {
         :total-limit="state.totalLimit"
         :daily-limit="state.dailyLimit"
         :weekly-limit="state.weeklyLimit"
+        :monthly-limit="state.monthlyLimit"
+        :monthly-reset-mode="state.monthlyResetMode"
+        :monthly-reset-day="state.monthlyResetDay"
+        :monthly-reset-hour="state.monthlyResetHour"
+        @update:monthly-limit="state.monthlyLimit = $event"
+        @update:monthly-reset-mode="state.monthlyResetMode = $event"
+        @update:monthly-reset-day="state.monthlyResetDay = $event"
+        @update:monthly-reset-hour="state.monthlyResetHour = $event"
         :daily-reset-mode="state.dailyResetMode"
         :daily-reset-hour="state.dailyResetHour"
         :weekly-reset-mode="state.weeklyResetMode"
@@ -108,6 +125,65 @@ function selectOptions(wrapper: ReturnType<typeof mountCard>['wrapper'], testId:
     .findAll('option')
     .map((option) => (option.element as HTMLOptionElement).value)
 }
+
+describe('QuotaLimitCard monthly quota', () => {
+  it('omits notification headers and inputs for monthly even when global notifications are enabled', () => {
+    const wrapper = mount(QuotaDimensionRow, { props: {
+      dim: 'monthly', label: 'Monthly', limit: 100,
+      quotaNotifyGlobalEnabled: true, notifyEnabled: true, notifyThreshold: 10, notifyThresholdType: 'fixed',
+      resetMode: 'rolling', resetHour: null, resetDay: null, resetTimezone: null,
+      hintRolling: '30×24h', hintFixed: '', hourOptions: [], dayOptions: [],
+    } })
+    expect(wrapper.findComponent({ name: 'QuotaNotifyToggle' }).exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('admin.accounts.quotaNotify')
+  })
+
+  it('previews a calendar month and writes defaults only when enabled', async () => {
+    const { wrapper, state } = mountCard()
+    await enableQuotaCard(wrapper)
+    expect(selectValue(wrapper, 'quota-monthly-reset-mode')).toBe('fixed')
+    expect(selectOptions(wrapper, 'quota-monthly-reset-day')).toEqual(Array.from({ length: 31 }, (_, i) => String(i + 1)))
+    expect(selectOptions(wrapper, 'quota-monthly-reset-hour')).toHaveLength(24)
+    expect(state.monthlyResetMode).toBeNull()
+    await wrapper.get('[data-testid="quota-monthly-limit"]').setValue('123.45')
+    expect(state.monthlyLimit).toBe(123.45)
+    expect(state.monthlyResetMode).toBe('fixed')
+    expect(state.monthlyResetDay).toBe(1)
+    expect(state.monthlyResetHour).toBe(0)
+    expect(state.resetTimezone).toBe('Asia/Shanghai')
+    expect(wrapper.text()).toContain('admin.accounts.quotaResetTimezoneHint')
+  })
+
+  it('keeps a monthly-only account enabled and clears its configuration on toggle off', async () => {
+    const { wrapper, state } = mountCard({ monthlyLimit: 100, monthlyResetMode: 'fixed', monthlyResetDay: 31, monthlyResetHour: 23 })
+    expect(selectValue(wrapper, 'quota-monthly-reset-day')).toBe('31')
+    expect(selectValue(wrapper, 'quota-monthly-reset-hour')).toBe('23')
+    await enableQuotaCard(wrapper)
+    expect(state.monthlyLimit).toBeNull()
+    expect(state.monthlyResetMode).toBeNull()
+    expect(state.monthlyResetDay).toBeNull()
+    expect(state.monthlyResetHour).toBeNull()
+  })
+
+  it('preserves explicit rolling and legacy unset modes without converting to calendar resets', async () => {
+    for (const monthlyResetMode of ['rolling', null] as const) {
+      const { wrapper, state } = mountCard({ monthlyLimit: 100, monthlyResetMode })
+      expect(selectValue(wrapper, 'quota-monthly-reset-mode')).toBe('rolling')
+      expect(wrapper.find('[data-testid="quota-monthly-reset-day"]').exists()).toBe(false)
+      await wrapper.get('[data-testid="quota-monthly-limit"]').setValue('200')
+      expect(state.monthlyResetMode).toBe(monthlyResetMode)
+      expect(wrapper.text()).toContain('admin.accounts.quotaMonthlyLimitHint')
+    }
+  })
+
+  it('shares timezone changes across fixed daily, weekly and monthly rows', async () => {
+    const { wrapper, state } = mountCard({ monthlyLimit: 100, monthlyResetMode: 'fixed', dailyResetMode: 'fixed', weeklyResetMode: 'fixed' })
+    await wrapper.get('[data-testid="quota-monthly-reset-timezone"]').setValue('America/New_York')
+    expect(state.resetTimezone).toBe('America/New_York')
+    expect(selectValue(wrapper, 'quota-daily-reset-timezone')).toBe('America/New_York')
+    expect(selectValue(wrapper, 'quota-weekly-reset-timezone')).toBe('America/New_York')
+  })
+})
 
 describe('QuotaLimitCard weekly natural-week default', () => {
   beforeEach(() => {

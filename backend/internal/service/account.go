@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/url"
 	"reflect"
 	"sort"
@@ -2591,6 +2592,24 @@ func (a *Account) GetQuotaWeeklyUsed() float64 {
 	return a.getExtraFloat64("quota_weekly_used")
 }
 
+// Monthly rolling periods are exactly 720 hours, not calendar months.
+func (a *Account) GetQuotaMonthlyLimit() float64 { return a.getExtraFloat64("quota_monthly_limit") }
+func (a *Account) GetQuotaMonthlyUsed() float64  { return a.getExtraFloat64("quota_monthly_used") }
+func (a *Account) GetQuotaMonthlyResetMode() string {
+	if a.getExtraString("quota_monthly_reset_mode") == "fixed" {
+		return "fixed"
+	}
+	return "rolling"
+}
+func (a *Account) GetQuotaMonthlyResetDay() int {
+	d := a.getExtraInt("quota_monthly_reset_day")
+	if d < 1 || d > 31 {
+		return 1
+	}
+	return d
+}
+func (a *Account) GetQuotaMonthlyResetHour() int { return a.getExtraInt("quota_monthly_reset_hour") }
+
 // getExtraFloat64 从 Extra 中读取指定 key 的 float64 值
 func (a *Account) getExtraFloat64(key string) float64 {
 	if a.Extra == nil {
@@ -2833,6 +2852,75 @@ func lastFixedWeeklyReset(day, hour int, tz *time.Location, now time.Time) time.
 	return todayReset.AddDate(0, 0, -daysBack)
 }
 
+// monthlyResetInMonth clamps the configured day independently in each month.
+// Resolve wall-clock ambiguities like PostgreSQL AT TIME ZONE: later instant
+// on a fold, forward across a gap. Go time.Date alone chooses differently.
+func monthlyResetInMonth(year int, month time.Month, day, hour int, tz *time.Location) time.Time {
+	last := time.Date(year, month+1, 0, 12, 0, 0, 0, time.UTC).Day()
+	if day < 1 {
+		day = 1
+	}
+	if day > last {
+		day = last
+	}
+	wall := time.Date(year, month, day, hour, 0, 0, 0, time.UTC)
+	offsets := map[int]bool{}
+	for h := -48; h <= 48; h++ {
+		_, off := wall.Add(time.Duration(h) * time.Hour).In(tz).Zone()
+		offsets[off] = true
+	}
+	var exact, forward time.Time
+	var forwardWall time.Time
+	for off := range offsets {
+		candidate := wall.Add(-time.Duration(off) * time.Second)
+		local := candidate.In(tz)
+		represented := time.Date(local.Year(), local.Month(), local.Day(), local.Hour(), local.Minute(), local.Second(), 0, time.UTC)
+		if represented.Equal(wall) && (exact.IsZero() || candidate.After(exact)) {
+			exact = candidate
+		}
+		if represented.After(wall) && (forward.IsZero() || represented.Before(forwardWall)) {
+			forward, forwardWall = candidate, represented
+		}
+	}
+	if !exact.IsZero() {
+		return exact.In(tz)
+	}
+	if !forward.IsZero() {
+		return forward.In(tz)
+	}
+	return time.Date(year, month, day, hour, 0, 0, 0, tz)
+}
+func nextFixedMonthlyReset(day, hour int, tz *time.Location, after time.Time) time.Time {
+	t := after.In(tz)
+	reset := monthlyResetInMonth(t.Year(), t.Month(), day, hour, tz)
+	if !after.Before(reset) {
+		return monthlyResetInMonth(t.Year(), t.Month()+1, day, hour, tz)
+	}
+	return reset
+}
+func lastFixedMonthlyReset(day, hour int, tz *time.Location, now time.Time) time.Time {
+	t := now.In(tz)
+	reset := monthlyResetInMonth(t.Year(), t.Month(), day, hour, tz)
+	if now.Before(reset) {
+		return monthlyResetInMonth(t.Year(), t.Month()-1, day, hour, tz)
+	}
+	return reset
+}
+func (a *Account) IsMonthlyQuotaPeriodExpired() bool {
+	start := a.getExtraTime("quota_monthly_start")
+	if a.GetQuotaMonthlyResetMode() != "fixed" {
+		return isPeriodExpired(start, 30*24*time.Hour)
+	}
+	if start.IsZero() {
+		return true
+	}
+	tz, err := time.LoadLocation(a.GetQuotaResetTimezone())
+	if err != nil {
+		tz = time.UTC
+	}
+	return start.Before(lastFixedMonthlyReset(a.GetQuotaMonthlyResetDay(), a.GetQuotaMonthlyResetHour(), tz, time.Now()))
+}
+
 // isFixedDailyPeriodExpired 检查日配额是否在固定时间模式下已过期
 func (a *Account) isFixedDailyPeriodExpired(periodStart time.Time) bool {
 	if periodStart.IsZero() {
@@ -2902,6 +2990,20 @@ func ComputeQuotaResetAt(extra map[string]any) {
 	} else {
 		delete(extra, "quota_weekly_reset_at")
 	}
+	if mode, _ := extra["quota_monthly_reset_mode"].(string); mode == "fixed" {
+		// Persist the resolved server timezone: SQL must use the same zone after
+		// the first reset even when the API omitted quota_reset_timezone.
+		extra["quota_reset_timezone"] = tzName
+		a := Account{Extra: extra}
+		hour := a.GetQuotaMonthlyResetHour()
+		if hour < 0 || hour > 23 {
+			hour = 0
+		}
+		extra["quota_monthly_reset_at"] = nextFixedMonthlyReset(a.GetQuotaMonthlyResetDay(), hour, tz, now).UTC().Format(time.RFC3339)
+	} else {
+		delete(extra, "quota_monthly_reset_at")
+	}
+
 }
 
 // NormalizeFixedQuotaWindows aligns preserved quota usage with the active fixed reset window.
@@ -2956,12 +3058,32 @@ func NormalizeFixedQuotaWindows(extra map[string]any) {
 			extra["quota_weekly_start"] = lastReset.UTC().Format(time.RFC3339)
 		}
 	}
+	if a := (Account{Extra: extra}); a.GetQuotaMonthlyResetMode() == "fixed" && a.GetQuotaMonthlyLimit() > 0 {
+		lastReset := lastFixedMonthlyReset(a.GetQuotaMonthlyResetDay(), a.GetQuotaMonthlyResetHour(), tz, now)
+		start := parseExtraTime(extra["quota_monthly_start"])
+		if start.IsZero() || start.Before(lastReset) {
+			extra["quota_monthly_used"] = 0.0
+			extra["quota_monthly_start"] = lastReset.UTC().Format(time.RFC3339)
+		}
+	}
+
 }
 
 // ValidateQuotaResetConfig 校验配额固定重置时间配置的合法性
 func ValidateQuotaResetConfig(extra map[string]any) error {
 	if extra == nil {
 		return nil
+	}
+	if v, ok := extra["quota_monthly_limit"]; ok {
+		n := parseExtraFloat64(v)
+		switch v.(type) {
+		case float64, float32, int, int32, int64, json.Number:
+		default:
+			return errors.New("quota_monthly_limit must be a non-negative finite number")
+		}
+		if n < 0 || math.IsNaN(n) || math.IsInf(n, 0) {
+			return errors.New("quota_monthly_limit must be a non-negative finite number")
+		}
 	}
 	// 校验时区
 	if tz, ok := extra["quota_reset_timezone"].(string); ok && tz != "" {
@@ -3002,12 +3124,35 @@ func ValidateQuotaResetConfig(extra map[string]any) error {
 			return errors.New("quota_weekly_reset_hour must be between 0 and 23")
 		}
 	}
+	if v, ok := extra["quota_monthly_reset_mode"]; ok {
+		mode, valid := v.(string)
+		if !valid || (mode != "fixed" && mode != "rolling") {
+			return errors.New("quota_monthly_reset_mode must be 'rolling' or 'fixed'")
+		}
+	}
+	for _, field := range []struct {
+		key      string
+		min, max float64
+	}{{"quota_monthly_reset_day", 1, 31}, {"quota_monthly_reset_hour", 0, 23}} {
+		if v, ok := extra[field.key]; ok {
+			n := parseExtraFloat64(v)
+			switch v.(type) {
+			case float64, float32, int, int32, int64, json.Number:
+			default:
+				return errors.New(field.key + " must be an integer")
+			}
+			if math.IsNaN(n) || math.IsInf(n, 0) || n < field.min || n > field.max || n != math.Trunc(n) {
+				return errors.New(field.key + " is outside its valid integer range")
+			}
+		}
+	}
+
 	return nil
 }
 
 // HasAnyQuotaLimit 检查是否配置了任一维度的配额限制
 func (a *Account) HasAnyQuotaLimit() bool {
-	return a.GetQuotaLimit() > 0 || a.GetQuotaDailyLimit() > 0 || a.GetQuotaWeeklyLimit() > 0
+	return a.GetQuotaLimit() > 0 || a.GetQuotaDailyLimit() > 0 || a.GetQuotaWeeklyLimit() > 0 || a.GetQuotaMonthlyLimit() > 0
 }
 
 // isPeriodExpired 检查指定周期（自 periodStart 起经过 dur）是否已过期
@@ -3068,6 +3213,10 @@ func (a *Account) IsQuotaExceeded() bool {
 			return true
 		}
 	}
+	if limit := a.GetQuotaMonthlyLimit(); limit > 0 && !a.IsMonthlyQuotaPeriodExpired() && a.GetQuotaMonthlyUsed() >= limit {
+		return true
+	}
+
 	return false
 }
 
@@ -3273,6 +3422,8 @@ func parseExtraFloat64(value any) float64 {
 	case int:
 		return float64(v)
 	case int64:
+		return float64(v)
+	case int32:
 		return float64(v)
 	case json.Number:
 		if f, err := v.Float64(); err == nil {

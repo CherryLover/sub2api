@@ -548,6 +548,13 @@
             color="emerald"
           />
           <UsageProgressBar
+            v-if="quotaMonthlyBar"
+            label="30d"
+            :utilization="quotaMonthlyBar.utilization"
+            :resets-at="quotaMonthlyBar.resetsAt"
+            color="amber"
+          />
+          <UsageProgressBar
             v-if="quotaTotalBar"
             label="total"
             :utilization="quotaTotalBar.utilization"
@@ -651,6 +658,13 @@
         :utilization="quotaWeeklyBar.utilization"
         :resets-at="quotaWeeklyBar.resetsAt"
         color="emerald"
+      />
+      <UsageProgressBar
+        v-if="quotaMonthlyBar"
+        label="30d"
+        :utilization="quotaMonthlyBar.utilization"
+        :resets-at="quotaMonthlyBar.resetsAt"
+        color="amber"
       />
       <UsageProgressBar
         v-if="quotaTotalBar"
@@ -1502,28 +1516,22 @@ interface QuotaBarInfo {
 const makeQuotaBar = (
   used: number,
   limit: number,
-  startKey?: string
+  dimension?: 'daily' | 'weekly' | 'monthly'
 ): QuotaBarInfo => {
   const utilization = limit > 0 ? (used / limit) * 100 : 0
   let resetsAt: string | null = null
-  if (startKey) {
+  if (dimension) {
     const extra = props.account.extra as Record<string, unknown> | undefined
-    const isDaily = startKey.includes('daily')
-    const mode = isDaily
-      ? (extra?.quota_daily_reset_mode as string) || 'rolling'
-      : (extra?.quota_weekly_reset_mode as string) || 'rolling'
-
+    const mode = extra?.[`quota_${dimension}_reset_mode`] || 'rolling'
     if (mode === 'fixed') {
-      // Use pre-computed next reset time for fixed mode
-      const resetAtKey = isDaily ? 'quota_daily_reset_at' : 'quota_weekly_reset_at'
-      resetsAt = (extra?.[resetAtKey] as string) || null
+      resetsAt = (extra?.[`quota_${dimension}_reset_at`] as string) || null
     } else {
-      // Rolling mode: compute from start + period
-      const startStr = extra?.[startKey] as string | undefined
-      if (startStr) {
-        const startDate = new Date(startStr)
-        const periodMs = isDaily ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000
-        resetsAt = new Date(startDate.getTime() + periodMs).toISOString()
+      // Rolling periods begin on first usage, not on a calendar boundary.
+      const start = extra?.[`quota_${dimension}_start`]
+      const startMs = typeof start === 'string' ? Date.parse(start) : NaN
+      const periodDays = { daily: 1, weekly: 7, monthly: 30 }[dimension]
+      if (Number.isFinite(startMs)) {
+        resetsAt = new Date(startMs + periodDays * 24 * 60 * 60 * 1000).toISOString()
       }
     }
   }
@@ -1537,6 +1545,7 @@ const hasApiKeyQuota = computed(() => {
   return (
     (props.account.quota_daily_limit ?? 0) > 0 ||
     (props.account.quota_weekly_limit ?? 0) > 0 ||
+    (props.account.quota_monthly_limit ?? 0) > 0 ||
     (props.account.quota_limit ?? 0) > 0
   )
 })
@@ -1544,13 +1553,19 @@ const hasApiKeyQuota = computed(() => {
 const quotaDailyBar = computed((): QuotaBarInfo | null => {
   const limit = props.account.quota_daily_limit ?? 0
   if (limit <= 0) return null
-  return makeQuotaBar(props.account.quota_daily_used ?? 0, limit, 'quota_daily_start')
+  return makeQuotaBar(props.account.quota_daily_used ?? 0, limit, 'daily')
 })
 
 const quotaWeeklyBar = computed((): QuotaBarInfo | null => {
   const limit = props.account.quota_weekly_limit ?? 0
   if (limit <= 0) return null
-  return makeQuotaBar(props.account.quota_weekly_used ?? 0, limit, 'quota_weekly_start')
+  return makeQuotaBar(props.account.quota_weekly_used ?? 0, limit, 'weekly')
+})
+
+const quotaMonthlyBar = computed((): QuotaBarInfo | null => {
+  const limit = props.account.quota_monthly_limit ?? 0
+  if (limit <= 0) return null
+  return makeQuotaBar(props.account.quota_monthly_used ?? 0, limit, 'monthly')
 })
 
 const quotaTotalBar = computed((): QuotaBarInfo | null => {

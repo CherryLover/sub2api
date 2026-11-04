@@ -1956,6 +1956,14 @@
           :totalLimit="editQuotaLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
+          :monthlyLimit="editQuotaMonthlyLimit"
+          :monthlyResetMode="editMonthlyResetMode"
+          :monthlyResetDay="editMonthlyResetDay"
+          :monthlyResetHour="editMonthlyResetHour"
+          @update:monthlyLimit="editQuotaMonthlyLimit = $event"
+          @update:monthlyResetMode="editMonthlyResetMode = $event"
+          @update:monthlyResetDay="editMonthlyResetDay = $event"
+          @update:monthlyResetHour="editMonthlyResetHour = $event"
           :dailyResetMode="editDailyResetMode"
           :dailyResetHour="editDailyResetHour"
           :weeklyResetMode="editWeeklyResetMode"
@@ -2007,6 +2015,14 @@
           :totalLimit="editQuotaLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
+          :monthlyLimit="editQuotaMonthlyLimit"
+          :monthlyResetMode="editMonthlyResetMode"
+          :monthlyResetDay="editMonthlyResetDay"
+          :monthlyResetHour="editMonthlyResetHour"
+          @update:monthlyLimit="editQuotaMonthlyLimit = $event"
+          @update:monthlyResetMode="editMonthlyResetMode = $event"
+          @update:monthlyResetDay="editMonthlyResetDay = $event"
+          @update:monthlyResetHour="editMonthlyResetHour = $event"
           :dailyResetMode="editDailyResetMode"
           :dailyResetHour="editDailyResetHour"
           :weeklyResetMode="editWeeklyResetMode"
@@ -3277,6 +3293,10 @@ adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)
+const editQuotaMonthlyLimit = ref<number | null>(null)
+const editMonthlyResetMode = ref<'rolling' | 'fixed' | null>(null)
+const editMonthlyResetDay = ref<number | null>(null)
+const editMonthlyResetHour = ref<number | null>(null)
 const editDailyResetMode = ref<'rolling' | 'fixed' | null>(null)
 const editDailyResetHour = ref<number | null>(null)
 const editWeeklyResetMode = ref<'rolling' | 'fixed' | null>(null)
@@ -3830,6 +3850,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editQuotaDailyLimit.value = (dailyVal && dailyVal > 0) ? dailyVal : null
     const weeklyVal = extra?.quota_weekly_limit as number | undefined
     editQuotaWeeklyLimit.value = (weeklyVal && weeklyVal > 0) ? weeklyVal : null
+    const monthlyVal = extra?.quota_monthly_limit as number | undefined
+    editQuotaMonthlyLimit.value = monthlyVal != null && monthlyVal > 0 ? monthlyVal : null
+    editMonthlyResetMode.value = (extra?.quota_monthly_reset_mode as 'rolling' | 'fixed') || null
+    editMonthlyResetDay.value = (extra?.quota_monthly_reset_day as number) ?? null
+    editMonthlyResetHour.value = (extra?.quota_monthly_reset_hour as number) ?? null
     // Load quota reset mode config
     editDailyResetMode.value = (extra?.quota_daily_reset_mode as 'rolling' | 'fixed') || null
     editDailyResetHour.value = (extra?.quota_daily_reset_hour as number) ?? null
@@ -3843,6 +3868,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editQuotaLimit.value = null
     editQuotaDailyLimit.value = null
     editQuotaWeeklyLimit.value = null
+    editQuotaMonthlyLimit.value = null
+    editMonthlyResetMode.value = null
+    editMonthlyResetDay.value = null
+    editMonthlyResetHour.value = null
     editDailyResetMode.value = null
     editDailyResetHour.value = null
     editWeeklyResetMode.value = null
@@ -5294,6 +5323,24 @@ const handleSubmit = async () => {
         delete newExtra.quota_weekly_used
         delete newExtra.quota_weekly_start
       }
+      // Omit monthly fields when disabled, following daily/weekly request semantics.
+      // The server protects its metering state; toggling a limit is not a manual usage reset.
+      const monthlyEnabled = editQuotaMonthlyLimit.value != null && editQuotaMonthlyLimit.value > 0
+      if (monthlyEnabled) {
+        newExtra.quota_monthly_limit = editQuotaMonthlyLimit.value
+        newExtra.quota_monthly_reset_mode = editMonthlyResetMode.value || 'rolling'
+        if (newExtra.quota_monthly_reset_mode === 'fixed') {
+          newExtra.quota_monthly_reset_day = editMonthlyResetDay.value ?? 1
+          newExtra.quota_monthly_reset_hour = editMonthlyResetHour.value ?? 0
+        } else {
+          delete newExtra.quota_monthly_reset_day
+          delete newExtra.quota_monthly_reset_hour
+        }
+      } else {
+        for (const key of ['limit', 'used', 'start', 'reset_mode', 'reset_day', 'reset_hour', 'reset_at']) {
+          delete newExtra[`quota_monthly_${key}`]
+        }
+      }
       // Quota reset mode config
       if (editDailyResetMode.value === 'fixed') {
         newExtra.quota_daily_reset_mode = 'fixed'
@@ -5311,7 +5358,8 @@ const handleSubmit = async () => {
         delete newExtra.quota_weekly_reset_day
         delete newExtra.quota_weekly_reset_hour
       }
-      if (editDailyResetMode.value === 'fixed' || editWeeklyResetMode.value === 'fixed') {
+      if (editDailyResetMode.value === 'fixed' || editWeeklyResetMode.value === 'fixed' ||
+          (monthlyEnabled && editMonthlyResetMode.value === 'fixed')) {
         newExtra.quota_reset_timezone = editResetTimezone.value || defaultQuotaResetTimezone(appStore.cachedPublicSettings?.server_timezone)
       } else {
         delete newExtra.quota_reset_timezone
