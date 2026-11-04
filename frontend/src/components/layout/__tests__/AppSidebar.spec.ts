@@ -133,6 +133,7 @@ import AppSidebar, { resetExpandedNavGroups } from '../AppSidebar.vue'
 const LABELS = {
   dashboard: '仪表盘',
   ops: '运维监控',
+  upstreamErrors: '上游错误',
   usage: '使用记录',
   users: '用户管理',
   adminApiKeys: '密钥总表',
@@ -299,6 +300,7 @@ describe('AppSidebar admin nav grouping', () => {
     expect(sectionEntries(wrapper, 'runtime')).toEqual([
       LABELS.dashboard,
       LABELS.ops,
+      LABELS.upstreamErrors,
       LABELS.usage
     ])
     expect(sectionEntries(wrapper, 'security')).toEqual([LABELS.securityAudit, LABELS.auditLogs])
@@ -372,6 +374,7 @@ describe('AppSidebar admin group expand/collapse', () => {
     expect(sectionEntries(wrapper, 'runtime')).toEqual([
       LABELS.dashboard,
       LABELS.ops,
+      LABELS.upstreamErrors,
       LABELS.usage
     ])
   })
@@ -459,6 +462,7 @@ describe('AppSidebar feature flags', () => {
 
     expect(sectionEntries(wrapper, 'runtime')).toEqual([LABELS.dashboard, LABELS.usage])
     expect(wrapper.text()).not.toContain(LABELS.ops)
+    expect(wrapper.text()).not.toContain(LABELS.upstreamErrors)
   })
 
   it('drops the 渠道监控 sub-item when channel monitor is disabled', async () => {
@@ -522,6 +526,7 @@ describe('AppSidebar simple mode', () => {
     expect(sectionEntries(wrapper, 'simple')).toEqual([
       LABELS.dashboard,
       LABELS.ops,
+      LABELS.upstreamErrors,
       LABELS.accounts,
       LABELS.proxies,
       LABELS.securityAudit,

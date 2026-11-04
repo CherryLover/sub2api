@@ -923,6 +923,58 @@ export interface OpsErrorLog {
 
 }
 
+export interface OpsUpstreamErrorAttempt {
+  at_unix_ms?: number
+  account_id?: number
+  account_name?: string
+  platform?: string
+  upstream_status_code?: number
+  upstream_request_id?: string
+  upstream_url?: string
+  upstream_response_body?: string
+  kind?: string
+  stage?: string
+  scope?: string
+  reason?: string
+  message?: string
+  detail?: string
+}
+
+export interface OpsUpstreamErrorRequest {
+  id: number
+  created_at: string
+  client_request_id: string
+  request_id: string
+  api_key_id: number | null
+  api_key_name: string
+  account_id: number | null
+  account_name: string
+  model: string
+  client_status_code: number
+  outcome: 'recovered' | 'failed'
+  attempts: OpsUpstreamErrorAttempt[]
+  final: { account_id: number; account_name: string } | null
+}
+
+export interface OpsUpstreamErrorRequestParams {
+  page: number
+  page_size: number
+  start_time: string
+  end_time: string
+  status_code?: number
+  api_key_id?: number
+  account_id?: number
+  outcome?: 'recovered' | 'failed'
+}
+
+export async function listUpstreamErrorRequests(
+  params: OpsUpstreamErrorRequestParams,
+  options: OpsRequestOptions = {}
+): Promise<{ items: OpsUpstreamErrorRequest[]; total: number; page: number; page_size: number }> {
+  const { data } = await apiClient.get('/admin/ops/upstream-error-requests', { params, signal: options.signal })
+  return data
+}
+
 export interface OpsErrorDetail extends OpsErrorLog {
   error_body: string
 
