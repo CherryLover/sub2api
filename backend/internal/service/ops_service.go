@@ -19,8 +19,9 @@ import (
 var ErrOpsDisabled = infraerrors.NotFound("OPS_DISABLED", "Ops monitoring is disabled")
 
 const (
-	opsMaxStoredErrorBodyBytes       = 20 * 1024
-	opsMaxStoredUpstreamDetailBytes  = 32 * 1024
+	opsMaxStoredErrorBodyBytes      = 20 * 1024
+	opsMaxStoredUpstreamDetailBytes = 32 * 1024
+
 	// OpsErrorLogQueueBodyMaxBytes bounds attacker-controlled response data while
 	// it waits in the asynchronous error-log queue.
 	OpsErrorLogQueueBodyMaxBytes = 32 * 1024
