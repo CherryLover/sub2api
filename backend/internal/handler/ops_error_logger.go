@@ -32,6 +32,7 @@ const (
 	opsAccountIDKey              = "ops_account_id"
 	opsRoutingCapacityLimitedKey = "ops_routing_capacity_limited"
 	opsErrorReasonKey            = "ops_error_reason"
+	opsReasoningEffortKey        = "ops_reasoning_effort"
 	opsRequestBodyCounterKey     = "ops_request_body_counter"
 
 	opsUpstreamModelKey = "ops_upstream_model"
@@ -576,6 +577,36 @@ func applyOpsErrorReasonFromContext(c *gin.Context, entry *service.OpsInsertErro
 	}
 }
 
+func setOpsReasoningEffortFromContext(c *gin.Context, effort *string) {
+	if c == nil || effort == nil {
+		return
+	}
+	if value := strings.TrimSpace(*effort); value != "" {
+		c.Set(opsReasoningEffortKey, value)
+	}
+}
+
+func setOpsClaudeReasoningEffort(c *gin.Context, model, outputEffort string, thinkingEnabled bool) {
+	effort := service.NormalizeClaudeOutputEffort(outputEffort)
+	if effort == nil && thinkingEnabled {
+		effort = service.DefaultEffortForThinkingEnabled(model)
+	}
+	setOpsReasoningEffortFromContext(c, effort)
+}
+
+func applyOpsReasoningEffortFromContext(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	if c == nil || entry == nil {
+		return
+	}
+	if v, ok := c.Get(opsReasoningEffortKey); ok {
+		if effort, ok := v.(string); ok {
+			if value := strings.TrimSpace(effort); value != "" {
+				entry.ReasoningEffort = &value
+			}
+		}
+	}
+}
+
 type opsCaptureWriter struct {
 	gin.ResponseWriter
 	limit int
@@ -996,6 +1027,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			}
 			applyOpsLatencyFieldsFromContext(c, entry)
 			applyOpsErrorReasonFromContext(c, entry)
+			applyOpsReasoningEffortFromContext(c, entry)
 			applyOpsRequestBodyBytesFromContext(c, entry)
 			applyOpsUpstreamFieldsFromContext(c, entry)
 
@@ -1139,6 +1171,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		}
 		applyOpsLatencyFieldsFromContext(c, entry)
 		applyOpsErrorReasonFromContext(c, entry)
+		applyOpsReasoningEffortFromContext(c, entry)
 		applyOpsRequestBodyBytesFromContext(c, entry)
 		applyOpsUpstreamFieldsFromContext(c, entry)
 		suppressOpsUpstreamAttributionForLocalModelConfiguration(c, entry)
@@ -1292,6 +1325,7 @@ func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) 
 	}
 	applyOpsLatencyFieldsFromContext(c, entry)
 	applyOpsErrorReasonFromContext(c, entry)
+	applyOpsReasoningEffortFromContext(c, entry)
 	applyOpsRequestBodyBytesFromContext(c, entry)
 
 	if apiKey != nil {

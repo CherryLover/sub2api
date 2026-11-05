@@ -105,6 +105,14 @@ func TestLoadHTTPIngressSafetyDefaults(t *testing.T) {
 	require.Equal(t, 16384, cfg.APIKeyAuth.InvalidAbuse.Capacity)
 }
 
+func TestLoadUpstreamErrorBodyLoggingDefaults(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Gateway.LogUpstreamErrorBody)
+	require.Equal(t, 32768, cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+}
+
 func TestLoadKeyUsageDefaults(t *testing.T) {
 	t.Run("enabled by default", func(t *testing.T) {
 		// 免登录用量页默认开启：必须持有一把本站有效 key（或其派生令牌）才能看到内容，

@@ -5,38 +5,67 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 var _ service.OpsUpstreamErrorRequestReader = (*opsRepository)(nil)
+var _ service.OpsUpstreamErrorRequestSummaryReader = (*opsRepository)(nil)
+var _ service.OpsUpstreamErrorRequestTrendReader = (*opsRepository)(nil)
 
-const opsUpstreamAttempts = `(SELECT COALESCE(jsonb_agg(v.item ORDER BY v.idx), '[]'::jsonb) FROM jsonb_array_elements(CASE WHEN jsonb_typeof(e.upstream_errors) = 'array' THEN e.upstream_errors ELSE '[]'::jsonb END) WITH ORDINALITY v(item,idx) WHERE jsonb_typeof(v.item) = 'object' AND (v.item ? 'upstream_status_code' OR v.item ? 'message' OR v.item ? 'detail'))`
+const opsUpstreamEventsJSON = `CASE WHEN jsonb_typeof(e.upstream_errors) = 'array' THEN e.upstream_errors ELSE '[]'::jsonb END`
+
+const opsUpstreamAttempts = `(SELECT COALESCE(jsonb_agg(v.item ORDER BY v.idx), '[]'::jsonb) FROM jsonb_array_elements(` + opsUpstreamEventsJSON + `) WITH ORDINALITY v(item,idx) WHERE jsonb_typeof(v.item) = 'object' AND (v.item ? 'upstream_status_code' OR v.item ? 'message' OR v.item ? 'detail'))`
+
+func opsUpstreamEventStatusSQL(event string) string {
+	status := fmt.Sprintf("(%s->>'upstream_status_code')", event)
+	return fmt.Sprintf("(CASE WHEN %s ~ '^[0-9]{1,3}$' THEN %s::int ELSE 0 END)", status, status)
+}
+
+func opsUpstreamFailureEventSQL(event string) string {
+	status := opsUpstreamEventStatusSQL(event)
+	return fmt.Sprintf(
+		`(%s >= 400 OR (%s = 0 AND COALESCE(%s->>'kind','') <> '' AND (COALESCE(%s->>'message','') <> '' OR COALESCE(%s->>'detail','') <> '')))`,
+		status, status, event, event, event,
+	)
+}
 
 func upstreamErrorRequestsWhere(f *service.OpsUpstreamErrorRequestFilter) (string, []any) {
 	args := []any{f.StartTime.UTC(), f.EndTime.UTC()}
 	clauses := []string{"e.created_at >= $1", "e.created_at < $2"}
-	codes := "('502','503')"
-	if f.StatusCode != 0 {
-		args = append(args, fmt.Sprint(f.StatusCode))
-		codes = fmt.Sprintf("($%d)", len(args))
-	}
-	// Match any attempt, not merely the last upstream status. Only legacy rows
-	// with no events fall back to the single top-level upstream status.
-	eventCondition := "ev->>'upstream_status_code' IN " + codes
-	legacyCondition := "COALESCE(e.upstream_status_code,e.status_code,0)::text IN " + codes
 	if f.APIKeyID > 0 {
 		args = append(args, f.APIKeyID)
 		clauses = append(clauses, fmt.Sprintf("e.api_key_id = $%d", len(args)))
 	}
+	eventAccountCond := ""
+	legacyAccountCond := ""
 	if f.AccountID > 0 {
-		args = append(args, fmt.Sprint(f.AccountID))
+		args = append(args, strconv.FormatInt(f.AccountID, 10))
 		p := fmt.Sprintf("$%d", len(args))
-		eventCondition += " AND ev->>'account_id' = " + p
-		legacyCondition += " AND e.account_id::text = " + p
+		eventAccountCond = " AND ev->>'account_id' = " + p
+		legacyAccountCond = " AND e.account_id::text = " + p
 	}
-	clauses = append(clauses, `(EXISTS (SELECT 1 FROM jsonb_array_elements(`+opsUpstreamAttempts+`) ev WHERE `+eventCondition+`) OR (jsonb_array_length(`+opsUpstreamAttempts+`) = 0 AND `+legacyCondition+`))`)
+	noEvents := "jsonb_array_length(" + opsUpstreamEventsJSON + ") = 0"
+	legacyPhase := "LOWER(TRIM(COALESCE(e.error_phase,''))) IN ('upstream','network','account_auth')"
+	legacyFailure := "COALESCE(e.upstream_status_code,e.status_code,0) >= 400"
+	failureExists := `EXISTS (SELECT 1 FROM jsonb_array_elements(` + opsUpstreamEventsJSON + `) ev WHERE jsonb_typeof(ev) = 'object' AND ` +
+		opsUpstreamFailureEventSQL("ev") + eventAccountCond + `)`
+	legacyIncluded := `(` + noEvents + ` AND ` + legacyPhase + ` AND ` + legacyFailure + legacyAccountCond + `)`
+	clauses = append(clauses, `(`+failureExists+` OR `+legacyIncluded+`)`)
+	if f.StatusCode != 0 {
+		args = append(args, f.StatusCode)
+		p := fmt.Sprintf("$%d", len(args))
+		eventStatusMatch := `EXISTS (SELECT 1 FROM jsonb_array_elements(` + opsUpstreamEventsJSON + `) ev WHERE jsonb_typeof(ev) = 'object' AND ` +
+			opsUpstreamEventStatusSQL("ev") + ` = ` + p + eventAccountCond + `)`
+		legacyStatusMatch := `(` + noEvents + ` AND COALESCE(e.upstream_status_code,e.status_code,0) = ` + p + `)`
+		clauses = append(clauses, `(`+eventStatusMatch+` OR `+legacyStatusMatch+`)`)
+	}
+	if f.FinalStatusCode != 0 {
+		args = append(args, f.FinalStatusCode)
+		clauses = append(clauses, fmt.Sprintf("e.status_code = $%d", len(args)))
+	}
 	if f.Outcome == "recovered" {
 		clauses = append(clauses, "COALESCE(e.status_code,0) >= 200 AND COALESCE(e.status_code,0) < 300")
 	}
@@ -52,7 +81,7 @@ func (r *opsRepository) ListUpstreamErrorRequests(ctx context.Context, f *servic
 		return nil, err
 	}
 	query := `WITH page AS (SELECT e.* FROM ops_error_logs e ` + where + fmt.Sprintf(` ORDER BY e.created_at DESC,e.id DESC LIMIT $%d OFFSET $%d)
- SELECT e.id,e.created_at,COALESCE(e.client_request_id,''),COALESCE(e.request_id,''),e.api_key_id,COALESCE(k.name,''),e.account_id,COALESCE(a.name,''),COALESCE(NULLIF(e.requested_model,''),e.model,''),COALESCE(e.status_code,0),(`, len(args)+1, len(args)+2) + opsUpstreamAttempts + `)::text,e.upstream_status_code,COALESCE(e.upstream_error_message,e.error_message,''),COALESCE(e.upstream_error_detail,''),u.account_id,COALESCE(fa.name,'')
+ SELECT e.id,e.created_at,COALESCE(e.client_request_id,''),COALESCE(e.request_id,''),e.api_key_id,COALESCE(k.name,''),e.account_id,COALESCE(a.name,''),COALESCE(NULLIF(e.requested_model,''),e.model,''),COALESCE(e.reasoning_effort,''),e.request_body_bytes,COALESCE(e.status_code,0),(`, len(args)+1, len(args)+2) + opsUpstreamAttempts + `)::text,e.upstream_status_code,COALESCE(e.upstream_error_message,e.error_message,''),COALESCE(e.upstream_error_detail,''),u.account_id,COALESCE(fa.name,'')
  FROM page e
  LEFT JOIN api_keys k ON k.id=e.api_key_id
  LEFT JOIN accounts a ON a.id=e.account_id
@@ -75,9 +104,14 @@ func (r *opsRepository) ListUpstreamErrorRequests(ctx context.Context, f *servic
 	for rows.Next() {
 		item := &service.OpsUpstreamErrorRequest{}
 		var key, account, final, status sql.NullInt64
+		var requestBodyBytes sql.NullInt64
 		var raw, message, detail, finalName string
-		if err := rows.Scan(&item.ID, &item.CreatedAt, &item.ClientRequestID, &item.RequestID, &key, &item.APIKeyName, &account, &item.AccountName, &item.Model, &item.ClientStatusCode, &raw, &status, &message, &detail, &final, &finalName); err != nil {
+		if err := rows.Scan(&item.ID, &item.CreatedAt, &item.ClientRequestID, &item.RequestID, &key, &item.APIKeyName, &account, &item.AccountName, &item.Model, &item.ReasoningEffort, &requestBodyBytes, &item.ClientStatusCode, &raw, &status, &message, &detail, &final, &finalName); err != nil {
 			return nil, err
+		}
+		if requestBodyBytes.Valid {
+			v := requestBodyBytes.Int64
+			item.RequestBodyBytes = &v
 		}
 		if key.Valid {
 			v := key.Int64
@@ -128,6 +162,88 @@ func (r *opsRepository) ListUpstreamErrorRequests(ctx context.Context, f *servic
 			item.Final = &service.OpsUpstreamErrorRequestFinal{AccountID: final.Int64, AccountName: finalName}
 		}
 		out.Items = append(out.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func buildUpstreamErrorRequestSummarySQL(f *service.OpsUpstreamErrorRequestFilter) (string, []any, string, []any) {
+	where, args := upstreamErrorRequestsWhere(f)
+	attempts := `(SELECT COUNT(*) FROM jsonb_array_elements(` + opsUpstreamEventsJSON + `) ev WHERE jsonb_typeof(ev) = 'object' AND ` + opsUpstreamFailureEventSQL("ev") + `)`
+	summarySQL := `WITH matched AS MATERIALIZED (
+ SELECT e.status_code,e.upstream_errors
+ FROM ops_error_logs e ` + where + `
+)
+SELECT COUNT(*),
+       COUNT(*) FILTER (WHERE COALESCE(e.status_code,0) >= 200 AND COALESCE(e.status_code,0) < 300),
+       COUNT(*) FILTER (WHERE NOT (COALESCE(e.status_code,0) >= 200 AND COALESCE(e.status_code,0) < 300)),
+       COALESCE(SUM(` + attempts + `),0)
+FROM matched e`
+
+	failedFilter := *f
+	failedFilter.Outcome = "failed"
+	failedWhere, failedArgs := upstreamErrorRequestsWhere(&failedFilter)
+	failedSQL := `SELECT e.status_code,COUNT(*)
+FROM ops_error_logs e ` + failedWhere + `
+ AND e.status_code IS NOT NULL
+GROUP BY e.status_code
+ORDER BY COUNT(*) DESC,e.status_code ASC
+LIMIT 10`
+	return summarySQL, args, failedSQL, failedArgs
+}
+
+func (r *opsRepository) SummarizeUpstreamErrorRequests(ctx context.Context, f *service.OpsUpstreamErrorRequestFilter) (*service.OpsUpstreamErrorRequestSummary, error) {
+	summarySQL, summaryArgs, failedSQL, failedArgs := buildUpstreamErrorRequestSummarySQL(f)
+	out := &service.OpsUpstreamErrorRequestSummary{FailedByStatus: []service.OpsUpstreamErrorStatusCount{}}
+	if err := r.db.QueryRowContext(ctx, summarySQL, summaryArgs...).Scan(&out.Total, &out.Recovered, &out.Failed, &out.Attempts); err != nil {
+		return nil, err
+	}
+	rows, err := r.db.QueryContext(ctx, failedSQL, failedArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var item service.OpsUpstreamErrorStatusCount
+		if err := rows.Scan(&item.StatusCode, &item.Count); err != nil {
+			return nil, err
+		}
+		out.FailedByStatus = append(out.FailedByStatus, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func buildUpstreamErrorRequestTrendSQL(f *service.OpsUpstreamErrorRequestFilter) (string, []any) {
+	where, args := upstreamErrorRequestsWhere(f)
+	query := `SELECT TO_CHAR((e.created_at AT TIME ZONE 'Asia/Shanghai')::date, 'YYYY-MM-DD'),
+       COUNT(*),
+       COUNT(*) FILTER (WHERE COALESCE(e.status_code,0) >= 200 AND COALESCE(e.status_code,0) < 300),
+       COUNT(*) FILTER (WHERE NOT (COALESCE(e.status_code,0) >= 200 AND COALESCE(e.status_code,0) < 300))
+FROM ops_error_logs e ` + where + `
+GROUP BY 1
+ORDER BY 1 ASC`
+	return query, args
+}
+
+func (r *opsRepository) GetUpstreamErrorRequestTrend(ctx context.Context, f *service.OpsUpstreamErrorRequestFilter) ([]*service.OpsUpstreamErrorTrendDay, error) {
+	query, args := buildUpstreamErrorRequestTrendSQL(f)
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := make([]*service.OpsUpstreamErrorTrendDay, 0)
+	for rows.Next() {
+		item := &service.OpsUpstreamErrorTrendDay{}
+		if err := rows.Scan(&item.Date, &item.Total, &item.Recovered, &item.Failed); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

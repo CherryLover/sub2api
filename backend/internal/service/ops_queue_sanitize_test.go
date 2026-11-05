@@ -3,7 +3,13 @@ package service
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
+
+func TestOpsErrorLogQueueBodyLimitIs32KB(t *testing.T) {
+	require.Equal(t, 32*1024, OpsErrorLogQueueBodyMaxBytes)
+}
 
 func TestSanitizeOpsUpstreamErrorsForQueueBoundsAndRedacts(t *testing.T) {
 	entry := &OpsInsertErrorLogInput{}
@@ -46,4 +52,22 @@ func TestSanitizeOpsUpstreamErrorsForQueueBoundsAndRedacts(t *testing.T) {
 			t.Fatal("credential material was not redacted")
 		}
 	}
+}
+
+func TestSanitizeOpsUpstreamErrorsForQueueTruncatesDetailAt32KB(t *testing.T) {
+	detail := strings.Repeat("d", 40*1024)
+	entry := &OpsInsertErrorLogInput{
+		UpstreamErrors: []*OpsUpstreamErrorEvent{{
+			UpstreamStatusCode: 502,
+			Detail:             detail,
+		}},
+	}
+
+	require.NoError(t, SanitizeOpsUpstreamErrorsForQueue(entry))
+	require.NotNil(t, entry.UpstreamErrorsJSON)
+	events, err := ParseOpsUpstreamErrors(*entry.UpstreamErrorsJSON)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Len(t, events[0].Detail, OpsErrorLogQueueBodyMaxBytes)
+	require.Greater(t, len(events[0].Detail), 8*1024)
 }

@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,10 +17,16 @@ import (
 
 type upstreamErrorRequestsServiceRepo struct {
 	OpsRepository
-	filter *OpsUpstreamErrorRequestFilter
-	result *OpsUpstreamErrorRequestList
-	err    error
-	calls  int
+	filter        *OpsUpstreamErrorRequestFilter
+	summaryFilter *OpsUpstreamErrorRequestFilter
+	trendFilter   *OpsUpstreamErrorRequestFilter
+	result        *OpsUpstreamErrorRequestList
+	summary       *OpsUpstreamErrorRequestSummary
+	trendRows     []*OpsUpstreamErrorTrendDay
+	err           error
+	calls         int
+	summaryCalls  int
+	trendCalls    int
 }
 
 func (r *upstreamErrorRequestsServiceRepo) ListUpstreamErrorRequests(_ context.Context, f *OpsUpstreamErrorRequestFilter) (*OpsUpstreamErrorRequestList, error) {
@@ -30,6 +37,23 @@ func (r *upstreamErrorRequestsServiceRepo) ListUpstreamErrorRequests(_ context.C
 		r.result = &OpsUpstreamErrorRequestList{Items: []*OpsUpstreamErrorRequest{}}
 	}
 	return r.result, r.err
+}
+
+func (r *upstreamErrorRequestsServiceRepo) SummarizeUpstreamErrorRequests(_ context.Context, f *OpsUpstreamErrorRequestFilter) (*OpsUpstreamErrorRequestSummary, error) {
+	r.summaryCalls++
+	copy := *f
+	r.summaryFilter = &copy
+	if r.summary == nil {
+		r.summary = &OpsUpstreamErrorRequestSummary{}
+	}
+	return r.summary, r.err
+}
+
+func (r *upstreamErrorRequestsServiceRepo) GetUpstreamErrorRequestTrend(_ context.Context, f *OpsUpstreamErrorRequestFilter) ([]*OpsUpstreamErrorTrendDay, error) {
+	r.trendCalls++
+	copy := *f
+	r.trendFilter = &copy
+	return r.trendRows, r.err
 }
 func TestOpsUpstreamErrorRequestsService_DefaultsAndBoundaries(t *testing.T) {
 	end := time.Date(2026, 11, 4, 2, 0, 0, 0, time.UTC)
@@ -70,10 +94,14 @@ func TestOpsUpstreamErrorRequestsService_InvalidFiltersDoNotQuery(t *testing.T) 
 		filter       OpsUpstreamErrorRequestFilter
 	}{
 		{"page", "OPS_PAGE_INVALID", OpsUpstreamErrorRequestFilter{Page: 10000001}},
-		{"status", "OPS_STATUS_INVALID", OpsUpstreamErrorRequestFilter{StatusCode: 500}},
+		{"status low", "OPS_STATUS_INVALID", OpsUpstreamErrorRequestFilter{StatusCode: 99}},
+		{"status high", "OPS_STATUS_INVALID", OpsUpstreamErrorRequestFilter{StatusCode: 600}},
+		{"final status low", "OPS_FINAL_STATUS_INVALID", OpsUpstreamErrorRequestFilter{FinalStatusCode: 99}},
+		{"final status high", "OPS_FINAL_STATUS_INVALID", OpsUpstreamErrorRequestFilter{FinalStatusCode: 600}},
 		{"outcome", "OPS_OUTCOME_INVALID", OpsUpstreamErrorRequestFilter{Outcome: "Recovered"}},
 		{"equal time", "OPS_TIME_RANGE_INVALID", OpsUpstreamErrorRequestFilter{StartTime: at, EndTime: at}},
 		{"reversed time", "OPS_TIME_RANGE_INVALID", OpsUpstreamErrorRequestFilter{StartTime: at, EndTime: at.Add(-time.Second)}},
+		{"range too wide", "OPS_TIME_RANGE_INVALID", OpsUpstreamErrorRequestFilter{StartTime: at, EndTime: at.Add(31*24*time.Hour + time.Second)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &upstreamErrorRequestsServiceRepo{}
@@ -83,6 +111,80 @@ func TestOpsUpstreamErrorRequestsService_InvalidFiltersDoNotQuery(t *testing.T) 
 			require.Zero(t, repo.calls)
 		})
 	}
+}
+
+func TestOpsUpstreamErrorRequestsService_StatusCodeBoundaries(t *testing.T) {
+	for _, code := range []int{100, 599} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			repo := &upstreamErrorRequestsServiceRepo{}
+			f := &OpsUpstreamErrorRequestFilter{StatusCode: code, FinalStatusCode: code}
+			_, err := NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).ListUpstreamErrorRequests(context.Background(), f)
+			require.NoError(t, err)
+			require.Equal(t, 1, repo.calls)
+			require.Equal(t, code, repo.filter.StatusCode)
+			require.Equal(t, code, repo.filter.FinalStatusCode)
+		})
+	}
+}
+
+func TestOpsUpstreamErrorTrend_WindowFillAndTimezone(t *testing.T) {
+	now := time.Date(2026, 11, 4, 16, 30, 0, 0, time.UTC)
+	today, start, end := opsUpstreamErrorTrendWindow(7, now)
+	require.Equal(t, "2026-11-05", today.Format("2006-01-02"))
+	require.Equal(t, "2026-10-30", start.Format("2006-01-02"))
+	require.Equal(t, "2026-11-06", end.Format("2006-01-02"))
+	require.Equal(t, 7*24*time.Hour, end.Sub(start))
+
+	rows := []*OpsUpstreamErrorTrendDay{
+		{Date: "2026-10-30", Total: 2, Recovered: 1, Failed: 1},
+		nil,
+		{Date: "2026-11-05", Total: 3, Recovered: 2, Failed: 1},
+	}
+	filled := fillOpsUpstreamErrorTrend(7, today, rows)
+	require.Len(t, filled, 7)
+	require.Equal(t, "2026-10-30", filled[0].Date)
+	require.EqualValues(t, 2, filled[0].Total)
+	for _, point := range filled[1:6] {
+		require.Zero(t, point.Total)
+		require.Zero(t, point.Recovered)
+		require.Zero(t, point.Failed)
+	}
+	require.Equal(t, "2026-11-05", filled[6].Date)
+	require.EqualValues(t, 3, filled[6].Total)
+}
+
+func TestOpsUpstreamErrorTrend_RejectsUnsupportedDays(t *testing.T) {
+	repo := &upstreamErrorRequestsServiceRepo{}
+	svc := NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	for _, days := range []int{0, 1, 6, 8, 15, 31} {
+		_, err := svc.GetUpstreamErrorRequestTrend(context.Background(), &OpsUpstreamErrorRequestFilter{}, days)
+		require.Equal(t, "OPS_TREND_DAYS_INVALID", infraerrors.Reason(err))
+	}
+	require.Zero(t, repo.trendCalls)
+}
+
+func TestOpsUpstreamErrorTrend_ForwardsFiltersAndFillsMissingDays(t *testing.T) {
+	repo := &upstreamErrorRequestsServiceRepo{
+		trendRows: []*OpsUpstreamErrorTrendDay{{Date: "2026-11-05", Total: 4}},
+	}
+	svc := NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	filter := &OpsUpstreamErrorRequestFilter{
+		StartTime: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2020, 1, 2, 0, 0, 0, 0, time.UTC),
+		StatusCode: 429, FinalStatusCode: 503, APIKeyID: 7, AccountID: 9, Outcome: "failed",
+	}
+
+	result, err := svc.GetUpstreamErrorRequestTrend(context.Background(), filter, 14)
+
+	require.NoError(t, err)
+	require.Len(t, result.Days, 14)
+	require.Equal(t, 1, repo.trendCalls)
+	require.Equal(t, 429, repo.trendFilter.StatusCode)
+	require.Equal(t, 503, repo.trendFilter.FinalStatusCode)
+	require.Equal(t, int64(7), repo.trendFilter.APIKeyID)
+	require.Equal(t, int64(9), repo.trendFilter.AccountID)
+	require.Equal(t, "failed", repo.trendFilter.Outcome)
+	require.Equal(t, 14*24*time.Hour, repo.trendFilter.EndTime.Sub(repo.trendFilter.StartTime))
 }
 func TestOpsUpstreamErrorRequestsService_UnavailableAndErrors(t *testing.T) {
 	repo := &upstreamErrorRequestsServiceRepo{}
