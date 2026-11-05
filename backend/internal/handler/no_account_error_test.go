@@ -115,6 +115,9 @@ func TestClassifyNoAccountError_ModelNotSupported_Returns404(t *testing.T) {
 	require.Equal(t, int64(42), *fd.calls[0].GroupID)
 	require.True(t, service.HasOpsClientBusinessLimited(c))
 	require.Equal(t, service.OpsClientBusinessLimitedReasonLocalModelConfiguration, service.OpsClientBusinessLimitedReason(c))
+	reason, ok := c.Get(opsErrorReasonKey)
+	require.True(t, ok)
+	require.Equal(t, service.OpsNoAccountReasonModelNotSupported, reason)
 }
 
 func TestClassifyOpenAICompatibleNoAccountError_GrokUsesGrokPlatform(t *testing.T) {

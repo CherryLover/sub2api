@@ -912,6 +912,8 @@ export interface OpsErrorLog {
   client_ip?: string | null
   request_path?: string
   stream?: boolean
+  // 网关实际读到的客户端请求体字节数；无请求体或旧数据为空
+  request_body_bytes?: number | null
 
   // Error observability context (endpoint + model mapping)
   inbound_endpoint?: string
@@ -921,6 +923,112 @@ export interface OpsErrorLog {
   request_type?: number | null
   user_agent?: string
 
+}
+
+export interface OpsUpstreamErrorAttempt {
+  at_unix_ms?: number
+  account_id?: number
+  account_name?: string
+  platform?: string
+  upstream_status_code?: number
+  upstream_request_id?: string
+  upstream_url?: string
+  upstream_response_body?: string
+  kind?: string
+  stage?: string
+  scope?: string
+  reason?: string
+  message?: string
+  detail?: string
+}
+
+export interface OpsUpstreamErrorRequest {
+  id: number
+  created_at: string
+  client_request_id: string
+  request_id: string
+  api_key_id: number | null
+  api_key_name: string
+  account_id: number | null
+  account_name: string
+  model: string
+  reasoning_effort: string
+  request_body_bytes: number | null
+  client_status_code: number
+  outcome: 'recovered' | 'failed'
+  attempts: OpsUpstreamErrorAttempt[]
+  final: { account_id: number; account_name: string } | null
+}
+
+export interface OpsUpstreamErrorFilterParams {
+  start_time: string
+  end_time: string
+  status_code?: number
+  final_status_code?: number
+  api_key_id?: number
+  account_id?: number
+  outcome?: 'recovered' | 'failed'
+}
+
+export interface OpsUpstreamErrorRequestParams extends OpsUpstreamErrorFilterParams {
+  page: number
+  page_size: number
+}
+
+export type OpsUpstreamErrorTrendDays = 7 | 14 | 30
+
+export type OpsUpstreamErrorTrendFilters = Omit<
+  OpsUpstreamErrorFilterParams,
+  'start_time' | 'end_time'
+>
+
+export interface OpsUpstreamErrorTrendParams extends OpsUpstreamErrorTrendFilters {
+  days: OpsUpstreamErrorTrendDays
+}
+
+export interface OpsUpstreamErrorRequestsSummary {
+  total: number
+  recovered: number
+  failed: number
+  attempts: number
+  failed_by_status: Array<{ status_code: number; count: number }>
+}
+
+export interface OpsUpstreamErrorTrendPoint {
+  date: string
+  total: number
+  recovered: number
+  failed: number
+}
+
+export async function listUpstreamErrorRequests(
+  params: OpsUpstreamErrorRequestParams,
+  options: OpsRequestOptions = {}
+): Promise<{ items: OpsUpstreamErrorRequest[]; total: number; page: number; page_size: number }> {
+  const { data } = await apiClient.get('/admin/ops/upstream-error-requests', { params, signal: options.signal })
+  return data
+}
+
+export async function getUpstreamErrorRequestsSummary(
+  params: OpsUpstreamErrorFilterParams,
+  options: OpsRequestOptions = {}
+): Promise<OpsUpstreamErrorRequestsSummary> {
+  const { data } = await apiClient.get('/admin/ops/upstream-error-requests/summary', {
+    params,
+    signal: options.signal
+  })
+  return data
+}
+
+export async function getUpstreamErrorRequestsTrend(
+  params: OpsUpstreamErrorTrendParams,
+  options: OpsRequestOptions = {}
+): Promise<{ days: OpsUpstreamErrorTrendPoint[] }> {
+  const { data } = await apiClient.get('/admin/ops/upstream-error-requests/trend', {
+    params,
+    signal: options.signal
+  })
+  return data
 }
 
 export interface OpsErrorDetail extends OpsErrorLog {
@@ -945,6 +1053,22 @@ export interface OpsErrorDetail extends OpsErrorLog {
 }
 
 export type OpsErrorLogsResponse = PaginatedResponse<OpsErrorLog>
+
+export interface OpsErrorKindSummary {
+  kind: string
+  phase: string
+  status_code: number
+  reason: string
+  sample_message: string
+  count: number
+  failed: number
+  recovered: number
+}
+
+export interface OpsErrorLogSummaryResponse {
+  total: number
+  items: OpsErrorKindSummary[]
+}
 
 export async function getDashboardOverview(
   params: {
@@ -1092,6 +1216,11 @@ export type OpsErrorListQueryParams = {
   q?: string
   status_codes?: string
   status_codes_other?: string
+  // Normalized kind returned by getErrorLogsSummary. "other" is synthetic and
+  // intentionally rejected by the list endpoint.
+  error_kind?: string
+  // 只看请求体不小于该字节数的错误请求
+  min_request_body_bytes?: number
 
   // 服务端排序,列白名单见后端 opsErrorLogsOrderBy(created_at/model/status_code)
   sort_by?: string
@@ -1099,8 +1228,25 @@ export type OpsErrorListQueryParams = {
 }
 
 // Legacy unified endpoints
-export async function listErrorLogs(params: OpsErrorListQueryParams): Promise<OpsErrorLogsResponse> {
-  const { data } = await apiClient.get<OpsErrorLogsResponse>('/admin/ops/errors', { params })
+export async function listErrorLogs(
+  params: OpsErrorListQueryParams,
+  options: OpsRequestOptions = {}
+): Promise<OpsErrorLogsResponse> {
+  const { data } = await apiClient.get<OpsErrorLogsResponse>('/admin/ops/errors', {
+    params,
+    signal: options.signal,
+  })
+  return data
+}
+
+export async function getErrorLogsSummary(
+  params: OpsErrorListQueryParams,
+  options: OpsRequestOptions = {}
+): Promise<OpsErrorLogSummaryResponse> {
+  const { data } = await apiClient.get<OpsErrorLogSummaryResponse>('/admin/ops/errors/summary', {
+    params,
+    signal: options.signal,
+  })
   return data
 }
 
@@ -1330,6 +1476,7 @@ export const opsAPI = {
 
   // Legacy unified endpoints
   listErrorLogs,
+  getErrorLogsSummary,
 
   // New split endpoints
   listRequestErrors,

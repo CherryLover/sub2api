@@ -109,6 +109,9 @@ func classifyNoAccountErrorFromGin(
 	classification := classifyNoAccountError(ctx, diag, apiKey, routingModel, displayModel, platform)
 	if classification.ModelNotFound {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+		if c != nil {
+			c.Set(opsErrorReasonKey, service.OpsNoAccountReasonModelNotSupported)
+		}
 	}
 	return classification
 }

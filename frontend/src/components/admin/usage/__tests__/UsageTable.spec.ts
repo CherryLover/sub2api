@@ -84,6 +84,7 @@ const DataTableStub = {
     <div>
       <div v-for="row in data" :key="row.request_id">
         <slot name="cell-model" :row="row" :value="row.model" />
+        <div data-testid="reasoning-effort"><slot name="cell-reasoning_effort" :row="row" /></div>
         <slot name="cell-billing_mode" :row="row" />
         <slot name="cell-tokens" :row="row" />
         <slot name="cell-cost" :row="row" />
@@ -120,6 +121,24 @@ const baseImageRow = {
   image_size_source: null,
   image_size_breakdown: null,
 }
+
+describe('usage reasoning effort', () => {
+  it.each(['low', 'medium', 'high', 'none', 'minimal', 'xhigh', 'max', 'vendor_custom', null])(
+    'renders the recorded effort %s in the shared admin/user table',
+    (effort) => {
+      const wrapper = mount(UsageTable, {
+        props: {
+          data: [{ ...baseImageRow, reasoning_effort: effort }],
+          loading: false,
+          columns: [{ key: 'reasoning_effort', label: 'Reasoning Effort' }],
+        },
+        global: { stubs: { DataTable: DataTableStub } },
+      })
+      expect(wrapper.get('[data-testid="reasoning-effort"]').text()).toBe(effort ?? '-')
+      wrapper.unmount()
+    },
+  )
+})
 
 describe('admin UsageTable tooltip', () => {
   beforeEach(() => {
@@ -561,6 +580,7 @@ const DataTableStubWithUser = {
       <div v-for="row in data" :key="row.request_id">
         <slot name="cell-user" :row="row" />
         <slot name="cell-model" :row="row" :value="row.model" />
+        <div data-testid="reasoning-effort"><slot name="cell-reasoning_effort" :row="row" /></div>
         <slot name="cell-billing_mode" :row="row" />
         <slot name="cell-tokens" :row="row" />
         <slot name="cell-cost" :row="row" />

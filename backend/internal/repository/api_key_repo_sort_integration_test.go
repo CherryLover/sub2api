@@ -79,6 +79,48 @@ func (s *APIKeyRepoSuite) TestListByUserID_SortByNameAsc() {
 	s.Require().Equal("z-key", keys[1].Name)
 }
 
+func (s *APIKeyRepoSuite) TestListByUserID_SortByGroupName() {
+	user := s.mustCreateUser("sort-group@example.com")
+	otherUser := s.mustCreateUser("sort-group-other@example.com")
+	zGroup := s.mustCreateGroup("z-group")
+	aGroup := s.mustCreateGroup("a-group")
+	z := s.mustCreateApiKey(user.ID, "sk-group-z", "match-z", &zGroup.ID)
+	a1 := s.mustCreateApiKey(user.ID, "sk-group-a1", "match-a1", &aGroup.ID)
+	a2 := s.mustCreateApiKey(user.ID, "sk-group-a2", "match-a2", &aGroup.ID)
+	n1 := s.mustCreateApiKey(user.ID, "sk-group-null1", "match-null1", nil)
+	n2 := s.mustCreateApiKey(user.ID, "sk-group-null2", "match-null2", nil)
+	s.mustCreateApiKey(otherUser.ID, "sk-group-other", "match-other", &aGroup.ID)
+	excluded := s.mustCreateApiKey(user.ID, "sk-group-excluded", "excluded", &aGroup.ID)
+	_, err := s.client.APIKey.UpdateOneID(excluded.ID).SetStatus(service.StatusAPIKeyInactive).Save(s.ctx)
+	s.Require().NoError(err)
+
+	list := func(page, size int, order string, filters service.APIKeyListFilters, total int) []int64 {
+		keys, result, err := s.repo.ListByUserID(s.ctx, user.ID, pagination.PaginationParams{
+			Page: page, PageSize: size, SortBy: "group_name", SortOrder: order,
+		}, filters)
+		s.Require().NoError(err)
+		s.Require().EqualValues(total, result.Total)
+		return apiKeyIDsOf(keys)
+	}
+	filters := service.APIKeyListFilters{Search: "match", Status: service.StatusActive}
+	s.Require().Equal([]int64{a1.ID, a2.ID, z.ID, n1.ID, n2.ID}, list(1, 10, "asc", filters, 5))
+	s.Require().Equal([]int64{z.ID, a2.ID, a1.ID, n2.ID, n1.ID}, list(1, 10, "desc", filters, 5))
+	for _, order := range []string{"asc", "desc"} {
+		all := list(1, 10, order, filters, 5)
+		paged := append(list(1, 2, order, filters, 5), list(2, 2, order, filters, 5)...)
+		paged = append(paged, list(3, 2, order, filters, 5)...)
+		s.Require().Equal(all, paged)
+	}
+	filters.GroupID = &aGroup.ID
+	s.Require().Equal([]int64{a2.ID, a1.ID}, list(1, 10, "desc", filters, 2))
+	// Resolve the current bound group and current name, not a cached display label.
+	_, err = s.client.APIKey.UpdateOneID(z.ID).SetGroupID(aGroup.ID).Save(s.ctx)
+	s.Require().NoError(err)
+	_, err = s.client.Group.UpdateOneID(aGroup.ID).SetName("renamed-group").Save(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal([]int64{z.ID, a1.ID, a2.ID}, list(1, 10, "asc", filters, 3))
+}
+
 func (s *APIKeyRepoSuite) TestListByUserID_SortByID() {
 	user := s.mustCreateUser("sort-id@example.com")
 	first := s.mustCreateApiKey(user.ID, "sk-id-a", "a-key", nil)

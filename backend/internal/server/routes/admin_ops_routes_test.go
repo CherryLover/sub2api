@@ -33,4 +33,5 @@ func TestRegisterOpsRoutesHasNoWildcardConflict(t *testing.T) {
 	require.Contains(t, paths, "/api/v1/admin/ops/requests/:clientRequestId/chain")
 	require.Contains(t, paths, "/api/v1/admin/ops/requests", "既有的请求钻取列表不能被顶掉")
 	require.Contains(t, paths, "/api/v1/admin/ops/request-errors/:id")
+	require.Contains(t, paths, "/api/v1/admin/ops/errors/summary")
 }

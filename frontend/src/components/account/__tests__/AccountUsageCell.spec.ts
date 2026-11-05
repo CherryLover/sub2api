@@ -106,6 +106,23 @@ describe('AccountUsageCell', () => {
     })
   })
 
+  it.each([
+    ['rolling', '2026-01-31T12:00:00Z', undefined, '2026-03-02T12:00:00.000Z'],
+    ['rolling', undefined, undefined, null],
+    ['rolling', 'invalid', undefined, null],
+    ['fixed', undefined, '2026-02-15T00:00:00Z', '2026-02-15T00:00:00Z'],
+  ])('monthly %s reset start=%s', (mode, start, reset, expected) => {
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: makeAccount({ platform: 'openai', type: 'apikey', quota_monthly_limit: 100, quota_monthly_used: 25,
+        extra: { quota_monthly_reset_mode: mode, quota_monthly_start: start, quota_monthly_reset_at: reset } }) },
+      global: { stubs: { UsageProgressBar: true } },
+    })
+    const bar = wrapper.findComponent({ name: 'UsageProgressBar' })
+    expect(bar.props()).toMatchObject({ label: '30d', utilization: 25, resetsAt: expected })
+    expect(wrapper.text()).not.toContain('-')
+    wrapper.unmount()
+  })
+
   it('renders eligible Ollama Cloud state and forwards query updates', async () => {
     const wrapper = mount(AccountUsageCell, {
       props: {

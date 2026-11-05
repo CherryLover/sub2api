@@ -229,6 +229,33 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(wrapper.find('[data-testid="create-openai-ws-mode"]').exists()).toBe(true)
   })
 
+  it.each(['fixed', 'rolling'] as const)('serializes monthly %s quota when creating an API key account', async (mode) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Monthly quota')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-test')
+    const card = wrapper.findComponent({ name: 'QuotaLimitCard' })
+    card.vm.$emit('update:monthlyLimit', 123.45)
+    card.vm.$emit('update:monthlyResetMode', mode)
+    card.vm.$emit('update:monthlyResetDay', 31)
+    card.vm.$emit('update:monthlyResetHour', 23)
+    card.vm.$emit('update:resetTimezone', 'Asia/Shanghai')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const extra = createAccountMock.mock.calls[0]?.[0]?.extra
+    expect(extra.quota_monthly_limit).toBe(123.45)
+    expect(extra.quota_monthly_reset_mode).toBe(mode)
+    if (mode === 'fixed') {
+      expect(extra.quota_monthly_reset_day).toBe(31)
+      expect(extra.quota_monthly_reset_hour).toBe(23)
+      expect(extra.quota_reset_timezone).toBe('Asia/Shanghai')
+    } else {
+      expect(extra.quota_monthly_reset_day).toBeUndefined()
+      expect(extra.quota_monthly_reset_hour).toBeUndefined()
+    }
+  })
+
   it('sends false explicitly for normal OpenAI account creation by default', async () => {
     await submitApiKeyAccount('openai')
 

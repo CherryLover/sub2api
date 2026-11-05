@@ -207,34 +207,11 @@ export function parseDateTimeLocalInput(value: string): number | null {
 }
 
 /**
- * 格式化 OpenAI reasoning effort（用于使用记录展示）
- * @param effort 原始 effort（如 "low" / "medium" / "high" / "xhigh"）
- * @returns 格式化后的字符串（Low / Medium / High / Xhigh），无值返回 "-"
+ * 展示使用记录实际采集的 reasoning effort，不合并档位或推断缺省值。
+ * none / minimal 也是有效值；未知的新档位同样保留，只有未采集时显示 "-"。
  */
 export function formatReasoningEffort(effort: string | null | undefined): string {
-  const raw = (effort ?? '').toString().trim()
-  if (!raw) return '-'
-
-  const normalized = raw.toLowerCase().replace(/[-_\s]/g, '')
-  switch (normalized) {
-    case 'low':
-      return 'Low'
-    case 'medium':
-      return 'Medium'
-    case 'high':
-      return 'High'
-    case 'xhigh':
-    case 'extrahigh':
-      return 'XHigh'
-    case 'max':
-      return 'Max'
-    case 'none':
-    case 'minimal':
-      return '-'
-    default:
-      // best-effort: Title-case first letter
-      return raw.length > 1 ? raw[0].toUpperCase() + raw.slice(1) : raw.toUpperCase()
-  }
+  return effort?.trim() || '-'
 }
 
 /**
