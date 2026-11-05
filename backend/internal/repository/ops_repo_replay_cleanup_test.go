@@ -19,8 +19,25 @@ func TestOpsErrorLogInsertDoesNotPersistRequestReplayFields(t *testing.T) {
 	}
 
 	insertSQL := strings.ToLower(insertOpsErrorLogSQL)
+	const columnsPrefix = "insert into ops_error_logs ("
+	const columnsSuffix = ") values"
+	columnsStart := strings.Index(insertSQL, columnsPrefix)
+	if columnsStart < 0 {
+		t.Fatalf("insert SQL is missing column list prefix %q", columnsPrefix)
+	}
+	columnsStart += len(columnsPrefix)
+	columnsEnd := strings.Index(insertSQL[columnsStart:], columnsSuffix)
+	if columnsEnd < 0 {
+		t.Fatalf("insert SQL is missing column list suffix %q", columnsSuffix)
+	}
+	columnsEnd += columnsStart
+
+	insertColumns := make(map[string]struct{})
+	for _, column := range strings.Split(insertSQL[columnsStart:columnsEnd], ",") {
+		insertColumns[strings.TrimSpace(column)] = struct{}{}
+	}
 	for _, column := range disallowedColumns {
-		if strings.Contains(insertSQL, column) {
+		if _, ok := insertColumns[column]; ok {
 			t.Fatalf("ops error log insert still references dropped replay column %q", column)
 		}
 	}

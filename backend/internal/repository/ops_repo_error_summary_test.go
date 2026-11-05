@@ -69,7 +69,9 @@ func TestOpsErrorSummarySQLIsStructurallySound(t *testing.T) {
 	} {
 		require.Equal(t, strings.Count(expr, "("), strings.Count(expr, ")"), "unbalanced parentheses in %s expression", name)
 	}
-	require.Equal(t, 6, strings.Count(opsErrorNormalizedMessageExpr, "REGEXP_REPLACE("), "one REGEXP_REPLACE per masking pattern")
+	normalizedMaskCount := strings.Count(opsErrorNormalizedMessageExpr, "REGEXP_REPLACE(") -
+		strings.Count(opsErrorVisibleMessageExpr, "REGEXP_REPLACE(")
+	require.Equal(t, 6, normalizedMaskCount, "one REGEXP_REPLACE per masking pattern")
 	// Without HAVING the catch-all aggregate returns an all-NULL row when there is
 	// no overflow, which fails to scan into int64.
 	require.Contains(t, sql, "HAVING COUNT(*) > 0")

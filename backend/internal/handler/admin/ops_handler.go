@@ -17,6 +17,12 @@ type OpsHandler struct {
 	opsService *service.OpsService
 }
 
+type opsFilterParamError string
+
+func (e opsFilterParamError) Error() string {
+	return string(e)
+}
+
 // GetErrorLogByID returns ops error log detail.
 // GET /api/v1/admin/ops/errors/:id
 func (h *OpsHandler) GetErrorLogByID(c *gin.Context) {
@@ -130,14 +136,14 @@ func parseAdminOpsErrorFilter(c *gin.Context) (*service.OpsErrorLogFilter, error
 	if v := strings.TrimSpace(c.Query("group_id")); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id <= 0 {
-			return nil, fmt.Errorf("Invalid group_id")
+			return nil, opsFilterParamError("Invalid group_id")
 		}
 		filter.GroupID = &id
 	}
 	if v := strings.TrimSpace(c.Query("account_id")); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id <= 0 {
-			return nil, fmt.Errorf("Invalid account_id")
+			return nil, opsFilterParamError("Invalid account_id")
 		}
 		filter.AccountID = &id
 	}
@@ -145,14 +151,14 @@ func parseAdminOpsErrorFilter(c *gin.Context) (*service.OpsErrorLogFilter, error
 	if v := strings.TrimSpace(c.Query("user_id")); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id <= 0 {
-			return nil, fmt.Errorf("Invalid user_id")
+			return nil, opsFilterParamError("Invalid user_id")
 		}
 		filter.UserID = &id
 	}
 	if v := strings.TrimSpace(c.Query("api_key_id")); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id <= 0 {
-			return nil, fmt.Errorf("Invalid api_key_id")
+			return nil, opsFilterParamError("Invalid api_key_id")
 		}
 		filter.APIKeyID = &id
 	}
@@ -165,7 +171,7 @@ func parseAdminOpsErrorFilter(c *gin.Context) (*service.OpsErrorLogFilter, error
 			b := false
 			filter.Resolved = &b
 		default:
-			return nil, fmt.Errorf("Invalid resolved")
+			return nil, opsFilterParamError("Invalid resolved")
 		}
 	}
 	if statusCodesStr := strings.TrimSpace(c.Query("status_codes")); statusCodesStr != "" {
@@ -178,7 +184,7 @@ func parseAdminOpsErrorFilter(c *gin.Context) (*service.OpsErrorLogFilter, error
 			}
 			n, err := strconv.Atoi(p)
 			if err != nil || n < 0 {
-				return nil, fmt.Errorf("Invalid status_codes")
+				return nil, opsFilterParamError("Invalid status_codes")
 			}
 			out = append(out, n)
 		}
@@ -189,7 +195,7 @@ func parseAdminOpsErrorFilter(c *gin.Context) (*service.OpsErrorLogFilter, error
 	if v := strings.TrimSpace(c.Query("min_request_body_bytes")); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n < 0 {
-			return nil, fmt.Errorf("Invalid min_request_body_bytes")
+			return nil, opsFilterParamError("Invalid min_request_body_bytes")
 		}
 		filter.MinRequestBodyBytes = n
 	}
