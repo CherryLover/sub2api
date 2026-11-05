@@ -13,7 +13,6 @@ func TestOpsErrorLogInsertDoesNotPersistRequestReplayFields(t *testing.T) {
 		"request_body",
 		"request_headers",
 		"request_body_truncated",
-		"request_body_bytes",
 		"is_retryable",
 		"retry_count",
 		"resolved_retry_id",
@@ -30,7 +29,6 @@ func TestOpsErrorLogInsertDoesNotPersistRequestReplayFields(t *testing.T) {
 	disallowedFields := []string{
 		"RequestBodyJSON",
 		"RequestBodyTruncated",
-		"RequestBodyBytes",
 		"RequestHeadersJSON",
 		"IsRetryable",
 		"RetryCount",

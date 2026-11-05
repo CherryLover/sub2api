@@ -62,3 +62,6 @@ export function mapErrorSortKey(key: string): string {
  * ——后端 status_code 过滤对全量数据生效,选项不应被当前页数据限制。
  */
 export const COMMON_ERROR_STATUS_CODES = [400, 401, 403, 404, 408, 413, 429, 499, 500, 502, 503, 504, 529]
+
+/** 错误请求「请求大小」筛选的可选下限(字节),由管理员按需挑选 */
+export const REQUEST_BODY_SIZE_FILTER_MB = [1, 2, 4, 8, 16]

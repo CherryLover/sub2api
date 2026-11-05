@@ -94,6 +94,15 @@
         </div>
 
         <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
+          <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorLog.requestSize') }}</div>
+          <div class="mt-1">
+            <span data-testid="detail-request-size" class="text-sm font-medium tabular-nums text-gray-900 dark:text-white">
+              {{ detail.request_body_bytes ? formatBytes(detail.request_body_bytes, 1) : '—' }}
+            </span>
+          </div>
+        </div>
+
+        <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
           <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.requestType') }}</div>
           <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">
             {{ formatRequestTypeLabel(detail.request_type) }}
@@ -212,7 +221,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores'
 import { opsAPI, type OpsErrorDetail } from '@/api/admin/ops'
-import { formatDateTime } from '@/utils/format'
+import { formatBytes, formatDateTime } from '@/utils/format'
 import { resolvePrimaryResponseBody, resolveUpstreamPayload } from '../utils/errorDetailResponse'
 
 interface Props {

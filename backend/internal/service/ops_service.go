@@ -644,6 +644,45 @@ func (s *OpsService) GetErrorLogs(ctx context.Context, filter *OpsErrorLogFilter
 	return result, nil
 }
 
+func (s *OpsService) GetErrorLogsSummary(ctx context.Context, filter *OpsErrorLogFilter) (*OpsErrorLogSummary, error) {
+	if err := s.RequireMonitoringEnabled(ctx); err != nil {
+		return nil, err
+	}
+	if s.opsRepo == nil {
+		return &OpsErrorLogSummary{Items: []*OpsErrorKindSummary{}}, nil
+	}
+
+	snapshot := &OpsErrorLogFilter{}
+	if filter != nil {
+		*snapshot = *filter
+	}
+	// Summary always describes the full filtered result. The selected kind is
+	// a list-only drill-down and must not make the other cards disappear.
+	snapshot.ErrorKind = ""
+	snapshot.Page = 0
+	snapshot.PageSize = 0
+	snapshot.SortBy = ""
+	snapshot.SortOrder = ""
+
+	result, err := s.opsRepo.SummarizeErrorLogs(ctx, snapshot)
+	if err != nil {
+		log.Printf("[Ops] GetErrorLogsSummary failed: %v", err)
+		return nil, err
+	}
+	if result == nil {
+		return &OpsErrorLogSummary{Items: []*OpsErrorKindSummary{}}, nil
+	}
+	if result.Items == nil {
+		result.Items = []*OpsErrorKindSummary{}
+	}
+	for _, item := range result.Items {
+		if item != nil {
+			item.SampleMessage = strings.TrimSpace(sanitizeUpstreamErrorMessage(item.SampleMessage))
+		}
+	}
+	return result, nil
+}
+
 // ListUserErrorRequests 返回某个用户自己的错误请求（精简脱敏）。
 // 强制：仅当前用户、View=all（含业务限流/余额类）、排除 count_tokens 噪声。
 func (s *OpsService) ListUserErrorRequests(ctx context.Context, userID int64, filter *OpsErrorLogFilter) (*UserErrorRequestList, error) {

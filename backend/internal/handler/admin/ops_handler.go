@@ -72,7 +72,6 @@ func NewOpsHandler(opsService *service.OpsService) *OpsHandler {
 	return &OpsHandler{opsService: opsService}
 }
 
-// GetErrorLogs lists ops error logs.
 // applyOpsErrorSortParams reads sort_by/sort_order query params into the filter.
 // Column whitelist and order normalization live in the repository; unknown
 // values degrade to the default (created_at DESC), mirroring the usage list.
@@ -80,17 +79,9 @@ func applyOpsErrorSortParams(c *gin.Context, filter *service.OpsErrorLogFilter) 
 	filter.SetSort(c.Query("sort_by"), c.Query("sort_order"))
 }
 
-// GET /api/v1/admin/ops/errors
-func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
-	if h.opsService == nil {
-		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
-		return
-	}
-	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
+// parseAdminOpsErrorFilter is shared by the list and summary endpoints so their
+// filter semantics cannot drift.
+func parseAdminOpsErrorFilter(c *gin.Context) (*service.OpsErrorLogFilter, error) {
 	page, pageSize := response.ParsePagination(c)
 	// Ops list can be larger than standard admin tables.
 	if pageSize > 500 {
@@ -99,8 +90,7 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 
 	startTime, endTime, err := parseOpsTimeRange(c, "1h")
 	if err != nil {
-		response.BadRequest(c, err.Error())
-		return
+		return nil, err
 	}
 
 	filter := &service.OpsErrorLogFilter{Page: page, PageSize: pageSize}
@@ -140,16 +130,14 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 	if v := strings.TrimSpace(c.Query("group_id")); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id <= 0 {
-			response.BadRequest(c, "Invalid group_id")
-			return
+			return nil, fmt.Errorf("Invalid group_id")
 		}
 		filter.GroupID = &id
 	}
 	if v := strings.TrimSpace(c.Query("account_id")); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id <= 0 {
-			response.BadRequest(c, "Invalid account_id")
-			return
+			return nil, fmt.Errorf("Invalid account_id")
 		}
 		filter.AccountID = &id
 	}
@@ -157,16 +145,14 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 	if v := strings.TrimSpace(c.Query("user_id")); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id <= 0 {
-			response.BadRequest(c, "Invalid user_id")
-			return
+			return nil, fmt.Errorf("Invalid user_id")
 		}
 		filter.UserID = &id
 	}
 	if v := strings.TrimSpace(c.Query("api_key_id")); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id <= 0 {
-			response.BadRequest(c, "Invalid api_key_id")
-			return
+			return nil, fmt.Errorf("Invalid api_key_id")
 		}
 		filter.APIKeyID = &id
 	}
@@ -179,8 +165,7 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 			b := false
 			filter.Resolved = &b
 		default:
-			response.BadRequest(c, "Invalid resolved")
-			return
+			return nil, fmt.Errorf("Invalid resolved")
 		}
 	}
 	if statusCodesStr := strings.TrimSpace(c.Query("status_codes")); statusCodesStr != "" {
@@ -193,15 +178,45 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 			}
 			n, err := strconv.Atoi(p)
 			if err != nil || n < 0 {
-				response.BadRequest(c, "Invalid status_codes")
-				return
+				return nil, fmt.Errorf("Invalid status_codes")
 			}
 			out = append(out, n)
 		}
 		filter.StatusCodes = out
 	}
 
+	filter.ErrorKind = strings.TrimSpace(c.Query("error_kind"))
+	if v := strings.TrimSpace(c.Query("min_request_body_bytes")); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 {
+			return nil, fmt.Errorf("Invalid min_request_body_bytes")
+		}
+		filter.MinRequestBodyBytes = n
+	}
 	applyOpsErrorSortParams(c, filter)
+	return filter, nil
+}
+
+// GET /api/v1/admin/ops/errors
+func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	filter, err := parseAdminOpsErrorFilter(c)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if filter.ErrorKind == "other" {
+		response.BadRequest(c, "error_kind=other cannot be filtered")
+		return
+	}
 
 	result, err := h.opsService.GetErrorLogs(c.Request.Context(), filter)
 	if err != nil {
@@ -209,6 +224,36 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 		return
 	}
 	response.Paginated(c, result.Errors, int64(result.Total), result.Page, result.PageSize)
+}
+
+// GET /api/v1/admin/ops/errors/summary
+func (h *OpsHandler) GetErrorLogsSummary(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	filter, err := parseAdminOpsErrorFilter(c)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	filter.ErrorKind = ""
+	filter.Page = 0
+	filter.PageSize = 0
+	filter.SortBy = ""
+	filter.SortOrder = ""
+
+	result, err := h.opsService.GetErrorLogsSummary(c.Request.Context(), filter)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 // ListRequestErrors lists client-visible request errors.

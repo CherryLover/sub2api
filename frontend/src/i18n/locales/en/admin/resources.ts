@@ -286,6 +286,23 @@ export default {
       clickToFilterByAccount: 'Click to drill down into usage for this account',
       failedToLoadUser: 'Failed to load user info',
       userDeletedBadge: 'Deleted',
+      errorSummary: {
+        title: 'Error Types',
+        total: '{n} total',
+        all: 'All',
+        share: '{percent}% of current errors',
+        loadFailed: 'Failed to load error type distribution',
+        retry: 'Retry',
+        other: 'Other',
+        otherUnavailable: 'Other types cannot be filtered individually',
+        reasons: {
+          modelNotSupported: 'No account in this group supports the model',
+          modelRateLimited: 'All accounts are rate limited',
+          excluded: 'All accounts have already failed',
+          notSchedulable: 'Accounts are not schedulable',
+          emptyPool: 'The group has no accounts'
+        }
+      },
       tokenRanking: {
         subtitle: 'Per-user token usage for the current filters and time range',
         rowHint: "Click to view this user's usage details",

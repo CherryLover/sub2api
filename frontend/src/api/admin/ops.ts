@@ -912,6 +912,8 @@ export interface OpsErrorLog {
   client_ip?: string | null
   request_path?: string
   stream?: boolean
+  // 网关实际读到的客户端请求体字节数；无请求体或旧数据为空
+  request_body_bytes?: number | null
 
   // Error observability context (endpoint + model mapping)
   inbound_endpoint?: string
@@ -997,6 +999,22 @@ export interface OpsErrorDetail extends OpsErrorLog {
 }
 
 export type OpsErrorLogsResponse = PaginatedResponse<OpsErrorLog>
+
+export interface OpsErrorKindSummary {
+  kind: string
+  phase: string
+  status_code: number
+  reason: string
+  sample_message: string
+  count: number
+  failed: number
+  recovered: number
+}
+
+export interface OpsErrorLogSummaryResponse {
+  total: number
+  items: OpsErrorKindSummary[]
+}
 
 export async function getDashboardOverview(
   params: {
@@ -1144,6 +1162,11 @@ export type OpsErrorListQueryParams = {
   q?: string
   status_codes?: string
   status_codes_other?: string
+  // Normalized kind returned by getErrorLogsSummary. "other" is synthetic and
+  // intentionally rejected by the list endpoint.
+  error_kind?: string
+  // 只看请求体不小于该字节数的错误请求
+  min_request_body_bytes?: number
 
   // 服务端排序,列白名单见后端 opsErrorLogsOrderBy(created_at/model/status_code)
   sort_by?: string
@@ -1151,8 +1174,25 @@ export type OpsErrorListQueryParams = {
 }
 
 // Legacy unified endpoints
-export async function listErrorLogs(params: OpsErrorListQueryParams): Promise<OpsErrorLogsResponse> {
-  const { data } = await apiClient.get<OpsErrorLogsResponse>('/admin/ops/errors', { params })
+export async function listErrorLogs(
+  params: OpsErrorListQueryParams,
+  options: OpsRequestOptions = {}
+): Promise<OpsErrorLogsResponse> {
+  const { data } = await apiClient.get<OpsErrorLogsResponse>('/admin/ops/errors', {
+    params,
+    signal: options.signal,
+  })
+  return data
+}
+
+export async function getErrorLogsSummary(
+  params: OpsErrorListQueryParams,
+  options: OpsRequestOptions = {}
+): Promise<OpsErrorLogSummaryResponse> {
+  const { data } = await apiClient.get<OpsErrorLogSummaryResponse>('/admin/ops/errors/summary', {
+    params,
+    signal: options.signal,
+  })
   return data
 }
 
@@ -1382,6 +1422,7 @@ export const opsAPI = {
 
   // Legacy unified endpoints
   listErrorLogs,
+  getErrorLogsSummary,
 
   // New split endpoints
   listRequestErrors,
