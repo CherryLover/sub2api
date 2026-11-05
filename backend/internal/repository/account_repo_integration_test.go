@@ -1051,9 +1051,13 @@ func (s *AccountRepoSuite) TestResetQuotaUsedAndClearRateLimitCooldownPreservesO
 	account := mustCreateAccount(s.T(), s.client, &service.Account{
 		Name: "acc-reset-quota-cooldown",
 		Extra: map[string]any{
-			"quota_used":        12.5,
-			"quota_daily_used":  5.0,
-			"quota_weekly_used": 9.0,
+			"quota_used":              12.5,
+			"quota_daily_used":        5.0,
+			"quota_weekly_used":       9.0,
+			"quota_monthly_used":      20.0,
+			"quota_monthly_start":     "2026-01-01T00:00:00Z",
+			"quota_monthly_reset_at":  "2026-02-01T00:00:00Z",
+			"quota_monthly_reset_day": 31,
 			"model_rate_limits": map[string]any{
 				"claude-sonnet-4-5": map[string]any{"rate_limit_reset_at": "2026-09-01T10:00:00Z"},
 			},
@@ -1082,6 +1086,10 @@ func (s *AccountRepoSuite) TestResetQuotaUsedAndClearRateLimitCooldownPreservesO
 	s.Require().Equal(float64(0), got.Extra["quota_used"])
 	s.Require().Equal(float64(0), got.Extra["quota_daily_used"])
 	s.Require().Equal(float64(0), got.Extra["quota_weekly_used"])
+	s.Require().Equal(float64(0), got.Extra["quota_monthly_used"])
+	s.Require().NotContains(got.Extra, "quota_monthly_start")
+	s.Require().NotContains(got.Extra, "quota_monthly_reset_at")
+	s.Require().Equal(float64(31), got.Extra["quota_monthly_reset_day"])
 
 	var pendingEventExists bool
 	s.Require().NoError(scanSingleRow(s.ctx, s.repo.sql, `

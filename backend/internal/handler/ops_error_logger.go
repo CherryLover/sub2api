@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -30,6 +31,9 @@ const (
 	opsStreamKey                 = "ops_stream"
 	opsAccountIDKey              = "ops_account_id"
 	opsRoutingCapacityLimitedKey = "ops_routing_capacity_limited"
+	opsErrorReasonKey            = "ops_error_reason"
+	opsReasoningEffortKey        = "ops_reasoning_effort"
+	opsRequestBodyCounterKey     = "ops_request_body_counter"
 
 	opsUpstreamModelKey = "ops_upstream_model"
 	opsRequestTypeKey   = "ops_request_type"
@@ -492,6 +496,9 @@ func markOpsRoutingCapacityLimitedIfNoAvailable(c *gin.Context, err error) {
 		return
 	}
 	markOpsRoutingCapacityLimited(c)
+	if c != nil {
+		c.Set(opsErrorReasonKey, service.ParseNoAccountReason(err.Error()))
+	}
 }
 
 func isOpsRoutingCapacityLimited(c *gin.Context) bool {
@@ -514,6 +521,90 @@ func isOpsNoAvailableAccountError(err error) bool {
 		return true
 	}
 	return isOpsNoAvailableAccountMessage(err.Error())
+}
+
+// opsCountingReadCloser counts bytes handlers actually read from the client
+// request body, so error logs can record oversized requests without buffering.
+type opsCountingReadCloser struct {
+	io.ReadCloser
+	n atomic.Int64
+}
+
+func (r *opsCountingReadCloser) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	if n > 0 {
+		r.n.Add(int64(n))
+	}
+	return n, err
+}
+
+// installOpsRequestBodyCounter wraps the request body with a byte counter.
+// Requests without a body (GET, WebSocket upgrades) are left untouched.
+func installOpsRequestBodyCounter(c *gin.Context) {
+	if c == nil || c.Request == nil || c.Request.Body == nil || c.Request.Body == http.NoBody {
+		return
+	}
+	counter := &opsCountingReadCloser{ReadCloser: c.Request.Body}
+	c.Request.Body = counter
+	c.Set(opsRequestBodyCounterKey, counter)
+}
+
+func applyOpsRequestBodyBytesFromContext(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	if c == nil || entry == nil {
+		return
+	}
+	v, ok := c.Get(opsRequestBodyCounterKey)
+	if !ok {
+		return
+	}
+	counter, ok := v.(*opsCountingReadCloser)
+	if !ok || counter == nil {
+		return
+	}
+	if n := counter.n.Load(); n > 0 {
+		entry.RequestBodyBytes = &n
+	}
+}
+
+func applyOpsErrorReasonFromContext(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	if c == nil || entry == nil {
+		return
+	}
+	if v, ok := c.Get(opsErrorReasonKey); ok {
+		if reason, ok := v.(string); ok {
+			entry.ErrorReason = strings.TrimSpace(reason)
+		}
+	}
+}
+
+func setOpsReasoningEffortFromContext(c *gin.Context, effort *string) {
+	if c == nil || effort == nil {
+		return
+	}
+	if value := strings.TrimSpace(*effort); value != "" {
+		c.Set(opsReasoningEffortKey, value)
+	}
+}
+
+func setOpsClaudeReasoningEffort(c *gin.Context, model, outputEffort string, thinkingEnabled bool) {
+	effort := service.NormalizeClaudeOutputEffort(outputEffort)
+	if effort == nil && thinkingEnabled {
+		effort = service.DefaultEffortForThinkingEnabled(model)
+	}
+	setOpsReasoningEffortFromContext(c, effort)
+}
+
+func applyOpsReasoningEffortFromContext(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	if c == nil || entry == nil {
+		return
+	}
+	if v, ok := c.Get(opsReasoningEffortKey); ok {
+		if effort, ok := v.(string); ok {
+			if value := strings.TrimSpace(effort); value != "" {
+				entry.ReasoningEffort = &value
+			}
+		}
+	}
 }
 
 type opsCaptureWriter struct {
@@ -691,6 +782,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			releaseOpsCaptureWriter(w)
 		}()
 		c.Writer = w
+		installOpsRequestBodyCounter(c)
 		c.Next()
 
 		if _, rejected := middleware2.GetIngressRejectReason(c); rejected {
@@ -934,6 +1026,9 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				CreatedAt: time.Now(),
 			}
 			applyOpsLatencyFieldsFromContext(c, entry)
+			applyOpsErrorReasonFromContext(c, entry)
+			applyOpsReasoningEffortFromContext(c, entry)
+			applyOpsRequestBodyBytesFromContext(c, entry)
 			applyOpsUpstreamFieldsFromContext(c, entry)
 
 			if apiKey != nil {
@@ -1075,6 +1170,9 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			CreatedAt: time.Now(),
 		}
 		applyOpsLatencyFieldsFromContext(c, entry)
+		applyOpsErrorReasonFromContext(c, entry)
+		applyOpsReasoningEffortFromContext(c, entry)
+		applyOpsRequestBodyBytesFromContext(c, entry)
 		applyOpsUpstreamFieldsFromContext(c, entry)
 		suppressOpsUpstreamAttributionForLocalModelConfiguration(c, entry)
 
@@ -1226,6 +1324,9 @@ func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) 
 		CreatedAt: time.Now(),
 	}
 	applyOpsLatencyFieldsFromContext(c, entry)
+	applyOpsErrorReasonFromContext(c, entry)
+	applyOpsReasoningEffortFromContext(c, entry)
+	applyOpsRequestBodyBytesFromContext(c, entry)
 
 	if apiKey != nil {
 		entry.APIKeyID = &apiKey.ID

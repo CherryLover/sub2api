@@ -709,6 +709,20 @@ const apiKeySortTodayCost = "today_cost"
 func apiKeyListOrder(params pagination.PaginationParams) []func(*entsql.Selector) {
 	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
 	sortOrder := params.NormalizedSortOrder(pagination.SortOrderDesc)
+	if sortBy == "group_name" {
+		// Ent orders this optional edge with a LEFT JOIN. Keep ungrouped keys
+		// last in either direction, and use the key ID to stabilize page boundaries.
+		if sortOrder == pagination.SortOrderAsc {
+			return []func(*entsql.Selector){
+				apikey.ByGroupField(group.FieldName, entsql.OrderAsc(), entsql.OrderNullsLast()),
+				dbent.Asc(apikey.FieldID),
+			}
+		}
+		return []func(*entsql.Selector){
+			apikey.ByGroupField(group.FieldName, entsql.OrderDesc(), entsql.OrderNullsLast()),
+			dbent.Desc(apikey.FieldID),
+		}
+	}
 	if sortBy == apiKeySortTodayCost {
 		return apiKeyTodayCostOrder(timezone.Today(), sortOrder)
 	}

@@ -16,10 +16,12 @@ func TestBuildUsageBillingCommand_AccountQuotaPeriodHints(t *testing.T) {
 		wantQuota   bool
 		wantDaily   bool
 		wantWeekly  bool
+		wantMonthly bool
 	}{
 		{name: "no_limits", extra: map[string]any{}},
 		{name: "total_only", extra: map[string]any{"quota_limit": 10.0}, wantQuota: true},
 		{name: "daily_only", extra: map[string]any{"quota_daily_limit": 5.0}, wantQuota: true, wantDaily: true},
+		{name: "monthly_only", extra: map[string]any{"quota_monthly_limit": 5.0}, wantQuota: true, wantMonthly: true},
 		{name: "weekly_only", extra: map[string]any{"quota_weekly_limit": 5.0}, wantQuota: true, wantWeekly: true},
 		{
 			name:      "all_dimensions",
@@ -65,6 +67,7 @@ func TestBuildUsageBillingCommand_AccountQuotaPeriodHints(t *testing.T) {
 			require.Equal(t, tt.wantQuota, cmd.AccountQuotaCost > 0)
 			require.Equal(t, tt.wantDaily, cmd.AccountQuotaHasDailyLimit)
 			require.Equal(t, tt.wantWeekly, cmd.AccountQuotaHasWeeklyLimit)
+			require.Equal(t, tt.wantMonthly, cmd.AccountQuotaHasMonthlyLimit)
 		})
 	}
 }
@@ -83,6 +86,7 @@ func TestUsageBillingCommandFingerprintIgnoresAccountQuotaPeriodHints(t *testing
 	hinted := base
 	hinted.AccountQuotaHasDailyLimit = true
 	hinted.AccountQuotaHasWeeklyLimit = true
+	hinted.AccountQuotaHasMonthlyLimit = true
 
 	base.Normalize()
 	hinted.Normalize()

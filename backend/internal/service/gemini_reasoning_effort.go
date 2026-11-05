@@ -30,3 +30,9 @@ func extractGeminiReasoningEffortFromBody(body []byte) *string {
 		return nil
 	}
 }
+
+// ExtractGeminiReasoningEffortFromBody exposes the native Gemini effort parser
+// to the gateway handler for Ops error-log attribution.
+func ExtractGeminiReasoningEffortFromBody(body []byte) *string {
+	return extractGeminiReasoningEffortFromBody(body)
+}

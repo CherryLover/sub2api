@@ -4,7 +4,7 @@ import { defineComponent, ref } from 'vue'
 
 import UsageView from '../UsageView.vue'
 
-const { list, exportList, getStats, getSnapshotV2, getById, accountGetById, getModelStats, listErrorLogs, routeQuery, aoaToSheet, sheetAddAoa, saveAs, xlsxWrite } = vi.hoisted(() => {
+const { list, exportList, getStats, getSnapshotV2, getById, accountGetById, getModelStats, listErrorLogs, getErrorLogsSummary, routeQuery, aoaToSheet, sheetAddAoa, saveAs, xlsxWrite, showError } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -20,11 +20,13 @@ const { list, exportList, getStats, getSnapshotV2, getById, accountGetById, getM
     accountGetById: vi.fn(),
     getModelStats: vi.fn(),
     listErrorLogs: vi.fn(),
+    getErrorLogsSummary: vi.fn(),
     routeQuery: {} as Record<string, string>,
 		aoaToSheet: vi.fn(() => ({})),
 		sheetAddAoa: vi.fn(),
 		saveAs: vi.fn(),
 		xlsxWrite: vi.fn(() => new Uint8Array([1, 2, 3])),
+    showError: vi.fn(),
   }
 })
 
@@ -88,11 +90,12 @@ vi.mock('xlsx', () => ({
 
 vi.mock('@/api/admin/ops', () => ({
   listErrorLogs,
+  getErrorLogsSummary,
 }))
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
+    showError,
     showWarning: vi.fn(),
     showSuccess: vi.fn(),
     showInfo: vi.fn(),
@@ -121,6 +124,7 @@ vi.mock('vue-router', () => ({
 
 const AppLayoutStub = { template: '<div><slot /></div>' }
 const UsageFiltersStub = defineComponent({
+  emits: ['change'],
   setup(_, { expose }) {
     const userKeyword = ref('')
     const accountKeyword = ref('')
@@ -140,7 +144,7 @@ const UsageFiltersStub = defineComponent({
     })
     return { userKeyword, accountKeyword }
   },
-  template: '<div><span data-test="user-filter-label">{{ userKeyword }}</span><span data-test="account-filter-label">{{ accountKeyword }}</span><slot name="after-reset" /></div>',
+  template: '<div><span data-test="user-filter-label">{{ userKeyword }}</span><span data-test="account-filter-label">{{ accountKeyword }}</span><button class="apply-filters" @click="$emit(\'change\')">apply</button><slot name="after-reset" /></div>',
 })
 const UsageTableStub = {
   props: ['columns'],
@@ -151,6 +155,11 @@ const UserTokenRankingStub = {
   emits: ['select-user'],
   template: '<div data-test="ranking"><button class="pick-user" @click="$emit(\'select-user\', 5, \'rank@test.com\')">pick</button></div>',
 }
+const ErrorKindSummaryStub = defineComponent({
+  props: ['selectedKind', 'summary', 'loading', 'error'],
+  emits: ['select', 'retry'],
+  template: '<div data-test="error-kind-summary-stub" :data-error="error"><button class="pick-error-kind" @click="$emit(\'select\', \'routing|503|model_rate_limited\')">pick</button></div>',
+})
 const ModelDistributionChartStub = {
   props: ['metric'],
   emits: ['update:metric'],
@@ -482,6 +491,9 @@ describe('admin UsageView request ID column visibility', () => {
     await wrapper.vm.$nextTick()
 
     const usageTable = wrapper.findComponent(UsageTableStub)
+    expect(usageTable.props('columns')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'reasoning_effort' })]),
+    )
     expect(usageTable.props('columns')).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ key: 'request_id' })]),
     )
@@ -604,6 +616,8 @@ describe('admin UsageView errors tab filter forwarding', () => {
     getSnapshotV2.mockReset()
     getModelStats.mockReset()
     listErrorLogs.mockReset()
+    getErrorLogsSummary.mockReset()
+    showError.mockReset()
 
     list.mockResolvedValue({ items: [], total: 0, pages: 0 })
     getStats.mockResolvedValue({
@@ -613,6 +627,7 @@ describe('admin UsageView errors tab filter forwarding', () => {
     getSnapshotV2.mockResolvedValue({ trend: [], models: [], groups: [] })
     getModelStats.mockResolvedValue({ models: [] })
     listErrorLogs.mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getErrorLogsSummary.mockResolvedValue({ total: 0, items: [] })
   })
 
   afterEach(() => {
@@ -650,7 +665,127 @@ describe('admin UsageView errors tab filter forwarding', () => {
       model: 'gpt-5.3-codex',
       account_id: 7,
       group_id: 3,
+    }), expect.anything())
+  })
+
+  it('sends the chosen request size floor to both the list and the summary', async () => {
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+      } },
+    })
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.filters.min_request_body_bytes = 2 * 1024 * 1024
+    await flushPromises()
+    await wrapper.findAll('[data-testid="usage-detail-tab"]')[1].trigger('click')
+    await flushPromises()
+
+    expect(listErrorLogs).toHaveBeenCalledWith(
+      expect.objectContaining({ min_request_body_bytes: 2 * 1024 * 1024 }),
+      expect.anything()
+    )
+    expect(getErrorLogsSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ min_request_body_bytes: 2 * 1024 * 1024 }),
+      expect.anything()
+    )
+  })
+
+  it('filters the list by selected kind without refetching the summary', async () => {
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        ErrorKindSummary: ErrorKindSummaryStub,
+      } },
+    })
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    await wrapper.findAll('[data-testid="usage-detail-tab"]')[1].trigger('click')
+    await flushPromises()
+
+    expect(getErrorLogsSummary).toHaveBeenCalledWith(
+      expect.not.objectContaining({ error_kind: expect.anything() }),
+      expect.anything()
+    )
+
+    listErrorLogs.mockClear()
+    getErrorLogsSummary.mockClear()
+    await wrapper.find('[data-test="error-kind-summary-stub"] .pick-error-kind').trigger('click')
+    await flushPromises()
+
+    expect(listErrorLogs).toHaveBeenCalledWith(
+      expect.objectContaining({ error_kind: 'routing|503|model_rate_limited' }),
+      expect.anything()
+    )
+    expect(getErrorLogsSummary).not.toHaveBeenCalled()
+  })
+
+  it('clears the selected error kind when filters are reapplied', async () => {
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        ErrorKindSummary: ErrorKindSummaryStub,
+      } },
+    })
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    await wrapper.findAll('[data-testid="usage-detail-tab"]')[1].trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-test="error-kind-summary-stub"] .pick-error-kind').trigger('click')
+    await flushPromises()
+
+    expect(listErrorLogs.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      error_kind: 'routing|503|model_rate_limited',
     }))
+
+    listErrorLogs.mockClear()
+    await wrapper.find('.apply-filters').trigger('click')
+    await flushPromises()
+
+    const nextListParams = listErrorLogs.mock.calls.at(-1)?.[0]
+    expect(nextListParams.error_kind).toBeUndefined()
+  })
+
+  it('passes summary failures to the summary component without a global error toast', async () => {
+    getErrorLogsSummary.mockRejectedValueOnce(new Error('summary failed'))
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        ErrorKindSummary: ErrorKindSummaryStub,
+      } },
+    })
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    await wrapper.findAll('[data-testid="usage-detail-tab"]')[1].trigger('click')
+    await flushPromises()
+
+    expect(showError).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(ErrorKindSummaryStub).props('error')).toBe(true)
   })
 })
 

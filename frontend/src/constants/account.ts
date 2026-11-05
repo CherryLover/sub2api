@@ -18,6 +18,11 @@ export type QuotaResetMode = typeof QUOTA_RESET_MODE_ROLLING | typeof QUOTA_RESE
 export const QUOTA_WEEKLY_DEFAULT_RESET_DAY = 1
 export const QUOTA_WEEKLY_DEFAULT_RESET_HOUR = 0
 
+/** 月限额默认：每月 1 日 00:00，使用共享服务器时区。 */
+export const QUOTA_MONTHLY_DEFAULT_RESET_DAY = 1
+export const QUOTA_MONTHLY_DEFAULT_RESET_HOUR = 0
+export const QUOTA_MONTHLY_ROLLING_HOURS = 30 * 24
+
 /** 公开设置里拿不到服务器时区时的兜底（与后端 timezone 未初始化时的旧默认一致） */
 export const QUOTA_RESET_TIMEZONE_FALLBACK = 'UTC'
 

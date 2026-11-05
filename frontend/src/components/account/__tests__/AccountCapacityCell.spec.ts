@@ -159,3 +159,13 @@ describe('AccountCapacityCell concurrency hover summary', () => {
     expect(getRecentRequests).not.toHaveBeenCalled()
   })
 })
+
+
+describe('monthly quota badge', () => {
+  it.each(['apikey', 'bedrock', 'service_account'])('shows M for %s', (type) => {
+    const wrapper = mountCell({ ...makeAccount(500), type, quota_monthly_limit: 100, quota_monthly_used: 25 })
+    const badge = wrapper.findAllComponents({ name: 'QuotaBadge' }).find(item => item.props('label') === 'M')
+    expect(badge?.props()).toMatchObject({ used: 25, limit: 100, label: 'M' })
+    wrapper.unmount()
+  })
+})

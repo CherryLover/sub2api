@@ -5,6 +5,8 @@ import QuotaNotifyToggle from './QuotaNotifyToggle.vue'
 import { useAppStore } from '@/stores/app'
 import {
   QUOTA_WEEKLY_DEFAULT_RESET_DAY,
+  QUOTA_MONTHLY_DEFAULT_RESET_DAY,
+  QUOTA_MONTHLY_DEFAULT_RESET_HOUR,
   QUOTA_WEEKLY_DEFAULT_RESET_HOUR,
   defaultQuotaResetTimezone,
 } from '@/constants/account'
@@ -14,17 +16,17 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 const props = defineProps<{
-  dim: 'daily' | 'weekly' | 'total'
+  dim: 'daily' | 'weekly' | 'monthly' | 'total'
   label: string
   limit: number | null
   quotaNotifyGlobalEnabled: boolean
   notifyEnabled: boolean | null
   notifyThreshold: number | null
   notifyThresholdType: QuotaThresholdType | null
-  // Reset mode (only for daily/weekly, null for total)
+  // Reset mode (daily/weekly/monthly, null for total)
   resetMode: QuotaResetMode | null
   resetHour: number | null
-  resetDay: number | null  // weekly only
+  resetDay: number | null  // weekday (0–6) or day of month (1–31)
   resetTimezone: string | null
   hintRolling: string
   hintFixed: string
@@ -46,6 +48,8 @@ const emit = defineEmits<{
 }>()
 
 const hasResetMode = props.dim !== 'total'
+const supportsNotify = computed(() => props.quotaNotifyGlobalEnabled && props.dim !== 'monthly')
+const calendarResetDay = computed(() => props.dim === 'monthly' ? QUOTA_MONTHLY_DEFAULT_RESET_DAY : QUOTA_WEEKLY_DEFAULT_RESET_DAY)
 
 // 固定重置的缺省时区跟服务器项目时区走（public settings 下发），拿不到时退回 UTC
 const defaultTimezone = computed(() =>
@@ -60,14 +64,14 @@ const limitEnabled = (limit: number | null | undefined) => limit != null && limi
 // - 用户显式选过的方式永远优先。
 const effectiveResetMode = computed<QuotaResetMode>(() => {
   if (props.resetMode) return props.resetMode
-  if (props.dim === 'weekly' && !limitEnabled(props.limit)) return 'fixed'
+  if ((props.dim === 'weekly' || props.dim === 'monthly') && !limitEnabled(props.limit)) return 'fixed'
   return 'rolling'
 })
 
-const applyWeeklyNaturalWeekDefault = () => {
+const applyCalendarDefault = () => {
   emit('update:resetMode', 'fixed')
-  if (props.resetDay == null) emit('update:resetDay', QUOTA_WEEKLY_DEFAULT_RESET_DAY)
-  if (props.resetHour == null) emit('update:resetHour', QUOTA_WEEKLY_DEFAULT_RESET_HOUR)
+  if (props.resetDay == null) emit('update:resetDay', calendarResetDay.value)
+  if (props.resetHour == null) emit('update:resetHour', props.dim === 'monthly' ? QUOTA_MONTHLY_DEFAULT_RESET_HOUR : QUOTA_WEEKLY_DEFAULT_RESET_HOUR)
   if (!props.resetTimezone) emit('update:resetTimezone', defaultTimezone.value)
 }
 
@@ -76,8 +80,8 @@ const onLimitInput = (e: Event) => {
   const next = Number.isNaN(raw) ? null : raw
   emit('update:limit', next)
   // 周限额从「未启用」变成「已启用」、且从没选过重置方式 → 把预览中的自然周默认真正写进表单
-  if (props.dim === 'weekly' && props.resetMode == null && limitEnabled(next) && !limitEnabled(props.limit)) {
-    applyWeeklyNaturalWeekDefault()
+  if ((props.dim === 'weekly' || props.dim === 'monthly') && props.resetMode == null && limitEnabled(next) && !limitEnabled(props.limit)) {
+    applyCalendarDefault()
   }
 }
 
@@ -86,7 +90,7 @@ const onModeChange = (e: Event) => {
   emit('update:resetMode', val)
   if (val === 'fixed') {
     if (props.resetHour == null) emit('update:resetHour', 0)
-    if (props.dim === 'weekly' && props.resetDay == null) emit('update:resetDay', QUOTA_WEEKLY_DEFAULT_RESET_DAY)
+    if ((props.dim === 'weekly' || props.dim === 'monthly') && props.resetDay == null) emit('update:resetDay', calendarResetDay.value)
     if (!props.resetTimezone) emit('update:resetTimezone', defaultTimezone.value)
   }
 }
@@ -106,7 +110,7 @@ function getTimezoneOffsetLabel(tz: string): string {
 <template>
   <div>
     <!-- Title row (only when global notify is enabled) -->
-    <div v-if="quotaNotifyGlobalEnabled" class="flex items-center gap-2 mb-1">
+    <div v-if="supportsNotify" class="flex items-center gap-2 mb-1">
       <span class="text-xs font-medium text-gray-700 dark:text-gray-300 flex-1 min-w-0">{{ label }}</span>
       <span v-if="limit && limit > 0" class="text-xs font-medium text-gray-700 dark:text-gray-300 flex-1 min-w-0">{{ t('admin.accounts.quotaNotify.alert') }}</span>
     </div>
@@ -114,12 +118,12 @@ function getTimezoneOffsetLabel(tz: string): string {
 
     <!-- Input row -->
     <div class="flex items-center gap-2">
-      <div :class="['relative', quotaNotifyGlobalEnabled ? 'flex-1 min-w-0' : 'flex-1']">
+      <div :class="['relative', supportsNotify ? 'flex-1 min-w-0' : 'flex-1']">
         <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 text-sm">$</span>
         <input :value="limit" @input="onLimitInput" type="number" min="0" step="0.01" class="input pl-6 py-1.5 text-sm" :placeholder="t('admin.accounts.quotaLimitPlaceholder')" :data-testid="`quota-${dim}-limit`" />
       </div>
       <QuotaNotifyToggle
-        v-if="quotaNotifyGlobalEnabled && limit && limit > 0"
+        v-if="supportsNotify && limit && limit > 0"
         class="flex-1 min-w-0"
         :enabled="notifyEnabled" :threshold="notifyThreshold" :threshold-type="notifyThresholdType"
         @update:enabled="emit('update:notifyEnabled', $event)" @update:threshold="emit('update:notifyThreshold', $event)" @update:threshold-type="emit('update:notifyThresholdType', $event)"
@@ -139,6 +143,12 @@ function getTimezoneOffsetLabel(tz: string): string {
           <label class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{{ t('admin.accounts.quotaWeeklyResetDay') }}</label>
           <select :value="resetDay ?? QUOTA_WEEKLY_DEFAULT_RESET_DAY" @change="emit('update:resetDay', Number(($event.target as HTMLSelectElement).value))" class="input py-1 text-xs w-28" :data-testid="`quota-${dim}-reset-day`">
             <option v-for="d in dayOptions" :key="d.value" :value="d.value">{{ t('admin.accounts.dayOfWeek.' + d.key) }}</option>
+          </select>
+        </template>
+        <template v-if="dim === 'monthly'">
+          <label class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{{ t('admin.accounts.quotaMonthlyResetDay') }}</label>
+          <select :value="resetDay ?? QUOTA_MONTHLY_DEFAULT_RESET_DAY" @change="emit('update:resetDay', Number(($event.target as HTMLSelectElement).value))" class="input py-1 text-xs w-20" data-testid="quota-monthly-reset-day" :aria-label="t('admin.accounts.quotaMonthlyResetDay')">
+            <option v-for="day in 31" :key="day" :value="day">{{ day }}</option>
           </select>
         </template>
         <label class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{{ t('admin.accounts.quotaResetHour') }}</label>

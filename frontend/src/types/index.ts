@@ -944,6 +944,13 @@ export interface Account {
   quota_daily_used?: number | null
   quota_weekly_limit?: number | null
   quota_weekly_used?: number | null
+  quota_monthly_limit?: number | null
+  quota_monthly_used?: number | null
+  quota_monthly_start?: string | null
+  quota_monthly_reset_mode?: 'rolling' | 'fixed' | null
+  quota_monthly_reset_day?: number | null
+  quota_monthly_reset_hour?: number | null
+  quota_monthly_reset_at?: string | null
 
   // 配额固定时间重置配置
   quota_daily_reset_mode?: 'rolling' | 'fixed' | null

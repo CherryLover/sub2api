@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1077,6 +1078,28 @@ func TestClassifyOpsUnmarkedNoAvailableTextStillCountsForSLA(t *testing.T) {
 	require.False(t, isBusinessLimited)
 	require.Equal(t, "platform", errorOwner)
 	require.Equal(t, "gateway", errorSource)
+}
+
+func TestMarkOpsRoutingCapacityLimitedStoresParsedReason(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	markOpsRoutingCapacityLimitedIfNoAvailable(c, service.ErrNoAvailableAccounts)
+	reason, ok := c.Get(opsErrorReasonKey)
+	require.True(t, ok)
+	require.Equal(t, service.OpsNoAccountReasonUnknown, reason)
+
+	markOpsRoutingCapacityLimitedIfNoAvailable(c, errors.New(
+		"no available OpenAI accounts supporting model: gpt-5 (pool=7, filtered: model_rate_limited=7)",
+	))
+	reason, ok = c.Get(opsErrorReasonKey)
+	require.True(t, ok)
+	require.Equal(t, service.OpsNoAccountReasonModelRateLimited, reason)
+
+	entry := &service.OpsInsertErrorLogInput{}
+	applyOpsErrorReasonFromContext(c, entry)
+	require.Equal(t, service.OpsNoAccountReasonModelRateLimited, entry.ErrorReason)
 }
 
 func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {

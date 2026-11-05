@@ -326,8 +326,12 @@ func TestIncrementUsageBillingAccountQuota_StatementVariantsMatchFullStatement(t
 		rawExtra    string
 		dailyUnset  bool
 		weeklyUnset bool
+		monthlySet  bool
 		wantErr     bool
 	}{
+		{name: "monthly_rolling_active", extra: map[string]any{"quota_monthly_limit": 50.0, "quota_monthly_used": 20.0, "quota_monthly_start": at(-719 * time.Hour)}, dailyUnset: true, weeklyUnset: true, monthlySet: true},
+		{name: "monthly_rolling_expired", extra: map[string]any{"quota_monthly_limit": 50.0, "quota_monthly_used": 49.0, "quota_monthly_start": at(-721 * time.Hour)}, dailyUnset: true, weeklyUnset: true, monthlySet: true},
+		{name: "monthly_fixed_expired", extra: map[string]any{"quota_monthly_limit": 50.0, "quota_monthly_used": 49.0, "quota_monthly_reset_mode": "fixed", "quota_monthly_reset_day": 31, "quota_monthly_reset_hour": 2, "quota_reset_timezone": "America/New_York", "quota_monthly_reset_at": at(-time.Hour)}, dailyUnset: true, weeklyUnset: true, monthlySet: true},
 		{name: "no_limits", extra: map[string]any{}, dailyUnset: true, weeklyUnset: true},
 		{name: "total_only", extra: map[string]any{"quota_limit": 100.0, "quota_used": 3.0}, dailyUnset: true, weeklyUnset: true},
 		{name: "zero_and_negative_period_limits", extra: map[string]any{"quota_limit": 5.0, "quota_daily_limit": 0.0, "quota_weekly_limit": -1.0}, dailyUnset: true, weeklyUnset: true},
@@ -355,8 +359,8 @@ func TestIncrementUsageBillingAccountQuota_StatementVariantsMatchFullStatement(t
 	}
 
 	for _, cfg := range configs {
-		for _, hints := range [][2]bool{{false, false}, {true, false}, {false, true}, {true, true}} {
-			t.Run(fmt.Sprintf("%s/daily=%v/weekly=%v", cfg.name, hints[0], hints[1]), func(t *testing.T) {
+		for _, hints := range [][3]bool{{false, false, false}, {true, false, false}, {false, true, false}, {true, true, false}, {false, false, true}, {true, false, true}, {false, true, true}, {true, true, true}} {
+			t.Run(fmt.Sprintf("%s/daily=%v/weekly=%v/monthly=%v", cfg.name, hints[0], hints[1], hints[2]), func(t *testing.T) {
 				variant := mustCreateAccount(t, client, &service.Account{
 					Name:  "usage-billing-quota-variant-" + uuid.NewString(),
 					Type:  service.AccountTypeAPIKey,
@@ -394,18 +398,18 @@ func TestIncrementUsageBillingAccountQuota_StatementVariantsMatchFullStatement(t
 				defer func() { _ = tx.Rollback() }()
 
 				isObject := cfg.rawExtra == ""
-				wantHit := (hints[0] && hints[1]) || (isObject && (hints[0] || cfg.dailyUnset) && (hints[1] || cfg.weeklyUnset))
+				wantHit := (hints[0] && hints[1] && hints[2]) || (isObject && (hints[0] || cfg.dailyUnset) && (hints[1] || cfg.weeklyUnset) && (hints[2] || !cfg.monthlySet))
 				_, err = tx.ExecContext(ctx, "SAVEPOINT quota_variant_probe")
 				require.NoError(t, err)
-				probe, err := execAccountQuotaIncrement(ctx, tx, accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(hints[0], hints[1])], variant.ID, 2.5)
+				probe, err := execAccountQuotaIncrement(ctx, tx, accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(hints[0], hints[1], hints[2])], variant.ID, 2.5)
 				require.NoError(t, err)
 				require.Equal(t, wantHit, probe != nil, "variant statement hit")
 				_, err = tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT quota_variant_probe")
 				require.NoError(t, err)
 
-				got, err := incrementUsageBillingAccountQuota(ctx, tx, variant.ID, 2.5, hints[0], hints[1])
+				got, err := incrementUsageBillingAccountQuota(ctx, tx, variant.ID, 2.5, hints[0], hints[1], hints[2])
 				require.NoError(t, err)
-				want, err := incrementUsageBillingAccountQuota(ctx, tx, reference.ID, 2.5, true, true)
+				want, err := incrementUsageBillingAccountQuota(ctx, tx, reference.ID, 2.5, true, true, true)
 				require.NoError(t, err)
 				require.Equal(t, *want, *got)
 
@@ -493,4 +497,26 @@ func TestUsageBillingRepositoryApply_DeduplicatesAgainstArchivedKey(t *testing.T
 	result2, err := repo.Apply(ctx, cmd)
 	require.NoError(t, err)
 	require.False(t, result2.Applied)
+}
+
+func TestMonthlyQuotaSQLCalendarAndDST(t *testing.T) {
+	for _, tc := range []struct {
+		name, now, zone, want string
+		day, hour             int
+	}{
+		{"feb_clamp", "2025-02-01T00:00:00Z", "UTC", "2025-02-28T02:00:00Z", 31, 2},
+		{"march_restore", "2025-02-28T02:00:00Z", "UTC", "2025-03-31T02:00:00Z", 31, 2},
+		{"leap", "2024-02-01T00:00:00Z", "UTC", "2024-02-29T02:00:00Z", 31, 2},
+		{"dst_gap", "2025-03-01T00:00:00Z", "America/New_York", "2025-03-09T07:00:00Z", 9, 2},
+		{"dst_fold", "2025-11-01T00:00:00Z", "America/New_York", "2025-11-02T06:00:00Z", 2, 1},
+		{"year_rollover", "2025-12-31T23:00:00Z", "UTC", "2026-01-31T02:00:00Z", 31, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			extra := fmt.Sprintf(`{"quota_monthly_reset_mode":"fixed","quota_monthly_reset_day":%d,"quota_monthly_reset_hour":%d,"quota_reset_timezone":%q}`, tc.day, tc.hour, tc.zone)
+			expr := strings.ReplaceAll(nextMonthlyResetAtExpr, "NOW()", "'"+tc.now+"'::timestamptz")
+			var got string
+			require.NoError(t, integrationDB.QueryRowContext(context.Background(), "SELECT "+expr+" FROM (SELECT $1::jsonb AS extra) AS account", extra).Scan(&got))
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

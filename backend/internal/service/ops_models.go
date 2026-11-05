@@ -70,6 +70,8 @@ type OpsErrorLog struct {
 	UpstreamModel    string `json:"upstream_model"`
 	RequestType      *int16 `json:"request_type"`
 	UserAgent        string `json:"user_agent"`
+	// RequestBodyBytes is the client request body size read by the gateway.
+	RequestBodyBytes *int64 `json:"request_body_bytes,omitempty"`
 
 	// 关联 api_key 名称（LEFT JOIN api_keys 取得；软删只覆盖 key 列，name 保留，故已删 key 仍有原名）。
 	APIKeyName    string `json:"api_key_name,omitempty"`
@@ -99,6 +101,24 @@ type OpsErrorLogDetail struct {
 
 	// Bound (non-deleted) key prefix, snapshotted at error time.
 	APIKeyPrefix string `json:"api_key_prefix,omitempty"`
+}
+
+// OpsErrorKindSummary is one row in the admin error-kind distribution.
+// "other" is a synthetic catch-all and cannot be used as an exact list filter.
+type OpsErrorKindSummary struct {
+	Kind          string `json:"kind"`
+	Phase         string `json:"phase"`
+	StatusCode    int    `json:"status_code"`
+	Reason        string `json:"reason"`
+	SampleMessage string `json:"sample_message"`
+	Count         int64  `json:"count"`
+	Failed        int64  `json:"failed"`
+	Recovered     int64  `json:"recovered"`
+}
+
+type OpsErrorLogSummary struct {
+	Total int64                  `json:"total"`
+	Items []*OpsErrorKindSummary `json:"items"`
 }
 
 type OpsErrorLogFilter struct {
@@ -149,6 +169,15 @@ type OpsErrorLogFilter struct {
 	// Used to map user-facing coarse categories to backend conditions.
 	ErrorPhasesAny []string
 	ErrorTypesAny  []string
+
+	// ErrorKind matches the shared normalized kind expression used by the
+	// admin summary and list filter. "other" is synthetic-only.
+	ErrorKind string
+
+	// MinRequestBodyBytes keeps only rows whose recorded client request body is
+	// at least this many bytes. 0 disables the filter; rows without a recorded
+	// size never match a positive threshold.
+	MinRequestBodyBytes int64
 
 	// View controls error categorization for list endpoints.
 	// - errors: show actionable errors (exclude business-limited / 429 / 529)

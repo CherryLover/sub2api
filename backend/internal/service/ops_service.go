@@ -19,10 +19,12 @@ import (
 var ErrOpsDisabled = infraerrors.NotFound("OPS_DISABLED", "Ops monitoring is disabled")
 
 const (
-	opsMaxStoredErrorBodyBytes = 20 * 1024
+	opsMaxStoredErrorBodyBytes      = 20 * 1024
+	opsMaxStoredUpstreamDetailBytes = 32 * 1024
+
 	// OpsErrorLogQueueBodyMaxBytes bounds attacker-controlled response data while
 	// it waits in the asynchronous error-log queue.
-	OpsErrorLogQueueBodyMaxBytes = 8 * 1024
+	OpsErrorLogQueueBodyMaxBytes = 32 * 1024
 
 	opsRuntimeSettingsRefreshInterval = 30 * time.Second
 	opsRuntimeSettingsRefreshJitter   = 20
@@ -543,7 +545,7 @@ func (s *OpsService) prepareErrorLogInput(ctx context.Context, entry *OpsInsertE
 		if detail == "" {
 			entry.UpstreamErrorDetail = nil
 		} else {
-			sanitized, _ := sanitizeErrorBodyForStorage(detail, opsMaxStoredErrorBodyBytes)
+			sanitized, _ := sanitizeErrorBodyForStorage(detail, opsMaxStoredUpstreamDetailBytes)
 			if strings.TrimSpace(sanitized) == "" {
 				entry.UpstreamErrorDetail = nil
 			} else {
@@ -607,7 +609,6 @@ func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
 
 		detail := strings.TrimSpace(out.Detail)
 		if detail != "" {
-			// Keep upstream detail small while the event waits in the queue.
 			sanitizedDetail, _ := sanitizeErrorBodyForStorage(detail, OpsErrorLogQueueBodyMaxBytes)
 			out.Detail = sanitizedDetail
 		} else {
@@ -641,6 +642,45 @@ func (s *OpsService) GetErrorLogs(ctx context.Context, filter *OpsErrorLogFilter
 		return nil, err
 	}
 
+	return result, nil
+}
+
+func (s *OpsService) GetErrorLogsSummary(ctx context.Context, filter *OpsErrorLogFilter) (*OpsErrorLogSummary, error) {
+	if err := s.RequireMonitoringEnabled(ctx); err != nil {
+		return nil, err
+	}
+	if s.opsRepo == nil {
+		return &OpsErrorLogSummary{Items: []*OpsErrorKindSummary{}}, nil
+	}
+
+	snapshot := &OpsErrorLogFilter{}
+	if filter != nil {
+		*snapshot = *filter
+	}
+	// Summary always describes the full filtered result. The selected kind is
+	// a list-only drill-down and must not make the other cards disappear.
+	snapshot.ErrorKind = ""
+	snapshot.Page = 0
+	snapshot.PageSize = 0
+	snapshot.SortBy = ""
+	snapshot.SortOrder = ""
+
+	result, err := s.opsRepo.SummarizeErrorLogs(ctx, snapshot)
+	if err != nil {
+		log.Printf("[Ops] GetErrorLogsSummary failed: %v", err)
+		return nil, err
+	}
+	if result == nil {
+		return &OpsErrorLogSummary{Items: []*OpsErrorKindSummary{}}, nil
+	}
+	if result.Items == nil {
+		result.Items = []*OpsErrorKindSummary{}
+	}
+	for _, item := range result.Items {
+		if item != nil {
+			item.SampleMessage = strings.TrimSpace(sanitizeUpstreamErrorMessage(item.SampleMessage))
+		}
+	}
 	return result, nil
 }
 

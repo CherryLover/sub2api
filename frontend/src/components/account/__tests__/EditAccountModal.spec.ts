@@ -1326,6 +1326,44 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
   })
 
+  it.each(['fixed', 'rolling'] as const)('round-trips monthly %s quota configuration and usage', async (mode) => {
+    const account = buildAccount()
+    account.extra = { quota_monthly_limit: 150, quota_monthly_used: 33, quota_monthly_start: '2026-01-01T00:00:00Z', quota_monthly_reset_mode: mode, quota_monthly_reset_day: 31, quota_monthly_reset_hour: 23, quota_reset_timezone: 'Asia/Shanghai' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const card = wrapper.findComponent({ name: 'QuotaLimitCard' })
+    expect(card.props('monthlyLimit')).toBe(150)
+    expect(card.props('monthlyResetMode')).toBe(mode)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra.quota_monthly_limit).toBe(150)
+    expect(extra.quota_monthly_used).toBe(33)
+    expect(extra.quota_monthly_reset_mode).toBe(mode)
+    if (mode === 'fixed') {
+      expect(extra.quota_monthly_reset_day).toBe(31)
+      expect(extra.quota_monthly_reset_hour).toBe(23)
+      expect(extra.quota_reset_timezone).toBe('Asia/Shanghai')
+    } else {
+      expect(extra.quota_monthly_reset_day).toBeUndefined()
+      expect(extra.quota_monthly_reset_hour).toBeUndefined()
+    }
+  })
+
+  it('omits monthly fields from the update request when disabled (server retains protected metering)', async () => {
+    const account = buildAccount()
+    account.extra = { quota_monthly_limit: 100, quota_monthly_used: 10, quota_monthly_start: '2026-01-01T00:00:00Z', quota_monthly_reset_mode: 'fixed', quota_monthly_reset_day: 31, quota_monthly_reset_hour: 23, quota_monthly_reset_at: '2026-01-31T23:00:00Z' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    wrapper.findComponent({ name: 'QuotaLimitCard' }).vm.$emit('update:monthlyLimit', null)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    for (const key of ['limit', 'used', 'start', 'reset_mode', 'reset_day', 'reset_hour', 'reset_at']) {
+      expect(extra).not.toHaveProperty(`quota_monthly_${key}`)
+    }
+  })
+
   it('shows quota limit card for Vertex SA account and keeps quota limits on save', async () => {
     const account = buildVertexAccount()
     account.extra = { quota_limit: 200, quota_daily_limit: 20, quota_used: 35.5 }

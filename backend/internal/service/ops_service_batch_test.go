@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,6 +144,32 @@ func TestOpsServiceRecordErrorPersistsExplicitAccountAuthStatusZero(t *testing.T
 	require.NotNil(t, captured.UpstreamErrorsJSON)
 	require.Contains(t, *captured.UpstreamErrorsJSON, `"upstream_status_code":403`)
 	require.Contains(t, *captured.UpstreamErrorsJSON, `"stage":"account_auth"`)
+}
+
+func TestOpsServiceRecordErrorTruncatesUpstreamDetailAt32KB(t *testing.T) {
+	t.Parallel()
+
+	var captured *OpsInsertErrorLogInput
+	repo := &opsRepoMock{
+		InsertErrorLogFn: func(_ context.Context, input *OpsInsertErrorLogInput) (int64, error) {
+			captured = input
+			return 1, nil
+		},
+	}
+	svc := NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	detail := strings.Repeat("d", 40*1024)
+
+	err := svc.RecordError(context.Background(), &OpsInsertErrorLogInput{
+		ErrorPhase:          "upstream",
+		ErrorType:           "upstream_error",
+		UpstreamErrorDetail: &detail,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.NotNil(t, captured.UpstreamErrorDetail)
+	require.Len(t, *captured.UpstreamErrorDetail, opsMaxStoredUpstreamDetailBytes)
+	require.Equal(t, 32*1024, opsMaxStoredUpstreamDetailBytes)
 }
 
 func strPtr(v string) *string {
