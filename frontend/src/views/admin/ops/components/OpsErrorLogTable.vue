@@ -53,6 +53,15 @@
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
         </template>
 
+        <template #cell-request_size="{ row }">
+          <span
+            v-if="row.request_body_bytes"
+            data-testid="request-size"
+            class="whitespace-nowrap text-sm tabular-nums text-gray-900 dark:text-white"
+          >{{ formatBytes(row.request_body_bytes, 1) }}</span>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
         <template #cell-group="{ row }">
           <span
             v-if="row.group_id"
@@ -189,6 +198,7 @@ import IpGeoBatchToolbar from '@/components/common/IpGeoBatchToolbar.vue'
 import type { OpsErrorLog } from '@/api/admin/ops'
 import type { Column } from '@/components/common/types'
 import { getSeverityClass, formatDateTime } from '../utils/opsFormatters'
+import { formatBytes } from '@/utils/format'
 import { mapErrorCategory } from '@/utils/errorCategory'
 import { mapErrorSortKey, statusCodeBadgeClass } from '@/utils/errorBadges'
 
@@ -202,6 +212,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'account', label: t('admin.ops.errorLog.account') },
   { key: 'platform', label: t('admin.ops.errorLog.platform') },
   { key: 'model', label: t('admin.ops.errorLog.model'), sortable: true },
+  { key: 'request_size', label: t('admin.ops.errorLog.requestSize') },
   { key: 'endpoint', label: t('admin.ops.errorLog.endpoint') },
   { key: 'group', label: t('admin.ops.errorLog.group') },
   { key: 'type', label: t('admin.ops.errorLog.type') },

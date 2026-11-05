@@ -335,7 +335,8 @@ const isQuotaExceeded = computed(() => {
   return (
     exceeded(props.account.quota_used, props.account.quota_limit) ||
     exceeded(props.account.quota_daily_used, props.account.quota_daily_limit) ||
-    exceeded(props.account.quota_weekly_used, props.account.quota_weekly_limit)
+    exceeded(props.account.quota_weekly_used, props.account.quota_weekly_limit) ||
+    exceeded(props.account.quota_monthly_used, props.account.quota_monthly_limit)
   )
 })
 

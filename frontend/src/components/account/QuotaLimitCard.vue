@@ -18,6 +18,10 @@ const props = withDefaults(defineProps<{
   totalLimit: number | null
   dailyLimit: number | null
   weeklyLimit: number | null
+  monthlyLimit?: number | null
+  monthlyResetMode?: QuotaResetMode | null
+  monthlyResetDay?: number | null
+  monthlyResetHour?: number | null
   dailyResetMode: QuotaResetMode | null
   dailyResetHour: number | null
   weeklyResetMode: QuotaResetMode | null
@@ -35,6 +39,10 @@ const props = withDefaults(defineProps<{
   quotaNotifyTotalThreshold?: number | null
   quotaNotifyTotalThresholdType?: QuotaThresholdType | null
 }>(), {
+  monthlyLimit: null,
+  monthlyResetMode: null,
+  monthlyResetDay: null,
+  monthlyResetHour: null,
   quotaNotifyGlobalEnabled: false,
   quotaNotifyDailyEnabled: null,
   quotaNotifyDailyThreshold: null,
@@ -51,6 +59,10 @@ const emit = defineEmits<{
   'update:totalLimit': [value: number | null]
   'update:dailyLimit': [value: number | null]
   'update:weeklyLimit': [value: number | null]
+  'update:monthlyLimit': [value: number | null]
+  'update:monthlyResetMode': [value: QuotaResetMode | null]
+  'update:monthlyResetDay': [value: number | null]
+  'update:monthlyResetHour': [value: number | null]
   'update:dailyResetMode': [value: QuotaResetMode | null]
   'update:dailyResetHour': [value: number | null]
   'update:weeklyResetMode': [value: QuotaResetMode | null]
@@ -71,7 +83,8 @@ const emit = defineEmits<{
 const enabled = computed(() =>
   (props.totalLimit != null && props.totalLimit > 0) ||
   (props.dailyLimit != null && props.dailyLimit > 0) ||
-  (props.weeklyLimit != null && props.weeklyLimit > 0)
+  (props.weeklyLimit != null && props.weeklyLimit > 0) ||
+  (props.monthlyLimit != null && props.monthlyLimit > 0)
 )
 
 const localEnabled = ref(enabled.value)
@@ -89,6 +102,10 @@ watch(localEnabled, (val) => {
     emit('update:totalLimit', null)
     emit('update:dailyLimit', null)
     emit('update:weeklyLimit', null)
+    emit('update:monthlyLimit', null)
+    emit('update:monthlyResetMode', null)
+    emit('update:monthlyResetDay', null)
+    emit('update:monthlyResetHour', null)
     emit('update:dailyResetMode', null)
     emit('update:dailyResetHour', null)
     emit('update:weeklyResetMode', null)
@@ -136,6 +153,14 @@ const weeklyFixedHint = computed(() => {
     timezone: props.resetTimezone || defaultTimezone.value,
   })
 })
+
+const monthlyFixedHint = computed(() =>
+  t('admin.accounts.quotaMonthlyLimitHintFixed', {
+    day: props.monthlyResetDay ?? 1,
+    hour: String(props.monthlyResetHour ?? 0).padStart(2, '0'),
+    timezone: props.resetTimezone || defaultTimezone.value,
+  })
+)
 
 const dailyFixedHint = computed(() =>
   t('admin.accounts.quotaDailyLimitHintFixed', {
@@ -234,6 +259,34 @@ const dailyFixedHint = computed(() =>
           @update:reset-day="emit('update:weeklyResetDay', $event)"
           @update:reset-timezone="emit('update:resetTimezone', $event)"
         />
+
+        <!-- Monthly quota: notifications intentionally remain daily/weekly/total only. -->
+        <QuotaDimensionRow
+          dim="monthly"
+          :label="t('admin.accounts.quotaMonthlyLimit')"
+          :limit="monthlyLimit"
+          :quota-notify-global-enabled="false"
+          :notify-enabled="null"
+          :notify-threshold="null"
+          :notify-threshold-type="null"
+          :reset-mode="monthlyResetMode"
+          :reset-hour="monthlyResetHour"
+          :reset-day="monthlyResetDay"
+          :reset-timezone="resetTimezone"
+          :hint-rolling="t('admin.accounts.quotaMonthlyLimitHint')"
+          :hint-fixed="monthlyFixedHint"
+          :hour-options="hourOptions"
+          :day-options="dayOptions"
+          :timezone-options="timezoneOptions"
+          @update:limit="emit('update:monthlyLimit', $event)"
+          @update:reset-mode="emit('update:monthlyResetMode', $event)"
+          @update:reset-hour="emit('update:monthlyResetHour', $event)"
+          @update:reset-day="emit('update:monthlyResetDay', $event)"
+          @update:reset-timezone="emit('update:resetTimezone', $event)"
+        />
+        <p v-if="dailyResetMode === 'fixed' || weeklyResetMode === 'fixed' || monthlyResetMode === 'fixed'" class="input-hint text-[11px]">
+          {{ t('admin.accounts.quotaResetTimezoneHint') }}
+        </p>
 
         <!-- Total quota -->
         <QuotaDimensionRow

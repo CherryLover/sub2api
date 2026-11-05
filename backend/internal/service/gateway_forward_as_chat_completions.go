@@ -235,6 +235,12 @@ func extractCCReasoningEffortFromBody(body []byte, modelCandidates ...string) *s
 	return &normalized
 }
 
+// ExtractCCReasoningEffortFromBody exposes the chat-completions effort parser
+// to handlers that need to attach it to Ops error logs.
+func ExtractCCReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
+	return extractCCReasoningEffortFromBody(body, modelCandidates...)
+}
+
 // handleCCBufferedFromAnthropic reads Anthropic SSE events, assembles the full
 // response, then converts Anthropic → Responses → Chat Completions.
 func (s *GatewayService) handleCCBufferedFromAnthropic(

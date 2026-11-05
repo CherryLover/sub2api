@@ -190,6 +190,7 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 		// Error logs (legacy)
 		ops.GET("/errors", h.Admin.Ops.GetErrorLogs)
+		ops.GET("/errors/summary", h.Admin.Ops.GetErrorLogsSummary)
 		ops.GET("/errors/:id", h.Admin.Ops.GetErrorLogByID)
 		ops.PUT("/errors/:id/resolve", h.Admin.Ops.UpdateErrorResolution)
 
@@ -203,6 +204,11 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.GET("/ingress-rejections", h.Admin.Ops.ListIngressRejects)
 		ops.GET("/ingress-rejections/health", h.Admin.Ops.GetIngressRejectHealth)
 		ops.GET("/auth-cache-invalidation/health", h.Admin.Ops.GetAuthCacheInvalidationHealth)
+
+		// Request-level upstream failures, including recovered retries.
+		ops.GET("/upstream-error-requests", h.Admin.Ops.ListUpstreamErrorRequests)
+		ops.GET("/upstream-error-requests/summary", h.Admin.Ops.GetUpstreamErrorRequestsSummary)
+		ops.GET("/upstream-error-requests/trend", h.Admin.Ops.GetUpstreamErrorRequestsTrend)
 
 		// Upstream errors (independent upstream failures)
 		ops.GET("/upstream-errors", h.Admin.Ops.ListUpstreamErrors)

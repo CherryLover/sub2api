@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -12,19 +13,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var accountQuotaStateColumns = []string{"quota_used", "quota_limit", "quota_daily_used", "quota_daily_limit", "quota_weekly_used", "quota_weekly_limit"}
+var accountQuotaStateColumns = []string{"quota_used", "quota_limit", "quota_daily_used", "quota_daily_limit", "quota_weekly_used", "quota_weekly_limit", "quota_monthly_used", "quota_monthly_limit"}
 
 func TestAccountQuotaIncrementSQLs_GuardOmittedDimensions(t *testing.T) {
 	for _, daily := range []bool{false, true} {
 		for _, weekly := range []bool{false, true} {
-			query := accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(daily, weekly)]
-			set, where, ok := strings.Cut(query, "WHERE ")
-			require.True(t, ok)
-			require.Equal(t, !daily || !weekly, strings.Contains(where, accountQuotaExtraIsObjectCond), "daily=%v weekly=%v", daily, weekly)
-			require.Equal(t, daily, strings.Contains(set, "'quota_daily_used'"), "daily=%v weekly=%v", daily, weekly)
-			require.Equal(t, weekly, strings.Contains(set, "'quota_weekly_used'"), "daily=%v weekly=%v", daily, weekly)
-			require.Equal(t, !daily, strings.Contains(where, accountQuotaDailyLimitUnsetCond), "daily=%v weekly=%v", daily, weekly)
-			require.Equal(t, !weekly, strings.Contains(where, accountQuotaWeeklyLimitUnsetCond), "daily=%v weekly=%v", daily, weekly)
+			for _, monthly := range []bool{false, true} {
+				query := accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(daily, weekly, monthly)]
+				set, where, ok := strings.Cut(query, "WHERE ")
+				require.True(t, ok)
+				require.Equal(t, !daily || !weekly || !monthly, strings.Contains(where, accountQuotaExtraIsObjectCond), "daily=%v weekly=%v", daily, weekly)
+				require.Equal(t, daily, strings.Contains(set, "'quota_daily_used'"), "daily=%v weekly=%v", daily, weekly)
+				require.Equal(t, weekly, strings.Contains(set, "'quota_weekly_used'"), "daily=%v weekly=%v", daily, weekly)
+				require.Equal(t, !daily, strings.Contains(where, accountQuotaDailyLimitUnsetCond), "daily=%v weekly=%v", daily, weekly)
+				require.Equal(t, !weekly, strings.Contains(where, accountQuotaWeeklyLimitUnsetCond), "daily=%v weekly=%v", daily, weekly)
+				require.Equal(t, monthly, strings.Contains(set, "'quota_monthly_used'"))
+				require.Equal(t, !monthly, strings.Contains(where, accountQuotaMonthlyLimitUnsetCond))
+			}
 		}
 	}
 }
@@ -40,7 +45,7 @@ func TestIncrementUsageBillingAccountQuota_UsesStatementMatchingHints(t *testing
 	require.NoError(t, err)
 	mock.ExpectQuery(accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(true, false)]).
 		WithArgs(2.5, int64(9)).
-		WillReturnRows(sqlmock.NewRows(accountQuotaStateColumns).AddRow(12.5, 100.0, 2.5, 50.0, 0.0, 0.0))
+		WillReturnRows(sqlmock.NewRows(accountQuotaStateColumns).AddRow(12.5, 100.0, 2.5, 50.0, 0.0, 0.0, 0.0, 0.0))
 	mock.ExpectCommit()
 
 	state, err := incrementUsageBillingAccountQuota(ctx, tx, 9, 2.5, true, false)
@@ -64,9 +69,9 @@ func TestIncrementUsageBillingAccountQuota_FallsBackToFullStatementWhenGuardMiss
 	mock.ExpectQuery(accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(false, false)]).
 		WithArgs(2.5, int64(9)).
 		WillReturnRows(sqlmock.NewRows(accountQuotaStateColumns))
-	mock.ExpectQuery(accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(true, true)]).
+	mock.ExpectQuery(accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(true, true, true)]).
 		WithArgs(2.5, int64(9)).
-		WillReturnRows(sqlmock.NewRows(accountQuotaStateColumns).AddRow(2.5, 0.0, 0.0, 0.0, 2.5, 20.0))
+		WillReturnRows(sqlmock.NewRows(accountQuotaStateColumns).AddRow(2.5, 0.0, 0.0, 0.0, 2.5, 20.0, 0.0, 0.0))
 	mock.ExpectCommit()
 
 	state, err := incrementUsageBillingAccountQuota(ctx, tx, 9, 2.5, false, false)
@@ -79,7 +84,7 @@ func TestIncrementUsageBillingAccountQuota_FallsBackToFullStatementWhenGuardMiss
 }
 
 func TestIncrementUsageBillingAccountQuota_ReturnsNotFoundWhenFullStatementMisses(t *testing.T) {
-	for _, hints := range [][2]bool{{false, false}, {true, false}, {false, true}, {true, true}} {
+	for _, hints := range [][3]bool{{false, false, false}, {true, false, false}, {false, true, false}, {true, true, false}, {false, false, true}, {true, false, true}, {false, true, true}, {true, true, true}} {
 		ctx := context.Background()
 		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
 		require.NoError(t, err)
@@ -87,21 +92,62 @@ func TestIncrementUsageBillingAccountQuota_ReturnsNotFoundWhenFullStatementMisse
 		mock.ExpectBegin()
 		tx, err := db.BeginTx(ctx, nil)
 		require.NoError(t, err)
-		mock.ExpectQuery(accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(hints[0], hints[1])]).
+		mock.ExpectQuery(accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(hints[0], hints[1], hints[2])]).
 			WithArgs(2.5, int64(9)).
 			WillReturnRows(sqlmock.NewRows(accountQuotaStateColumns))
-		if !(hints[0] && hints[1]) {
-			mock.ExpectQuery(accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(true, true)]).
+		if !(hints[0] && hints[1] && hints[2]) {
+			mock.ExpectQuery(accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(true, true, true)]).
 				WithArgs(2.5, int64(9)).
 				WillReturnRows(sqlmock.NewRows(accountQuotaStateColumns))
 		}
 		mock.ExpectRollback()
 
-		state, err := incrementUsageBillingAccountQuota(ctx, tx, 9, 2.5, hints[0], hints[1])
+		state, err := incrementUsageBillingAccountQuota(ctx, tx, 9, 2.5, hints[0], hints[1], hints[2])
 		require.ErrorIs(t, err, service.ErrAccountNotFound, "hints=%v", hints)
 		require.Nil(t, state)
 		require.NoError(t, tx.Rollback())
 		require.NoError(t, mock.ExpectationsWereMet(), "hints=%v", hints)
 		_ = db.Close()
 	}
+}
+
+func TestIncrementUsageBillingAccountQuota_MonthlyCrossingOutbox(t *testing.T) {
+	for _, used := range []float64{9, 10, 12.5, 13} {
+		t.Run(fmt.Sprint(used), func(t *testing.T) {
+			ctx := context.Background()
+			db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+			require.NoError(t, err)
+			defer db.Close()
+			mock.ExpectBegin()
+			tx, err := db.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			mock.ExpectQuery(accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(false, false, true)]).
+				WithArgs(2.5, int64(9)).
+				WillReturnRows(sqlmock.NewRows(accountQuotaStateColumns).AddRow(100, 0, 0, 0, 0, 0, used, 10))
+			if used >= 10 && used-2.5 < 10 {
+				mock.ExpectExec(`INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload, dedup_key)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`).
+					WithArgs(service.SchedulerOutboxEventAccountChanged, int64(9), nil, nil, sqlmock.AnyArg()).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+			}
+			mock.ExpectCommit()
+			state, err := incrementUsageBillingAccountQuota(ctx, tx, 9, 2.5, false, false, true)
+			require.NoError(t, err)
+			require.Equal(t, used, state.MonthlyUsed)
+			require.NoError(t, tx.Commit())
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestFilterSchedulerExtra_MonthlyQuotaContract(t *testing.T) {
+	extra := map[string]any{
+		"quota_monthly_limit": 50.0, "quota_monthly_used": 49.0,
+		"quota_monthly_start": "2026-01-01T00:00:00Z", "quota_monthly_reset_mode": "fixed",
+		"quota_monthly_reset_day": 31, "quota_monthly_reset_hour": 2,
+		"quota_monthly_reset_at": "2026-02-28T02:00:00Z", "quota_reset_timezone": "UTC",
+		"quota_daily_reset_at": "daily", "quota_weekly_reset_at": "weekly",
+	}
+	require.Equal(t, extra, filterSchedulerExtra(extra))
 }

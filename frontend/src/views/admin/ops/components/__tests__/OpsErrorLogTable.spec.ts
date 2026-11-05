@@ -75,6 +75,21 @@ describe('OpsErrorLogTable user/api-key/account columns', () => {
   })
 })
 
+describe('OpsErrorLogTable request size column', () => {
+  it('shows the recorded request body size for every row, not only large ones', () => {
+    const big = mountTable({ request_body_bytes: 8995454 })
+    expect(big.find('[data-testid="request-size"]').text()).toBe('8.6 MB')
+
+    const small = mountTable({ request_body_bytes: 2048 })
+    expect(small.find('[data-testid="request-size"]').text()).toBe('2 KB')
+  })
+
+  it('shows a dash when the size was not recorded', () => {
+    const wrapper = mountTable({ request_body_bytes: null })
+    expect(wrapper.find('[data-testid="request-size"]').exists()).toBe(false)
+  })
+})
+
 // 防回归:组件用 admin.ops.errorLog.* 命名空间。若 i18n 键写错命名空间(如误放到
 // errorDetail),真实 vue-i18n 会回退返回 key 本身 → 界面显示原始路径字符串。
 // 这里用真实 locale 校验键确实可解析(返回译文而非 key)。
