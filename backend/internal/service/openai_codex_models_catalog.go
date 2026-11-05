@@ -478,6 +478,12 @@ func configuredCodexGPTReasoningLevels(modelID string) []configuredCodexReasonin
 		{Effort: "xhigh", Description: configuredCodexReasoningLevelDescription("xhigh")},
 	}
 	normalized := getNormalizedCodexModel(modelID)
+	if normalized == "gpt-6.1-terra" {
+		levels = append([]configuredCodexReasoningLevel{{
+			Effort:      "none",
+			Description: configuredCodexReasoningLevelDescription("none"),
+		}}, levels...)
+	}
 	if isOpenAIGPT56Model(modelID) || isOpenAIGPT6Model(modelID) {
 		levels = append(levels, configuredCodexReasoningLevel{
 			Effort:      "max",
