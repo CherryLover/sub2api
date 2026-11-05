@@ -228,3 +228,15 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).toContain('admin.accounts.status.creditsExhausted')
   })
 })
+
+
+describe('monthly quota status', () => {
+  it.each([[99, 100, false], [100, 100, true], [101, 100, true], [100, 0, false]])('used=%s limit=%s exceeds=%s', (used, limit, exceeded) => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: { account: makeAccount({ type: 'apikey', quota_monthly_limit: limit as number, quota_monthly_used: used as number }) },
+      global: { stubs: { Icon: true } },
+    })
+    expect(wrapper.text().includes('admin.accounts.status.quotaExceeded')).toBe(exceeded)
+    wrapper.unmount()
+  })
+})

@@ -9,6 +9,7 @@ type OpsRepository interface {
 	InsertErrorLog(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error)
 	BatchInsertErrorLogs(ctx context.Context, inputs []*OpsInsertErrorLogInput) (int64, error)
 	ListErrorLogs(ctx context.Context, filter *OpsErrorLogFilter) (*OpsErrorLogList, error)
+	SummarizeErrorLogs(ctx context.Context, filter *OpsErrorLogFilter) (*OpsErrorLogSummary, error)
 	GetErrorLogByID(ctx context.Context, id int64) (*OpsErrorLogDetail, error)
 	ListRequestDetails(ctx context.Context, filter *OpsRequestDetailFilter) ([]*OpsRequestDetail, int64, error)
 	BatchInsertSystemLogs(ctx context.Context, inputs []*OpsInsertSystemLogInput) (int64, error)
@@ -100,6 +101,9 @@ type OpsInsertErrorLogInput struct {
 
 	ErrorPhase        string
 	ErrorType         string
+	ErrorReason       string
+	ReasoningEffort   *string
+	RequestBodyBytes  *int64
 	Severity          string
 	StatusCode        int
 	IsBusinessLimited bool

@@ -2028,6 +2028,14 @@
           :totalLimit="editQuotaLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
+          :monthlyLimit="editQuotaMonthlyLimit"
+          :monthlyResetMode="editMonthlyResetMode"
+          :monthlyResetDay="editMonthlyResetDay"
+          :monthlyResetHour="editMonthlyResetHour"
+          @update:monthlyLimit="editQuotaMonthlyLimit = $event"
+          @update:monthlyResetMode="editMonthlyResetMode = $event"
+          @update:monthlyResetDay="editMonthlyResetDay = $event"
+          @update:monthlyResetHour="editMonthlyResetHour = $event"
           :quotaNotifyGlobalEnabled="quotaNotifyGlobalEnabled"
           :quotaNotifyDailyEnabled="quotaNotifyState.daily.enabled"
           :quotaNotifyDailyThreshold="quotaNotifyState.daily.threshold"
@@ -2080,6 +2088,14 @@
           :totalLimit="editQuotaLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
+          :monthlyLimit="editQuotaMonthlyLimit"
+          :monthlyResetMode="editMonthlyResetMode"
+          :monthlyResetDay="editMonthlyResetDay"
+          :monthlyResetHour="editMonthlyResetHour"
+          @update:monthlyLimit="editQuotaMonthlyLimit = $event"
+          @update:monthlyResetMode="editMonthlyResetMode = $event"
+          @update:monthlyResetDay="editMonthlyResetDay = $event"
+          @update:monthlyResetHour="editMonthlyResetHour = $event"
           :quotaNotifyGlobalEnabled="quotaNotifyGlobalEnabled"
           :quotaNotifyDailyEnabled="quotaNotifyState.daily.enabled"
           :quotaNotifyDailyThreshold="quotaNotifyState.daily.threshold"
@@ -4155,6 +4171,10 @@ const syncPreviewCredentials = computed(() => {
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)
+const editQuotaMonthlyLimit = ref<number | null>(null)
+const editMonthlyResetMode = ref<'rolling' | 'fixed' | null>(null)
+const editMonthlyResetDay = ref<number | null>(null)
+const editMonthlyResetHour = ref<number | null>(null)
 const editDailyResetMode = ref<'rolling' | 'fixed' | null>(null)
 const editDailyResetHour = ref<number | null>(null)
 const editWeeklyResetMode = ref<'rolling' | 'fixed' | null>(null)
@@ -5056,6 +5076,18 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
+  // All create paths converge here (including the direct API-key path).
+  if (supportsAccountQuota(payload.type) && editQuotaMonthlyLimit.value != null && editQuotaMonthlyLimit.value > 0) {
+    const extra: Record<string, unknown> = { ...(payload.extra || {}) }
+    extra.quota_monthly_limit = editQuotaMonthlyLimit.value
+    extra.quota_monthly_reset_mode = editMonthlyResetMode.value || 'fixed'
+    if (extra.quota_monthly_reset_mode === 'fixed') {
+      extra.quota_monthly_reset_day = editMonthlyResetDay.value ?? 1
+      extra.quota_monthly_reset_hour = editMonthlyResetHour.value ?? 0
+      extra.quota_reset_timezone = editResetTimezone.value || defaultQuotaResetTimezone(appStore.cachedPublicSettings?.server_timezone)
+    }
+    payload = { ...payload, extra }
+  }
   submitting.value = true
   try {
     const account = await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
@@ -5115,6 +5147,10 @@ const resetForm = () => {
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
+  editQuotaMonthlyLimit.value = null
+  editMonthlyResetMode.value = null
+  editMonthlyResetDay.value = null
+  editMonthlyResetHour.value = null
   editDailyResetMode.value = null
   editDailyResetHour.value = null
   editWeeklyResetMode.value = null

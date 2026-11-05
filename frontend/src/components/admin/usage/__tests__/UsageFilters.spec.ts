@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { defineComponent } from 'vue'
 
 import UsageFilters from '../UsageFilters.vue'
 
@@ -38,6 +39,9 @@ const messages: Record<string, string> = {
   'common.reset': 'Reset',
   'admin.usage.cleanup.button': 'Cleanup',
   'usage.exportExcel': 'Export',
+  'admin.ops.errorLog.requestSize': 'Request size',
+  'admin.ops.errorLog.allRequestSizes': 'All sizes',
+  'admin.ops.errorLog.minRequestSize': '≥{n} MB',
 }
 
 // Mock vue-i18n
@@ -46,7 +50,11 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      t: (key: string, params?: Record<string, string | number>) =>
+        Object.entries(params ?? {}).reduce(
+          (message, [name, value]) => message.replaceAll(`{${name}}`, String(value)),
+          messages[key] ?? key,
+        ),
     }),
   }
 })
@@ -98,6 +106,48 @@ function mountFilters(filters = defaultFilters()) {
     global: {
       stubs: {
         Select: true,
+        Teleport: true,
+      },
+    },
+  })
+}
+
+const SelectStub = defineComponent({
+  name: 'SelectControlStub',
+  inheritAttrs: false,
+  props: {
+    modelValue: {
+      default: null,
+    },
+    options: {
+      type: Array,
+      default: () => [],
+    },
+  },
+  emits: ['update:modelValue', 'change'],
+  template: `
+    <select v-bind="$attrs">
+      <option v-for="(option, index) in options" :key="index" :value="option.value ?? ''">
+        {{ option.label }}
+      </option>
+    </select>
+  `,
+})
+
+function mountFiltersForMode(mode: 'usage' | 'errors' | 'ranking') {
+  return mount(UsageFilters, {
+    props: {
+      modelValue: defaultFilters(),
+      exporting: false,
+      startDate: '2026-05-01',
+      endDate: '2026-05-28',
+      showActions: false,
+      modelOptions: [],
+      mode,
+    },
+    global: {
+      stubs: {
+        Select: SelectStub,
         Teleport: true,
       },
     },
@@ -257,5 +307,30 @@ describe('UsageFilters — model options come from prop (no dup request)', () =>
 
     const opts = (wrapper.vm as any).modelOptions as Array<{ value: string | null; label: string }>
     expect(opts.map((o) => o.value)).toEqual([null, 'claude-3', 'gpt-4o'])
+  })
+})
+
+describe('UsageFilters - request size filter', () => {
+  it('offers the configured byte thresholds in errors mode', () => {
+    const wrapper = mountFiltersForMode('errors')
+    const requestSize = wrapper
+      .findAllComponents(SelectStub)
+      .find((select) => select.attributes('data-testid') === 'request-size-filter')
+
+    expect(requestSize).toBeDefined()
+    expect(requestSize!.props('options')).toEqual([
+      { value: null, label: 'All sizes' },
+      { value: 1 * 1024 * 1024, label: '≥1 MB' },
+      { value: 2 * 1024 * 1024, label: '≥2 MB' },
+      { value: 4 * 1024 * 1024, label: '≥4 MB' },
+      { value: 8 * 1024 * 1024, label: '≥8 MB' },
+      { value: 16 * 1024 * 1024, label: '≥16 MB' },
+    ])
+  })
+
+  it.each(['usage', 'ranking'] as const)('hides the request size filter in %s mode', (mode) => {
+    const wrapper = mountFiltersForMode(mode)
+
+    expect(wrapper.find('[data-testid="request-size-filter"]').exists()).toBe(false)
   })
 })

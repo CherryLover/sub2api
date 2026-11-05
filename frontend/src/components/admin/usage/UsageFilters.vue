@@ -162,6 +162,12 @@
           <Select v-model="filters.status_code" :options="statusCodeOptions" @change="emitChange" />
         </div>
 
+        <!-- Request Body Size Filter (errors only) -->
+        <div v-if="mode === 'errors'" class="w-full sm:w-auto sm:min-w-[160px]">
+          <label class="input-label">{{ t('admin.ops.errorLog.requestSize') }}</label>
+          <Select v-model="filters.min_request_body_bytes" :options="requestSizeOptions" data-testid="request-size-filter" @change="emitChange" />
+        </div>
+
         <!-- Group Filter -->
         <div class="w-full sm:w-auto sm:min-w-[200px]">
           <label class="input-label">{{ t('admin.usage.group') }}</label>
@@ -197,7 +203,7 @@ import { ref, onMounted, onUnmounted, toRef, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
-import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
+import { COMMON_ERROR_STATUS_CODES, REQUEST_BODY_SIZE_FILTER_MB } from '@/utils/errorBadges'
 import type { SimpleApiKey, SimpleUser } from '@/api/admin/usage'
 
 type ModelValue = Record<string, any>
@@ -302,6 +308,14 @@ const errorCategoryOptions = computed<SelectOption[]>(() => [
 const statusCodeOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('usage.errors.allStatuses') },
   ...COMMON_ERROR_STATUS_CODES.map((c) => ({ value: c, label: String(c) })),
+])
+
+const requestSizeOptions = computed<SelectOption[]>(() => [
+  { value: null, label: t('admin.ops.errorLog.allRequestSizes') },
+  ...REQUEST_BODY_SIZE_FILTER_MB.map((mb) => ({
+    value: mb * 1024 * 1024,
+    label: t('admin.ops.errorLog.minRequestSize', { n: mb }),
+  })),
 ])
 
 const billingModeOptions = ref<SelectOption[]>([

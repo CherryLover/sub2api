@@ -135,8 +135,8 @@
               <slot
                 :name="`header-${column.key}`"
                 :column="column"
-                :sort-key="sortKey"
-                :sort-order="sortOrder"
+                :sort-key="internalSortKey"
+                :sort-order="internalSortOrder"
               >
                 <span>{{ column.label }}</span>
               </slot>
@@ -443,6 +443,9 @@ interface Props {
    */
   defaultSortKey?: string
   defaultSortOrder?: 'asc' | 'desc'
+  /** Optional externally controlled sort state (e.g. mobile sorting controls). */
+  sortKey?: string
+  sortOrder?: 'asc' | 'desc'
   /**
    * Persist sort state (key + order) to localStorage using this key.
    * If provided, DataTable will load the stored sort state on mount.
@@ -484,9 +487,19 @@ const props = withDefaults(defineProps<Props>(), {
   selectedKeys: () => []
 })
 
-const sortKey = ref<string>('')
-const sortOrder = ref<'asc' | 'desc'>('asc')
+const internalSortKey = ref<string>('')
+const internalSortOrder = ref<'asc' | 'desc'>('asc')
 const actionsExpanded = ref(false)
+
+watch(
+  [() => props.sortKey, () => props.sortOrder],
+  ([key, order]) => {
+    if (key === undefined) return
+    internalSortKey.value = key
+    internalSortOrder.value = order ?? 'asc'
+  },
+  { immediate: true, flush: 'sync' }
+)
 
 type PersistedSortState = {
   key: string
@@ -541,6 +554,9 @@ const writePersistedSortState = (state: PersistedSortState) => {
 }
 
 const resolveInitialSortState = (): PersistedSortState | null => {
+  if (props.sortKey !== undefined) {
+    return { key: props.sortKey, order: props.sortOrder ?? 'asc' }
+  }
   const persisted = readPersistedSortState()
   if (persisted) return persisted
 
@@ -551,19 +567,19 @@ const resolveInitialSortState = (): PersistedSortState | null => {
 
 const applySortState = (state: PersistedSortState | null) => {
   if (!state) return
-  sortKey.value = state.key
-  sortOrder.value = state.order
+  internalSortKey.value = state.key
+  internalSortOrder.value = state.order
 }
 
 const getSortIndicatorClass = (key: string, order: 'asc' | 'desc') => {
-  return sortKey.value === key && sortOrder.value === order
+  return internalSortKey.value === key && internalSortOrder.value === order
     ? 'text-primary-600 dark:text-primary-400'
     : 'text-gray-300 transition-colors dark:text-dark-500'
 }
 
 const getColumnAriaSort = (key: string) => {
-  if (sortKey.value !== key) return 'none'
-  return sortOrder.value === 'asc' ? 'ascending' : 'descending'
+  if (internalSortKey.value !== key) return 'none'
+  return internalSortOrder.value === 'asc' ? 'ascending' : 'descending'
 }
 
 const getHeaderContentAlignmentClass = (column: Column) => {
@@ -670,28 +686,28 @@ watch(actionsExpanded, async () => {
 
 const handleSort = (key: string) => {
   let newOrder: 'asc' | 'desc' = 'asc'
-  if (sortKey.value === key) {
-    newOrder = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  if (internalSortKey.value === key) {
+    newOrder = internalSortOrder.value === 'asc' ? 'desc' : 'asc'
   }
 
   if (props.serverSideSort) {
     // Server-side sort mode: emit event and update internal state for UI feedback
-    sortKey.value = key
-    sortOrder.value = newOrder
+    internalSortKey.value = key
+    internalSortOrder.value = newOrder
     emit('sort', key, newOrder)
   } else {
     // Client-side sort mode: just update internal state
-    sortKey.value = key
-    sortOrder.value = newOrder
+    internalSortKey.value = key
+    internalSortOrder.value = newOrder
   }
 }
 
 const sortedData = computed(() => {
   // Server-side sort mode: return data as-is (server handles sorting)
-  if (props.serverSideSort || !sortKey.value || !props.data) return props.data
+  if (props.serverSideSort || !internalSortKey.value || !props.data) return props.data
 
-  const key = sortKey.value
-  const order = sortOrder.value
+  const key = internalSortKey.value
+  const order = internalSortOrder.value
 
   // Stable sort (tie-break with original index) to avoid jitter when values are equal.
   return props.data
@@ -909,8 +925,8 @@ watch(
   columnsSignature,
   () => {
     // If current sort key is no longer sortable/visible, fall back to default/persisted.
-    const normalized = normalizeSortKey(sortKey.value)
-    if (!sortKey.value) {
+    const normalized = normalizeSortKey(internalSortKey.value)
+    if (!internalSortKey.value) {
       const initial = resolveInitialSortState()
       applySortState(initial)
       return
@@ -921,8 +937,8 @@ watch(
       if (fallback) {
         applySortState(fallback)
       } else {
-        sortKey.value = ''
-        sortOrder.value = 'asc'
+        internalSortKey.value = ''
+        internalSortOrder.value = 'asc'
       }
     }
   },
@@ -930,7 +946,7 @@ watch(
 )
 
 watch(
-  [sortKey, sortOrder],
+  [internalSortKey, internalSortOrder],
   ([nextKey, nextOrder]) => {
     if (!didInitSort.value) return
     if (!props.sortStorageKey) return

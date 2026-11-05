@@ -284,6 +284,23 @@ export default {
       clickToFilterByAccount: '点击下钻筛选该账号的用量明细',
       failedToLoadUser: '加载用户信息失败',
       userDeletedBadge: '已删除',
+      errorSummary: {
+        title: '错误类型',
+        total: '共 {n} 条',
+        all: '全部',
+        share: '占当前错误 {percent}%',
+        loadFailed: '加载错误类型分布失败',
+        retry: '重试',
+        other: '其他',
+        otherUnavailable: '其他类型不能单独筛选',
+        reasons: {
+          modelNotSupported: '分组里没有账号支持该模型',
+          modelRateLimited: '账号都被限流',
+          excluded: '账号都已试过失败',
+          notSchedulable: '账号不可调度',
+          emptyPool: '分组里没有账号'
+        }
+      },
       tokenRanking: {
         subtitle: '按当前筛选与时间范围统计每个用户的 Token 用量',
         rowHint: '点击查看该用户的用量明细',

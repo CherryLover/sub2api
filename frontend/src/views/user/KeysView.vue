@@ -23,6 +23,19 @@
               @update:model-value="onStatusFilterChange"
             />
           </div>
+          <label class="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300 md:hidden">
+            <span>{{ t('common.sort') }}</span>
+            <select
+              data-test="mobile-sort"
+              class="input min-h-11 min-w-0 flex-1"
+              :value="mobileSortValue"
+              @change="handleMobileSort(($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="option in mobileSortOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
           <EndpointPopover />
         </div>
       </template>
@@ -82,8 +95,8 @@
           :data="apiKeys"
           :loading="loading"
           :server-side-sort="true"
-          default-sort-key="created_at"
-          default-sort-order="desc"
+          :sort-key="tableSortKey"
+          :sort-order="sortState.sort_order"
           @sort="handleSort"
         >
           <template #cell-id="{ value }">
@@ -1089,7 +1102,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'name', label: t('common.name'), sortable: true },
   { key: 'id', label: t('keys.id'), sortable: true },
   { key: 'key', label: t('keys.apiKey'), sortable: false },
-  { key: 'group', label: t('keys.group'), sortable: false },
+  { key: 'group', label: t('keys.group'), sortable: true },
   { key: 'current_concurrency', label: t('keys.currentConcurrency'), sortable: true },
   { key: 'usage', label: t('keys.usage'), sortable: true },
   { key: 'rate_limit', label: t('keys.rateLimitColumn'), sortable: false },
@@ -1463,7 +1476,29 @@ const handlePageSizeChange = (pageSize: number) => {
 }
 
 // 表头列 key 与后端 sort_by 不同名的映射：「用量」列按今日用量排序
-const SORT_BY_COLUMN: Record<string, string> = { usage: 'today_cost' }
+const SORT_BY_COLUMN: Record<string, string> = { usage: 'today_cost', group: 'group_name' }
+const tableSortKey = computed(() =>
+  Object.keys(SORT_BY_COLUMN).find(key => SORT_BY_COLUMN[key] === sortState.value.sort_by)
+  ?? sortState.value.sort_by
+)
+const mobileSortValue = computed(() => `${tableSortKey.value}:${sortState.value.sort_order}`)
+const mobileSortOptions = computed(() => {
+  const options = [
+    { value: 'created_at:desc', label: `${t('keys.created')} · ${t('common.descending')}` },
+    { value: 'group:asc', label: `${t('keys.group')} · ${t('common.ascending')}` },
+    { value: 'group:desc', label: `${t('keys.group')} · ${t('common.descending')}` }
+  ]
+  // Preserve a desktop-selected sort when switching to cards, even for other columns.
+  if (!options.some(option => option.value === mobileSortValue.value)) {
+    const column = allColumns.value.find(column => column.key === tableSortKey.value)
+    options.push({ value: mobileSortValue.value, label: `${column?.label ?? tableSortKey.value} · ${t(sortState.value.sort_order === 'asc' ? 'common.ascending' : 'common.descending')}` })
+  }
+  return options
+})
+const handleMobileSort = (value: string) => {
+  const [key, order] = value.split(':')
+  if (key && (order === 'asc' || order === 'desc')) handleSort(key, order)
+}
 
 const handleSort = (key: string, order: 'asc' | 'desc') => {
   sortState.value.sort_by = SORT_BY_COLUMN[key] ?? key

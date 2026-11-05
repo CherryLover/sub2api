@@ -517,7 +517,7 @@ gateway:
   log_upstream_error_body: true
   # Max bytes to log from upstream error body
   # 记录上游错误响应体的最大字节数
-  log_upstream_error_body_max_bytes: 2048
+  log_upstream_error_body_max_bytes: 32768
   # Auto inject anthropic-beta header for API-key accounts when needed (default: off)
   # 需要时自动为 API-key 账户注入 anthropic-beta 头（默认：关闭）
   inject_beta_for_apikey: false

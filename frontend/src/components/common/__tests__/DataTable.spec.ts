@@ -47,6 +47,28 @@ describe('DataTable', () => {
     localStorage.clear()
   })
 
+  it('synchronizes externally selected sorting and toggles from that direction without reordering server data', async () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name', sortable: true }, { key: 'created_at', label: 'Created', sortable: true }],
+        data: [{ id: 1, name: 'Zulu' }, { id: 2, name: 'Alpha' }],
+        serverSideSort: true,
+        sortKey: 'created_at',
+        sortOrder: 'desc'
+      }
+    })
+    expect(wrapper.findAll('th')[1].attributes('aria-sort')).toBe('descending')
+    await wrapper.setProps({ sortKey: 'name', sortOrder: 'asc' })
+    expect(wrapper.findAll('th')[0].attributes('aria-sort')).toBe('ascending')
+    expect(wrapper.findAll('tbody tr').map(row => row.text())).toEqual(['Zulu', 'Alpha'])
+    await wrapper.findAll('th')[0].trigger('click')
+    expect(wrapper.emitted('sort')).toEqual([['name', 'desc']])
+    await wrapper.setProps({ sortKey: 'created_at', sortOrder: 'desc' })
+    expect(wrapper.findAll('th')[0].attributes('aria-sort')).toBe('none')
+    expect(wrapper.findAll('th')[1].attributes('aria-sort')).toBe('descending')
+    wrapper.unmount()
+  })
+
   it('renders paired sort arrows and highlights the active direction', async () => {
     const wrapper = mount(DataTable, {
       props: {

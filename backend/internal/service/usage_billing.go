@@ -40,10 +40,12 @@ type UsageBillingCommand struct {
 	APIKeyRateLimitCost float64
 	AccountQuotaCost    float64
 
-	// AccountQuotaHasDailyLimit / AccountQuotaHasWeeklyLimit 记录构造命令时账号是否设置了日/周上限，
+	// AccountQuotaHasDailyLimit / AccountQuotaHasWeeklyLimit / AccountQuotaHasMonthlyLimit
+	// 记录构造命令时账号是否设置了日/周/月上限，
 	// 只用于选择账号配额累加语句，不参与幂等指纹；实际累加哪些维度以数据库中的账号配置为准。
-	AccountQuotaHasDailyLimit  bool
-	AccountQuotaHasWeeklyLimit bool
+	AccountQuotaHasDailyLimit   bool
+	AccountQuotaHasWeeklyLimit  bool
+	AccountQuotaHasMonthlyLimit bool
 }
 
 func (c *UsageBillingCommand) Normalize() {
@@ -133,12 +135,14 @@ func HashUsageRequestPayload(payload []byte) string {
 // AccountQuotaState holds the post-increment quota state returned by the DB transaction.
 // All values are post-update (i.e., already include the increment).
 type AccountQuotaState struct {
-	TotalUsed   float64
-	TotalLimit  float64
-	DailyUsed   float64
-	DailyLimit  float64
-	WeeklyUsed  float64
-	WeeklyLimit float64
+	TotalUsed    float64
+	TotalLimit   float64
+	DailyUsed    float64
+	DailyLimit   float64
+	WeeklyUsed   float64
+	WeeklyLimit  float64
+	MonthlyUsed  float64
+	MonthlyLimit float64
 }
 
 type UsageBillingApplyResult struct {

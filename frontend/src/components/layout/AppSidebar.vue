@@ -694,6 +694,7 @@ function buildAdminNavCatalog(): Record<string, NavItem> {
   return {
     dashboard: { path: '/admin/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
     ops: { path: '/admin/ops', label: t('nav.ops'), icon: ChartIcon, featureFlag: flagOpsMonitoring },
+    upstreamErrors: { path: '/admin/upstream-errors', label: t('nav.upstreamErrors'), icon: ChartIcon, featureFlag: flagOpsMonitoring },
     users: { path: '/admin/users', label: t('nav.users'), icon: UsersIcon, hideInSimpleMode: true },
     apiKeys: { path: '/admin/api-keys', label: t('nav.adminApiKeys'), icon: KeyIcon, hideInSimpleMode: true },
     groups: { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon, hideInSimpleMode: true },
@@ -738,7 +739,7 @@ function buildAdminNavCatalog(): Record<string, NavItem> {
 const adminSimpleNavItems = computed((): NavItem[] => {
   const c = buildAdminNavCatalog()
   const baseItems: NavItem[] = [
-    c.dashboard, c.ops, c.users, c.apiKeys, c.groups, c.channels,
+    c.dashboard, c.ops, c.upstreamErrors, c.users, c.apiKeys, c.groups, c.channels,
     c.accounts, c.modelAvailability, c.proxies, c.securityAudit, c.usage, c.auditLogs,
   ]
 
@@ -765,7 +766,7 @@ const adminNavSections = computed((): NavSection[] => {
     {
       key: AdminNavSectionKeys.runtime,
       label: t('nav.groupRuntime'),
-      items: [c.dashboard, c.ops, c.usage],
+      items: [c.dashboard, c.ops, c.upstreamErrors, c.usage],
     },
     {
       key: AdminNavSectionKeys.access,

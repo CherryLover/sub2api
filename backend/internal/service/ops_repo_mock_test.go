@@ -33,6 +33,10 @@ func (m *opsRepoMock) ListErrorLogs(ctx context.Context, filter *OpsErrorLogFilt
 	return &OpsErrorLogList{Errors: []*OpsErrorLog{}, Page: 1, PageSize: 20}, nil
 }
 
+func (m *opsRepoMock) SummarizeErrorLogs(ctx context.Context, filter *OpsErrorLogFilter) (*OpsErrorLogSummary, error) {
+	return &OpsErrorLogSummary{Items: []*OpsErrorKindSummary{}}, nil
+}
+
 func (m *opsRepoMock) GetErrorLogByID(ctx context.Context, id int64) (*OpsErrorLogDetail, error) {
 	return &OpsErrorLogDetail{}, nil
 }

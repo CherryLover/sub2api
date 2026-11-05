@@ -3776,63 +3776,49 @@ const nextWeeklyResetAtExpr = `(
 	ELSE NULL END
 )`
 
-// IncrementQuotaUsed 原子递增账号的配额用量（总/日/周三个维度）
-// 日/周额度在周期过期时自动重置为 0 再递增。
+// Monthly rolling windows are exactly 720 elapsed hours, never calendar months.
+const monthlyExpiredExpr = `(
+    CASE WHEN COALESCE(extra->>'quota_monthly_reset_mode', 'rolling') = 'fixed'
+    THEN NOW() >= COALESCE((extra->>'quota_monthly_reset_at')::timestamptz, '1970-01-01'::timestamptz)
+    ELSE COALESCE((extra->>'quota_monthly_start')::timestamptz, '1970-01-01'::timestamptz)
+        + INTERVAL '720 hours' <= NOW() END
+)`
+
+// Each candidate is rebuilt from its month origin, preserving day 31 after short
+// months. PostgreSQL resolves DST gaps forward and overlaps to the later instant.
+const nextMonthlyResetAtExpr = `(
+    CASE WHEN COALESCE(extra->>'quota_monthly_reset_mode', 'rolling') = 'fixed'
+    THEN (SELECT to_char(MIN(candidate) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+        FROM (SELECT (
+            month_start
+            + (LEAST(GREATEST(COALESCE((extra->>'quota_monthly_reset_day')::int, 1), 1),
+                EXTRACT(DAY FROM month_start + INTERVAL '1 month - 1 day')::int) - 1) * INTERVAL '1 day'
+            + LEAST(GREATEST(COALESCE((extra->>'quota_monthly_reset_hour')::int, 0), 0), 23) * INTERVAL '1 hour'
+        ) AT TIME ZONE COALESCE(extra->>'quota_reset_timezone', 'UTC') AS candidate
+        FROM (VALUES
+            (date_trunc('month', NOW() AT TIME ZONE COALESCE(extra->>'quota_reset_timezone', 'UTC'))),
+            (date_trunc('month', NOW() AT TIME ZONE COALESCE(extra->>'quota_reset_timezone', 'UTC')) + INTERVAL '1 month')
+        ) AS months(month_start)) AS candidates WHERE candidate > NOW())
+    ELSE NULL END
+)`
+
+// IncrementQuotaUsed 原子递增账号的配额用量（总/日/周/月四个维度）
+// 日/周/月额度在周期过期时自动重置为 0 再递增。
 // 支持滚动窗口（rolling）和固定时间（fixed）两种重置模式。
 func (r *accountRepository) IncrementQuotaUsed(ctx context.Context, id int64, amount float64) error {
 	rows, err := r.sql.QueryContext(ctx,
-		`UPDATE accounts SET extra = (
-			COALESCE(extra, '{}'::jsonb)
-			-- 总额度：始终递增
-			|| jsonb_build_object('quota_used', COALESCE((extra->>'quota_used')::numeric, 0) + $1)
-			-- 日额度：仅在 quota_daily_limit > 0 时处理
-			|| CASE WHEN COALESCE((extra->>'quota_daily_limit')::numeric, 0) > 0 THEN
-				jsonb_build_object(
-					'quota_daily_used',
-					CASE WHEN `+dailyExpiredExpr+`
-					THEN $1
-					ELSE COALESCE((extra->>'quota_daily_used')::numeric, 0) + $1 END,
-					'quota_daily_start',
-					CASE WHEN `+dailyExpiredExpr+`
-					THEN `+nowUTC+`
-					ELSE COALESCE(extra->>'quota_daily_start', `+nowUTC+`) END
-				)
-				-- 固定模式重置时更新下次重置时间
-				|| CASE WHEN `+dailyExpiredExpr+` AND `+nextDailyResetAtExpr+` IS NOT NULL
-				   THEN jsonb_build_object('quota_daily_reset_at', `+nextDailyResetAtExpr+`)
-				   ELSE '{}'::jsonb END
-			ELSE '{}'::jsonb END
-			-- 周额度：仅在 quota_weekly_limit > 0 时处理
-			|| CASE WHEN COALESCE((extra->>'quota_weekly_limit')::numeric, 0) > 0 THEN
-				jsonb_build_object(
-					'quota_weekly_used',
-					CASE WHEN `+weeklyExpiredExpr+`
-					THEN $1
-					ELSE COALESCE((extra->>'quota_weekly_used')::numeric, 0) + $1 END,
-					'quota_weekly_start',
-					CASE WHEN `+weeklyExpiredExpr+`
-					THEN `+nowUTC+`
-					ELSE COALESCE(extra->>'quota_weekly_start', `+nowUTC+`) END
-				)
-				-- 固定模式重置时更新下次重置时间
-				|| CASE WHEN `+weeklyExpiredExpr+` AND `+nextWeeklyResetAtExpr+` IS NOT NULL
-				   THEN jsonb_build_object('quota_weekly_reset_at', `+nextWeeklyResetAtExpr+`)
-				   ELSE '{}'::jsonb END
-			ELSE '{}'::jsonb END
-		), updated_at = NOW()
-		WHERE id = $2 AND deleted_at IS NULL
-		RETURNING
-			COALESCE((extra->>'quota_used')::numeric, 0),
-			COALESCE((extra->>'quota_limit')::numeric, 0)`,
+		"UPDATE accounts SET extra = ("+accountQuotaTotalIncrementExpr+
+			accountQuotaDailyIncrementExpr+accountQuotaWeeklyIncrementExpr+accountQuotaMonthlyIncrementExpr+
+			"), updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL"+accountQuotaIncrementReturning,
 		amount, id)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rows.Close() }()
 
-	var newUsed, limit float64
+	var state service.AccountQuotaState
 	if rows.Next() {
-		if err := rows.Scan(&newUsed, &limit); err != nil {
+		if err := rows.Scan(&state.TotalUsed, &state.TotalLimit, &state.DailyUsed, &state.DailyLimit, &state.WeeklyUsed, &state.WeeklyLimit, &state.MonthlyUsed, &state.MonthlyLimit); err != nil {
 			return err
 		}
 	}
@@ -3840,8 +3826,15 @@ func (r *accountRepository) IncrementQuotaUsed(ctx context.Context, id int64, am
 		return err
 	}
 
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
 	// 任一维度配额刚超限时触发调度快照刷新
-	if limit > 0 && newUsed >= limit && (newUsed-amount) < limit {
+	if (state.TotalLimit > 0 && state.TotalUsed >= state.TotalLimit && state.TotalUsed-amount < state.TotalLimit) ||
+		(state.DailyLimit > 0 && state.DailyUsed >= state.DailyLimit && state.DailyUsed-amount < state.DailyLimit) ||
+		(state.WeeklyLimit > 0 && state.WeeklyUsed >= state.WeeklyLimit && state.WeeklyUsed-amount < state.WeeklyLimit) ||
+		(state.MonthlyLimit > 0 && state.MonthlyUsed >= state.MonthlyLimit && state.MonthlyUsed-amount < state.MonthlyLimit) {
 		if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 			logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue quota exceeded failed: account=%d err=%v", id, err)
 		}
@@ -3855,8 +3848,8 @@ func (r *accountRepository) ResetQuotaUsedAndClearRateLimitCooldown(ctx context.
 	result, err := r.sql.ExecContext(ctx,
 		`UPDATE accounts SET extra = (
 			COALESCE(extra, '{}'::jsonb)
-			|| '{"quota_used": 0, "quota_daily_used": 0, "quota_weekly_used": 0}'::jsonb
-		) - 'quota_daily_start' - 'quota_weekly_start' - 'quota_daily_reset_at' - 'quota_weekly_reset_at',
+			|| '{"quota_used": 0, "quota_daily_used": 0, "quota_weekly_used": 0, "quota_monthly_used": 0}'::jsonb
+		) - 'quota_daily_start' - 'quota_weekly_start' - 'quota_daily_reset_at' - 'quota_weekly_reset_at' - 'quota_monthly_start' - 'quota_monthly_reset_at',
 		rate_limited_at = NULL, rate_limit_reset_at = NULL, updated_at = NOW()
 		WHERE id = $1 AND deleted_at IS NULL`,
 		id)
