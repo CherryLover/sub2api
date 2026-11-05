@@ -207,6 +207,8 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 		// Request-level upstream failures, including recovered retries.
 		ops.GET("/upstream-error-requests", h.Admin.Ops.ListUpstreamErrorRequests)
+		ops.GET("/upstream-error-requests/summary", h.Admin.Ops.GetUpstreamErrorRequestsSummary)
+		ops.GET("/upstream-error-requests/trend", h.Admin.Ops.GetUpstreamErrorRequestsTrend)
 
 		// Upstream errors (independent upstream failures)
 		ops.GET("/upstream-errors", h.Admin.Ops.ListUpstreamErrors)

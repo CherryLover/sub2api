@@ -952,21 +952,53 @@ export interface OpsUpstreamErrorRequest {
   account_id: number | null
   account_name: string
   model: string
+  reasoning_effort: string
+  request_body_bytes: number | null
   client_status_code: number
   outcome: 'recovered' | 'failed'
   attempts: OpsUpstreamErrorAttempt[]
   final: { account_id: number; account_name: string } | null
 }
 
-export interface OpsUpstreamErrorRequestParams {
-  page: number
-  page_size: number
+export interface OpsUpstreamErrorFilterParams {
   start_time: string
   end_time: string
   status_code?: number
+  final_status_code?: number
   api_key_id?: number
   account_id?: number
   outcome?: 'recovered' | 'failed'
+}
+
+export interface OpsUpstreamErrorRequestParams extends OpsUpstreamErrorFilterParams {
+  page: number
+  page_size: number
+}
+
+export type OpsUpstreamErrorTrendDays = 7 | 14 | 30
+
+export type OpsUpstreamErrorTrendFilters = Omit<
+  OpsUpstreamErrorFilterParams,
+  'start_time' | 'end_time'
+>
+
+export interface OpsUpstreamErrorTrendParams extends OpsUpstreamErrorTrendFilters {
+  days: OpsUpstreamErrorTrendDays
+}
+
+export interface OpsUpstreamErrorRequestsSummary {
+  total: number
+  recovered: number
+  failed: number
+  attempts: number
+  failed_by_status: Array<{ status_code: number; count: number }>
+}
+
+export interface OpsUpstreamErrorTrendPoint {
+  date: string
+  total: number
+  recovered: number
+  failed: number
 }
 
 export async function listUpstreamErrorRequests(
@@ -974,6 +1006,28 @@ export async function listUpstreamErrorRequests(
   options: OpsRequestOptions = {}
 ): Promise<{ items: OpsUpstreamErrorRequest[]; total: number; page: number; page_size: number }> {
   const { data } = await apiClient.get('/admin/ops/upstream-error-requests', { params, signal: options.signal })
+  return data
+}
+
+export async function getUpstreamErrorRequestsSummary(
+  params: OpsUpstreamErrorFilterParams,
+  options: OpsRequestOptions = {}
+): Promise<OpsUpstreamErrorRequestsSummary> {
+  const { data } = await apiClient.get('/admin/ops/upstream-error-requests/summary', {
+    params,
+    signal: options.signal
+  })
+  return data
+}
+
+export async function getUpstreamErrorRequestsTrend(
+  params: OpsUpstreamErrorTrendParams,
+  options: OpsRequestOptions = {}
+): Promise<{ days: OpsUpstreamErrorTrendPoint[] }> {
+  const { data } = await apiClient.get('/admin/ops/upstream-error-requests/trend', {
+    params,
+    signal: options.signal
+  })
   return data
 }
 

@@ -14,7 +14,7 @@ func TestOpsInsertErrorLogArgsPreservesExplicitZeroUpstreamStatus(t *testing.T) 
 	zero := 0
 	args := opsInsertErrorLogArgs(&service.OpsInsertErrorLogInput{UpstreamStatusCode: &zero})
 
-	require.Len(t, args, 40)
+	require.Len(t, args, 41)
 	encoded, ok := args[27].(sql.NullInt64)
 	require.True(t, ok)
 	require.True(t, encoded.Valid)
@@ -42,6 +42,20 @@ func TestOpsInsertErrorLogArgsIncludesRequestBodyBytes(t *testing.T) {
 	require.EqualValues(t, size, encoded.Int64)
 
 	missing, ok := opsInsertErrorLogArgs(&service.OpsInsertErrorLogInput{})[39].(sql.NullInt64)
+	require.True(t, ok)
+	require.False(t, missing.Valid)
+}
+
+func TestOpsInsertErrorLogArgsIncludesReasoningEffort(t *testing.T) {
+	effort := "high"
+	args := opsInsertErrorLogArgs(&service.OpsInsertErrorLogInput{ReasoningEffort: &effort})
+
+	encoded, ok := args[40].(sql.NullString)
+	require.True(t, ok)
+	require.True(t, encoded.Valid)
+	require.Equal(t, effort, encoded.String)
+
+	missing, ok := opsInsertErrorLogArgs(&service.OpsInsertErrorLogInput{})[40].(sql.NullString)
 	require.True(t, ok)
 	require.False(t, missing.Valid)
 }

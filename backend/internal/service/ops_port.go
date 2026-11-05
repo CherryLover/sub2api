@@ -102,6 +102,7 @@ type OpsInsertErrorLogInput struct {
 	ErrorPhase        string
 	ErrorType         string
 	ErrorReason       string
+	ReasoningEffort   *string
 	RequestBodyBytes  *int64
 	Severity          string
 	StatusCode        int

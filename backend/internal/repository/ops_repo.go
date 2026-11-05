@@ -57,9 +57,10 @@ INSERT INTO ops_error_logs (
   created_at,
   api_key_prefix,
   error_reason,
-  request_body_bytes
+  request_body_bytes,
+  reasoning_effort
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41
 )`
 
 func NewOpsRepository(db *sql.DB) service.OpsRepository {
@@ -171,6 +172,7 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullString(input.APIKeyPrefix),
 		opsNullString(input.ErrorReason),
 		opsNullInt64(input.RequestBodyBytes),
+		opsNullString(input.ReasoningEffort),
 	}
 }
 
