@@ -137,6 +137,14 @@
           <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
         </div>
         <div v-show="activeTab === 'errors'" class="overflow-hidden rounded-b-2xl">
+          <ErrorKindSummary
+            :summary="errSummary"
+            :loading="errSummaryLoading"
+            :error="errSummaryError"
+            :selected-kind="errKind"
+            @select="selectErrKind"
+            @retry="loadAdminErrorSummary"
+          />
           <OpsErrorLogTable
             flat
             :rows="errRows" :total="errTotal" :loading="errLoading"
@@ -189,10 +197,11 @@ import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; impo
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
 import UserTokenRanking from '@/components/admin/usage/UserTokenRanking.vue'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
+import ErrorKindSummary from '@/components/admin/usage/ErrorKindSummary.vue'
 import OpsErrorLogTable from '@/views/admin/ops/components/OpsErrorLogTable.vue'
 import OpsErrorDetailModal from '@/views/admin/ops/components/OpsErrorDetailModal.vue'
-import { listErrorLogs } from '@/api/admin/ops'
-import type { OpsErrorLog } from '@/api/admin/ops'
+import { getErrorLogsSummary, listErrorLogs } from '@/api/admin/ops'
+import type { OpsErrorListQueryParams, OpsErrorLog, OpsErrorLogSummaryResponse } from '@/api/admin/ops'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'; import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'; import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -221,6 +230,8 @@ const upstreamEndpointStats = ref<EndpointStat[]>([])
 const endpointPathStats = ref<EndpointStat[]>([])
 const endpointStatsLoading = ref(false)
 let abortController: AbortController | null = null; let exportAbortController: AbortController | null = null
+let errListAbortController: AbortController | null = null
+let errSummaryAbortController: AbortController | null = null
 let chartReqSeq = 0
 let statsReqSeq = 0
 let modelStatsReqSeq = 0
@@ -559,10 +570,13 @@ const applyFilters = () => {
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
   errPage.value = 1
+  errKind.value = null
   if (activeTab.value === 'errors') {
     loadAdminErrors()
+    loadAdminErrorSummary()
   } else {
     errRows.value = []
+    errSummary.value = null
   }
 }
 const refreshData = () => {
@@ -571,7 +585,10 @@ const refreshData = () => {
   loadStats(true)
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
-  if (activeTab.value === 'errors') loadAdminErrors()
+  if (activeTab.value === 'errors') {
+    loadAdminErrors()
+    loadAdminErrorSummary()
+  }
   if (rankingMounted.value) rankingRef.value?.reload()
 }
 const resetFilters = () => {
@@ -728,6 +745,7 @@ const errAllColumns = computed(() => [
   { key: 'account', label: t('admin.ops.errorLog.account') },
   { key: 'platform', label: t('admin.ops.errorLog.platform') },
   { key: 'model', label: t('admin.ops.errorLog.model') },
+  { key: 'request_size', label: t('admin.ops.errorLog.requestSize') },
   { key: 'endpoint', label: t('admin.ops.errorLog.endpoint') },
   { key: 'group', label: t('admin.ops.errorLog.group') },
   { key: 'type', label: t('admin.ops.errorLog.type') },
@@ -823,7 +841,10 @@ const rankingRef = ref<InstanceType<typeof UserTokenRanking> | null>(null)
 
 const switchTab = (tab: DetailTab) => {
   activeTab.value = tab
-  if (tab === 'errors' && errRows.value.length === 0) loadAdminErrors()
+  if (tab === 'errors' && errRows.value.length === 0) {
+    loadAdminErrors()
+    loadAdminErrorSummary()
+  }
   if (tab === 'ranking') rankingMounted.value = true
 }
 
@@ -835,6 +856,10 @@ const errPageSize = ref(20)
 const errTotal = ref(0)
 const errSortBy = ref('created_at')
 const errSortOrder = ref<'asc' | 'desc'>('desc')
+const errKind = ref<string | null>(null)
+const errSummary = ref<OpsErrorLogSummaryResponse | null>(null)
+const errSummaryLoading = ref(false)
+const errSummaryError = ref(false)
 const showErrorModal = ref(false)
 const selectedErrorId = ref<number | null>(null)
 
@@ -842,34 +867,78 @@ const selectedErrorId = ref<number | null>(null)
 const toRFC3339 = (d: string | undefined, endOfDay = false): string | undefined =>
   d ? new Date(d + (endOfDay ? 'T23:59:59.999' : 'T00:00:00')).toISOString() : undefined
 
+const buildAdminErrorFilterParams = (): OpsErrorListQueryParams => ({
+  view: 'all',
+  start_time: toRFC3339(filters.value.start_date),
+  end_time: toRFC3339(filters.value.end_date, true),
+  user_id: filters.value.user_id ?? undefined,
+  api_key_id: filters.value.api_key_id ?? undefined,
+  account_id: filters.value.account_id ?? undefined,
+  group_id: filters.value.group_id ?? undefined,
+  model: filters.value.model || undefined,
+  phase: filters.value.error_phase || undefined,
+  category: filters.value.error_category || undefined,
+  status_codes: filters.value.status_code != null ? String(filters.value.status_code) : undefined,
+  min_request_body_bytes: filters.value.min_request_body_bytes || undefined,
+})
+
 const loadAdminErrors = async () => {
+  errListAbortController?.abort()
+  const controller = new AbortController()
+  errListAbortController = controller
   errLoading.value = true
   try {
     const resp = await listErrorLogs({
+      ...buildAdminErrorFilterParams(),
       page: errPage.value,
       page_size: errPageSize.value,
-      view: 'all',
-      start_time: toRFC3339(filters.value.start_date),
-      end_time: toRFC3339(filters.value.end_date, true),
-      user_id: filters.value.user_id ?? undefined,
-      api_key_id: filters.value.api_key_id ?? undefined,
-      account_id: filters.value.account_id ?? undefined,
-      group_id: filters.value.group_id ?? undefined,
-      model: filters.value.model || undefined,
-      phase: filters.value.error_phase || undefined,
-      category: filters.value.error_category || undefined,
-      status_codes: filters.value.status_code != null ? String(filters.value.status_code) : undefined,
+      error_kind: errKind.value ?? undefined,
       sort_by: errSortBy.value,
       sort_order: errSortOrder.value,
-    })
-    errRows.value = resp.items
-    errTotal.value = resp.total
+    }, { signal: controller.signal })
+    if (!controller.signal.aborted) {
+      errRows.value = resp.items
+      errTotal.value = resp.total
+    }
   } catch (error) {
-    console.error('Failed to load admin errors:', error)
-    appStore.showError(t('usage.errors.failedToLoad'))
+    if (!controller.signal.aborted) {
+      console.error('Failed to load admin errors:', error)
+      appStore.showError(t('usage.errors.failedToLoad'))
+    }
   } finally {
-    errLoading.value = false
+    if (errListAbortController === controller) {
+      errLoading.value = false
+    }
   }
+}
+
+const loadAdminErrorSummary = async () => {
+  errSummaryAbortController?.abort()
+  const controller = new AbortController()
+  errSummaryAbortController = controller
+  errSummaryLoading.value = true
+  errSummaryError.value = false
+  try {
+    const resp = await getErrorLogsSummary(buildAdminErrorFilterParams(), { signal: controller.signal })
+    if (!controller.signal.aborted) {
+      errSummary.value = resp
+    }
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      console.error('Failed to load admin error summary:', error)
+      errSummaryError.value = true
+    }
+  } finally {
+    if (errSummaryAbortController === controller) {
+      errSummaryLoading.value = false
+    }
+  }
+}
+
+const selectErrKind = (kind: string | null) => {
+  errKind.value = kind
+  errPage.value = 1
+  loadAdminErrors()
 }
 
 const onErrSort = (sortBy: string, sortOrder: 'asc' | 'desc') => {
@@ -906,7 +975,13 @@ onMounted(() => {
   loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)
 })
-onUnmounted(() => { abortController?.abort(); exportAbortController?.abort(); document.removeEventListener('click', handleColumnClickOutside) })
+onUnmounted(() => {
+  abortController?.abort()
+  exportAbortController?.abort()
+  errListAbortController?.abort()
+  errSummaryAbortController?.abort()
+  document.removeEventListener('click', handleColumnClickOutside)
+})
 
 watch(modelDistributionSource, (source) => {
   void loadModelStats(source)

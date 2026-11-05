@@ -91,6 +91,8 @@ export interface AdminUsageQueryParams extends UsageQueryParams {
   error_phase?: string | null
   error_category?: string | null
   status_code?: number | null
+  // 请求体大小下限(字节),仅错误请求 tab 使用
+  min_request_body_bytes?: number | null
 }
 
 // ==================== API Functions ====================

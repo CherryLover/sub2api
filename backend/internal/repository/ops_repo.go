@@ -55,9 +55,11 @@ INSERT INTO ops_error_logs (
   response_latency_ms,
   time_to_first_token_ms,
   created_at,
-  api_key_prefix
+  api_key_prefix,
+  error_reason,
+  request_body_bytes
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40
 )`
 
 func NewOpsRepository(db *sql.DB) service.OpsRepository {
@@ -167,7 +169,113 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullInt64(input.TimeToFirstTokenMs),
 		input.CreatedAt,
 		opsNullString(input.APIKeyPrefix),
+		opsNullString(input.ErrorReason),
+		opsNullInt64(input.RequestBodyBytes),
 	}
+}
+
+const opsErrorVisibleMessageExpr = `CASE
+  WHEN COALESCE(e.error_message, '') LIKE 'Recovered upstream error %'
+    THEN REGEXP_REPLACE(e.error_message, $re$^Recovered upstream error [0-9]+:\s*$re$, '')
+  ELSE COALESCE(NULLIF(e.upstream_error_message, ''), e.error_message, '')
+END`
+
+// opsErrorNormalizedMessageExpr masks quoted names, UUIDs, long hex IDs and
+// numbers so messages that differ only by model / id fall into one kind.
+// Six REGEXP_REPLACE calls, one per pattern, innermost first.
+const opsErrorNormalizedMessageExpr = `LEFT(LOWER(
+  REGEXP_REPLACE(
+    REGEXP_REPLACE(
+      REGEXP_REPLACE(
+        REGEXP_REPLACE(
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(
+              (` + opsErrorVisibleMessageExpr + `),
+              $re$'[^']*'$re$, '#', 'g'
+            ),
+            $re$"[^"]*"$re$, '#', 'g'
+          ),
+          $re$` + "`[^`]*`" + `$re$, '#', 'g'
+        ),
+        $re$[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$re$, '#', 'gi'
+      ),
+      $re$[0-9a-f]{16,}$re$, '#', 'gi'
+    ),
+    $re$[0-9]+(\.[0-9]+)?$re$, '#', 'g'
+  )
+), 80)`
+
+const opsErrorKindStatusCodeExpr = `CASE
+  WHEN COALESCE(e.error_reason, '') <> '' THEN COALESCE(e.status_code, e.upstream_status_code, 0)
+  WHEN COALESCE(e.error_message, '') LIKE 'Recovered upstream error %' THEN COALESCE(
+    NULLIF((REGEXP_MATCH(e.error_message, $re$^Recovered upstream error ([0-9]+)$re$))[1], '')::integer,
+    e.upstream_status_code,
+    e.status_code,
+    0
+  )
+  ELSE COALESCE(e.upstream_status_code, e.status_code, 0)
+END`
+
+// opsErrorKindExpr is shared by the summary grouping and the exact list
+// drill-down filter so both surfaces always classify a row identically.
+const opsErrorKindExpr = `CASE
+  WHEN COALESCE(e.error_reason, '') <> '' THEN
+    COALESCE(NULLIF(TRIM(e.error_phase), ''), 'unknown') || '|' ||
+    COALESCE(e.status_code, e.upstream_status_code, 0)::text || '|' ||
+    e.error_reason
+  ELSE
+    COALESCE(NULLIF(TRIM(e.error_phase), ''), 'unknown') || '|' ||
+    (` + opsErrorKindStatusCodeExpr + `)::text || '|' ||
+    (` + opsErrorNormalizedMessageExpr + `)
+END`
+
+func buildOpsErrorSummarySQL(where string) string {
+	return `
+WITH grouped AS (
+  SELECT
+    (` + opsErrorKindExpr + `) AS kind,
+    COALESCE(NULLIF(TRIM(e.error_phase), ''), 'unknown') AS phase,
+    (` + opsErrorKindStatusCodeExpr + `) AS status_code,
+    COALESCE(e.error_reason, '') AS reason,
+    COUNT(*)::bigint AS total_count,
+    SUM(CASE WHEN e.status_code BETWEEN 200 AND 299 THEN 0 ELSE 1 END)::bigint AS failed_count,
+    SUM(CASE WHEN e.status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END)::bigint AS recovered_count,
+    COALESCE(
+      (ARRAY_AGG(NULLIF((` + opsErrorVisibleMessageExpr + `), '') ORDER BY e.created_at DESC NULLS LAST, e.id DESC)
+        FILTER (WHERE NULLIF((` + opsErrorVisibleMessageExpr + `), '') IS NOT NULL))[1],
+      ''
+    ) AS sample_message
+  FROM ops_error_logs e
+  ` + where + `
+  GROUP BY 1, 2, 3, 4
+),
+ranked AS (
+  SELECT
+    grouped.*,
+    COUNT(*) OVER () AS group_count,
+    ROW_NUMBER() OVER (ORDER BY total_count DESC, kind ASC) AS kind_rank
+  FROM grouped
+)
+SELECT kind, phase, status_code, reason, sample_message, total_count, failed_count, recovered_count
+FROM ranked
+WHERE (group_count <= 50 AND kind_rank <= 50)
+   OR (group_count > 50 AND kind_rank <= 49)
+UNION ALL
+SELECT
+  'other',
+  '',
+  0,
+  '',
+  '',
+  SUM(total_count)::bigint,
+  SUM(failed_count)::bigint,
+  SUM(recovered_count)::bigint
+FROM ranked
+WHERE group_count > 50 AND kind_rank > 49
+-- An aggregate without GROUP BY always yields one row; drop it when there is
+-- no overflow so callers never scan an all-NULL "other" bucket.
+HAVING COUNT(*) > 0
+ORDER BY total_count DESC, kind ASC`
 }
 
 // opsErrorLogsOrderBy builds the ORDER BY clause from a whitelist, mirroring
@@ -267,7 +375,8 @@ SELECT
   COALESCE(e.user_agent, ''),
   e.request_type,
   COALESCE(ak.name, ''),
-  ak.deleted_at
+  ak.deleted_at,
+  e.request_body_bytes
 FROM ops_error_logs e
 LEFT JOIN accounts a ON e.account_id = a.id
 LEFT JOIN groups g ON e.group_id = g.id
@@ -302,6 +411,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		var requestType sql.NullInt64
 		var apiKeyName string
 		var apiKeyDeletedAt sql.NullTime
+		var requestBodyBytes sql.NullInt64
 		if err := rows.Scan(
 			&item.ID,
 			&item.CreatedAt,
@@ -338,6 +448,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			&requestType,
 			&apiKeyName,
 			&apiKeyDeletedAt,
+			&requestBodyBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -380,6 +491,10 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		}
 		item.APIKeyName = apiKeyName
 		item.APIKeyDeleted = apiKeyDeletedAt.Valid
+		if requestBodyBytes.Valid {
+			v := requestBodyBytes.Int64
+			item.RequestBodyBytes = &v
+		}
 		out = append(out, &item)
 	}
 	if err := rows.Err(); err != nil {
@@ -392,6 +507,52 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		Page:     page,
 		PageSize: pageSize,
 	}, nil
+}
+
+func (r *opsRepository) SummarizeErrorLogs(ctx context.Context, filter *service.OpsErrorLogFilter) (*service.OpsErrorLogSummary, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("nil ops repository")
+	}
+	if filter == nil {
+		filter = &service.OpsErrorLogFilter{}
+	}
+
+	snapshot := *filter
+	snapshot.ErrorKind = ""
+	snapshot.Page = 0
+	snapshot.PageSize = 0
+	snapshot.SortBy = ""
+	snapshot.SortOrder = ""
+
+	where, args := buildOpsErrorLogsWhere(&snapshot)
+	rows, err := r.db.QueryContext(ctx, buildOpsErrorSummarySQL(where), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	result := &service.OpsErrorLogSummary{Items: make([]*service.OpsErrorKindSummary, 0, 50)}
+	for rows.Next() {
+		item := &service.OpsErrorKindSummary{}
+		if err := rows.Scan(
+			&item.Kind,
+			&item.Phase,
+			&item.StatusCode,
+			&item.Reason,
+			&item.SampleMessage,
+			&item.Count,
+			&item.Failed,
+			&item.Recovered,
+		); err != nil {
+			return nil, err
+		}
+		result.Total += item.Count
+		result.Items = append(result.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (r *opsRepository) GetErrorLogByID(ctx context.Context, id int64) (*service.OpsErrorLogDetail, error) {
@@ -449,7 +610,8 @@ SELECT
   e.time_to_first_token_ms,
   COALESCE(e.api_key_prefix, ''),
   COALESCE(ak.name, ''),
-  ak.deleted_at
+  ak.deleted_at,
+  e.request_body_bytes
 FROM ops_error_logs e
 LEFT JOIN users u ON e.user_id = u.id
 LEFT JOIN accounts a ON e.account_id = a.id
@@ -476,6 +638,7 @@ LIMIT 1`
 	var requestType sql.NullInt64
 	var detailAPIKeyName string
 	var detailAPIKeyDeletedAt sql.NullTime
+	var detailRequestBodyBytes sql.NullInt64
 
 	err := r.db.QueryRowContext(ctx, q, id).Scan(
 		&out.ID,
@@ -524,12 +687,17 @@ LIMIT 1`
 		&out.APIKeyPrefix,
 		&detailAPIKeyName,
 		&detailAPIKeyDeletedAt,
+		&detailRequestBodyBytes,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	out.StatusCode = int(statusCode.Int64)
+	if detailRequestBodyBytes.Valid {
+		v := detailRequestBodyBytes.Int64
+		out.RequestBodyBytes = &v
+	}
 	if resolvedAt.Valid {
 		t := resolvedAt.Time
 		out.ResolvedAt = &t
@@ -1037,6 +1205,23 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	if len(filter.ErrorTypesAny) > 0 {
 		args = append(args, pq.Array(filter.ErrorTypesAny))
 		clauses = append(clauses, "e.error_type = ANY($"+itoa(len(args))+")")
+	}
+	if filter != nil && filter.MinRequestBodyBytes > 0 {
+		args = append(args, filter.MinRequestBodyBytes)
+		clauses = append(clauses, "e.request_body_bytes >= $"+itoa(len(args)))
+	}
+	if filter != nil {
+		switch strings.TrimSpace(filter.ErrorKind) {
+		case "":
+			// no-op
+		case "other":
+			// The summary's synthetic catch-all cannot be reconstructed as an
+			// exact kind expression.
+			clauses = append(clauses, "1=0")
+		default:
+			args = append(args, strings.TrimSpace(filter.ErrorKind))
+			clauses = append(clauses, "("+opsErrorKindExpr+") = $"+itoa(len(args)))
+		}
 	}
 
 	return "WHERE " + strings.Join(clauses, " AND "), args
