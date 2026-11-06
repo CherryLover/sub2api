@@ -32,6 +32,11 @@ const routerMock = vi.hoisted(() => ({
     href: `${to.path}?${new URLSearchParams(to.query ?? {}).toString()}`,
   })),
   push: vi.fn(() => Promise.resolve()),
+  replace: vi.fn(() => Promise.resolve()),
+}))
+
+const routeMock = vi.hoisted(() => ({
+  query: {} as Record<string, string>,
 }))
 
 const messages: Record<string, string> = {
@@ -59,6 +64,10 @@ const messages: Record<string, string> = {
   'keys.status.quota_exhausted': 'Quota exhausted',
   'keys.usage': 'Usage',
   'keys.viewUsage': 'View Usage',
+  'keys.usageDashboard.open': 'Dashboard',
+  'keys.tabs.aria': 'API key views',
+  'keys.tabs.list': 'Key list',
+  'keys.tabs.usage': 'Usage dashboard',
   'keys.usageUnavailableInactive': 'Disabled keys cannot look up usage',
   'keys.failedToOpenUsage': 'Failed to open usage lookup',
 }
@@ -92,6 +101,7 @@ vi.mock('vue-router', async () => {
   return {
     ...actual,
     useRouter: () => routerMock,
+    useRoute: () => routeMock,
   }
 })
 
@@ -243,6 +253,12 @@ const IconStub = {
   template: '<span data-test="icon">{{ name }}</span>',
 }
 
+const UsageDashboardStub = {
+  name: 'UsageDashboard',
+  props: ['initialKeyId'],
+  template: '<div data-testid="usage-dashboard-stub">{{ initialKeyId ?? "" }}</div>',
+}
+
 const mountView = async () => {
   const wrapper = mount(KeysView, {
     global: {
@@ -261,6 +277,7 @@ const mountView = async () => {
         EndpointPopover: true,
         GroupBadge: true,
         GroupOptionItem: true,
+        UsageDashboard: UsageDashboardStub,
         Teleport: true,
       },
     },
@@ -308,6 +325,8 @@ beforeEach(() => {
   createKeyUsageSession.mockReset()
   routerMock.resolve.mockClear()
   routerMock.push.mockClear()
+  routerMock.replace.mockClear()
+  routeMock.query = {}
   popup = createPopup()
   openSpy = vi.spyOn(window, 'open').mockImplementation(() => popup as unknown as Window)
 
@@ -329,6 +348,31 @@ afterEach(() => {
 })
 
 describe('user KeysView column settings', () => {
+  it('synchronizes the active tab with the URL and opens the dashboard for a key', async () => {
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="keys-list-tab"]').attributes('aria-selected')).toBe('true')
+    await wrapper.get('[data-testid="open-usage-dashboard"]').trigger('click')
+    await nextTick()
+
+    expect(routerMock.replace).toHaveBeenCalledWith({ query: { tab: 'usage' } })
+    expect(wrapper.get('[data-testid="usage-dashboard-stub"]').text()).toBe('1')
+    expect(wrapper.find('[data-test="columns"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="keys-list-tab"]').trigger('click')
+    await nextTick()
+    expect(routerMock.replace).toHaveBeenLastCalledWith({ query: {} })
+    expect(wrapper.find('[data-test="columns"]').exists()).toBe(true)
+  })
+
+  it('restores the usage tab from the URL query', async () => {
+    routeMock.query = { tab: 'usage' }
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="keys-usage-tab"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('[data-testid="usage-dashboard-stub"]').exists()).toBe(true)
+  })
+
   it('uses the default API key columns with low-frequency columns hidden', async () => {
     const wrapper = await mountView()
 

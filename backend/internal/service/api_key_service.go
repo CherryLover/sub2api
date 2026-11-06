@@ -601,6 +601,19 @@ func (s *APIKeyService) List(ctx context.Context, userID int64, params paginatio
 	return keys, pagination, nil
 }
 
+// ListAllByUserID returns all non-deleted API keys owned by the user.
+func (s *APIKeyService) ListAllByUserID(ctx context.Context, userID int64) ([]APIKey, error) {
+	repo, ok := s.apiKeyRepo.(apiKeyAllByUserIDLister)
+	if !ok {
+		return nil, fmt.Errorf("api key repository does not support unpaginated listing")
+	}
+	keys, err := repo.ListAllByUserID(ctx, userID, APIKeyListFilters{})
+	if err != nil {
+		return nil, fmt.Errorf("list all api keys: %w", err)
+	}
+	return keys, nil
+}
+
 func (s *APIKeyService) listByCurrentConcurrency(ctx context.Context, userID int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
 	repo, ok := s.apiKeyRepo.(apiKeyAllByUserIDLister)
 	if !ok {
