@@ -53,9 +53,9 @@ type KeyUsageDashboardAggregate struct {
 }
 
 type KeyUsageDashboardHourRow struct {
-	APIKeyID             int64
-	Date                 string
-	Hour                 int
+	APIKeyID int64
+	Date     string
+	Hour     int
 	KeyUsageDashboardAggregate
 }
 
@@ -73,8 +73,8 @@ type KeyUsageDashboardErrorRow struct {
 }
 
 type KeyUsageDashboardModelRow struct {
-	APIKeyID             int64
-	Model                string
+	APIKeyID int64
+	Model    string
 	KeyUsageDashboardAggregate
 }
 
