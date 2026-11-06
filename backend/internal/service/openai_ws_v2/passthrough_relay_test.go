@@ -1260,8 +1260,8 @@ func TestRelay_OnTurnComplete_FirstTokenMsRecordedForEveryTurn(t *testing.T) {
 			[]byte(`{"type":"response.create","model":"gpt-5.3-codex","input":[]}`),
 			RelayOptions{
 				FirstTurnStartedAt: firstTurnAt,
-				Now: func() time.Time { return time.Unix(0, clock.Load()).UTC() },
-				OnTurnComplete: func(current RelayTurnResult) { turns <- current },
+				Now:                func() time.Time { return time.Unix(0, clock.Load()).UTC() },
+				OnTurnComplete:     func(current RelayTurnResult) { turns <- current },
 			},
 		)
 	}()
