@@ -634,10 +634,7 @@ func keyUsageDashboardSeriesLabelDate(window KeyUsageDashboardWindow, index int)
 }
 
 func buildKeyUsageDashboardWeek(rows []KeyUsageDashboardHourRow) [][]KeyUsageDashboardMetric {
-	week := make([][]KeyUsageDashboardMetric, 7)
-	for weekday := 0; weekday < 7; weekday++ {
-		week[weekday] = make([]KeyUsageDashboardMetric, 24)
-	}
+	var totals [7][24]KeyUsageDashboardAggregate
 	for index := range rows {
 		row := rows[index]
 		if row.Hour < 0 || row.Hour > 23 {
@@ -648,11 +645,15 @@ func buildKeyUsageDashboardWeek(rows []KeyUsageDashboardHourRow) [][]KeyUsageDas
 			continue
 		}
 		weekday := (int(day.Weekday()) + 6) % 7
-		values := KeyUsageDashboardAggregate{}
-		values.add(row.KeyUsageDashboardAggregate)
-		current := week[weekday][row.Hour]
-		current.add(values)
-		week[weekday][row.Hour] = current.metric()
+		totals[weekday][row.Hour].add(row.KeyUsageDashboardAggregate)
+	}
+
+	week := make([][]KeyUsageDashboardMetric, 7)
+	for weekday := 0; weekday < 7; weekday++ {
+		week[weekday] = make([]KeyUsageDashboardMetric, 24)
+		for hour := 0; hour < 24; hour++ {
+			week[weekday][hour] = totals[weekday][hour].metric()
+		}
 	}
 	return week
 }
