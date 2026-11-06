@@ -252,14 +252,14 @@ func (s *KeyUsageDashboardService) buildDashboard(
 	comparisonPreviousStart := todayStart.AddDate(0, 0, -7)
 
 	var (
-		hourRows          []KeyUsageDashboardHourRow
-		previousTotals    KeyUsageDashboardAggregate
-		peakRows          []KeyUsageDashboardPeakRow
-		errorRows         []KeyUsageDashboardErrorRow
-		modelRows         []KeyUsageDashboardModelRow
-		weekRows          []KeyUsageDashboardHourRow
-		comparisonRows    []KeyUsageDashboardCostComparisonRow
-		apiKeys           []APIKey
+		hourRows       []KeyUsageDashboardHourRow
+		previousTotals KeyUsageDashboardAggregate
+		peakRows       []KeyUsageDashboardPeakRow
+		errorRows      []KeyUsageDashboardErrorRow
+		modelRows      []KeyUsageDashboardModelRow
+		weekRows       []KeyUsageDashboardHourRow
+		comparisonRows []KeyUsageDashboardCostComparisonRow
+		apiKeys        []APIKey
 	)
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {

@@ -10,8 +10,8 @@ const (
 	KeyUsageDashboardRange7d    = "7d"
 	KeyUsageDashboardRange30d   = "30d"
 
-	KeyUsageDashboardCacheTTL          = 60 * time.Second
-	KeyUsageDashboardCacheMaxEntries   = 256
+	KeyUsageDashboardCacheTTL                = 60 * time.Second
+	KeyUsageDashboardCacheMaxEntries         = 256
 	KeyUsageDashboardLargeRequestBytes int64 = 5 * 1024 * 1024
 )
 

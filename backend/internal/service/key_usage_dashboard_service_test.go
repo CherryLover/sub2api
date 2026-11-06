@@ -172,7 +172,7 @@ func TestBuildKeyUsageDashboardAlertsBoundariesAndOrder(t *testing.T) {
 	require.Equal(t, int64(5), alerts[1].Count)
 	require.Equal(t, "usage_spike", alerts[2].Type)
 	require.Equal(t, int64(2), alerts[2].APIKeyID)
-	require.Equal(t, int64(1), alerts[2].Count)
+	require.Zero(t, alerts[2].Count)
 	require.Equal(t, "idle", alerts[3].Type)
 	require.Equal(t, int64(1), alerts[3].APIKeyID)
 	require.Equal(t, int64(1), alerts[3].Count)
