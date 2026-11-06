@@ -1,6 +1,43 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <nav
+        class="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1 dark:border-dark-600 dark:bg-dark-800"
+        role="tablist"
+        :aria-label="t('keys.tabs.aria')"
+      >
+        <button
+          type="button"
+          role="tab"
+          class="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          :class="activeTab === 'keys'
+            ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
+            : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'"
+          :aria-selected="activeTab === 'keys'"
+          data-testid="keys-list-tab"
+          @click="switchTab('keys')"
+        >
+          <Icon name="key" size="sm" />
+          {{ t('keys.tabs.list') }}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          :class="activeTab === 'usage'
+            ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
+            : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'"
+          :aria-selected="activeTab === 'usage'"
+          data-testid="keys-usage-tab"
+          @click="switchTab('usage')"
+        >
+          <Icon name="chartBar" size="sm" />
+          {{ t('keys.tabs.usage') }}
+        </button>
+      </nav>
+    </div>
+
+    <TablePageLayout v-if="activeTab === 'keys'">
       <template #filters>
         <div class="flex flex-col gap-3">
           <div class="flex flex-wrap items-center gap-3">
@@ -369,6 +406,15 @@
                 <Icon name="terminal" size="sm" />
                 <span class="text-xs">{{ t('keys.useKey') }}</span>
               </button>
+              <!-- Usage Dashboard Button -->
+              <button
+                @click="openUsageDashboard(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-primary-50 hover:text-primary-600 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
+                data-testid="open-usage-dashboard"
+              >
+                <Icon name="chart" size="sm" />
+                <span class="text-xs">{{ t('keys.usageDashboard.open') }}</span>
+              </button>
               <!-- View Usage Button -->
               <button
                 @click="openKeyUsage(row)"
@@ -446,6 +492,10 @@
         />
       </template>
     </TablePageLayout>
+    <UsageDashboard
+      v-else
+      :initial-key-id="usageKeyId"
+    />
 
     <!-- Create/Edit Modal -->
     <BaseDialog
@@ -1036,9 +1086,9 @@
 </template>
 
 <script setup lang="ts">
-	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+	import { ref, reactive, computed, onMounted, onUnmounted, watch, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
-	import { useRouter } from 'vue-router'
+	import { useRoute, useRouter } from 'vue-router'
 	import { useAppStore } from '@/stores/app'
 	import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
@@ -1058,6 +1108,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
+	import UsageDashboard from '@/components/keys/usage-dashboard/UsageDashboard.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 	import type { ApiKey, Group, PublicSettings, GroupPlatform, UpdateApiKeyRequest } from '@/types'
@@ -1095,8 +1146,36 @@ interface GroupOption {
 }
 
 const appStore = useAppStore()
+const route = useRoute()
 const router = useRouter()
 const { copyToClipboard: clipboardCopy } = useClipboard()
+
+type KeysTab = 'keys' | 'usage'
+const activeTab = ref<KeysTab>(route.query.tab === 'usage' ? 'usage' : 'keys')
+const usageKeyId = ref<number | undefined>()
+
+const switchTab = (tab: KeysTab): void => {
+  activeTab.value = tab
+  const query = { ...route.query }
+  if (tab === 'usage') {
+    query.tab = 'usage'
+  } else {
+    delete query.tab
+  }
+  void router.replace({ query })
+}
+
+const openUsageDashboard = (row: ApiKey): void => {
+  usageKeyId.value = row.id
+  switchTab('usage')
+}
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    activeTab.value = tab === 'usage' ? 'usage' : 'keys'
+  }
+)
 
 const allColumns = computed<Column[]>(() => [
   { key: 'name', label: t('common.name'), sortable: true },
