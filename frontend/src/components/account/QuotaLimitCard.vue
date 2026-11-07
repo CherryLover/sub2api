@@ -22,6 +22,14 @@ const props = withDefaults(defineProps<{
   monthlyResetMode?: QuotaResetMode | null
   monthlyResetDay?: number | null
   monthlyResetHour?: number | null
+  monthlyProrate?: boolean | null
+  monthlyProrateDirty?: boolean
+  monthlyProratedLimit?: number | null
+  monthlyProratedUntil?: string | null
+  monthlyEffectiveLimit?: number | null
+  monthlyPeriodStart?: string | null
+  monthlyResetAt?: string | null
+  monthlyUsed?: number | null
   dailyResetMode: QuotaResetMode | null
   dailyResetHour: number | null
   weeklyResetMode: QuotaResetMode | null
@@ -43,6 +51,14 @@ const props = withDefaults(defineProps<{
   monthlyResetMode: null,
   monthlyResetDay: null,
   monthlyResetHour: null,
+  monthlyProrate: false,
+  monthlyProrateDirty: false,
+  monthlyProratedLimit: null,
+  monthlyProratedUntil: null,
+  monthlyEffectiveLimit: null,
+  monthlyPeriodStart: null,
+  monthlyResetAt: null,
+  monthlyUsed: null,
   quotaNotifyGlobalEnabled: false,
   quotaNotifyDailyEnabled: null,
   quotaNotifyDailyThreshold: null,
@@ -63,6 +79,7 @@ const emit = defineEmits<{
   'update:monthlyResetMode': [value: QuotaResetMode | null]
   'update:monthlyResetDay': [value: number | null]
   'update:monthlyResetHour': [value: number | null]
+  'update:monthlyProrate': [value: boolean]
   'update:dailyResetMode': [value: QuotaResetMode | null]
   'update:dailyResetHour': [value: number | null]
   'update:weeklyResetMode': [value: QuotaResetMode | null]
@@ -106,6 +123,7 @@ watch(localEnabled, (val) => {
     emit('update:monthlyResetMode', null)
     emit('update:monthlyResetDay', null)
     emit('update:monthlyResetHour', null)
+    emit('update:monthlyProrate', false)
     emit('update:dailyResetMode', null)
     emit('update:dailyResetHour', null)
     emit('update:weeklyResetMode', null)
@@ -273,6 +291,14 @@ const dailyFixedHint = computed(() =>
           :reset-hour="monthlyResetHour"
           :reset-day="monthlyResetDay"
           :reset-timezone="resetTimezone"
+          :monthly-prorate="monthlyProrate"
+          :monthly-prorate-dirty="monthlyProrateDirty"
+          :monthly-prorated-limit="monthlyProratedLimit"
+          :monthly-prorated-until="monthlyProratedUntil"
+          :monthly-effective-limit="monthlyEffectiveLimit"
+          :monthly-period-start="monthlyPeriodStart"
+          :monthly-reset-at="monthlyResetAt"
+          :monthly-used="monthlyUsed"
           :hint-rolling="t('admin.accounts.quotaMonthlyLimitHint')"
           :hint-fixed="monthlyFixedHint"
           :hour-options="hourOptions"
@@ -283,6 +309,7 @@ const dailyFixedHint = computed(() =>
           @update:reset-hour="emit('update:monthlyResetHour', $event)"
           @update:reset-day="emit('update:monthlyResetDay', $event)"
           @update:reset-timezone="emit('update:resetTimezone', $event)"
+          @update:monthly-prorate="emit('update:monthlyProrate', $event)"
         />
         <p v-if="dailyResetMode === 'fixed' || weeklyResetMode === 'fixed' || monthlyResetMode === 'fixed'" class="input-hint text-[11px]">
           {{ t('admin.accounts.quotaResetTimezoneHint') }}
