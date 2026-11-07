@@ -337,6 +337,25 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 				used = 0
 			}
 			out.QuotaMonthlyUsed = &used
+			now := time.Now()
+			prorate := a.GetQuotaMonthlyProrate()
+			out.QuotaMonthlyProrate = &prorate
+			effectiveLimit := a.GetQuotaMonthlyEffectiveLimit(now)
+			out.QuotaMonthlyEffectiveLimit = &effectiveLimit
+			if a.Extra != nil {
+				if _, ok := a.Extra["quota_monthly_prorated_limit"]; ok {
+					proratedLimit := a.GetQuotaMonthlyProratedLimit()
+					out.QuotaMonthlyProratedLimit = &proratedLimit
+				}
+			}
+			if until := a.GetQuotaMonthlyProratedUntil(); !until.IsZero() {
+				proratedUntil := until.UTC().Format(time.RFC3339)
+				out.QuotaMonthlyProratedUntil = &proratedUntil
+			}
+			if a.GetQuotaMonthlyResetMode() == "fixed" {
+				periodStart := a.GetQuotaMonthlyPeriodStart(now).UTC().Format(time.RFC3339)
+				out.QuotaMonthlyPeriodStart = &periodStart
+			}
 		}
 		// 固定时间重置配置
 		if mode := a.GetQuotaDailyResetMode(); mode == "fixed" {

@@ -263,18 +263,23 @@ type Account struct {
 	QuotaMonthlyUsed  *float64 `json:"quota_monthly_used,omitempty"`
 
 	// 配额固定时间重置配置
-	QuotaDailyResetMode   *string `json:"quota_daily_reset_mode,omitempty"`
-	QuotaDailyResetHour   *int    `json:"quota_daily_reset_hour,omitempty"`
-	QuotaWeeklyResetMode  *string `json:"quota_weekly_reset_mode,omitempty"`
-	QuotaWeeklyResetDay   *int    `json:"quota_weekly_reset_day,omitempty"`
-	QuotaWeeklyResetHour  *int    `json:"quota_weekly_reset_hour,omitempty"`
-	QuotaResetTimezone    *string `json:"quota_reset_timezone,omitempty"`
-	QuotaDailyResetAt     *string `json:"quota_daily_reset_at,omitempty"`
-	QuotaWeeklyResetAt    *string `json:"quota_weekly_reset_at,omitempty"`
-	QuotaMonthlyResetMode *string `json:"quota_monthly_reset_mode,omitempty"`
-	QuotaMonthlyResetDay  *int    `json:"quota_monthly_reset_day,omitempty"`
-	QuotaMonthlyResetHour *int    `json:"quota_monthly_reset_hour,omitempty"`
-	QuotaMonthlyResetAt   *string `json:"quota_monthly_reset_at,omitempty"`
+	QuotaDailyResetMode        *string  `json:"quota_daily_reset_mode,omitempty"`
+	QuotaDailyResetHour        *int     `json:"quota_daily_reset_hour,omitempty"`
+	QuotaWeeklyResetMode       *string  `json:"quota_weekly_reset_mode,omitempty"`
+	QuotaWeeklyResetDay        *int     `json:"quota_weekly_reset_day,omitempty"`
+	QuotaWeeklyResetHour       *int     `json:"quota_weekly_reset_hour,omitempty"`
+	QuotaResetTimezone         *string  `json:"quota_reset_timezone,omitempty"`
+	QuotaDailyResetAt          *string  `json:"quota_daily_reset_at,omitempty"`
+	QuotaWeeklyResetAt         *string  `json:"quota_weekly_reset_at,omitempty"`
+	QuotaMonthlyResetMode      *string  `json:"quota_monthly_reset_mode,omitempty"`
+	QuotaMonthlyResetDay       *int     `json:"quota_monthly_reset_day,omitempty"`
+	QuotaMonthlyResetHour      *int     `json:"quota_monthly_reset_hour,omitempty"`
+	QuotaMonthlyResetAt        *string  `json:"quota_monthly_reset_at,omitempty"`
+	QuotaMonthlyProrate        *bool    `json:"quota_monthly_prorate,omitempty"`
+	QuotaMonthlyProratedLimit  *float64 `json:"quota_monthly_prorated_limit,omitempty"`
+	QuotaMonthlyProratedUntil  *string  `json:"quota_monthly_prorated_until,omitempty"`
+	QuotaMonthlyEffectiveLimit *float64 `json:"quota_monthly_effective_limit,omitempty"`
+	QuotaMonthlyPeriodStart    *string  `json:"quota_monthly_period_start,omitempty"`
 
 	// 配额通知配置
 	QuotaNotifyDailyEnabled    *bool    `json:"quota_notify_daily_enabled,omitempty"`

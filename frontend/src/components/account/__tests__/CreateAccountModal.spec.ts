@@ -240,6 +240,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     card.vm.$emit('update:monthlyResetMode', mode)
     card.vm.$emit('update:monthlyResetDay', 31)
     card.vm.$emit('update:monthlyResetHour', 23)
+    card.vm.$emit('update:monthlyProrate', true)
     card.vm.$emit('update:resetTimezone', 'Asia/Shanghai')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -249,10 +250,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     if (mode === 'fixed') {
       expect(extra.quota_monthly_reset_day).toBe(31)
       expect(extra.quota_monthly_reset_hour).toBe(23)
+      expect(extra.quota_monthly_prorate).toBe(true)
       expect(extra.quota_reset_timezone).toBe('Asia/Shanghai')
     } else {
       expect(extra.quota_monthly_reset_day).toBeUndefined()
       expect(extra.quota_monthly_reset_hour).toBeUndefined()
+      expect(extra.quota_monthly_prorate).toBeUndefined()
     }
   })
 
