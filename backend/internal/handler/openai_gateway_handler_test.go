@@ -2839,10 +2839,17 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	select {
 	case upstreamErr := <-upstreamErrCh:
 		if tc.secondTurnCloseExpected {
-			// Profit veto closes the client early; a mock upstream WebSocket
-			// closing gracefully is expected, not an upstream billing fault.
+			// The client close status (1013) is asserted above. When the relay
+			// tears down the upstream connection, the mock may see a normal
+			// WebSocket close, EOF, or request-context cancellation depending on
+			// which side exits first. None indicates a failed profit veto.
 			if upstreamErr != nil {
-				require.Equal(t, coderws.StatusNormalClosure, coderws.CloseStatus(upstreamErr))
+				status := coderws.CloseStatus(upstreamErr)
+				require.True(t,
+					status == coderws.StatusNormalClosure ||
+						errors.Is(upstreamErr, io.EOF) ||
+						errors.Is(upstreamErr, context.Canceled),
+					"unexpected mock upstream shutdown after client profit veto: %v", upstreamErr)
 			}
 		} else {
 			require.NoError(t, upstreamErr)
