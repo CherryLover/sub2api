@@ -36,6 +36,7 @@ func TestAccountQuotaIncrementSQLs_GuardOmittedDimensions(t *testing.T) {
 
 func TestAccountQuotaIncrementSQLs_ReturnEffectiveMonthlyLimit(t *testing.T) {
 	require.Contains(t, accountQuotaIncrementReturning, accountQuotaMonthlyEffectiveLimitExpr)
+	require.Contains(t, accountQuotaIncrementReturning, "COALESCE(" + accountQuotaMonthlyEffectiveLimitExpr + ", 0)")
 	require.Contains(t, accountQuotaMonthlyEffectiveLimitExpr, "(extra->>'quota_monthly_prorated_until')::timestamptz > NOW()")
 	require.Contains(t, accountQuotaMonthlyEffectiveLimitExpr, "quota_monthly_prorated_limit")
 	require.Contains(t, accountQuotaMonthlyEffectiveLimitExpr, "quota_monthly_limit")

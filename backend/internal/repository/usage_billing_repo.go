@@ -289,7 +289,7 @@ const accountQuotaIncrementReturning = `
 			COALESCE((extra->>'quota_weekly_used')::numeric, 0),
 			COALESCE((extra->>'quota_weekly_limit')::numeric, 0),
             COALESCE((extra->>'quota_monthly_used')::numeric, 0),
-            ` + accountQuotaMonthlyEffectiveLimitExpr
+            COALESCE(` + accountQuotaMonthlyEffectiveLimitExpr + `, 0)`
 
 // accountQuotaIncrementSQLs 按 accountQuotaIncrementSQLIndex 存放账号配额累加语句。省略日、周或月维度的语句
 // 在 WHERE 中附加 accountQuotaExtraIsObjectCond 与被省略维度的未设置条件，条件不成立时命中 0 行；
