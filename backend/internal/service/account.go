@@ -2595,6 +2595,30 @@ func (a *Account) GetQuotaWeeklyUsed() float64 {
 // Monthly rolling periods are exactly 720 hours, not calendar months.
 func (a *Account) GetQuotaMonthlyLimit() float64 { return a.getExtraFloat64("quota_monthly_limit") }
 func (a *Account) GetQuotaMonthlyUsed() float64  { return a.getExtraFloat64("quota_monthly_used") }
+func (a *Account) GetQuotaMonthlyProrate() bool {
+	return a.getExtraBool("quota_monthly_prorate")
+}
+func (a *Account) GetQuotaMonthlyProratedLimit() float64 {
+	return a.getExtraFloat64("quota_monthly_prorated_limit")
+}
+func (a *Account) GetQuotaMonthlyProratedUntil() time.Time {
+	return a.getExtraTime("quota_monthly_prorated_until")
+}
+
+// GetQuotaMonthlyEffectiveLimit returns the limit used for the active monthly quota window.
+func (a *Account) GetQuotaMonthlyEffectiveLimit(now time.Time) float64 {
+	limit := a.GetQuotaMonthlyLimit()
+	if a.GetQuotaMonthlyResetMode() != "fixed" || !a.GetQuotaMonthlyProrate() {
+		return limit
+	}
+	until := a.GetQuotaMonthlyProratedUntil()
+	proratedLimit, hasProratedLimit := a.getExtraFloat64OK("quota_monthly_prorated_limit")
+	if until.After(now) && hasProratedLimit && proratedLimit >= 0 {
+		return proratedLimit
+	}
+	return limit
+}
+
 func (a *Account) GetQuotaMonthlyResetMode() string {
 	if a.getExtraString("quota_monthly_reset_mode") == "fixed" {
 		return "fixed"
@@ -2619,6 +2643,26 @@ func (a *Account) getExtraFloat64(key string) float64 {
 		return parseExtraFloat64(v)
 	}
 	return 0
+}
+
+func (a *Account) getExtraFloat64OK(key string) (float64, bool) {
+	if a.Extra == nil {
+		return 0, false
+	}
+	v, ok := a.Extra[key]
+	if !ok {
+		return 0, false
+	}
+	switch v.(type) {
+	case float64, float32, int, int32, int64, json.Number:
+		f := parseExtraFloat64(v)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0, false
+		}
+		return f, true
+	default:
+		return 0, false
+	}
 }
 
 // getExtraTime 从 Extra 中读取 RFC3339 时间戳
@@ -2906,6 +2950,98 @@ func lastFixedMonthlyReset(day, hour int, tz *time.Location, now time.Time) time
 	}
 	return reset
 }
+
+// GetQuotaMonthlyPeriodStart returns the start of the current fixed monthly window.
+func (a *Account) GetQuotaMonthlyPeriodStart(now time.Time) time.Time {
+	if a.GetQuotaMonthlyResetMode() != "fixed" {
+		return time.Time{}
+	}
+	tz, err := time.LoadLocation(a.GetQuotaResetTimezone())
+	if err != nil {
+		tz = time.UTC
+	}
+	return lastFixedMonthlyReset(a.GetQuotaMonthlyResetDay(), a.GetQuotaMonthlyResetHour(), tz, now)
+}
+
+// CalculateProratedMonthlyQuotaLimit prorates a monthly limit over the remaining
+// part of a cycle. The result is rounded to cents.
+func CalculateProratedMonthlyQuotaLimit(limit float64, cycleStart, cycleEnd, from time.Time) float64 {
+	if limit <= 0 || cycleStart.IsZero() || cycleEnd.IsZero() || !cycleEnd.After(cycleStart) {
+		return 0
+	}
+	if from.Before(cycleStart) {
+		from = cycleStart
+	}
+	if !from.Before(cycleEnd) {
+		return 0
+	}
+	ratio := cycleEnd.Sub(from).Seconds() / cycleEnd.Sub(cycleStart).Seconds()
+	return math.Round(limit*ratio*100) / 100
+}
+
+type monthlyQuotaResetConfig struct {
+	mode     string
+	day      int
+	hour     int
+	timezone string
+}
+
+func monthlyQuotaResetConfigFromExtra(extra map[string]any) monthlyQuotaResetConfig {
+	a := Account{Extra: extra}
+	return monthlyQuotaResetConfig{
+		mode:     a.GetQuotaMonthlyResetMode(),
+		day:      a.GetQuotaMonthlyResetDay(),
+		hour:     a.GetQuotaMonthlyResetHour(),
+		timezone: a.GetQuotaResetTimezone(),
+	}
+}
+
+func clearMonthlyQuotaProration(extra map[string]any) {
+	delete(extra, "quota_monthly_prorate")
+	delete(extra, "quota_monthly_prorated_limit")
+	delete(extra, "quota_monthly_prorated_until")
+}
+
+// applyMonthlyQuotaProration refreshes the derived first-cycle limit only when
+// the proration or fixed-reset configuration changed.
+func applyMonthlyQuotaProration(oldExtra, newExtra map[string]any, now time.Time) {
+	if newExtra == nil {
+		return
+	}
+	a := Account{Extra: newExtra}
+	limit := a.GetQuotaMonthlyLimit()
+	if !a.GetQuotaMonthlyProrate() || a.GetQuotaMonthlyResetMode() != "fixed" || limit <= 0 {
+		clearMonthlyQuotaProration(newExtra)
+		return
+	}
+
+	old := Account{Extra: oldExtra}
+	oldConfig := monthlyQuotaResetConfigFromExtra(oldExtra)
+	newConfig := monthlyQuotaResetConfigFromExtra(newExtra)
+	shouldRecalculate := !old.GetQuotaMonthlyProrate() ||
+		old.GetQuotaMonthlyLimit() != limit ||
+		oldConfig != newConfig
+	if !shouldRecalculate {
+		for _, key := range []string{"quota_monthly_prorated_limit", "quota_monthly_prorated_until"} {
+			if value, ok := oldExtra[key]; ok {
+				newExtra[key] = value
+			} else {
+				delete(newExtra, key)
+			}
+		}
+		return
+	}
+
+	tz, err := time.LoadLocation(a.GetQuotaResetTimezone())
+	if err != nil {
+		tz = time.UTC
+	}
+	cycleStart := lastFixedMonthlyReset(a.GetQuotaMonthlyResetDay(), a.GetQuotaMonthlyResetHour(), tz, now)
+	cycleEnd := nextFixedMonthlyReset(a.GetQuotaMonthlyResetDay(), a.GetQuotaMonthlyResetHour(), tz, now)
+	newExtra["quota_monthly_prorated_limit"] = CalculateProratedMonthlyQuotaLimit(limit, cycleStart, cycleEnd, now)
+	newExtra["quota_monthly_prorated_until"] = cycleEnd.UTC().Format(time.RFC3339)
+}
+
 func (a *Account) IsMonthlyQuotaPeriodExpired() bool {
 	start := a.getExtraTime("quota_monthly_start")
 	if a.GetQuotaMonthlyResetMode() != "fixed" {
@@ -3130,6 +3266,11 @@ func ValidateQuotaResetConfig(extra map[string]any) error {
 			return errors.New("quota_monthly_reset_mode must be 'rolling' or 'fixed'")
 		}
 	}
+	if v, ok := extra["quota_monthly_prorate"]; ok {
+		if _, valid := v.(bool); !valid {
+			return errors.New("quota_monthly_prorate must be a boolean")
+		}
+	}
 	for _, field := range []struct {
 		key      string
 		min, max float64
@@ -3213,8 +3354,10 @@ func (a *Account) IsQuotaExceeded() bool {
 			return true
 		}
 	}
-	if limit := a.GetQuotaMonthlyLimit(); limit > 0 && !a.IsMonthlyQuotaPeriodExpired() && a.GetQuotaMonthlyUsed() >= limit {
-		return true
+	if limit := a.GetQuotaMonthlyLimit(); limit > 0 && !a.IsMonthlyQuotaPeriodExpired() {
+		if a.GetQuotaMonthlyUsed() >= a.GetQuotaMonthlyEffectiveLimit(time.Now()) {
+			return true
+		}
 	}
 
 	return false

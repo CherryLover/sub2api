@@ -168,4 +168,25 @@ describe('monthly quota badge', () => {
     expect(badge?.props()).toMatchObject({ used: 25, limit: 100, label: 'M' })
     wrapper.unmount()
   })
+
+  it('uses the effective limit and tooltip note during an active prorated period', () => {
+    const wrapper = mountCell({
+      ...makeAccount(501),
+      type: 'apikey',
+      quota_monthly_limit: 100,
+      quota_monthly_used: 25,
+      quota_monthly_effective_limit: 50,
+      quota_monthly_prorate: true,
+      quota_monthly_prorated_limit: 50,
+      quota_monthly_prorated_until: '2099-12-01T00:00:00Z',
+    })
+    const badge = wrapper.findAllComponents({ name: 'QuotaBadge' }).find(item => item.props('label') === 'M')
+    expect(badge?.props()).toMatchObject({
+      used: 25,
+      limit: 50,
+      label: 'M',
+      note: 'admin.accounts.quotaMonthlyProratedBadge',
+    })
+    wrapper.unmount()
+  })
 })

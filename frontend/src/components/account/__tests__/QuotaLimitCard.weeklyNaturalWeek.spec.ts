@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, reactive } from 'vue'
 import { mount } from '@vue/test-utils'
 
@@ -40,6 +40,7 @@ type QuotaFormState = {
   monthlyResetMode: 'rolling' | 'fixed' | null
   monthlyResetDay: number | null
   monthlyResetHour: number | null
+  monthlyProrate: boolean
   dailyResetMode: 'rolling' | 'fixed' | null
   dailyResetHour: number | null
   weeklyResetMode: 'rolling' | 'fixed' | null
@@ -57,6 +58,7 @@ function emptyState(): QuotaFormState {
     monthlyResetMode: null,
     monthlyResetDay: null,
     monthlyResetHour: null,
+    monthlyProrate: false,
     dailyResetMode: null,
     dailyResetHour: null,
     weeklyResetMode: null,
@@ -85,10 +87,12 @@ function mountCard(initial: Partial<QuotaFormState> = {}) {
         :monthly-reset-mode="state.monthlyResetMode"
         :monthly-reset-day="state.monthlyResetDay"
         :monthly-reset-hour="state.monthlyResetHour"
+        :monthly-prorate="state.monthlyProrate"
         @update:monthly-limit="state.monthlyLimit = $event"
         @update:monthly-reset-mode="state.monthlyResetMode = $event"
         @update:monthly-reset-day="state.monthlyResetDay = $event"
         @update:monthly-reset-hour="state.monthlyResetHour = $event"
+        @update:monthly-prorate="state.monthlyProrate = $event"
         :daily-reset-mode="state.dailyResetMode"
         :daily-reset-hour="state.dailyResetHour"
         :weekly-reset-mode="state.weeklyResetMode"
@@ -127,6 +131,95 @@ function selectOptions(wrapper: ReturnType<typeof mountCard>['wrapper'], testId:
 }
 
 describe('QuotaLimitCard monthly quota', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows the proration checkbox only for fixed monthly resets', () => {
+    const fixed = mountCard({ monthlyLimit: 100, monthlyResetMode: 'fixed' })
+    expect(fixed.wrapper.find('[data-testid="quota-monthly-prorate"]').exists()).toBe(true)
+    fixed.wrapper.unmount()
+
+    const rolling = mountCard({ monthlyLimit: 100, monthlyResetMode: 'rolling' })
+    expect(rolling.wrapper.find('[data-testid="quota-monthly-prorate"]').exists()).toBe(false)
+    rolling.wrapper.unmount()
+  })
+
+  it('emits the checked state and previews the prorated first period for a new account', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-26T00:00:00+08:00'))
+    const { wrapper, state } = mountCard({
+      monthlyLimit: 100,
+      monthlyResetMode: 'fixed',
+      monthlyResetDay: 1,
+      monthlyResetHour: 0,
+      resetTimezone: 'Asia/Shanghai',
+    })
+
+    await wrapper.get('[data-testid="quota-monthly-prorate"]').setValue(true)
+
+    expect(state.monthlyProrate).toBe(true)
+    expect(wrapper.get('[data-testid="quota-monthly-prorate-info"]').text()).toContain(
+      'admin.accounts.quotaMonthlyProrationEstimate',
+    )
+    expect(wrapper.get('[data-testid="quota-monthly-prorate-info"]').text()).toContain('"available":"16.67"')
+    expect(wrapper.get('[data-testid="quota-monthly-prorate-info"]').text()).toContain('"remainingDays":5')
+    expect(wrapper.get('[data-testid="quota-monthly-prorate-info"]').text()).toContain('"totalDays":30')
+  })
+
+  it('shows saved cycle usage with and without the prorated suffix', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-06T10:00:00Z'))
+    const savedProps = {
+      dim: 'monthly' as const,
+      label: 'Monthly',
+      limit: 100,
+      quotaNotifyGlobalEnabled: false,
+      notifyEnabled: null,
+      notifyThreshold: null,
+      notifyThresholdType: null,
+      resetMode: 'fixed' as const,
+      resetHour: 0,
+      resetDay: 1,
+      resetTimezone: 'Asia/Shanghai',
+      hintRolling: '',
+      hintFixed: '',
+      hourOptions: [],
+      dayOptions: [],
+      monthlyProratedLimit: 50,
+      monthlyProratedUntil: '2026-11-30T16:00:00Z',
+      monthlyEffectiveLimit: 50,
+      monthlyPeriodStart: '2026-10-31T16:00:00Z',
+      monthlyResetAt: '2026-11-30T16:00:00Z',
+      monthlyUsed: 12.3,
+    }
+
+    const active = mount(QuotaDimensionRow, { props: { ...savedProps, monthlyProrate: true } })
+    const activeText = active.get('[data-testid="quota-monthly-prorate-info"]').text()
+    expect(activeText).toContain('"start":"11/01 00:00"')
+    expect(activeText).toContain('"end":"12/01 00:00"')
+    expect(activeText).toContain('"available":"50.00"')
+    expect(activeText).toContain('"used":"12.30"')
+    expect(activeText).toContain('"remaining":"37.70"')
+    expect(activeText).toContain('admin.accounts.quotaMonthlyProrationApplied')
+    active.unmount()
+
+    const inactive = mount(QuotaDimensionRow, { props: { ...savedProps, monthlyProrate: false } })
+    const inactiveText = inactive.get('[data-testid="quota-monthly-prorate-info"]').text()
+    expect(inactiveText).toContain('"available":"100.00"')
+    expect(inactiveText).toContain('"remaining":"87.70"')
+    expect(inactiveText).not.toContain('admin.accounts.quotaMonthlyProrationApplied')
+    inactive.unmount()
+
+    const dirty = mount(QuotaDimensionRow, {
+      props: { ...savedProps, monthlyProrate: true, monthlyProrateDirty: true },
+    })
+    expect(dirty.get('[data-testid="quota-monthly-prorate-info"]').text()).toContain(
+      'admin.accounts.quotaMonthlyProrationEstimate',
+    )
+    dirty.unmount()
+  })
+
   it('omits notification headers and inputs for monthly even when global notifications are enabled', () => {
     const wrapper = mount(QuotaDimensionRow, { props: {
       dim: 'monthly', label: 'Monthly', limit: 100,

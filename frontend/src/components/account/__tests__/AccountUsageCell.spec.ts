@@ -106,6 +106,36 @@ describe('AccountUsageCell', () => {
     })
   })
 
+  it('uses the effective monthly limit and marks an active first-period proration', () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          platform: 'openai',
+          type: 'apikey',
+          quota_monthly_limit: 100,
+          quota_monthly_used: 25,
+          quota_monthly_effective_limit: 50,
+          quota_monthly_prorate: true,
+          quota_monthly_prorated_limit: 50,
+          quota_monthly_prorated_until: '2099-12-01T00:00:00Z',
+          extra: { quota_monthly_reset_mode: 'fixed', quota_monthly_reset_at: '2099-12-01T00:00:00Z' },
+        }),
+      },
+      global: { stubs: { UsageProgressBar: true, AccountQuotaInfo: true } },
+    })
+
+    const bar = wrapper.findComponent({ name: 'UsageProgressBar' })
+    expect(bar.props()).toMatchObject({
+      label: '30d',
+      utilization: 50,
+      resetsAt: '2099-12-01T00:00:00Z',
+    })
+    expect(wrapper.get('[data-testid="monthly-prorated-note"]').text()).toBe(
+      'admin.accounts.quotaMonthlyProratedBadge',
+    )
+    wrapper.unmount()
+  })
+
   it.each([
     ['rolling', '2026-01-31T12:00:00Z', undefined, '2026-03-02T12:00:00.000Z'],
     ['rolling', undefined, undefined, null],

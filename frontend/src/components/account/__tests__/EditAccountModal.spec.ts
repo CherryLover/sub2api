@@ -1328,13 +1328,15 @@ describe('EditAccountModal', () => {
 
   it.each(['fixed', 'rolling'] as const)('round-trips monthly %s quota configuration and usage', async (mode) => {
     const account = buildAccount()
-    account.extra = { quota_monthly_limit: 150, quota_monthly_used: 33, quota_monthly_start: '2026-01-01T00:00:00Z', quota_monthly_reset_mode: mode, quota_monthly_reset_day: 31, quota_monthly_reset_hour: 23, quota_reset_timezone: 'Asia/Shanghai' }
+    account.extra = { quota_monthly_limit: 150, quota_monthly_used: 33, quota_monthly_start: '2026-01-01T00:00:00Z', quota_monthly_reset_mode: mode, quota_monthly_reset_day: 31, quota_monthly_reset_hour: 23, quota_monthly_prorate: true, quota_reset_timezone: 'Asia/Shanghai' }
     updateAccountMock.mockReset().mockResolvedValue(account)
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account)
     const card = wrapper.findComponent({ name: 'QuotaLimitCard' })
     expect(card.props('monthlyLimit')).toBe(150)
     expect(card.props('monthlyResetMode')).toBe(mode)
+    expect(card.props('monthlyProrate')).toBe(mode === 'fixed')
+    card.vm.$emit('update:monthlyProrate', true)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
     expect(extra.quota_monthly_limit).toBe(150)
@@ -1343,23 +1345,28 @@ describe('EditAccountModal', () => {
     if (mode === 'fixed') {
       expect(extra.quota_monthly_reset_day).toBe(31)
       expect(extra.quota_monthly_reset_hour).toBe(23)
+      expect(extra.quota_monthly_prorate).toBe(true)
       expect(extra.quota_reset_timezone).toBe('Asia/Shanghai')
     } else {
       expect(extra.quota_monthly_reset_day).toBeUndefined()
       expect(extra.quota_monthly_reset_hour).toBeUndefined()
+      expect(extra.quota_monthly_prorate).toBeUndefined()
     }
   })
 
   it('omits monthly fields from the update request when disabled (server retains protected metering)', async () => {
     const account = buildAccount()
-    account.extra = { quota_monthly_limit: 100, quota_monthly_used: 10, quota_monthly_start: '2026-01-01T00:00:00Z', quota_monthly_reset_mode: 'fixed', quota_monthly_reset_day: 31, quota_monthly_reset_hour: 23, quota_monthly_reset_at: '2026-01-31T23:00:00Z' }
+    account.extra = { quota_monthly_limit: 100, quota_monthly_used: 10, quota_monthly_start: '2026-01-01T00:00:00Z', quota_monthly_reset_mode: 'fixed', quota_monthly_reset_day: 31, quota_monthly_reset_hour: 23, quota_monthly_reset_at: '2026-01-31T23:00:00Z', quota_monthly_prorate: true, quota_monthly_prorated_limit: 50, quota_monthly_prorated_until: '2026-01-31T23:00:00Z' }
     updateAccountMock.mockReset().mockResolvedValue(account)
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account)
     wrapper.findComponent({ name: 'QuotaLimitCard' }).vm.$emit('update:monthlyLimit', null)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
-    for (const key of ['limit', 'used', 'start', 'reset_mode', 'reset_day', 'reset_hour', 'reset_at']) {
+    for (const key of [
+      'limit', 'used', 'start', 'reset_mode', 'reset_day', 'reset_hour', 'reset_at',
+      'prorate', 'prorated_limit', 'prorated_until'
+    ]) {
       expect(extra).not.toHaveProperty(`quota_monthly_${key}`)
     }
   })

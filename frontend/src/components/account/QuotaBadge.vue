@@ -6,6 +6,7 @@ const props = defineProps<{
   used: number
   limit: number
   label?: string // 文字前缀，如 "D" / "W"；不传时显示 icon
+  note?: string | null
 }>()
 
 const { t } = useI18n()
@@ -21,10 +22,10 @@ const badgeClass = computed(() => {
 })
 
 const tooltip = computed(() => {
-  if (props.used >= props.limit) {
-    return t('admin.accounts.capacity.quota.exceeded')
-  }
-  return t('admin.accounts.capacity.quota.normal')
+  const base = props.used >= props.limit
+    ? t('admin.accounts.capacity.quota.exceeded')
+    : t('admin.accounts.capacity.quota.normal')
+  return props.note ? `${base} · ${props.note}` : base
 })
 
 const fmt = (v: number) => v.toFixed(2)

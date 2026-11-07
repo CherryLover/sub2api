@@ -951,6 +951,11 @@ export interface Account {
   quota_monthly_reset_day?: number | null
   quota_monthly_reset_hour?: number | null
   quota_monthly_reset_at?: string | null
+  quota_monthly_prorate?: boolean | null
+  quota_monthly_prorated_limit?: number | null
+  quota_monthly_prorated_until?: string | null
+  quota_monthly_effective_limit?: number | null
+  quota_monthly_period_start?: string | null
 
   // 配额固定时间重置配置
   quota_daily_reset_mode?: 'rolling' | 'fixed' | null

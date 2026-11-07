@@ -45,6 +45,52 @@ func TestAccountFromServiceShallowMonthlyFixedQuota(t *testing.T) {
 	require.NotContains(t, fields, "quota_notify_monthly_enabled")
 }
 
+func TestAccountFromServiceShallowMonthlyProration(t *testing.T) {
+	now := time.Now()
+	until := now.Add(time.Hour).UTC().Format(time.RFC3339)
+	extra := map[string]any{
+		"quota_monthly_limit":          100.0,
+		"quota_monthly_used":           12.3,
+		"quota_monthly_start":          now.Add(-time.Minute).UTC().Format(time.RFC3339),
+		"quota_monthly_reset_mode":     "fixed",
+		"quota_monthly_reset_day":      1,
+		"quota_monthly_reset_hour":     0,
+		"quota_reset_timezone":         "UTC",
+		"quota_monthly_reset_at":       until,
+		"quota_monthly_prorate":        true,
+		"quota_monthly_prorated_limit": 50.0,
+		"quota_monthly_prorated_until": until,
+	}
+	out := AccountFromServiceShallow(&service.Account{Type: service.AccountTypeAPIKey, Extra: extra})
+	require.NotNil(t, out.QuotaMonthlyProrate)
+	require.True(t, *out.QuotaMonthlyProrate)
+	require.NotNil(t, out.QuotaMonthlyProratedLimit)
+	require.Equal(t, 50.0, *out.QuotaMonthlyProratedLimit)
+	require.NotNil(t, out.QuotaMonthlyProratedUntil)
+	require.Equal(t, until, *out.QuotaMonthlyProratedUntil)
+	require.NotNil(t, out.QuotaMonthlyEffectiveLimit)
+	require.Equal(t, 50.0, *out.QuotaMonthlyEffectiveLimit)
+	require.NotNil(t, out.QuotaMonthlyPeriodStart)
+
+	payload, err := json.Marshal(out)
+	require.NoError(t, err)
+	var fields map[string]any
+	require.NoError(t, json.Unmarshal(payload, &fields))
+	for _, key := range []string{
+		"quota_monthly_prorate",
+		"quota_monthly_prorated_limit",
+		"quota_monthly_prorated_until",
+		"quota_monthly_effective_limit",
+		"quota_monthly_period_start",
+	} {
+		require.Contains(t, fields, key)
+	}
+
+	extra["quota_monthly_prorated_until"] = now.Add(-time.Hour).UTC().Format(time.RFC3339)
+	out = AccountFromServiceShallow(&service.Account{Type: service.AccountTypeAPIKey, Extra: extra})
+	require.Equal(t, 100.0, *out.QuotaMonthlyEffectiveLimit)
+}
+
 func TestAccountFromServiceShallowMonthlyQuotaDisabled(t *testing.T) {
 	for _, extra := range []map[string]any{nil, {}, {"quota_monthly_limit": 0.0, "quota_monthly_used": 23.5}} {
 		out := AccountFromServiceShallow(&service.Account{Type: service.AccountTypeAPIKey, Extra: extra})
