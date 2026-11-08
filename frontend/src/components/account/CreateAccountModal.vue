@@ -2032,10 +2032,12 @@
           :monthlyResetMode="editMonthlyResetMode"
           :monthlyResetDay="editMonthlyResetDay"
           :monthlyResetHour="editMonthlyResetHour"
+          :monthlyProrate="editMonthlyProrate"
           @update:monthlyLimit="editQuotaMonthlyLimit = $event"
           @update:monthlyResetMode="editMonthlyResetMode = $event"
           @update:monthlyResetDay="editMonthlyResetDay = $event"
           @update:monthlyResetHour="editMonthlyResetHour = $event"
+          @update:monthlyProrate="editMonthlyProrate = $event"
           :quotaNotifyGlobalEnabled="quotaNotifyGlobalEnabled"
           :quotaNotifyDailyEnabled="quotaNotifyState.daily.enabled"
           :quotaNotifyDailyThreshold="quotaNotifyState.daily.threshold"
@@ -2092,10 +2094,12 @@
           :monthlyResetMode="editMonthlyResetMode"
           :monthlyResetDay="editMonthlyResetDay"
           :monthlyResetHour="editMonthlyResetHour"
+          :monthlyProrate="editMonthlyProrate"
           @update:monthlyLimit="editQuotaMonthlyLimit = $event"
           @update:monthlyResetMode="editMonthlyResetMode = $event"
           @update:monthlyResetDay="editMonthlyResetDay = $event"
           @update:monthlyResetHour="editMonthlyResetHour = $event"
+          @update:monthlyProrate="editMonthlyProrate = $event"
           :quotaNotifyGlobalEnabled="quotaNotifyGlobalEnabled"
           :quotaNotifyDailyEnabled="quotaNotifyState.daily.enabled"
           :quotaNotifyDailyThreshold="quotaNotifyState.daily.threshold"
@@ -4175,6 +4179,7 @@ const editQuotaMonthlyLimit = ref<number | null>(null)
 const editMonthlyResetMode = ref<'rolling' | 'fixed' | null>(null)
 const editMonthlyResetDay = ref<number | null>(null)
 const editMonthlyResetHour = ref<number | null>(null)
+const editMonthlyProrate = ref(false)
 const editDailyResetMode = ref<'rolling' | 'fixed' | null>(null)
 const editDailyResetHour = ref<number | null>(null)
 const editWeeklyResetMode = ref<'rolling' | 'fixed' | null>(null)
@@ -5084,7 +5089,10 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
     if (extra.quota_monthly_reset_mode === 'fixed') {
       extra.quota_monthly_reset_day = editMonthlyResetDay.value ?? 1
       extra.quota_monthly_reset_hour = editMonthlyResetHour.value ?? 0
+      extra.quota_monthly_prorate = editMonthlyProrate.value
       extra.quota_reset_timezone = editResetTimezone.value || defaultQuotaResetTimezone(appStore.cachedPublicSettings?.server_timezone)
+    } else {
+      delete extra.quota_monthly_prorate
     }
     payload = { ...payload, extra }
   }
@@ -5151,6 +5159,7 @@ const resetForm = () => {
   editMonthlyResetMode.value = null
   editMonthlyResetDay.value = null
   editMonthlyResetHour.value = null
+  editMonthlyProrate.value = false
   editDailyResetMode.value = null
   editDailyResetHour.value = null
   editWeeklyResetMode.value = null

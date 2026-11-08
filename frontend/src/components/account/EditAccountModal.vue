@@ -1960,10 +1960,19 @@
           :monthlyResetMode="editMonthlyResetMode"
           :monthlyResetDay="editMonthlyResetDay"
           :monthlyResetHour="editMonthlyResetHour"
+          :monthlyProrate="editMonthlyProrate"
+          :monthlyProrateDirty="monthlyProrateConfigDirty"
+          :monthlyProratedLimit="account?.quota_monthly_prorated_limit ?? null"
+          :monthlyProratedUntil="account?.quota_monthly_prorated_until ?? null"
+          :monthlyEffectiveLimit="account?.quota_monthly_effective_limit ?? null"
+          :monthlyPeriodStart="account?.quota_monthly_period_start ?? null"
+          :monthlyResetAt="account?.quota_monthly_reset_at ?? null"
+          :monthlyUsed="account?.quota_monthly_used ?? null"
           @update:monthlyLimit="editQuotaMonthlyLimit = $event"
           @update:monthlyResetMode="editMonthlyResetMode = $event"
           @update:monthlyResetDay="editMonthlyResetDay = $event"
           @update:monthlyResetHour="editMonthlyResetHour = $event"
+          @update:monthlyProrate="editMonthlyProrate = $event"
           :dailyResetMode="editDailyResetMode"
           :dailyResetHour="editDailyResetHour"
           :weeklyResetMode="editWeeklyResetMode"
@@ -2019,10 +2028,19 @@
           :monthlyResetMode="editMonthlyResetMode"
           :monthlyResetDay="editMonthlyResetDay"
           :monthlyResetHour="editMonthlyResetHour"
+          :monthlyProrate="editMonthlyProrate"
+          :monthlyProrateDirty="monthlyProrateConfigDirty"
+          :monthlyProratedLimit="account?.quota_monthly_prorated_limit ?? null"
+          :monthlyProratedUntil="account?.quota_monthly_prorated_until ?? null"
+          :monthlyEffectiveLimit="account?.quota_monthly_effective_limit ?? null"
+          :monthlyPeriodStart="account?.quota_monthly_period_start ?? null"
+          :monthlyResetAt="account?.quota_monthly_reset_at ?? null"
+          :monthlyUsed="account?.quota_monthly_used ?? null"
           @update:monthlyLimit="editQuotaMonthlyLimit = $event"
           @update:monthlyResetMode="editMonthlyResetMode = $event"
           @update:monthlyResetDay="editMonthlyResetDay = $event"
           @update:monthlyResetHour="editMonthlyResetHour = $event"
+          @update:monthlyProrate="editMonthlyProrate = $event"
           :dailyResetMode="editDailyResetMode"
           :dailyResetHour="editDailyResetHour"
           :weeklyResetMode="editWeeklyResetMode"
@@ -3297,12 +3315,47 @@ const editQuotaMonthlyLimit = ref<number | null>(null)
 const editMonthlyResetMode = ref<'rolling' | 'fixed' | null>(null)
 const editMonthlyResetDay = ref<number | null>(null)
 const editMonthlyResetHour = ref<number | null>(null)
+const editMonthlyProrate = ref(false)
 const editDailyResetMode = ref<'rolling' | 'fixed' | null>(null)
 const editDailyResetHour = ref<number | null>(null)
 const editWeeklyResetMode = ref<'rolling' | 'fixed' | null>(null)
 const editWeeklyResetDay = ref<number | null>(null)
 const editWeeklyResetHour = ref<number | null>(null)
 const editResetTimezone = ref<string | null>(null)
+const savedMonthlyExtra = computed<Record<string, unknown>>(() =>
+  (props.account?.extra as Record<string, unknown> | undefined) ?? {}
+)
+const monthlyProrateConfigDirty = computed(() => {
+  const savedLimit = props.account?.quota_monthly_limit ??
+    (savedMonthlyExtra.value.quota_monthly_limit as number | undefined) ??
+    null
+  const savedMode = (props.account?.quota_monthly_reset_mode ??
+    savedMonthlyExtra.value.quota_monthly_reset_mode as 'rolling' | 'fixed' | undefined) ??
+    null
+  const savedDay = props.account?.quota_monthly_reset_day ??
+    (savedMonthlyExtra.value.quota_monthly_reset_day as number | undefined) ??
+    null
+  const savedHour = props.account?.quota_monthly_reset_hour ??
+    (savedMonthlyExtra.value.quota_monthly_reset_hour as number | undefined) ??
+    null
+  const savedTimezone = props.account?.quota_reset_timezone ??
+    (savedMonthlyExtra.value.quota_reset_timezone as string | undefined) ??
+    null
+  const savedProrate = props.account?.quota_monthly_prorate ??
+    savedMonthlyExtra.value.quota_monthly_prorate === true
+  const currentDay = editMonthlyResetMode.value === 'fixed' ? (editMonthlyResetDay.value ?? 1) : null
+  const currentHour = editMonthlyResetMode.value === 'fixed' ? (editMonthlyResetHour.value ?? 0) : null
+  const savedFixedDay = savedMode === 'fixed' ? (savedDay ?? 1) : null
+  const savedFixedHour = savedMode === 'fixed' ? (savedHour ?? 0) : null
+
+  return editQuotaMonthlyLimit.value !== savedLimit ||
+    editMonthlyResetMode.value !== savedMode ||
+    currentDay !== savedFixedDay ||
+    currentHour !== savedFixedHour ||
+    editResetTimezone.value !== savedTimezone ||
+    (editMonthlyResetMode.value === 'fixed' && editMonthlyProrate.value) !==
+      (savedMode === 'fixed' && savedProrate === true)
+})
 const codexFingerprintModeOptions = computed(() => [
   { value: 'off' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintOff') },
   { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
@@ -3855,6 +3908,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editMonthlyResetMode.value = (extra?.quota_monthly_reset_mode as 'rolling' | 'fixed') || null
     editMonthlyResetDay.value = (extra?.quota_monthly_reset_day as number) ?? null
     editMonthlyResetHour.value = (extra?.quota_monthly_reset_hour as number) ?? null
+    editMonthlyProrate.value = editMonthlyResetMode.value === 'fixed' &&
+      (extra?.quota_monthly_prorate === true || newAccount.quota_monthly_prorate === true)
     // Load quota reset mode config
     editDailyResetMode.value = (extra?.quota_daily_reset_mode as 'rolling' | 'fixed') || null
     editDailyResetHour.value = (extra?.quota_daily_reset_hour as number) ?? null
@@ -3872,6 +3927,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editMonthlyResetMode.value = null
     editMonthlyResetDay.value = null
     editMonthlyResetHour.value = null
+    editMonthlyProrate.value = false
     editDailyResetMode.value = null
     editDailyResetHour.value = null
     editWeeklyResetMode.value = null
@@ -5332,12 +5388,19 @@ const handleSubmit = async () => {
         if (newExtra.quota_monthly_reset_mode === 'fixed') {
           newExtra.quota_monthly_reset_day = editMonthlyResetDay.value ?? 1
           newExtra.quota_monthly_reset_hour = editMonthlyResetHour.value ?? 0
+          newExtra.quota_monthly_prorate = editMonthlyProrate.value
         } else {
           delete newExtra.quota_monthly_reset_day
           delete newExtra.quota_monthly_reset_hour
+          delete newExtra.quota_monthly_prorate
+          delete newExtra.quota_monthly_prorated_limit
+          delete newExtra.quota_monthly_prorated_until
         }
       } else {
-        for (const key of ['limit', 'used', 'start', 'reset_mode', 'reset_day', 'reset_hour', 'reset_at']) {
+        for (const key of [
+          'limit', 'used', 'start', 'reset_mode', 'reset_day', 'reset_hour', 'reset_at',
+          'prorate', 'prorated_limit', 'prorated_until'
+        ]) {
           delete newExtra[`quota_monthly_${key}`]
         }
       }

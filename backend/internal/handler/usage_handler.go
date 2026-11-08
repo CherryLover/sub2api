@@ -46,10 +46,11 @@ type userGroupStat struct {
 
 // UsageHandler handles usage-related requests
 type UsageHandler struct {
-	usageService   *service.UsageService
-	apiKeyService  *service.APIKeyService
-	opsService     *service.OpsService
-	settingService *service.SettingService
+	usageService             *service.UsageService
+	apiKeyService            *service.APIKeyService
+	opsService               *service.OpsService
+	settingService           *service.SettingService
+	keyUsageDashboardService *service.KeyUsageDashboardService
 }
 
 // NewUsageHandler creates a new UsageHandler
@@ -65,6 +66,53 @@ func NewUsageHandler(
 		opsService:     opsService,
 		settingService: settingService,
 	}
+}
+
+// ProvideUsageHandler wires the dashboard service without changing existing constructor callers.
+func ProvideUsageHandler(
+	usageService *service.UsageService,
+	apiKeyService *service.APIKeyService,
+	opsService *service.OpsService,
+	settingService *service.SettingService,
+	keyUsageDashboardService *service.KeyUsageDashboardService,
+) *UsageHandler {
+	handler := NewUsageHandler(usageService, apiKeyService, opsService, settingService)
+	handler.keyUsageDashboardService = keyUsageDashboardService
+	return handler
+}
+
+type keyUsageDashboardQuery struct {
+	Range   string
+	GroupID int64
+	Model   string
+}
+
+func parseKeyUsageDashboardQuery(c *gin.Context) (*keyUsageDashboardQuery, bool) {
+	rangeName := strings.TrimSpace(c.Query("range"))
+	if rangeName == "" {
+		response.BadRequest(c, "Missing range, allowed values are today, 7d, 30d")
+		return nil, false
+	}
+	if _, err := service.ResolveKeyUsageDashboardWindow(rangeName, time.Now()); err != nil {
+		response.BadRequest(c, "Invalid range, allowed values are today, 7d, 30d")
+		return nil, false
+	}
+
+	var groupID int64
+	if groupIDValue := strings.TrimSpace(c.Query("group_id")); groupIDValue != "" {
+		parsed, err := strconv.ParseInt(groupIDValue, 10, 64)
+		if err != nil || parsed <= 0 {
+			response.BadRequest(c, "Invalid group_id")
+			return nil, false
+		}
+		groupID = parsed
+	}
+
+	return &keyUsageDashboardQuery{
+		Range:   rangeName,
+		GroupID: groupID,
+		Model:   strings.TrimSpace(c.Query("model")),
+	}, true
 }
 
 func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) (*userUsageFilters, bool) {
@@ -217,6 +265,90 @@ func derefTime(value *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *value
+}
+
+// KeyUsageDashboard handles the current user's API key usage dashboard.
+// GET /api/v1/usage/key-dashboard?range=7d
+func (h *UsageHandler) KeyUsageDashboard(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	query, ok := parseKeyUsageDashboardQuery(c)
+	if !ok {
+		return
+	}
+	if h.keyUsageDashboardService == nil {
+		response.InternalError(c, "Key usage dashboard service is not configured")
+		return
+	}
+
+	result, err := h.keyUsageDashboardService.GetDashboard(
+		c.Request.Context(),
+		subject.UserID,
+		query.Range,
+		service.KeyUsageDashboardFilters{
+			GroupID: query.GroupID,
+			Model:   query.Model,
+		},
+	)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// KeyUsageDashboardKeyDetail handles one owned API key's dashboard detail.
+// GET /api/v1/usage/key-dashboard/keys/:id?range=7d
+func (h *UsageHandler) KeyUsageDashboardKeyDetail(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	apiKeyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || apiKeyID <= 0 {
+		response.BadRequest(c, "Invalid API key ID")
+		return
+	}
+	query, ok := parseKeyUsageDashboardQuery(c)
+	if !ok {
+		return
+	}
+	if h.apiKeyService == nil {
+		response.InternalError(c, "API key service is not configured")
+		return
+	}
+	apiKey, err := h.apiKeyService.GetByID(c.Request.Context(), apiKeyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if apiKey.UserID != subject.UserID {
+		response.NotFound(c, "API key not found")
+		return
+	}
+	if h.keyUsageDashboardService == nil {
+		response.InternalError(c, "Key usage dashboard service is not configured")
+		return
+	}
+
+	result, err := h.keyUsageDashboardService.GetKeyDetail(
+		c.Request.Context(),
+		apiKey,
+		query.Range,
+		service.KeyUsageDashboardFilters{
+			GroupID: query.GroupID,
+			Model:   query.Model,
+		},
+	)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 // List handles listing usage records with pagination

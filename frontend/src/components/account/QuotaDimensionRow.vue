@@ -11,6 +11,11 @@ import {
   defaultQuotaResetTimezone,
 } from '@/constants/account'
 import type { QuotaThresholdType, QuotaResetMode } from '@/constants/account'
+import {
+  estimateMonthlyProration,
+  formatMonthlyPeriodTime,
+  isMonthlyProrationActive,
+} from '@/utils/monthlyQuotaProration'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -34,6 +39,14 @@ const props = defineProps<{
   hourOptions: number[]
   dayOptions: { value: number; key: string }[]
   timezoneOptions?: string[]
+  monthlyProrate?: boolean | null
+  monthlyProrateDirty?: boolean
+  monthlyProratedLimit?: number | null
+  monthlyProratedUntil?: string | null
+  monthlyEffectiveLimit?: number | null
+  monthlyPeriodStart?: string | null
+  monthlyResetAt?: string | null
+  monthlyUsed?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -45,6 +58,7 @@ const emit = defineEmits<{
   'update:resetHour': [value: number | null]
   'update:resetDay': [value: number | null]
   'update:resetTimezone': [value: string | null]
+  'update:monthlyProrate': [value: boolean]
 }>()
 
 const hasResetMode = props.dim !== 'total'
@@ -55,8 +69,75 @@ const calendarResetDay = computed(() => props.dim === 'monthly' ? QUOTA_MONTHLY_
 const defaultTimezone = computed(() =>
   defaultQuotaResetTimezone(appStore.cachedPublicSettings?.server_timezone)
 )
+const monthlyTimezone = computed(() => props.resetTimezone || 'Asia/Shanghai')
 
 const limitEnabled = (limit: number | null | undefined) => limit != null && limit > 0
+
+const monthlyProrationActive = computed(() => isMonthlyProrationActive({
+  prorate: props.monthlyProrate,
+  proratedLimit: props.monthlyProratedLimit,
+  proratedUntil: props.monthlyProratedUntil,
+}, new Date()))
+
+const monthlyHasSavedPeriod = computed(() => {
+  if (!props.monthlyPeriodStart || !props.monthlyResetAt) return false
+  const startMs = Date.parse(props.monthlyPeriodStart)
+  const endMs = Date.parse(props.monthlyResetAt)
+  return Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs
+})
+
+const monthlyHasProratedUntil = computed(() => {
+  if (!props.monthlyProratedUntil) return false
+  return Number.isFinite(Date.parse(props.monthlyProratedUntil))
+})
+
+const monthlyEstimate = computed(() => {
+  if (props.dim !== 'monthly' || !limitEnabled(props.limit)) return null
+  return estimateMonthlyProration(
+    props.limit ?? 0,
+    props.resetDay ?? QUOTA_MONTHLY_DEFAULT_RESET_DAY,
+    props.resetHour ?? QUOTA_MONTHLY_DEFAULT_RESET_HOUR,
+    monthlyTimezone.value,
+    new Date(),
+  )
+})
+
+const monthlyInfoText = computed(() => {
+  if (props.dim !== 'monthly' || !limitEnabled(props.limit)) return ''
+
+  const monthlyLimit = props.limit ?? 0
+  const used = props.monthlyUsed ?? 0
+  const shouldEstimate = props.monthlyProrate === true &&
+    (props.monthlyProrateDirty === true || !monthlyHasProratedUntil.value)
+
+  if (shouldEstimate && monthlyEstimate.value) {
+    return t('admin.accounts.quotaMonthlyProrationEstimate', {
+      available: monthlyEstimate.value.effectiveLimit.toFixed(2),
+      remainingDays: monthlyEstimate.value.remainingDays,
+      totalDays: monthlyEstimate.value.totalDays,
+    })
+  }
+
+  if (monthlyHasSavedPeriod.value) {
+    const available = monthlyProrationActive.value
+      ? (props.monthlyEffectiveLimit ?? props.monthlyProratedLimit ?? monthlyLimit)
+      : monthlyLimit
+    return t('admin.accounts.quotaMonthlyProrationPeriod', {
+      start: formatMonthlyPeriodTime(props.monthlyPeriodStart!, monthlyTimezone.value),
+      end: formatMonthlyPeriodTime(props.monthlyResetAt!, monthlyTimezone.value),
+      available: available.toFixed(2),
+      used: used.toFixed(2),
+      remaining: (available - used).toFixed(2),
+      prorated: monthlyProrationActive.value
+        ? t('admin.accounts.quotaMonthlyProrationApplied')
+        : '',
+    })
+  }
+
+  return t('admin.accounts.quotaMonthlyPeriodAvailable', {
+    available: monthlyLimit.toFixed(2),
+  })
+})
 
 // 周限额默认按自然周（固定 / 周一 / 00:00 / 服务器时区）重置：
 // - 还没设周限额、也没选过重置方式时，界面直接预览这套默认（此时不写库，没有副作用）；
@@ -165,6 +246,29 @@ function getTimezoneOffsetLabel(tz: string): string {
         <template v-if="effectiveResetMode === 'fixed'">{{ hintFixed }}</template>
         <template v-else>{{ hintRolling }}</template>
       </span>
+    </div>
+
+    <div
+      v-if="dim === 'monthly' && effectiveResetMode === 'fixed'"
+      class="mt-1.5 space-y-1"
+    >
+      <label class="flex w-fit items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+        <input
+          type="checkbox"
+          data-testid="quota-monthly-prorate"
+          class="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500 dark:bg-dark-700"
+          :checked="monthlyProrate === true"
+          @change="emit('update:monthlyProrate', ($event.target as HTMLInputElement).checked)"
+        />
+        {{ t('admin.accounts.quotaMonthlyProrate') }}
+      </label>
+      <p
+        v-if="monthlyInfoText"
+        data-testid="quota-monthly-prorate-info"
+        class="text-[11px] leading-relaxed text-gray-500 dark:text-gray-400"
+      >
+        {{ monthlyInfoText }}
+      </p>
     </div>
 
     <!-- Total dimension hint (no reset mode) -->

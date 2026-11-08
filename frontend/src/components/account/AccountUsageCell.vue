@@ -554,6 +554,13 @@
             :resets-at="quotaMonthlyBar.resetsAt"
             color="amber"
           />
+          <span
+            v-if="quotaMonthlyBar?.prorated"
+            data-testid="monthly-prorated-note"
+            class="pl-9 text-[9px] text-amber-600 dark:text-amber-400"
+          >
+            {{ t('admin.accounts.quotaMonthlyProratedBadge') }}
+          </span>
           <UsageProgressBar
             v-if="quotaTotalBar"
             label="total"
@@ -666,6 +673,13 @@
         :resets-at="quotaMonthlyBar.resetsAt"
         color="amber"
       />
+      <span
+        v-if="quotaMonthlyBar?.prorated"
+        data-testid="monthly-prorated-note"
+        class="pl-9 text-[9px] text-amber-600 dark:text-amber-400"
+      >
+        {{ t('admin.accounts.quotaMonthlyProratedBadge') }}
+      </span>
       <UsageProgressBar
         v-if="quotaTotalBar"
         label="total"
@@ -691,6 +705,7 @@ import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber } from '@/utils/format'
 import { supportsAccountQuota } from '@/utils/accountQuota'
+import { isMonthlyProrationActive } from '@/utils/monthlyQuotaProration'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
@@ -1511,12 +1526,14 @@ const handleGrokProbed = async () => {
 interface QuotaBarInfo {
   utilization: number
   resetsAt: string | null
+  prorated?: boolean
 }
 
 const makeQuotaBar = (
   used: number,
   limit: number,
-  dimension?: 'daily' | 'weekly' | 'monthly'
+  dimension?: 'daily' | 'weekly' | 'monthly',
+  prorated = false,
 ): QuotaBarInfo => {
   const utilization = limit > 0 ? (used / limit) * 100 : 0
   let resetsAt: string | null = null
@@ -1535,7 +1552,7 @@ const makeQuotaBar = (
       }
     }
   }
-  return { utilization, resetsAt }
+  return { utilization, resetsAt, prorated }
 }
 
 const isGeminiVertex = computed(() => props.account.platform === 'gemini' && props.account.type === 'service_account' && hasApiKeyQuota.value)
@@ -1562,10 +1579,21 @@ const quotaWeeklyBar = computed((): QuotaBarInfo | null => {
   return makeQuotaBar(props.account.quota_weekly_used ?? 0, limit, 'weekly')
 })
 
+const monthlyProrationActive = computed(() => isMonthlyProrationActive({
+  prorate: props.account.quota_monthly_prorate,
+  proratedLimit: props.account.quota_monthly_prorated_limit,
+  proratedUntil: props.account.quota_monthly_prorated_until,
+}, new Date()))
+
 const quotaMonthlyBar = computed((): QuotaBarInfo | null => {
-  const limit = props.account.quota_monthly_limit ?? 0
+  const limit = props.account.quota_monthly_effective_limit ?? props.account.quota_monthly_limit ?? 0
   if (limit <= 0) return null
-  return makeQuotaBar(props.account.quota_monthly_used ?? 0, limit, 'monthly')
+  return makeQuotaBar(
+    props.account.quota_monthly_used ?? 0,
+    limit,
+    'monthly',
+    monthlyProrationActive.value,
+  )
 })
 
 const quotaTotalBar = computed((): QuotaBarInfo | null => {
