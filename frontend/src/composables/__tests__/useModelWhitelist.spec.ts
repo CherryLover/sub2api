@@ -20,6 +20,8 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-6.1-terra')
     expect(models).toContain('gpt-6-sol')
     expect(models).toContain('gpt-6-luna')
+    expect(models).toContain('gpt-image-2.6-flare')
+    expect(models).toContain('gpt-image-2.6-sunburst')
   })
 
     expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([expect.objectContaining({ from: 'gpt-6.1-terra', to: 'gpt-6.1-terra' })]))

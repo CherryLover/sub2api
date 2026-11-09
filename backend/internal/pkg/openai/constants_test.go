@@ -58,3 +58,10 @@ func TestValidateGPT61TerraReasoningEffort(t *testing.T) {
 	require.NoError(t, ValidateGPT61ReasoningEffort("gpt-6.1-sol", "max"))
 	require.NoError(t, ValidateGPT61ReasoningEffort("gpt-5.6-sol", "minimal"))
 }
+
+
+func TestDefaultModelsIncludeGPTImage25And26(t *testing.T) {
+	for _, model := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
+		require.Contains(t, DefaultModelIDs(), model)
+	}
+}
