@@ -326,6 +326,33 @@ func neutralizeClaudeIdentity(text string) string {
 	return text
 }
 
+// NeutralizeSystemIdentity removes client-specific attribution and rewrites
+// leading Claude/Codex vendor identity sentences only on Antigravity paths.
+// The subsequent task text is preserved verbatim.
+var codexIdentityOpeners = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)^[ \t\r\n]*You are Codex,? (?:a coding agent |an agent )?based on GPT-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+)*\.?`),
+	regexp.MustCompile(`(?i)^[ \t\r\n]*You are GPT-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+)* running in the Codex CLI\.?`),
+}
+
+func NeutralizeSystemIdentity(text string) string {
+	text = stripClaudeAttribution(text)
+	for _, re := range append(claudeIdentityOpeners, codexIdentityOpeners...) {
+		loc := re.FindStringIndex(text)
+		if loc == nil {
+			continue
+		}
+		rest := text[loc[1]:]
+		if strings.HasPrefix(rest, ",") {
+			return "You are an AI agent" + rest
+		}
+		if rest != "" && !strings.ContainsAny(rest[:1], " \t\r\n") {
+			continue
+		}
+		return "You are an AI agent." + rest
+	}
+	return text
+}
+
 func stripClaudeAttribution(text string) string {
 	trimmed := strings.TrimLeft(text, " \t\r\n")
 	if !strings.HasPrefix(trimmed, "x-anthropic-billing-header:") {
@@ -354,7 +381,7 @@ func buildSystemInstruction(system json.RawMessage, modelName string, opts Trans
 		// 尝试解析为字符串
 		var sysStr string
 		if err := json.Unmarshal(system, &sysStr); err == nil {
-			sysStr = neutralizeClaudeIdentity(stripClaudeAttribution(sysStr))
+			sysStr = NeutralizeSystemIdentity(sysStr)
 			if strings.TrimSpace(sysStr) != "" {
 				if strings.Contains(sysStr, "You are Antigravity") {
 					userHasAntigravityIdentity = true
@@ -370,7 +397,7 @@ func buildSystemInstruction(system json.RawMessage, modelName string, opts Trans
 			var sysBlocks []SystemBlock
 			if err := json.Unmarshal(system, &sysBlocks); err == nil {
 				for _, block := range sysBlocks {
-					block.Text = neutralizeClaudeIdentity(stripClaudeAttribution(block.Text))
+					block.Text = NeutralizeSystemIdentity(block.Text)
 					if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
 						if strings.Contains(block.Text, "You are Antigravity") {
 							userHasAntigravityIdentity = true

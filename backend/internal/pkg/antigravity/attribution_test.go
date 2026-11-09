@@ -181,3 +181,21 @@ func TestTransformClaudeToGemini_IdentitySystemBlock(t *testing.T) {
 	}
 	require.Equal(t, userText, got.Request.Contents[0].Parts[0].Text)
 }
+
+func TestNeutralizeSystemIdentityCodexPreservesTask(t *testing.T) {
+	for _, tt := range []struct {
+		text string
+		want string
+	}{
+		{"You are Codex, based on GPT-6.1. Fix the tests.", "You are an AI agent. Fix the tests."},
+		{"You are GPT-6.1 running in the Codex CLI.\nUse existing code.", "You are an AI agent.\nUse existing code."},
+		{"x-anthropic-billing-header: cc_version=1;\nYou are Codex, based on GPT-6.1. Fix the tests.", "You are an AI agent. Fix the tests."},
+		{"Explain this quote: You are Codex, based on GPT-6.1.", "Explain this quote: You are Codex, based on GPT-6.1."},
+		{`"You are Codex, based on GPT-6.1."`, `"You are Codex, based on GPT-6.1."`},
+		{"Keep GPT-6.1 and Claude models unchanged.", "Keep GPT-6.1 and Claude models unchanged."},
+	} {
+		t.Run(tt.text, func(t *testing.T) {
+			require.Equal(t, tt.want, NeutralizeSystemIdentity(tt.text))
+		})
+	}
+}
