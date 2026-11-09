@@ -2443,7 +2443,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		PreviousResponseID:      previousResponseID,
 		PreviousResponseCanMove: previousResponseCanMove,
 		UseUpstreamTokenCost:    useUpstreamTokenCost,
-		PreserveStickyBinding:    s.openAIImageSizeSpilloverKeepsStickyBinding(ctx, groupID, sessionHash),
+		PreserveStickyBinding:   s.openAIImageSizeSpilloverKeepsStickyBinding(ctx, groupID, sessionHash),
 		RequestedModel:          requestedModel,
 		RequiredTransport:       requiredTransport,
 		RequiredCapability:      requiredCapability,

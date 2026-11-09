@@ -1202,7 +1202,6 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 			code:    "400",
 			status:  http.StatusBadRequest,
 		},
-
 	}
 
 	for _, tt := range tests {
