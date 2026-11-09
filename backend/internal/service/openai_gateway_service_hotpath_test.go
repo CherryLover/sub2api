@@ -1141,7 +1141,9 @@ func TestOpenAIRequestView_MovePatchesToMapPreservesAllEdits(t *testing.T) {
 	require.NoError(t, err)
 	view.MovePatchesTo(decoded)
 	require.Equal(t, "gpt-6.1-terra", decoded["model"])
-	require.Equal(t, "abc", decoded["metadata"].(map[string]any)["user_id"])
+	metadata, ok := decoded["metadata"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "abc", metadata["user_id"])
 	require.NotContains(t, decoded, "input")
 	require.False(t, view.HasPatches())
 }
