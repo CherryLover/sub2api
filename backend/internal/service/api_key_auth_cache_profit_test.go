@@ -79,6 +79,24 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 }
 
 // 旧版本快照（v16 及更早，无利润字段保真保证）必须被淘汰回源，不得复用。
+func TestAPIKeyAuthSnapshotPreservesPrivacyGate(t *testing.T) {
+	svc := &APIKeyService{}
+	apiKey := profitAuthTestAPIKey()
+	apiKey.Group.RequirePrivacySet = true
+	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
+	require.True(t, snapshot.Group.RequirePrivacySet)
+
+	payload, err := json.Marshal(&APIKeyAuthCacheEntry{Snapshot: snapshot})
+	require.NoError(t, err)
+	var restored APIKeyAuthCacheEntry
+	require.NoError(t, json.Unmarshal(payload, &restored))
+	materialized, used, err := svc.applyAuthCacheEntry(apiKey.Key, &restored)
+	require.NoError(t, err)
+	require.True(t, used)
+	require.True(t, materialized.Group.RequirePrivacySet)
+	require.True(t, materialized.Group.Hydrated)
+}
+
 func TestAPIKeyAuthSnapshotOldVersionEvicted(t *testing.T) {
 	svc := &APIKeyService{}
 	snapshot := svc.snapshotFromAPIKey(context.Background(), profitAuthTestAPIKey())

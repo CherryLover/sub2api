@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -1394,6 +1395,23 @@ func (s openAISelectionFilterStats) summary(extra string) string {
 	return b.String()
 }
 
+// loadOpenAIPrivacySchedulingGroup uses an already authenticated group only
+// when it is fully hydrated and matches the actual dispatched group. Never
+// reuse another group's privacy flag for composite/fallback routing.
+func (s *OpenAIGatewayService) loadOpenAIPrivacySchedulingGroup(ctx context.Context, groupID *int64) *Group {
+	if s == nil || groupID == nil {
+		return nil
+	}
+	if ctxGroup, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(ctxGroup) && ctxGroup.ID == *groupID {
+		return ctxGroup
+	}
+	if s.schedulerSnapshot == nil {
+		return nil
+	}
+	group, _ := s.schedulerSnapshot.GetGroupByID(ctx, *groupID)
+	return group
+}
+
 func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
@@ -1429,11 +1447,9 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		accounts = modelFiltered
 	}
 
-	// require_privacy_set: 获取分组信息
-	var schedGroup *Group
-	if req.GroupID != nil && s.service.schedulerSnapshot != nil {
-		schedGroup, _ = s.service.schedulerSnapshot.GetGroupByID(ctx, *req.GroupID)
-	}
+	// Reuse authenticated group snapshot only if its exact ID matches this
+	// scheduling group. Composite/fallback groups still use the DB-backed path.
+	schedGroup := s.service.loadOpenAIPrivacySchedulingGroup(ctx, req.GroupID)
 
 	filterStats := newOpenAISelectionFilterStats(ctx, len(accounts))
 	filtered := make([]*Account, 0, len(accounts))

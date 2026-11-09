@@ -122,6 +122,8 @@ type APIKeyAuthGroupSnapshot struct {
 	ProfitControlEnabled bool    `json:"profit_control_enabled"`
 	ProfitMinMargin      float64 `json:"profit_min_margin"`
 	ProfitSafetyBuffer   float64 `json:"profit_safety_buffer"`
+	// Privacy gate must be carried in the authenticated group snapshot.
+	RequirePrivacySet bool `json:"require_privacy_set"`
 }
 
 // APIKeyAuthCacheEntry 缓存条目，支持负缓存
