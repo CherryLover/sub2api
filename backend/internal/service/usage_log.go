@@ -181,6 +181,10 @@ type UsageLog struct {
 	// (e.g. the session_id / X-Session-Id headers). Nil when the client sent no
 	// valid session header. It is never derived from prompt_cache_key or content.
 	SessionID *string
+	// RoutingInfo explains how the request picked its account (selection
+	// method, eligible candidates, queue wait, failover attempts). Nil for
+	// paths without a routing trace and for historical rows.
+	RoutingInfo *RoutingInfo
 
 	// Cache TTL Override 标记（管理员强制替换了缓存 TTL 计费）
 	CacheTTLOverridden bool

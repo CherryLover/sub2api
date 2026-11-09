@@ -58,13 +58,14 @@ func TestListErrorLogsReadsRequestBodyBytes(t *testing.T) {
 		"api_key_name",
 		"api_key_deleted_at",
 		"request_body_bytes",
+		"routing_diagnosis",
 	}).
 		AddRow(
 			1, createdAt, "request", "invalid_request_error", "client", "client_request",
 			"warning", 413, "openai", "gpt-5", false, nil, nil, "",
 			"client-1", "request-1", "request body too large", nil, "",
 			nil, nil, "", nil, "", nil, "/v1/responses", false,
-			"/v1/responses", "", "gpt-5", "", "test-agent", nil, "", nil, int64(8995454),
+			"/v1/responses", "", "gpt-5", "", "test-agent", nil, "", nil, int64(8995454), nil,
 		).
 		AddRow(
 			2, createdAt, "routing", "api_error", "platform", "gateway",
@@ -72,9 +73,10 @@ func TestListErrorLogsReadsRequestBodyBytes(t *testing.T) {
 			"client-2", "request-2", "Service temporarily unavailable", nil, "",
 			nil, nil, "", nil, "", nil, "/v1/responses", false,
 			"/v1/responses", "", "gpt-5", "", "test-agent", nil, "", nil, nil,
+			`{"pool_size":2,"reason":"model_rate_limited","candidates":[{"account_id":7,"account_name":"acc-7","checks":{"platform":true,"schedulable":true,"quota":false},"reason":"model_rate_limited","load_current":0,"load_max":0}]}`,
 		)
 
-	mock.ExpectQuery(`(?s)SELECT\s+e\.id,.*e\.request_body_bytes.*FROM ops_error_logs e.*LIMIT \$1 OFFSET \$2`).
+	mock.ExpectQuery(`(?s)SELECT\s+e\.id,.*e\.request_body_bytes,\s+e\.routing_diagnosis::text.*FROM ops_error_logs e.*LIMIT \$1 OFFSET \$2`).
 		WithArgs(20, 0).
 		WillReturnRows(rows)
 
@@ -86,5 +88,12 @@ func TestListErrorLogsReadsRequestBodyBytes(t *testing.T) {
 	require.NotNil(t, got.Errors[0].RequestBodyBytes)
 	require.EqualValues(t, 8995454, *got.Errors[0].RequestBodyBytes)
 	require.Nil(t, got.Errors[1].RequestBodyBytes)
+	require.Nil(t, got.Errors[0].RoutingDiagnosis)
+	require.NotNil(t, got.Errors[1].RoutingDiagnosis)
+	require.Equal(t, 2, got.Errors[1].RoutingDiagnosis.PoolSize)
+	require.Equal(t, "model_rate_limited", got.Errors[1].RoutingDiagnosis.Reason)
+	require.Len(t, got.Errors[1].RoutingDiagnosis.Candidates, 1)
+	require.Equal(t, int64(7), got.Errors[1].RoutingDiagnosis.Candidates[0].AccountID)
+	require.Equal(t, map[string]bool{"platform": true, "schedulable": true, "quota": false}, got.Errors[1].RoutingDiagnosis.Candidates[0].Checks)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

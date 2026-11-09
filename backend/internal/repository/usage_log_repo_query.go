@@ -18,7 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, upstream_response_model, upstream_model_mismatch, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, image_input_tokens, image_input_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, long_context_billing_applied, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, session_id, created_at"
+const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, upstream_response_model, upstream_model_mismatch, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, image_input_tokens, image_input_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, long_context_billing_applied, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, session_id, routing_info, created_at"
 
 func (r *usageLogRepository) GetByID(ctx context.Context, id int64) (log *service.UsageLog, err error) {
 	query := "SELECT " + usageLogSelectColumns + " FROM usage_logs WHERE id = $1"
@@ -126,6 +126,7 @@ func (r *usageLogRepository) ListWithFilters(ctx context.Context, params paginat
 		args = append(args, int16(*filters.BillingType))
 	}
 	conditions, args = appendUsageLogBillingModeWhereCondition(conditions, args, filters.BillingMode)
+	conditions, args = appendUsageLogRoutingMethodWhereCondition(conditions, args, filters.RoutingMethod)
 	if filters.UpstreamModelMismatch != nil {
 		conditions = append(conditions, upstreamModelMismatchCondition("upstream_model_mismatch", *filters.UpstreamModelMismatch))
 	}
@@ -157,6 +158,23 @@ func (r *usageLogRepository) ListWithFilters(ctx context.Context, params paginat
 		return nil, nil, err
 	}
 	return logs, page, nil
+}
+
+func appendUsageLogRoutingMethodWhereCondition(conditions []string, args []any, method string) ([]string, []any) {
+	method = strings.TrimSpace(method)
+	if method == "" {
+		return conditions, args
+	}
+	switch method {
+	case "load_balance", "sticky":
+		conditions = append(conditions, fmt.Sprintf("routing_info->>'method' = $%d", len(args)+1))
+		args = append(args, method)
+	case "switched":
+		conditions = append(conditions, "COALESCE(jsonb_array_length(routing_info->'attempts'), 0) > 1")
+	case "queued":
+		conditions = append(conditions, "COALESCE((routing_info->>'queue_wait_ms')::bigint, 0) > 0")
+	}
+	return conditions, args
 }
 
 func upstreamModelMismatchCondition(column string, mismatch bool) string {
@@ -467,6 +485,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		billingMode               sql.NullString
 		accountStatsCost          sql.NullFloat64
 		sessionID                 sql.NullString
+		routingInfo               sql.NullString
 		createdAt                 time.Time
 	)
 
@@ -530,6 +549,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		&billingMode,
 		&accountStatsCost,
 		&sessionID,
+		&routingInfo,
 		&createdAt,
 	); err != nil {
 		return nil, err
@@ -660,6 +680,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 	if sessionID.Valid {
 		log.SessionID = &sessionID.String
 	}
+	log.RoutingInfo = routingInfoFromNullJSON(routingInfo)
 
 	return log, nil
 }
@@ -698,6 +719,32 @@ func nullBool(v *bool) sql.NullBool {
 		return sql.NullBool{}
 	}
 	return sql.NullBool{Bool: *v, Valid: true}
+}
+
+// nullRoutingInfoJSON encodes usage_logs.routing_info; nil (SQL NULL) when
+// absent or not encodable.
+func nullRoutingInfoJSON(v *service.RoutingInfo) any {
+	if v == nil {
+		return nil
+	}
+	payload, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return string(payload)
+}
+
+// routingInfoFromNullJSON decodes usage_logs.routing_info; nil for NULL or
+// malformed values.
+func routingInfoFromNullJSON(v sql.NullString) *service.RoutingInfo {
+	if !v.Valid || strings.TrimSpace(v.String) == "" {
+		return nil
+	}
+	var out service.RoutingInfo
+	if err := json.Unmarshal([]byte(v.String), &out); err != nil {
+		return nil
+	}
+	return &out
 }
 
 func nullStringIntMapJSON(v map[string]int) any {

@@ -914,6 +914,7 @@ export interface OpsErrorLog {
   stream?: boolean
   // 网关实际读到的客户端请求体字节数；无请求体或旧数据为空
   request_body_bytes?: number | null
+  routing_diagnosis?: OpsRoutingDiagnosis | null
 
   // Error observability context (endpoint + model mapping)
   inbound_endpoint?: string
@@ -923,6 +924,38 @@ export interface OpsErrorLog {
   request_type?: number | null
   user_agent?: string
 
+}
+
+export interface OpsRoutingCandidate {
+  account_id: number
+  account_name: string
+  platform?: string
+  checks?: Record<string, boolean>
+  reason?: string
+  recover_at?: string | null
+  load_current: number
+  load_max: number
+  chosen?: boolean
+}
+
+export interface OpsRoutingAttempt {
+  attempt: number
+  account_id: number
+  account_name: string
+  status_code: number
+  duration_ms: number
+  next?: string
+}
+
+export interface OpsRoutingDiagnosis {
+  group_id?: number
+  group_name?: string
+  model?: string
+  pool_size: number
+  candidates: OpsRoutingCandidate[]
+  attempts?: OpsRoutingAttempt[]
+  reason?: string
+  raw?: string
 }
 
 export interface OpsUpstreamErrorAttempt {

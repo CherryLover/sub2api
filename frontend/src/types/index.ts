@@ -1565,6 +1565,7 @@ export interface UsageLog {
   // 计费模式
   billing_mode?: string | null
 
+  routing_info?: RoutingInfo | null
   created_at: string
 
   user?: User
@@ -1881,11 +1882,41 @@ export interface UsageQueryParams {
   stream?: boolean
   billing_type?: number | null
   billing_mode?: string | null
+  routing_method?: 'load_balance' | 'sticky' | 'switched' | 'queued'
   start_date?: string
   end_date?: string
   timezone?: string
   sort_by?: string
   sort_order?: 'asc' | 'desc'
+}
+
+export interface RoutingCandidate {
+  account_id: number
+  account_name: string
+  platform?: string
+  checks?: Record<string, boolean>
+  reason?: string
+  recover_at?: string | null
+  load_current: number
+  load_max: number
+  chosen?: boolean
+}
+
+export interface RoutingAttempt {
+  attempt: number
+  account_id: number
+  account_name: string
+  status_code: number
+  duration_ms: number
+  next?: string
+}
+
+export interface RoutingInfo {
+  method: 'load_balance' | 'sticky' | 'single'
+  candidate_count: number
+  candidates?: RoutingCandidate[]
+  queue_wait_ms?: number
+  attempts?: RoutingAttempt[]
 }
 
 // ==================== Account Usage Statistics ====================

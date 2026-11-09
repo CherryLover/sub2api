@@ -136,6 +136,10 @@ type OpsInsertErrorLogInput struct {
 	// 有效(未删除)key 报错时快照的 key 脱敏前缀(前 8 位)。
 	// 落库快照而非读时 JOIN:key 之后被删(key 列被 tombstone 覆盖)仍保留当时前缀。
 	APIKeyPrefix string
+
+	// RoutingDiagnosis explains which accounts were considered and why none
+	// served the request; stored as ops_error_logs.routing_diagnosis (jsonb).
+	RoutingDiagnosis *RoutingDiagnosis
 }
 
 type OpsInsertSystemMetricsInput struct {
