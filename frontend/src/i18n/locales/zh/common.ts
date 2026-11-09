@@ -134,6 +134,7 @@ export default {
     proxies: 'IP管理',
     ops: '运维监控',
     upstreamErrors: '上游错误',
+    topology: '调度拓扑',
     settings: '系统设置',
     myAccount: '我的账户',
     lightMode: '浅色模式',

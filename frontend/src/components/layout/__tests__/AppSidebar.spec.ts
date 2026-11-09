@@ -134,6 +134,7 @@ const LABELS = {
   dashboard: '仪表盘',
   ops: '运维监控',
   upstreamErrors: '上游错误',
+  topology: '调度拓扑',
   usage: '使用记录',
   users: '用户管理',
   adminApiKeys: '密钥总表',
@@ -301,6 +302,7 @@ describe('AppSidebar admin nav grouping', () => {
       LABELS.dashboard,
       LABELS.ops,
       LABELS.upstreamErrors,
+      LABELS.topology,
       LABELS.usage
     ])
     expect(sectionEntries(wrapper, 'security')).toEqual([LABELS.securityAudit, LABELS.auditLogs])
@@ -375,6 +377,7 @@ describe('AppSidebar admin group expand/collapse', () => {
       LABELS.dashboard,
       LABELS.ops,
       LABELS.upstreamErrors,
+      LABELS.topology,
       LABELS.usage
     ])
   })
@@ -460,7 +463,7 @@ describe('AppSidebar feature flags', () => {
     holder.state.opsMonitoringEnabled = false
     const wrapper = await mountSidebar()
 
-    expect(sectionEntries(wrapper, 'runtime')).toEqual([LABELS.dashboard, LABELS.usage])
+    expect(sectionEntries(wrapper, 'runtime')).toEqual([LABELS.dashboard, LABELS.topology, LABELS.usage])
     expect(wrapper.text()).not.toContain(LABELS.ops)
     expect(wrapper.text()).not.toContain(LABELS.upstreamErrors)
   })
@@ -546,6 +549,7 @@ describe('AppSidebar simple mode', () => {
       LABELS.groups,
       LABELS.channels,
       LABELS.modelAvailability,
+      LABELS.topology,
       LABELS.auditLogs
     ]) {
       expect(text, `${label} should be hidden in simple mode`).not.toContain(label)
