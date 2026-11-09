@@ -647,7 +647,10 @@ type GatewayConfig struct {
 	// ImageNonstreamKeepaliveInterval: 图片非流式 JSON keepalive 间隔（秒），0表示禁用
 	ImageNonstreamKeepaliveInterval int `mapstructure:"image_nonstream_keepalive_interval"`
 	// MaxLineSize: 上游 SSE 单行最大字节数（0使用默认值）
-	MaxLineSize int `mapstructure:"max_line_size"`
+	MaxLineSize      int   `mapstructure:"max_line_size"`
+	SSEQueueMaxBytes int64 `mapstructure:"sse_queue_max_bytes"`
+	SSEEventMaxBytes int64 `mapstructure:"sse_event_max_bytes"`
+	SSEEventMaxLines int   `mapstructure:"sse_event_max_lines"`
 
 	// 是否记录上游错误响应体摘要（避免输出请求内容）
 	LogUpstreamErrorBody bool `mapstructure:"log_upstream_error_body"`
@@ -1985,6 +1988,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.image_stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.image_nonstream_keepalive_interval", 0)
 	viper.SetDefault("gateway.max_line_size", 500*1024*1024)
+	viper.SetDefault("gateway.sse_queue_max_bytes", int64(8<<20))
+	viper.SetDefault("gateway.sse_event_max_bytes", int64(0))
+	viper.SetDefault("gateway.sse_event_max_lines", 4096)
 	viper.SetDefault("gateway.scheduling.sticky_session_max_waiting", 3)
 	viper.SetDefault("gateway.scheduling.sticky_session_wait_timeout", 120*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_wait_timeout", 30*time.Second)
@@ -2775,6 +2781,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.OpenAIScheduler.StickyEscapeErrorRate < 0 || c.Gateway.OpenAIScheduler.StickyEscapeErrorRate > 1 {
 		return fmt.Errorf("gateway.openai_scheduler.sticky_escape_error_rate must be between 0 and 1")
+	}
+	if c.Gateway.SSEQueueMaxBytes < 0 || c.Gateway.SSEEventMaxBytes < 0 || c.Gateway.SSEEventMaxLines < 0 {
+		return fmt.Errorf("gateway.sse_queue_max_bytes, sse_event_max_bytes and sse_event_max_lines must be non-negative")
 	}
 	if c.Gateway.MaxLineSize < 0 {
 		return fmt.Errorf("gateway.max_line_size must be non-negative")
