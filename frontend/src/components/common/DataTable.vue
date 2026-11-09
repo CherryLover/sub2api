@@ -85,6 +85,14 @@
           <div v-if="hasActionsColumn" class="border-t border-gray-200 pt-3 dark:border-dark-700">
             <slot name="cell-actions" :row="row" :value="row['actions']" :expanded="actionsExpanded"></slot>
           </div>
+          <div
+            v-if="$slots['expanded-row'] && isRowExpanded(row, index)"
+            data-test="expanded-row"
+            class="-mx-4 -mb-4 border-t border-gray-200 dark:border-dark-700"
+            @click.stop
+          >
+            <slot name="expanded-row" :row="row"></slot>
+          </div>
         </div>
       </div>
     </template>
@@ -207,9 +215,8 @@
                 :style="{ height: virtualPaddingTop + 'px', padding: 0, border: 'none' }">
             </td>
           </tr>
+          <template v-for="item in renderRows" :key="resolveRowKey(item.row, item.index)">
           <tr
-            v-for="item in renderRows"
-            :key="resolveRowKey(item.row, item.index)"
             :data-row-id="resolveRowKey(item.row, item.index)"
             :data-index="item.index"
             :ref="item.measure ? measureElement : undefined"
@@ -251,6 +258,17 @@
               </slot>
             </td>
           </tr>
+          <!-- 行内展开：使用方传 expandedRowKeys 并提供 #expanded-row 插槽 -->
+          <tr
+            v-if="$slots['expanded-row'] && isRowExpanded(item.row, item.index)"
+            data-test="expanded-row"
+            class="bg-gray-50/60 dark:bg-dark-800/40"
+          >
+            <td :colspan="tableColumnCount" class="p-0">
+              <slot name="expanded-row" :row="item.row"></slot>
+            </td>
+          </tr>
+          </template>
           <tr v-if="virtualPaddingBottom > 0" aria-hidden="true">
             <td :colspan="tableColumnCount"
                 :style="{ height: virtualPaddingBottom + 'px', padding: 0, border: 'none' }">
@@ -474,6 +492,8 @@ interface Props {
   selectedKeys?: Array<string | number>
   /** Accessible label for a row selection checkbox. */
   selectionLabel?: string | ((row: any) => string)
+  /** Row keys whose #expanded-row slot is rendered inline below the row. */
+  expandedRowKeys?: Array<string | number>
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -649,6 +669,8 @@ const resolveStableRowKey = (row: any): string | number | undefined => {
 }
 
 const resolveRowKey = (row: any, index: number) => resolveStableRowKey(row) ?? index
+const expandedKeySet = computed(() => new Set(props.expandedRowKeys ?? []))
+const isRowExpanded = (row: any, index: number) => expandedKeySet.value.has(resolveRowKey(row, index))
 
 const dataColumns = computed(() => props.columns.filter((column) => column.key !== 'actions'))
 const columnsSignature = computed(() =>
@@ -770,7 +792,9 @@ const toggleAllVisible = (checked: boolean) => {
 // 是否启用虚拟化:仅桌面端且行数超过阈值时开启。小列表全量渲染,彻底绕开虚拟器的
 // 估算/测量/滚动补偿链路,消除可变行高导致的滚动抖动。
 const shouldVirtualize = computed(() =>
-  isDesktopViewport.value && (sortedData.value?.length ?? 0) > (props.virtualizeThreshold ?? 100)
+  isDesktopViewport.value
+  && (props.expandedRowKeys?.length ?? 0) === 0
+  && (sortedData.value?.length ?? 0) > (props.virtualizeThreshold ?? 100)
 )
 
 const rowVirtualizer = useVirtualizer(computed(() => ({

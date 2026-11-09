@@ -902,3 +902,91 @@ describe('admin UsageView model audit export', () => {
 		expect(saveAs).toHaveBeenCalledTimes(1)
 	})
 })
+
+describe('admin UsageView routing visibility', () => {
+  const OpsErrorLogTableStub = defineComponent({
+    name: 'OpsErrorLogTableStub',
+    props: ['visibleColumnKeys', 'inlineDiagnosis', 'rows'],
+    emits: ['openErrorDetail'],
+    template: '<div data-test="ops-error-table" />',
+  })
+  const stubs = () => ({
+    AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+    UsageTable: UsageTableStub, UsageExportProgress: true, UsageCleanupDialog: true,
+    AuditLogModal: true, Pagination: true, Select: true,
+    DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+    ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+    UserTokenRanking: true, ErrorKindSummary: true, OpsErrorLogTable: OpsErrorLogTableStub,
+  })
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    list.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getStats.mockReset().mockResolvedValue({
+      total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
+      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0,
+    })
+    getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
+    getModelStats.mockReset().mockResolvedValue({ models: [] })
+    listErrorLogs.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getErrorLogsSummary.mockReset().mockResolvedValue({ total: 0, items: [] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('passes the chosen routing method to the usage list and resets it with 全部', async () => {
+    const wrapper = mount(UsageView, { global: { stubs: stubs() } })
+    await flushPromises()
+    list.mockClear()
+
+    const chips = wrapper.findAll('[data-test="routing-method-chip"]')
+    expect(chips.map((c) => c.attributes('data-value'))).toEqual(['', 'load_balance', 'sticky', 'switched', 'queued'])
+
+    for (const value of ['load_balance', 'sticky', 'switched', 'queued']) {
+      await wrapper.get(`[data-test="routing-method-chip"][data-value="${value}"]`).trigger('click')
+      await flushPromises()
+      expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ routing_method: value, page: 1 }), expect.anything())
+    }
+    expect(wrapper.get('[data-test="routing-method-chip"][data-value="queued"]').attributes('aria-pressed')).toBe('true')
+
+    await wrapper.get('[data-test="routing-method-chip"][data-value=""]').trigger('click')
+    await flushPromises()
+    expect(list.mock.calls.at(-1)![0].routing_method).toBeUndefined()
+  })
+
+  it('includes the routing column in usage column settings', async () => {
+    const wrapper = mount(UsageView, { global: { stubs: stubs() } })
+    await flushPromises()
+    const usageTable = wrapper.findComponent(UsageTableStub)
+    expect(usageTable.props('columns')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'routing', label: 'admin.routing.column' })]),
+    )
+
+    await wrapper.get('button[title="admin.users.columnSettings"]').trigger('click')
+    const toggle = wrapper.findAll('button').find((b) => b.text() === 'admin.routing.column')
+    expect(toggle).toBeDefined()
+    await toggle!.trigger('click')
+    expect(usageTable.props('columns')).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'routing' })]),
+    )
+  })
+
+  it('renders the errors tab inline with reason/candidates columns and no detail modal', async () => {
+    const wrapper = mount(UsageView, { global: { stubs: stubs() } })
+    await flushPromises()
+    await wrapper.findAll('[data-testid="usage-detail-tab"]')[1].trigger('click')
+    await flushPromises()
+
+    const table = wrapper.findComponent(OpsErrorLogTableStub)
+    expect(table.props('inlineDiagnosis')).not.toBe(false)
+    expect(table.props('inlineDiagnosis')).not.toBeUndefined()
+    expect(table.props('visibleColumnKeys')).toEqual(expect.arrayContaining(['reason', 'candidates', 'actions']))
+    expect(wrapper.findComponent({ name: 'OpsErrorDetailModal' }).exists()).toBe(false)
+
+    await wrapper.get('button[title="admin.users.columnSettings"]').trigger('click')
+    const labels = wrapper.findAll('button').map((b) => b.text())
+    expect(labels).toEqual(expect.arrayContaining(['admin.routing.errorColumns.reason', 'admin.routing.errorColumns.candidates']))
+  })
+})

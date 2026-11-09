@@ -24,6 +24,7 @@
         :server-side-sort="serverSideSort"
         :default-sort-key="defaultSortKey"
         :default-sort-order="defaultSortOrder"
+        :expanded-row-keys="expandedRoutingIds"
         @sort="(key, order) => $emit('sort', key, order)"
       >
         <template #cell-user="{ row }">
@@ -126,6 +127,26 @@
             {{ row.group.name }}
           </span>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
+        <template #cell-routing="{ row }">
+          <button
+            v-if="routingChip(t, row.routing_info)"
+            type="button"
+            data-test="routing-chip"
+            class="inline-flex items-center gap-1.5 rounded-full border border-transparent px-2.5 py-0.5 text-xs font-semibold transition-colors hover:border-current"
+            :class="routingChip(t, row.routing_info)!.className"
+            :aria-expanded="isRoutingExpanded(row.id)"
+            @click.stop="toggleRouting(row.id)"
+          >
+            {{ routingChip(t, row.routing_info)!.label }}
+            <span aria-hidden="true" class="opacity-70">{{ isRoutingExpanded(row.id) ? '▴' : '▾' }}</span>
+          </button>
+          <span v-else class="text-xs text-gray-400 dark:text-gray-500" data-test="routing-chip-empty">{{ t('admin.routing.noRecord') }}</span>
+        </template>
+
+        <template #expanded-row="{ row }">
+          <RoutingInfoPanel :info="row.routing_info" :row="row" />
         </template>
 
         <template #cell-stream="{ row }">
@@ -556,6 +577,8 @@ function accountBilled(row: { total_cost?: number | null; account_stats_cost?: n
 
 
 import DataTable from '@/components/common/DataTable.vue'
+import RoutingInfoPanel from './RoutingInfoPanel.vue'
+import { routingChip } from '@/utils/routingLabels'
 import EmptyState from '@/components/common/EmptyState.vue'
 import IpGeoCell from '@/components/common/IpGeoCell.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -597,6 +620,15 @@ const copiedRequestId = ref<string | null>(null)
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint
 const ipGeoBatchLoading = ref(false)
+
+// 选号列:点 chip 在行下方展开选号经过,默认全部收起
+const expandedRoutingIds = ref<number[]>([])
+const isRoutingExpanded = (id: number) => expandedRoutingIds.value.includes(id)
+const toggleRouting = (id: number) => {
+  expandedRoutingIds.value = isRoutingExpanded(id)
+    ? expandedRoutingIds.value.filter((x) => x !== id)
+    : [...expandedRoutingIds.value, id]
+}
 
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
 
