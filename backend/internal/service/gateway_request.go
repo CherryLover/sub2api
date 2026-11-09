@@ -1299,8 +1299,7 @@ func filterThinkingBlocksInternal(body []byte, alwaysThinking bool) []byte {
 // (decided=false). Invalid JSON needs no separate scan: the decoding path
 // returns it unchanged, so either answer yields the same body.
 func thinkingBlocksNeedFiltering(body []byte, alwaysThinking bool) (needs, decided bool) {
-	view := openAIWSPayloadStringView(body)
-	root := gjson.Parse(view)
+	root := gjson.ParseBytes(body)
 	if !root.IsObject() {
 		return false, false
 	}
