@@ -86,6 +86,7 @@ var instructionsGPT6Astra string
 
 // CodexGPT61TerraMetadata is the official Codex-specific descriptor at
 // upstream v0.2.20, including model instructions and context metadata.
+//
 //go:embed codex_gpt61_terra.json
 var CodexGPT61TerraMetadata []byte
 
