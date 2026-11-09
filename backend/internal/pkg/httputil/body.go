@@ -79,11 +79,6 @@ func ReadLenientJSONRequestBodyWithPrealloc(req *http.Request, maxNormalizedByte
 	return normalized.data, err
 }
 
-func decompressRequestBody(encoding string, raw []byte) ([]byte, error) {
-	body, err := decompressRequestBodyWithBudget(context.Background(), encoding, raw)
-	return body.data, err
-}
-
 // readBoundedDecodedBody consumes one byte past the maximum to distinguish
 // a valid maximum-size payload from a compressed bomb. Returning truncated
 // content as a successful request would make downstream protocol parsing unsafe.
