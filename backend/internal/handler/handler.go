@@ -34,6 +34,7 @@ type AdminHandlers struct {
 	Channel               *admin.ChannelHandler
 	PromptAudit           *securityaudit.PromptAdminHandler
 	AuditLog              *admin.AuditLogHandler
+	Topology              *admin.TopologyHandler
 }
 
 // Handlers contains all HTTP handlers

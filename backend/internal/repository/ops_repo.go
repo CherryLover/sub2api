@@ -58,9 +58,10 @@ INSERT INTO ops_error_logs (
   api_key_prefix,
   error_reason,
   request_body_bytes,
-  reasoning_effort
+  reasoning_effort,
+  routing_diagnosis
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42
 )`
 
 func NewOpsRepository(db *sql.DB) service.OpsRepository {
@@ -173,7 +174,34 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullString(input.ErrorReason),
 		opsNullInt64(input.RequestBodyBytes),
 		opsNullString(input.ReasoningEffort),
+		opsRoutingDiagnosisArg(input.RoutingDiagnosis),
 	}
+}
+
+// opsRoutingDiagnosisArg encodes the routing diagnosis for the jsonb column;
+// NULL when absent or not encodable.
+func opsRoutingDiagnosisArg(d *service.RoutingDiagnosis) any {
+	if d == nil {
+		return sql.NullString{}
+	}
+	raw, err := json.Marshal(d)
+	if err != nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(raw), Valid: true}
+}
+
+// opsDecodeRoutingDiagnosis decodes ops_error_logs.routing_diagnosis; nil for
+// NULL or malformed values.
+func opsDecodeRoutingDiagnosis(raw sql.NullString) *service.RoutingDiagnosis {
+	if !raw.Valid || strings.TrimSpace(raw.String) == "" {
+		return nil
+	}
+	var d service.RoutingDiagnosis
+	if err := json.Unmarshal([]byte(raw.String), &d); err != nil {
+		return nil
+	}
+	return &d
 }
 
 const opsErrorVisibleMessageExpr = `CASE
@@ -378,7 +406,8 @@ SELECT
   e.request_type,
   COALESCE(ak.name, ''),
   ak.deleted_at,
-  e.request_body_bytes
+  e.request_body_bytes,
+  e.routing_diagnosis::text
 FROM ops_error_logs e
 LEFT JOIN accounts a ON e.account_id = a.id
 LEFT JOIN groups g ON e.group_id = g.id
@@ -414,6 +443,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		var apiKeyName string
 		var apiKeyDeletedAt sql.NullTime
 		var requestBodyBytes sql.NullInt64
+		var routingDiagnosis sql.NullString
 		if err := rows.Scan(
 			&item.ID,
 			&item.CreatedAt,
@@ -451,6 +481,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			&apiKeyName,
 			&apiKeyDeletedAt,
 			&requestBodyBytes,
+			&routingDiagnosis,
 		); err != nil {
 			return nil, err
 		}
@@ -497,6 +528,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			v := requestBodyBytes.Int64
 			item.RequestBodyBytes = &v
 		}
+		item.RoutingDiagnosis = opsDecodeRoutingDiagnosis(routingDiagnosis)
 		out = append(out, &item)
 	}
 	if err := rows.Err(); err != nil {
@@ -613,7 +645,8 @@ SELECT
   COALESCE(e.api_key_prefix, ''),
   COALESCE(ak.name, ''),
   ak.deleted_at,
-  e.request_body_bytes
+  e.request_body_bytes,
+  e.routing_diagnosis::text
 FROM ops_error_logs e
 LEFT JOIN users u ON e.user_id = u.id
 LEFT JOIN accounts a ON e.account_id = a.id
@@ -641,6 +674,7 @@ LIMIT 1`
 	var detailAPIKeyName string
 	var detailAPIKeyDeletedAt sql.NullTime
 	var detailRequestBodyBytes sql.NullInt64
+	var detailRoutingDiagnosis sql.NullString
 
 	err := r.db.QueryRowContext(ctx, q, id).Scan(
 		&out.ID,
@@ -690,6 +724,7 @@ LIMIT 1`
 		&detailAPIKeyName,
 		&detailAPIKeyDeletedAt,
 		&detailRequestBodyBytes,
+		&detailRoutingDiagnosis,
 	)
 	if err != nil {
 		return nil, err
@@ -700,6 +735,7 @@ LIMIT 1`
 		v := detailRequestBodyBytes.Int64
 		out.RequestBodyBytes = &v
 	}
+	out.RoutingDiagnosis = opsDecodeRoutingDiagnosis(detailRoutingDiagnosis)
 	if resolvedAt.Valid {
 		t := resolvedAt.Time
 		out.ResolvedAt = &t

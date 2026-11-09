@@ -7,12 +7,13 @@
         :columns="columns"
         :data="rows"
         :loading="loading"
-        clickable-rows
+        :clickable-rows="!inlineDiagnosis"
+        :expanded-row-keys="inlineDiagnosis ? expandedIds : undefined"
         server-side-sort
         default-sort-key="created_at"
         default-sort-order="desc"
         @sort="onSort"
-        @rowClick="(row) => emit('openErrorDetail', row.id)"
+        @rowClick="onRowClick"
       >
         <template #cell-created_at="{ row }">
           <span
@@ -159,8 +160,48 @@
           </div>
         </template>
 
+        <template #cell-reason="{ row }">
+          <span
+            v-if="rowReason(row)"
+            data-test="routing-reason-chip"
+            class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+            :class="routingReasonClass(rowReason(row))"
+          >{{ routingReasonLabel(t, rowReason(row)) }}</span>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
+        <template #cell-candidates="{ row }">
+          <span
+            v-if="row.routing_diagnosis"
+            data-test="routing-candidates"
+            class="text-sm text-gray-700 dark:text-gray-300"
+          >{{ candidatesSummaryLabel(t, row.routing_diagnosis) }}</span>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
+        <template #expanded-row="{ row }">
+          <RoutingDiagnosisPanel
+            :diagnosis="row.routing_diagnosis"
+            :status-code="row.status_code"
+            :request-id="row.request_id || row.client_request_id"
+            :message="row.message"
+          />
+        </template>
+
         <template #cell-actions="{ row }">
           <button
+            v-if="inlineDiagnosis"
+            type="button"
+            data-test="routing-toggle"
+            class="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-700 transition-colors hover:border-primary-500 hover:text-primary-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200 dark:hover:border-primary-500 dark:hover:text-primary-300"
+            :aria-expanded="isExpanded(row.id)"
+            @click.stop="toggleExpanded(row.id)"
+          >
+            {{ isExpanded(row.id) ? t('admin.routing.collapse') : t('admin.routing.expand') }}
+            <span aria-hidden="true">{{ isExpanded(row.id) ? '▴' : '▾' }}</span>
+          </button>
+          <button
+            v-else
             type="button"
             class="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-600 dark:hover:text-primary-400"
             :title="t('admin.ops.errorLog.details')"
@@ -188,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DataTable from '@/components/common/DataTable.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -201,6 +242,8 @@ import { getSeverityClass, formatDateTime } from '../utils/opsFormatters'
 import { formatBytes } from '@/utils/format'
 import { mapErrorCategory } from '@/utils/errorCategory'
 import { mapErrorSortKey, statusCodeBadgeClass } from '@/utils/errorBadges'
+import { candidatesSummaryLabel, routingReasonClass, routingReasonLabel } from '@/utils/routingLabels'
+import RoutingDiagnosisPanel from '@/components/admin/usage/RoutingDiagnosisPanel.vue'
 
 const { t } = useI18n()
 
@@ -218,6 +261,13 @@ const allColumns = computed<Column[]>(() => [
   { key: 'type', label: t('admin.ops.errorLog.type') },
   { key: 'category', label: t('usage.errors.category') },
   { key: 'status', label: t('admin.ops.errorLog.status'), sortable: true },
+  // 行内展开选号诊断时才有的两列(使用记录 → 错误请求)
+  ...(props.inlineDiagnosis
+    ? [
+        { key: 'reason', label: t('admin.routing.errorColumns.reason') },
+        { key: 'candidates', label: t('admin.routing.errorColumns.candidates') },
+      ]
+    : []),
   { key: 'message', label: t('admin.ops.errorLog.message') },
   { key: 'created_at', label: t('admin.ops.errorLog.time'), sortable: true },
   { key: 'user_agent', label: t('usage.userAgent') },
@@ -301,6 +351,8 @@ interface Props {
   visibleColumnKeys?: string[]
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
+  /** 行内展开选号诊断(展开/收起按钮 + 原因/候选账号列),不再点行打开详情弹窗 */
+  inlineDiagnosis?: boolean
 }
 
 interface Emits {
@@ -314,6 +366,23 @@ interface Emits {
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+
+// 行内展开状态:按错误 id 记录,默认全部收起
+const expandedIds = ref<number[]>([])
+function isExpanded(id: number): boolean {
+  return expandedIds.value.includes(id)
+}
+function toggleExpanded(id: number) {
+  expandedIds.value = isExpanded(id)
+    ? expandedIds.value.filter((x) => x !== id)
+    : [...expandedIds.value, id]
+}
+function onRowClick(row: OpsErrorLog) {
+  if (!props.inlineDiagnosis) emit('openErrorDetail', row.id)
+}
+function rowReason(row: OpsErrorLog): string {
+  return String(row.routing_diagnosis?.reason || row.error_reason || '').trim()
+}
 
 function onSort(key: string, order: 'asc' | 'desc') {
   emit('sort', mapErrorSortKey(key), order)

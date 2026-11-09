@@ -134,6 +134,7 @@ export default {
     proxies: 'Proxies',
     ops: 'Ops',
     upstreamErrors: 'Upstream Errors',
+    topology: 'Routing Topology',
     settings: 'Settings',
     myAccount: 'My Account',
     lightMode: 'Light Mode',

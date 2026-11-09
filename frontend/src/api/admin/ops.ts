@@ -5,7 +5,7 @@
  */
 
 import { apiClient, buildGatewayUrl } from '../client'
-import type { PaginatedResponse, RequestChain } from '@/types'
+import type { PaginatedResponse, RequestChain, RoutingDiagnosis } from '@/types'
 
 export type OpsQueryMode = 'auto' | 'raw' | 'preagg'
 
@@ -923,6 +923,10 @@ export interface OpsErrorLog {
   request_type?: number | null
   user_agent?: string
 
+  // 没分到账号时的主要原因代码（与 routing_diagnosis.reason 相同；后端未下发时为空）
+  error_reason?: string | null
+  // 选号诊断；旧数据或非调度错误为 null
+  routing_diagnosis?: RoutingDiagnosis | null
 }
 
 export interface OpsUpstreamErrorAttempt {

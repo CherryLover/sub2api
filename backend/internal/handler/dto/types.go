@@ -576,6 +576,10 @@ type AdminUsageLog struct {
 	// IPAddress 用户请求 IP
 	IPAddress *string `json:"ip_address,omitempty"`
 
+	// RoutingInfo 选号信息（选号方式、候选账号、排队等待、failover 尝试）；
+	// 历史记录或未记录轨迹的请求为 null。
+	RoutingInfo *service.RoutingInfo `json:"routing_info"`
+
 	// Account 最小账号信息（避免泄露敏感字段）
 	Account *AccountSummary `json:"account,omitempty"`
 }

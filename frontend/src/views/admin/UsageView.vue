@@ -121,6 +121,26 @@
         </UsageFilters>
 
         <div v-show="activeTab === 'usage'" class="overflow-hidden rounded-b-2xl">
+          <div
+            class="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-2.5 dark:border-dark-700/50"
+            data-test="routing-method-filter"
+          >
+            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.routing.usage.filterLabel') }}</span>
+            <button
+              v-for="opt in routingMethodOptions"
+              :key="opt.value ?? 'all'"
+              type="button"
+              data-test="routing-method-chip"
+              :data-value="opt.value ?? ''"
+              class="rounded-full border px-3 py-1 text-xs transition-colors"
+              :class="routingMethod === opt.value
+                ? 'border-primary-500 bg-primary-50 font-medium text-primary-700 dark:border-primary-500 dark:bg-primary-900/30 dark:text-primary-300'
+                : 'border-gray-300 bg-white text-gray-600 hover:border-primary-400 hover:text-primary-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:border-primary-500'"
+              :aria-pressed="routingMethod === opt.value"
+              @click="setRoutingMethod(opt.value)"
+            >{{ opt.label }}</button>
+            <span class="hidden text-xs text-gray-400 dark:text-gray-500 sm:inline">{{ t('admin.routing.usage.filterHint') }}</span>
+          </div>
           <UsageTable
             flat
             :data="usageLogs"
@@ -151,8 +171,8 @@
             :page="errPage" :page-size="errPageSize"
             :visible-column-keys="errVisibleColumnKeys"
             user-clickable
+            inline-diagnosis
             @userClick="handleUserClick"
-            @openErrorDetail="openError"
             @sort="onErrSort"
             @update:page="onErrPage"
             @update:pageSize="onErrPageSize"
@@ -170,7 +190,6 @@
           />
         </div>
       </div>
-      <OpsErrorDetailModal v-model:show="showErrorModal" :error-id="selectedErrorId" :error-type="'request'" />
     </div>
   </AppLayout>
   <UsageExportProgress :show="exportProgress.show" :progress="exportProgress.progress" :current="exportProgress.current" :total="exportProgress.total" :estimated-time="exportProgress.estimatedTime" @cancel="cancelExport" />
@@ -199,13 +218,12 @@ import UserTokenRanking from '@/components/admin/usage/UserTokenRanking.vue'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
 import ErrorKindSummary from '@/components/admin/usage/ErrorKindSummary.vue'
 import OpsErrorLogTable from '@/views/admin/ops/components/OpsErrorLogTable.vue'
-import OpsErrorDetailModal from '@/views/admin/ops/components/OpsErrorDetailModal.vue'
 import { getErrorLogsSummary, listErrorLogs } from '@/api/admin/ops'
 import type { OpsErrorListQueryParams, OpsErrorLog, OpsErrorLogSummaryResponse } from '@/api/admin/ops'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'; import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'; import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
-import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
+import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, RoutingMethodFilter } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -306,6 +324,21 @@ const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start); const endDate = ref(defaultRange.end)
 const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, billing_type: null, start_date: startDate.value, end_date: endDate.value })
 const pagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
+// 选号方式筛选:只作用于用量明细列表(及导出),不影响统计和图表
+const routingMethod = ref<RoutingMethodFilter | null>(null)
+const routingMethodOptions = computed<Array<{ value: RoutingMethodFilter | null; label: string }>>(() => [
+  { value: null, label: t('admin.routing.usage.filterAll') },
+  { value: 'load_balance', label: t('admin.routing.usage.filters.load_balance') },
+  { value: 'sticky', label: t('admin.routing.usage.filters.sticky') },
+  { value: 'switched', label: t('admin.routing.usage.filters.switched') },
+  { value: 'queued', label: t('admin.routing.usage.filters.queued') },
+])
+const setRoutingMethod = (value: RoutingMethodFilter | null) => {
+  if (routingMethod.value === value) return
+  routingMethod.value = value
+  pagination.page = 1
+  loadLogs()
+}
 const sortState = reactive({
   sort_by: 'created_at',
   sort_order: 'desc' as 'asc' | 'desc'
@@ -430,6 +463,7 @@ const buildUsageListParams = (
     exact_total: exactTotal,
     ...filters.value,
     stream: legacyStream === null ? undefined : legacyStream,
+    routing_method: routingMethod.value ?? undefined,
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
   }
@@ -596,6 +630,7 @@ const resetFilters = () => {
   startDate.value = range.start
   endDate.value = range.end
   filters.value = { start_date: startDate.value, end_date: endDate.value, request_type: undefined, billing_type: null, billing_mode: undefined }
+  routingMethod.value = null
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
   applyFilters()
 }
@@ -694,6 +729,7 @@ const allColumns = computed(() => [
   { key: 'reasoning_effort', label: t('usage.reasoningEffort'), sortable: false },
   { key: 'endpoint', label: t('usage.endpoint'), sortable: false },
   { key: 'group', label: t('admin.usage.group'), sortable: false },
+  { key: 'routing', label: t('admin.routing.column'), sortable: false },
   { key: 'stream', label: t('usage.type'), sortable: false },
   { key: 'billing_mode', label: t('admin.usage.billingMode'), sortable: false },
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
@@ -751,6 +787,8 @@ const errAllColumns = computed(() => [
   { key: 'type', label: t('admin.ops.errorLog.type') },
   { key: 'category', label: t('usage.errors.category') },
   { key: 'status', label: t('admin.ops.errorLog.status') },
+  { key: 'reason', label: t('admin.routing.errorColumns.reason') },
+  { key: 'candidates', label: t('admin.routing.errorColumns.candidates') },
   { key: 'message', label: t('admin.ops.errorLog.message') },
   { key: 'created_at', label: t('admin.ops.errorLog.time') },
   { key: 'user_agent', label: t('usage.userAgent') },
@@ -860,8 +898,6 @@ const errKind = ref<string | null>(null)
 const errSummary = ref<OpsErrorLogSummaryResponse | null>(null)
 const errSummaryLoading = ref(false)
 const errSummaryError = ref(false)
-const showErrorModal = ref(false)
-const selectedErrorId = ref<number | null>(null)
 
 // 注意：'YYYY-MM-DDT00:00:00' 无时区后缀，按本地时区解析后再转 UTC——与页面其它日期处理语义一致，刻意如此，勿改成 'T00:00:00Z'
 const toRFC3339 = (d: string | undefined, endOfDay = false): string | undefined =>
@@ -949,7 +985,6 @@ const onErrSort = (sortBy: string, sortOrder: 'asc' | 'desc') => {
 }
 const onErrPage = (p: number) => { errPage.value = p; loadAdminErrors() }
 const onErrPageSize = (s: number) => { errPageSize.value = s; errPage.value = 1; loadAdminErrors() }
-const openError = (id: number) => { selectedErrorId.value = id; showErrorModal.value = true }
 
 const showColumnDropdown = ref(false)
 const columnDropdownRef = ref<HTMLElement | null>(null)

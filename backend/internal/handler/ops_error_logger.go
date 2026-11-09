@@ -419,6 +419,7 @@ func estimateOpsErrorLogJobBytes(entry *service.OpsInsertErrorLogInput) int64 {
 	if entry.UpstreamErrorsJSON != nil {
 		size += len(*entry.UpstreamErrorsJSON)
 	}
+	size += estimateRoutingDiagnosisBytes(entry.RoutingDiagnosis)
 	return int64(size)
 }
 
@@ -575,6 +576,7 @@ func applyOpsErrorReasonFromContext(c *gin.Context, entry *service.OpsInsertErro
 			entry.ErrorReason = strings.TrimSpace(reason)
 		}
 	}
+	applyOpsRoutingDiagnosisFromContext(c, entry)
 }
 
 func setOpsReasoningEffortFromContext(c *gin.Context, effort *string) {

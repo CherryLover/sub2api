@@ -405,6 +405,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	// 添加 SessionID（客户端显式会话标识；缺失/无效时保持 nil）
 	usageLog.SessionID = optionalTrimmedStringPtr(input.SessionID)
+	// 调度轨迹快照（请求未挂轨迹时为 nil）。
+	usageLog.RoutingInfo = RoutingTraceFromContext(ctx).Info()
 
 	if apiKey.GroupID != nil {
 		usageLog.GroupID = apiKey.GroupID

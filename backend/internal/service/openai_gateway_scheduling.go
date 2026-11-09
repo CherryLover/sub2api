@@ -875,6 +875,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	// 刷新会话 TTL 并返回账号
 	// Refresh session TTL and return account
 	_ = s.refreshStickySessionTTL(ctx, groupID, sessionHash, openaiStickySessionTTL)
+	RoutingTraceFromContext(ctx).markSticky()
 	return account
 }
 
@@ -890,7 +891,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, platform string, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, bool, openAISelectionFilterStats) {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	compactBlocked := false
-	filterStats := openAISelectionFilterStats{pool: len(accounts)}
+	filterStats := newOpenAISelectionFilterStats(ctx, len(accounts))
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
 	eligible := make([]*Account, 0, len(accounts))
 	compactTiers := make(map[int64]int, len(accounts))
@@ -901,26 +902,26 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 		// 跳过被排除的账号
 		// Skip excluded accounts
 		if _, excluded := excludedIDs[acc.ID]; excluded {
-			filterStats.exclude("excluded")
+			filterStats.excludeAccount(acc, "excluded")
 			continue
 		}
 
 		fresh := s.resolveFreshSchedulableOpenAIAccountBeforeProfit(ctx, acc, platform, requestedModel, false, requiredCapability)
 		if fresh == nil {
-			filterStats.exclude("ineligible")
+			filterStats.excludeAccount(acc, "ineligible")
 			continue
 		}
 		fresh = s.recheckSelectedOpenAIAccountFromDBBeforeProfit(ctx, fresh, groupID, platform, requestedModel, false, requiredCapability)
 		if fresh == nil {
-			filterStats.exclude("ineligible")
+			filterStats.excludeAccount(acc, "ineligible")
 			continue
 		}
 		if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, fresh, requestedModel, requireCompact) {
-			filterStats.exclude("channel_restricted")
+			filterStats.excludeAccount(acc, "channel_restricted")
 			continue
 		}
 		if vetoed, reason := openAIProfitControlVetoReason(ctx, fresh); vetoed {
-			filterStats.exclude(reason)
+			filterStats.excludeAccount(acc, reason)
 			continue
 		}
 		compactTier := 0
@@ -928,11 +929,12 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			compactTier = openAICompactSupportTier(fresh)
 			if compactTier == 0 {
 				compactBlocked = true
-				filterStats.exclude("compact_unsupported")
+				filterStats.excludeAccount(acc, "compact_unsupported")
 				continue
 			}
 		}
 
+		filterStats.passAccount(fresh)
 		eligible = append(eligible, fresh)
 		compactTiers[fresh.ID] = compactTier
 	}
@@ -1096,11 +1098,13 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 								return nil, selectErr
 							}
 							_ = s.refreshStickySessionTTL(ctx, groupID, sessionHash, openaiStickySessionTTL)
+							RoutingTraceFromContext(ctx).markSticky()
 							return selection, nil
 						}
 
 						waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
 						if waitingCount < cfg.StickySessionMaxWaiting {
+							RoutingTraceFromContext(ctx).markSticky()
 							return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
 								AccountID:      accountID,
 								MaxConcurrency: account.Concurrency,
@@ -1131,34 +1135,35 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		return a
 	}
 	baseCandidateCount := 0
-	filterStats := openAISelectionFilterStats{pool: len(accounts)}
+	filterStats := newOpenAISelectionFilterStats(ctx, len(accounts))
 	candidates := make([]*Account, 0, len(accounts))
 	for i := range accounts {
 		acc := &accounts[i]
 		if isExcluded(acc.ID) {
-			filterStats.exclude("excluded")
+			filterStats.excludeAccount(acc, "excluded")
 			continue
 		}
 		// Scheduler snapshots can be temporarily stale (bucket rebuild is throttled);
 		// re-check schedulability here so recently rate-limited/overloaded accounts
 		// are not selected again before the bucket is rebuilt.
 		if reason := openAICompatibleAccountEligibilityFailureReason(ctx, acc, platform, requestedModel, false, requiredCapability); reason != "" {
-			filterStats.exclude(reason)
+			filterStats.excludeAccount(acc, reason)
 			continue
 		}
 		if !parentHealthyForShadow(acc, parentLookupL2) {
-			filterStats.exclude("shadow_parent_unhealthy")
+			filterStats.excludeAccount(acc, "shadow_parent_unhealthy")
 			continue
 		}
 		if s.isOpenAIAccountRequestRuntimeBlocked(acc, requestedModel) {
-			filterStats.exclude("runtime_blocked")
+			filterStats.excludeAccount(acc, "runtime_blocked")
 			continue
 		}
 		if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, acc, requestedModel, requireCompact) {
-			filterStats.exclude("channel_upstream_restricted")
+			filterStats.excludeAccount(acc, "channel_upstream_restricted")
 			continue
 		}
 		baseCandidateCount++
+		filterStats.passAccount(acc)
 		candidates = append(candidates, acc)
 	}
 
@@ -1270,6 +1275,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	}
 
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, accountLoads)
+	if err == nil {
+		filterStats.trace.setLoads(loadMap)
+	}
 	if err != nil {
 		ordered := append([]*Account(nil), candidates...)
 		sortAccountsByPriorityAndLastUsed(ordered, false)
@@ -1312,6 +1320,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			return selection, nil
 		} else if attempted {
 			if freshLoadMap, loadErr := s.concurrencyService.GetAccountsLoadBatchFresh(ctx, accountLoads); loadErr == nil {
+				filterStats.trace.setLoads(freshLoadMap)
 				if selection, _, selectErr := tryAcquireFromLoadMap(freshLoadMap); selectErr != nil {
 					return nil, selectErr
 				} else if selection != nil {

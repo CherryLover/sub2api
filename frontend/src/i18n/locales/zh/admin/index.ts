@@ -7,6 +7,8 @@ import settings from './settings'
 import audit from './audit'
 import promptAudit from './promptAudit'
 import upstreamErrors from './upstreamErrors'
+import routing from './routing'
+import topology from './topology'
 
 export default {
   ...overview,
@@ -18,4 +20,6 @@ export default {
   ...audit,
   ...promptAudit,
   ...upstreamErrors,
+  ...routing,
+  ...topology,
 }
