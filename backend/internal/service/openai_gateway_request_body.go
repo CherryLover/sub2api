@@ -1822,7 +1822,7 @@ func validateGPT61CompatRequest(body []byte, model string) error {
 		requestedModel := openai.CanonicalizeOpenAIModelAliasSpelling(gjson.GetBytes(body, "model").String())
 		for _, base := range []string{"gpt-6.1-sol", "gpt-6.1-terra"} {
 			matches := (base == "gpt-6.1-sol" && openai.IsGPT61SolModelSpelling(requestedModel)) ||
-				(base == "gpt-6.1-terra" && openai.IsGPT61TerraModelSpelling(requestedModel))
+				(base == "gpt-6.1-terra" && (openai.IsGPT61TerraModelSpelling(requestedModel) || requestedModel == "gpt-6.1-terra-minimal"))
 			if !matches {
 				continue
 			}

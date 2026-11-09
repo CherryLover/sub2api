@@ -49,7 +49,6 @@ func TestDefaultModelsPreferConcreteGPT56SolForAccountTests(t *testing.T) {
 	require.Equal(t, "gpt-5.6-sol", DefaultModels[0].ID)
 }
 
-
 func TestValidateGPT61TerraReasoningEffort(t *testing.T) {
 	for _, model := range []string{"gpt-6.1-terra", "openai/gpt-6.1-terra-minimal"} {
 		require.Error(t, ValidateGPT61ReasoningEffort(model, "minimal"), model)

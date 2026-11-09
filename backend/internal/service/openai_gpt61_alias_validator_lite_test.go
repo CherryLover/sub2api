@@ -22,7 +22,6 @@ func TestGPT61SolValidatorAliasInteractionsLite(t *testing.T) {
 	}
 }
 
-
 func TestGPT61TerraValidatorAliasInteractionsLite(t *testing.T) {
 	for _, body := range []string{
 		`{"model":"gpt-6.1-terra-minimal"}`,
