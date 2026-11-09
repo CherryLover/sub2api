@@ -39,3 +39,10 @@ func gatewayMaxBodySize(cfg *config.Config) int64 {
 	}
 	return cfg.Gateway.MaxBodySize
 }
+
+
+// isRequestBodyMemoryBudgetExhausted differentiates temporary resource
+// exhaustion (503) from malformed bodies (400) and configured size limits (413).
+func isRequestBodyMemoryBudgetExhausted(err error) bool {
+	return errors.Is(err, pkghttputil.ErrRequestBodyMemoryBudget)
+}

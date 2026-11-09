@@ -24,6 +24,7 @@ const (
 	RequestBodyReadErrorUnsupportedContentEncoding = "unsupported_content_encoding"
 	RequestBodyReadErrorTransport                  = "transport"
 	RequestBodyReadErrorIO                         = "io_read"
+	RequestBodyReadErrorMemoryBudget               = "memory_budget"
 )
 
 // StatusClientClosedRequest is the non-standard status recorded when the client
@@ -82,6 +83,9 @@ func DescribeRequestBodyReadFailure(req *http.Request, err error) RequestBodyRea
 	}
 
 	switch failure.Kind {
+	case RequestBodyReadErrorMemoryBudget:
+		failure.Status = http.StatusServiceUnavailable
+		failure.Message = "Request body memory budget exhausted"
 	case RequestBodyReadErrorMaxBytes:
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
@@ -125,6 +129,9 @@ func (f RequestBodyReadFailure) LogFields() []zap.Field {
 func classifyRequestBodyReadError(req *http.Request, err error) string {
 	if err == nil {
 		return RequestBodyReadErrorIO
+	}
+	if errors.Is(err, ErrRequestBodyMemoryBudget) {
+		return RequestBodyReadErrorMemoryBudget
 	}
 	var maxErr *http.MaxBytesError
 	if errors.As(err, &maxErr) {

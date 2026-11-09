@@ -77,6 +77,11 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
+		if isRequestBodyMemoryBudgetExhausted(err) {
+			imageTaskJSONError(c, http.StatusServiceUnavailable, "api_error", "Request body memory budget exhausted")
+			return
+		}
+
 		if maxErr, ok := extractMaxBytesError(err); ok {
 			imageTaskJSONError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
 			return

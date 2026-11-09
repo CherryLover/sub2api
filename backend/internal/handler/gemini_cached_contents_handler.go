@@ -43,6 +43,11 @@ func (h *GatewayHandler) geminiCachePreamble(c *gin.Context) (*service.APIKey, m
 func readGeminiCacheBody(c *gin.Context) ([]byte, bool) {
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
+		if isRequestBodyMemoryBudgetExhausted(err) {
+			googleError(c, 503, "Request body memory budget exhausted")
+			return nil, false
+		}
+
 		if maxErr, ok := extractMaxBytesError(err); ok {
 			googleError(c, 413, buildBodyTooLargeMessage(maxErr.Limit))
 		} else {

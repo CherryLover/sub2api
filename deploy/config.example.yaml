@@ -240,6 +240,10 @@ gateway:
   # Max request body size in bytes (default: 256MB)
   # 请求体最大字节数（默认 256MB）
   max_body_size: 268435456
+  # Process-wide budget for buffered gateway request bodies (bytes).
+  # 0 disables the feature; set according to container memory and concurrency.
+  # Excess capacity is transient overload, not a malformed or oversized body.
+  request_body_memory_budget_bytes: 0
   # Pure-text endpoint body limit (embeddings and alpha/search), default 32 MiB.
   # 纯文本端点请求体上限（embeddings、alpha/search），默认 32 MiB。
   text_max_body_size: 33554432
