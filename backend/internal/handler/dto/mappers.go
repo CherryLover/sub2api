@@ -686,6 +686,7 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 		AccountRateMultiplier: l.AccountRateMultiplier,
 		AccountStatsCost:      l.AccountStatsCost,
 		IPAddress:             l.IPAddress,
+		RoutingInfo:           l.RoutingInfo,
 		Account:               AccountSummaryFromService(l.Account),
 	}
 }

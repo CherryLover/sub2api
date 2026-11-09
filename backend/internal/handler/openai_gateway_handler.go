@@ -213,6 +213,9 @@ func usageRecordContext(parent context.Context, base context.Context) context.Co
 	if requestID, _ := parent.Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
 		base = context.WithValue(base, ctxkey.RequestID, strings.TrimSpace(requestID))
 	}
+	if trace := service.RoutingTraceFromContext(parent); trace != nil {
+		base = service.WithRoutingTrace(base, trace)
+	}
 	return base
 }
 
@@ -564,6 +567,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	pricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
 	c.Request = c.Request.WithContext(pricingCtx)
 
+	// 调度轨迹：记录候选账号、每次上游尝试，并推送实时路由事件。
+	routingTrace := startRoutingTrace(c, apiKey, reqModel)
+	defer finishRoutingTrace(c, routingTrace)
+
 	for {
 		// Streaming Forward intentionally detaches the upstream request so usage can
 		// be drained after a disconnect. Re-check the client context before every
@@ -665,6 +672,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
 		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
+		routingTrace.BeginAttempt(account)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
@@ -673,6 +681,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			}()
 			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
 		}()
+		endRoutingAttempt(c, routingTrace, err)
 		cyberBlockKeyHTTP := ""
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockKeyHTTP = service.CyberSessionBlockKey(apiKey.ID, c, sessionHashBody)
@@ -797,6 +806,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 								zap.Int("retry_count", sameAccountRetryCount[account.ID]),
 								zap.Duration("retry_delay", retryDelay),
 							)
+							routingTrace.ResolveAttempt(service.RoutingNextSameAccount)
 							select {
 							case <-c.Request.Context().Done():
 								return
@@ -834,6 +844,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						failoverSwitchFields = append(failoverSwitchFields, zap.Int64p("proxy_id", account.ProxyID))
 					}
 					reqLog.Warn("openai.upstream_failover_switching", failoverSwitchFields...)
+					routingTrace.ResolveAttempt(service.RoutingNextSwitch)
 					continue
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleFailure(account, account.GetMappedModel(reqModel), err)
@@ -1193,6 +1204,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	msgPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
 	c.Request = c.Request.WithContext(msgPricingCtx)
 
+	// 调度轨迹：记录候选账号、每次上游尝试，并推送实时路由事件。
+	routingTrace := startRoutingTrace(c, apiKey, reqModel)
+	defer finishRoutingTrace(c, routingTrace)
+
 	for {
 		if failoverClientGone(c) {
 			return
@@ -1278,6 +1293,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		// 应用渠道模型映射到请求体
 		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
 		writerSizeBeforeForward := c.Writer.Size()
+		routingTrace.BeginAttempt(account)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
@@ -1286,6 +1302,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}()
 			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
 		}()
+		endRoutingAttempt(c, routingTrace, err)
 		cyberBlockKeyMsg := ""
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockKeyMsg = service.CyberSessionBlockKey(apiKey.ID, c, body)
@@ -1386,6 +1403,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 								zap.Int("retry_count", sameAccountRetryCount[account.ID]),
 								zap.Duration("retry_delay", retryDelay),
 							)
+							routingTrace.ResolveAttempt(service.RoutingNextSameAccount)
 							select {
 							case <-c.Request.Context().Done():
 								return
@@ -1412,6 +1430,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						zap.Int("switch_count", switchCount),
 						zap.Int("max_switches", maxAccountSwitches),
 					)
+					routingTrace.ResolveAttempt(service.RoutingNextSwitch)
 					continue
 				}
 				if result != nil && result.ClientDisconnect {
@@ -1837,6 +1856,7 @@ func (h *OpenAIGatewayHandler) acquireResponsesAccountSlot(
 	}
 	defer releaseWait()
 
+	queueWaitStart := time.Now()
 	accountReleaseFunc, err := h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(
 		c,
 		account.ID,
@@ -1845,6 +1865,7 @@ func (h *OpenAIGatewayHandler) acquireResponsesAccountSlot(
 		reqStream,
 		streamStarted,
 	)
+	service.RoutingTraceFromContext(c.Request.Context()).AddQueueWait(time.Since(queueWaitStart))
 	if err != nil {
 		reqLog.Warn("openai.account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 		h.handleConcurrencyError(c, err, "account", *streamStarted)
@@ -1988,6 +2009,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
 		return
 	}
+	routingTrace := startRoutingTrace(c, apiKey, reqModel)
+	defer finishRoutingTrace(c, routingTrace)
+	ctx = service.WithRoutingTrace(ctx, routingTrace)
 	// Keep the public model as the client-facing identity while resolving the
 	// connection-scoped Composite route before account/channel mapping.
 	wsRouteModel := reqModel
@@ -2623,12 +2647,15 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// WebSocket 首包可能很大，hash 必须在 hooks 外算成字符串，避免 AfterTurn 闭包保活请求体。
 		requestPayloadHash = service.HashUsageRequestPayload(wsFirstMessage)
 
+		routingTrace.BeginAttempt(account)
 		if err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks); err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
+				endRoutingAttempt(c, routingTrace, err)
 				retryPayload, retryCurrentTurn := service.OpenAIWSCurrentTurnRetryPayload(err)
 				nextAttemptMessage, retrySafe := openAIWSNextAttemptMessage(wsAttemptMessage, retryPayload, retryCurrentTurn)
 				if !retrySafe {
+					routingTrace.ResolveAttempt(service.RoutingNextGiveUp)
 					closeOpenAIWSFailoverExhausted(wsConn, failoverErr)
 					return
 				}
@@ -2642,12 +2669,15 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					)
 				}
 				if handleWSFailover(account, failoverErr) {
+					routingTrace.ResolveAttempt(service.RoutingNextSwitch)
 					continue
 				}
+				routingTrace.ResolveAttempt(service.RoutingNextGiveUp)
 				return
 			}
 
 			if errors.Is(context.Cause(ctx), service.ErrOpenAIWSIngressLeaseLost) {
+				routingTrace.EndAttempt(0, false, nil)
 				reqLog.Warn("openai.websocket_ingress_lease_lost",
 					zap.Int64("account_id", account.ID),
 					zap.Error(err),
@@ -2659,6 +2689,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			var closeErr *service.OpenAIWSClientCloseError
 			hasClientCloseErr := errors.As(err, &closeErr)
 			if openAIWSIngressEndedByClient(err) {
+				routingTrace.EndAttempt(http.StatusOK, false, nil)
 				closedFields := []zap.Field{zap.Int64("account_id", account.ID)}
 				if hasClientCloseErr {
 					closedFields = append(closedFields, zap.String("reason", closeErr.Reason()))
@@ -2677,6 +2708,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return
 			}
 
+			endRoutingAttempt(c, routingTrace, err)
+			routingTrace.ResolveAttempt(service.RoutingNextGiveUp)
 			if shouldReportOpenAIWSProxyAccountFailure(err) {
 				h.gatewayService.ReportOpenAIAccountScheduleFailure(account, account.GetMappedModel(reqModel), err)
 			}
@@ -2705,6 +2738,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "upstream websocket proxy failed")
 			return
 		}
+		routingTrace.EndAttempt(http.StatusOK, false, nil)
 		reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))
 		return
 	}

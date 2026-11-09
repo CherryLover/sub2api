@@ -1322,6 +1322,17 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 type openAISelectionFilterStats struct {
 	pool    int
 	reasons map[string]int
+	// trace mirrors per-account filter outcomes into the request's routing
+	// trace (nil when the request carries none).
+	trace *RoutingTrace
+}
+
+// newOpenAISelectionFilterStats starts a filter pass over pool accounts and
+// binds the request's routing trace, if any.
+func newOpenAISelectionFilterStats(ctx context.Context, pool int) openAISelectionFilterStats {
+	trace := RoutingTraceFromContext(ctx)
+	trace.beginCandidates(pool)
+	return openAISelectionFilterStats{pool: pool, trace: trace}
 }
 
 func (s *openAISelectionFilterStats) exclude(reason string) {
@@ -1329,6 +1340,26 @@ func (s *openAISelectionFilterStats) exclude(reason string) {
 		s.reasons = make(map[string]int, 4)
 	}
 	s.reasons[reason]++
+}
+
+// excludeAccount counts reason and records account as rejected by it.
+func (s *openAISelectionFilterStats) excludeAccount(account *Account, reason string) {
+	s.exclude(reason)
+	s.trace.exclude(account, reason)
+}
+
+// excludeModelRateLimited records a model-level rate-limit rejection with the
+// time the model limit ends.
+func (s *openAISelectionFilterStats) excludeModelRateLimited(ctx context.Context, account *Account, model string) {
+	s.exclude(OpsNoAccountReasonModelRateLimited)
+	if s.trace != nil {
+		s.trace.excludeUntil(account, OpsNoAccountReasonModelRateLimited, routingModelRecoverAt(ctx, account, model, time.Now()))
+	}
+}
+
+// passAccount records account as having passed every filter gate.
+func (s *openAISelectionFilterStats) passAccount(account *Account) {
+	s.trace.pass(account)
 }
 
 // summary renders deterministic exclusion statistics for scheduling error
@@ -1401,19 +1432,19 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		schedGroup, _ = s.service.schedulerSnapshot.GetGroupByID(ctx, *req.GroupID)
 	}
 
-	filterStats := openAISelectionFilterStats{pool: len(accounts)}
+	filterStats := newOpenAISelectionFilterStats(ctx, len(accounts))
 	filtered := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
 	for i := range accounts {
 		account := &accounts[i]
 		if req.ExcludedIDs != nil {
 			if _, excluded := req.ExcludedIDs[account.ID]; excluded {
-				filterStats.exclude("excluded")
+				filterStats.excludeAccount(account, "excluded")
 				continue
 			}
 		}
 		if !account.IsSchedulable() {
-			filterStats.exclude("not_schedulable")
+			filterStats.excludeAccount(account, "not_schedulable")
 			continue
 		}
 		// 模型级限流（accounts.extra.model_rate_limits）：独立额度池模型被限流时，
@@ -1421,15 +1452,15 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		// 新版调度器此前只判 IsSchedulable()，根本不读 model_rate_limits —— 模型级限流
 		// 写了没人读，限流账号照样被选中、请求继续撞同一个已耗尽的池。
 		if isAccountModelRateLimitedForScheduling(ctx, account, req.RequestedModel) {
-			filterStats.exclude("model_rate_limited")
+			filterStats.excludeModelRateLimited(ctx, account, req.RequestedModel)
 			continue
 		}
 		if account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() {
-			filterStats.exclude("platform_mismatch")
+			filterStats.excludeAccount(account, "platform_mismatch")
 			continue
 		}
 		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
-			filterStats.exclude("runtime_blocked")
+			filterStats.excludeAccount(account, "runtime_blocked")
 			continue
 		}
 		// require_privacy_set: 跳过 privacy 未设置的账号并标记异常
@@ -1437,17 +1468,18 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			s.service.BlockAccountScheduling(account, time.Time{}, "privacy_not_set")
 			_ = s.service.accountRepo.SetError(ctx, account.ID,
 				fmt.Sprintf("Privacy not set, required by group [%s]", schedGroup.Name))
-			filterStats.exclude("privacy_not_set")
+			filterStats.excludeAccount(account, "privacy_not_set")
 			continue
 		}
 		if compatible, reason := s.isAccountRequestCompatibleReason(ctx, account, req); !compatible {
-			filterStats.exclude(reason)
+			filterStats.excludeAccount(account, reason)
 			continue
 		}
 		if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
-			filterStats.exclude("transport_incompatible")
+			filterStats.excludeAccount(account, "transport_incompatible")
 			continue
 		}
+		filterStats.passAccount(account)
 		filtered = append(filtered, account)
 		loadReq = append(loadReq, AccountWithConcurrency{
 			ID:             account.ID,
@@ -1464,6 +1496,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			loadMap = batchLoad
 		}
 	}
+	filterStats.trace.setLoads(loadMap)
 
 	if req.SubscriptionPriority {
 		subscriptionAccounts, regularAccounts := partitionOpenAIChatGPTSubscriptionAccounts(filtered)
@@ -2141,8 +2174,15 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	platform string,
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
-) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
-	selection, decision, err := s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+) (selection *AccountSelectionResult, decision OpenAIAccountScheduleDecision, err error) {
+	// 调度轨迹：只记录，不参与决策；请求未挂轨迹时为空操作。
+	if trace := RoutingTraceFromContext(ctx); trace != nil {
+		trace.beginSelection()
+		defer func() {
+			trace.finishSelection(selection, decision.StickyPreviousHit || decision.StickySessionHit, err)
+		}()
+	}
+	selection, decision, err = s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 	if err == nil || openAIProxyStreamQuarantineBypassed(ctx) {
 		return selection, decision, err
 	}

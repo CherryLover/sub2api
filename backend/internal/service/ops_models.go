@@ -76,6 +76,10 @@ type OpsErrorLog struct {
 	// 关联 api_key 名称（LEFT JOIN api_keys 取得；软删只覆盖 key 列，name 保留，故已删 key 仍有原名）。
 	APIKeyName    string `json:"api_key_name,omitempty"`
 	APIKeyDeleted bool   `json:"api_key_deleted,omitempty"`
+
+	// RoutingDiagnosis explains which accounts the scheduler considered and why
+	// none served the request; null when not recorded.
+	RoutingDiagnosis *RoutingDiagnosis `json:"routing_diagnosis"`
 }
 
 type OpsErrorLogDetail struct {
