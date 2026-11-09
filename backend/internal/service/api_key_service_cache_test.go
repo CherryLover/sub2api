@@ -606,7 +606,7 @@ func TestAPIKeyService_GetByKeyRejectsNonUTF8BeforeLookup(t *testing.T) {
 		t.Fatal("non-UTF-8 credential reached repository")
 		return nil, nil
 	}}
-	svc := NewAPIKeyService(repo, nil, nil, nil, nil, nil, &config.Config{})
+	svc := NewAPIKeyService(repo, nil, nil, nil, nil, &config.Config{})
 	_, err := svc.GetByKey(context.Background(), "sk-\xff\xfe")
 	require.ErrorIs(t, err, ErrAPIKeyNotFound)
 }
