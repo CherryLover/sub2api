@@ -30,7 +30,7 @@ func TestGPT61SolCompatReasoningValidation(t *testing.T) {
 			if tc.name == "other model unaffected" {
 				model = "gpt-6-sol"
 			}
-			err := validateGPT61SolCompatRequest([]byte(tc.body), model)
+			err := validateGPT61CompatRequest([]byte(tc.body), model)
 			if tc.wantErr {
 				require.Error(t, err)
 			} else {

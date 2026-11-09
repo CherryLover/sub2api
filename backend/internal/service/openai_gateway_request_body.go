@@ -1804,25 +1804,30 @@ func hasEffectiveGPT61SolCompatEffort(body []byte) bool {
 	return outputEffort.Type == gjson.String && outputEffort.String() != ""
 }
 
-// validateGPT61SolCompatRequest rejects unsupported reasoning settings before
-// protocol conversion can silently discard explicit user intent.
-func validateGPT61SolCompatRequest(body []byte, model string) error {
-	if !openai.IsGPT61SolModelSpelling(model) {
+// validateGPT61CompatRequest rejects unsupported reasoning levels for GPT-6.1
+// Sol/Terra before protocol conversion can silently discard explicit effort.
+func validateGPT61CompatRequest(body []byte, model string) error {
+	if !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) {
 		return nil
 	}
 	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {
-		if err := openai.ValidateGPT61SolReasoningEffort(model, gjson.GetBytes(body, path).String()); err != nil {
+		if err := openai.ValidateGPT61ReasoningEffort(model, gjson.GetBytes(body, path).String()); err != nil {
 			return err
 		}
 	}
 	if gjson.GetBytes(body, "thinking.type").String() == "disabled" {
-		return openai.ValidateGPT61SolReasoningEffort(model, "none")
+		return openai.ValidateGPT61ReasoningEffort(model, "none")
 	}
 	if !hasEffectiveGPT61SolCompatEffort(body) {
 		requestedModel := openai.CanonicalizeOpenAIModelAliasSpelling(gjson.GetBytes(body, "model").String())
-		if openai.IsGPT61SolModelSpelling(requestedModel) {
-			if effort, ok := strings.CutPrefix(requestedModel, "gpt-6.1-sol-"); ok && effort != "openai-compact" {
-				return openai.ValidateGPT61SolReasoningEffort(model, effort)
+		for _, base := range []string{"gpt-6.1-sol", "gpt-6.1-terra"} {
+			matches := (base == "gpt-6.1-sol" && openai.IsGPT61SolModelSpelling(requestedModel)) ||
+				(base == "gpt-6.1-terra" && openai.IsGPT61TerraModelSpelling(requestedModel))
+			if !matches {
+				continue
+			}
+			if effort, ok := strings.CutPrefix(requestedModel, base+"-"); ok && effort != "openai-compact" {
+				return openai.ValidateGPT61ReasoningEffort(model, effort)
 			}
 		}
 	}
