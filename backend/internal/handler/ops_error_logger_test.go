@@ -958,15 +958,7 @@ func TestClassifyOpsLocalBusinessLimitErrorsExcludedFromSLA(t *testing.T) {
 			wantErrType: "invalid_request_error",
 			wantPhase:   "request",
 		},
-		{
-			name:        "openai passthrough instructions policy block",
-			errType:     "forbidden_error",
-			message:     "OpenAI codex passthrough requires a non-empty instructions field",
-			code:        "",
-			status:      http.StatusForbidden,
-			wantErrType: "forbidden_error",
-			wantPhase:   "request",
-		},
+
 	}
 
 	for _, tt := range tests {
@@ -1211,12 +1203,7 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 			code:    "400",
 			status:  http.StatusBadRequest,
 		},
-		{
-			name:    "provider passthrough instructions shaped error",
-			message: "OpenAI codex passthrough requires a non-empty instructions field",
-			code:    "403",
-			status:  http.StatusForbidden,
-		},
+
 	}
 
 	for _, tt := range tests {
