@@ -6,73 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync/atomic"
 	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-const (
-	defaultSSEQueueMaxBytes = 8 << 20
-	defaultSSEEventMaxLines = 4096
-)
-
-// sseQueueBudget bounds queued payload bytes, in addition to the channel's
-// event count. A single line larger than the budget reserves the whole budget:
-// legitimate image frames still pass, but cannot fill all 16 queue slots. The
-// consumer's current line and the producer's next line/scanner buffer are not
-// queue storage and remain subject to the line/event limits.
-//
-// There is one producer and one consumer. Release on dequeue, not on shutdown,
-// so cancellation never depends on draining an abandoned queue.
-type sseQueueBudget struct {
-	limit     int64
-	used      atomic.Int64
-	available chan struct{}
-}
-
-func newSSEQueueBudget(cfg *config.Config) *sseQueueBudget {
-	limit := int64(defaultSSEQueueMaxBytes)
-	if cfg != nil && cfg.Gateway.SSEQueueMaxBytes > 0 {
-		limit = cfg.Gateway.SSEQueueMaxBytes
-	}
-	return &sseQueueBudget{limit: limit, available: make(chan struct{}, 1)}
-}
-
-func (b *sseQueueBudget) weight(size int) int64 {
-	return min(int64(size), b.limit)
-}
-
-func (b *sseQueueBudget) acquire(size int, done <-chan struct{}) bool {
-	weight := b.weight(size)
-	for {
-		select {
-		case <-done:
-			return false
-		default:
-		}
-		used := b.used.Load()
-		if weight <= b.limit-used && b.used.CompareAndSwap(used, used+weight) {
-			return true
-		}
-		select {
-		case <-done:
-			return false
-		case <-b.available:
-		}
-	}
-}
-
-func (b *sseQueueBudget) release(size int) {
-	if size == 0 {
-		return
-	}
-	b.used.Add(-b.weight(size))
-	select {
-	case b.available <- struct{}{}:
-	default:
-	}
-}
+const defaultSSEEventMaxLines = 4096
 
 var errSSETransportLimit = errors.New("upstream SSE transport limit exceeded")
 
@@ -116,30 +55,6 @@ func (l *sseEventLimits) exceeded() error {
 	// Preserve the existing upstream response_too_large error paths. This is
 	// an SSE framing limit, independent of JSON/protocol translation.
 	return fmt.Errorf("%w: %w: SSE event exceeds %d bytes or %d lines", errSSETransportLimit, bufio.ErrTooLong, l.maxBytes, l.maxLines)
-}
-
-// newBoundedSSESplit limits complete events as well as incomplete lines. Without
-// this, an upstream can bypass a single-line cap by never sending a blank line.
-// next may preserve line endings or enforce the OpenAI pre-output guard.
-func newBoundedSSESplit(cfg *config.Config, maxLineSize int, next bufio.SplitFunc) bufio.SplitFunc {
-	if next == nil {
-		next = bufio.ScanLines
-	}
-	limits := newSSEEventLimits(cfg, maxLineSize)
-	return func(data []byte, atEOF bool) (int, []byte, error) {
-		advance, token, err := next(data, atEOF)
-		if err != nil {
-			return advance, token, err
-		}
-		if token != nil {
-			if err := limits.observe(token, advance); err != nil {
-				return 0, nil, err
-			}
-		} else if int64(len(data)) > limits.maxBytes-limits.bytes {
-			return 0, nil, limits.exceeded()
-		}
-		return advance, token, nil
-	}
 }
 
 // boundedSSELineReader preserves the original bytes (including CRLF and the

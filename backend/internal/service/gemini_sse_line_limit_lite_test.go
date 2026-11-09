@@ -25,8 +25,8 @@ func TestBoundedGeminiSSEResponseLineLimit(t *testing.T) {
 
 func TestBoundedGeminiSSEEventLineCountAndEOF(t *testing.T) {
 	cfg := &config.Config{Gateway: config.GatewayConfig{
-		MaxLineSize: 4096,
-		SSEEventMaxLines: 2,
+		MaxLineSize:		4096,
+		SSEEventMaxLines:	2,
 	}}
 	reader := newBoundedSSELineReader(strings.NewReader("data: 1\ndata: 2\ndata: 3\n"), cfg)
 	for i := 0; i < 2; i++ {
@@ -51,8 +51,8 @@ func TestBoundedGeminiSSEEventLineCountAndEOF(t *testing.T) {
 
 func TestBoundedGeminiSSEEventByteLimit(t *testing.T) {
 	cfg := &config.Config{Gateway: config.GatewayConfig{
-		MaxLineSize: 4096,
-		SSEEventMaxBytes: 16,
+		MaxLineSize:		4096,
+		SSEEventMaxBytes:	16,
 	}}
 	reader := newBoundedSSELineReader(strings.NewReader("data: first\ndata: second\n"), cfg)
 	if _, err := reader.ReadLineString(); err != nil {

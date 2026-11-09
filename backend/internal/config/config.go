@@ -648,7 +648,6 @@ type GatewayConfig struct {
 	ImageNonstreamKeepaliveInterval int `mapstructure:"image_nonstream_keepalive_interval"`
 	// MaxLineSize: 上游 SSE 单行最大字节数（0使用默认值）
 	MaxLineSize      int   `mapstructure:"max_line_size"`
-	SSEQueueMaxBytes int64 `mapstructure:"sse_queue_max_bytes"`
 	SSEEventMaxBytes int64 `mapstructure:"sse_event_max_bytes"`
 	SSEEventMaxLines int   `mapstructure:"sse_event_max_lines"`
 
@@ -1988,7 +1987,6 @@ func setDefaults() {
 	viper.SetDefault("gateway.image_stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.image_nonstream_keepalive_interval", 0)
 	viper.SetDefault("gateway.max_line_size", 500*1024*1024)
-	viper.SetDefault("gateway.sse_queue_max_bytes", int64(8<<20))
 	viper.SetDefault("gateway.sse_event_max_bytes", int64(0))
 	viper.SetDefault("gateway.sse_event_max_lines", 4096)
 	viper.SetDefault("gateway.scheduling.sticky_session_max_waiting", 3)
@@ -2782,8 +2780,8 @@ func (c *Config) Validate() error {
 	if c.Gateway.OpenAIScheduler.StickyEscapeErrorRate < 0 || c.Gateway.OpenAIScheduler.StickyEscapeErrorRate > 1 {
 		return fmt.Errorf("gateway.openai_scheduler.sticky_escape_error_rate must be between 0 and 1")
 	}
-	if c.Gateway.SSEQueueMaxBytes < 0 || c.Gateway.SSEEventMaxBytes < 0 || c.Gateway.SSEEventMaxLines < 0 {
-		return fmt.Errorf("gateway.sse_queue_max_bytes, sse_event_max_bytes and sse_event_max_lines must be non-negative")
+	if c.Gateway.SSEEventMaxBytes < 0 || c.Gateway.SSEEventMaxLines < 0 {
+		return fmt.Errorf("gateway.sse_event_max_bytes and sse_event_max_lines must be non-negative")
 	}
 	if c.Gateway.MaxLineSize < 0 {
 		return fmt.Errorf("gateway.max_line_size must be non-negative")

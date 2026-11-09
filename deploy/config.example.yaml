@@ -518,8 +518,6 @@ gateway:
   # SSE max line size in bytes (default: 40MB)
   # SSE 单行最大字节数（默认 40MB）
   max_line_size: 41943040
-  # SSE queue memory reservation limit, bytes (default 8 MiB).
-  sse_queue_max_bytes: 8388608
   # Total size of an individual SSE event, bytes; 0 inherits max_line_size.
   sse_event_max_bytes: 0
   # Maximum non-empty lines in a single SSE event.
