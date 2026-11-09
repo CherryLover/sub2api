@@ -244,6 +244,12 @@ gateway:
   # 0 disables the feature; set according to container memory and concurrency.
   # Excess capacity is transient overload, not a malformed or oversized body.
   request_body_memory_budget_bytes: 0
+  # Per-socket-read idle timeout. 0 disables; unlike server.read_timeout,
+  # it does not cap a long image upload or streamed response end to end.
+  request_body_read_timeout_seconds: 0
+  # Deadline for each individual HTTP response write/flush. 0 disables;
+  # a long-lived SSE stream remains allowed while writes make progress.
+  downstream_write_timeout_seconds: 0
   # Pure-text endpoint body limit (embeddings and alpha/search), default 32 MiB.
   # 纯文本端点请求体上限（embeddings、alpha/search），默认 32 MiB。
   text_max_body_size: 33554432

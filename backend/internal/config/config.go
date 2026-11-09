@@ -556,6 +556,10 @@ type GatewayConfig struct {
 	MaxBodySize int64 `mapstructure:"max_body_size"`
 	// Zero disables the process-wide buffered ingress memory budget.
 	RequestBodyMemoryBudgetBytes int64 `mapstructure:"request_body_memory_budget_bytes"`
+	// Per-read idle timeout for request-body sockets, not a whole-request deadline.
+	RequestBodyReadTimeoutSeconds int `mapstructure:"request_body_read_timeout_seconds"`
+	// Per-write/flush deadline without limiting the lifetime of a long SSE stream.
+	DownstreamWriteTimeoutSeconds int `mapstructure:"downstream_write_timeout_seconds"`
 	// TextMaxBodySize limits endpoints that cannot carry inline image/video payloads.
 	TextMaxBodySize int64 `mapstructure:"text_max_body_size"`
 	// 非流式上游响应体读取上限（字节），用于防止无界读取导致内存放大
@@ -1970,6 +1974,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.antigravity_extra_retries", 10)
 	viper.SetDefault("gateway.max_body_size", int64(256*1024*1024))
 	viper.SetDefault("gateway.request_body_memory_budget_bytes", int64(0))
+	viper.SetDefault("gateway.request_body_read_timeout_seconds", 0)
+	viper.SetDefault("gateway.downstream_write_timeout_seconds", 0)
 	viper.SetDefault("gateway.text_max_body_size", int64(32*1024*1024))
 	viper.SetDefault("gateway.upstream_response_read_max_bytes", DefaultUpstreamResponseReadMaxBytes)
 	viper.SetDefault("gateway.proxy_probe_response_read_max_bytes", int64(1024*1024))
@@ -2513,6 +2519,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.RequestBodyMemoryBudgetBytes < 0 {
 		return fmt.Errorf("gateway.request_body_memory_budget_bytes must be non-negative")
+	}
+	if c.Gateway.RequestBodyReadTimeoutSeconds < 0 || c.Gateway.DownstreamWriteTimeoutSeconds < 0 {
+		return fmt.Errorf("gateway request body read and downstream write timeouts must be non-negative")
 	}
 	if c.Gateway.TextMaxBodySize <= 0 || c.Gateway.TextMaxBodySize > c.Gateway.MaxBodySize {
 		return fmt.Errorf("gateway.text_max_body_size must be positive and no greater than gateway.max_body_size")
