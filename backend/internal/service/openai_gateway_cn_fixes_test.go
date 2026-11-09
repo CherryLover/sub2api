@@ -287,8 +287,8 @@ func TestHandle403_OtherCNProviderWithKimiConcurrencyMessageUsesNormalPolicy(t *
 	require.Equal(t, []string{"auth_error"}, blocker.reasons, "the Kimi-specific runtime block must not apply")
 }
 
-func TestHandle403_CNProviderConcurrencyLimitAlwaysUsesTemporaryCooldown(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
+func TestHandle403_CNProviderConcurrencyLimitUsesSecondsFallbackCooldown(t *testing.T) {
+	repo := &kimiConcurrencyRateLimitRepo{}
 	counter := &openAI403CounterCacheStub{counts: []int64{openAI403DisableThreshold}}
 	blocker := &runtimeBlockRecorder{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -303,16 +303,17 @@ func TestHandle403_CNProviderConcurrencyLimitAlwaysUsesTemporaryCooldown(t *test
 
 	require.True(t, shouldDisable, "the request must still fail over to another account")
 	require.Equal(t, 0, repo.setErrorCalls)
-	require.Equal(t, 1, repo.tempCalls)
-	require.Contains(t, repo.lastTempReason, cnConcurrencyLimitReasonPrefix)
+	require.Zero(t, repo.tempCalls)
+	require.Equal(t, 1, repo.rateLimitedCalls)
+	require.WithinDuration(t, time.Now().Add(5*time.Second), repo.lastResetAt, time.Second)
 	require.Equal(t, []int64{openAI403DisableThreshold}, counter.counts, "transient concurrency 403 must bypass the permanent-error counter")
 	require.Len(t, blocker.accounts, 1)
-	require.Equal(t, cnConcurrencyLimitReasonPrefix, blocker.reasons[0])
+	require.Equal(t, "429_fallback", blocker.reasons[0])
 	require.True(t, blocker.until[0].After(time.Now()))
 }
 
 func TestHandle403_KimiConcurrencyLimitRepositoryFailureKeepsRuntimeBlock(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{tempErr: errors.New("repository unavailable")}
+	repo := &kimiConcurrencyRateLimitRepo{rateLimitErr: errors.New("repository unavailable")}
 	counter := &openAI403CounterCacheStub{counts: []int64{openAI403DisableThreshold}}
 	blocker := &runtimeBlockRecorder{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -326,12 +327,13 @@ func TestHandle403_KimiConcurrencyLimitRepositoryFailureKeepsRuntimeBlock(t *tes
 	)
 
 	require.True(t, shouldDisable, "the current request must fail over even when persistence fails")
-	require.Equal(t, 1, repo.tempCalls, "the temporary cooldown should still be persisted when possible")
+	require.Zero(t, repo.tempCalls)
+	require.Equal(t, 1, repo.rateLimitedCalls, "seconds-based cooldown must be attempted")
 	require.Equal(t, 0, repo.setErrorCalls, "persistence failure must not fall back to permanent account error")
 	require.Equal(t, []int64{openAI403DisableThreshold}, counter.counts, "persistence failure must not enter the permanent-error counter path")
 	require.Len(t, blocker.accounts, 1, "the in-memory runtime block must survive repository failure")
 	require.Same(t, account, blocker.accounts[0])
-	require.Equal(t, cnConcurrencyLimitReasonPrefix, blocker.reasons[0])
+	require.Equal(t, "429_fallback", blocker.reasons[0])
 	require.True(t, blocker.until[0].After(time.Now()))
 }
 
