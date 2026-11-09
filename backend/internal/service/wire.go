@@ -850,6 +850,8 @@ var ProviderSet = wire.NewSet(
 	ProvideOpsCleanupService,
 	ProvideOpsErrorDigestService,
 	ProvideConcurrencyService,
+	ProvideTopologyHub,
+	ProvideTopologyService,
 	ProvideUserMessageQueueService,
 	NewUsageRecordWorkerPool,
 	ProvideSchedulerSnapshotService,
