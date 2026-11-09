@@ -911,7 +911,7 @@ func TestConvertClaudeMessagesToGeminiGenerateContent_AddsThoughtSignatureForToo
 	}
 	b, _ := json.Marshal(claudeReq)
 
-	out, err := convertClaudeMessagesToGeminiGenerateContent(b)
+	out, err := convertClaudeMessagesToGeminiGenerateContent(b, "gemini-2.5-flash")
 	if err != nil {
 		t.Fatalf("convert failed: %v", err)
 	}
@@ -1418,6 +1418,33 @@ func parseAnthropicContentBlockEvents(t *testing.T, raw string) []anthropicConte
 	return events
 }
 
+func TestGeminiNativeFunctionResponsesKeepToolImagesInsideCall(t *testing.T) {
+	for _, model := range []string{"gemini-3.8-flash", "models/gemini-4-argon"} {
+		t.Run(model, func(t *testing.T) {
+			body := []byte(`{"messages":[
+				{"role":"assistant","content":[{"type":"tool_use","id":"tool_a","name":"inspect","input":{}}]},
+				{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_a","content":[
+					{"type":"text","text":"done"},
+					{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AQID"}},
+					{"type":"image","source":{"type":"base64","media_type":"image/webp","data":"BAUG"}}
+				]}]}
+			]}`)
+			out, err := convertClaudeMessagesToGeminiGenerateContent(body, model)
+			require.NoError(t, err)
+			parts := gjson.GetBytes(out, "contents.1.parts").Array()
+			require.Len(t, parts, 1, "Gemini 3+ should not detach images from their tool result")
+			response := parts[0].Get("functionResponse")
+			require.Equal(t, "inspect", response.Get("name").String())
+			require.Equal(t, "done", response.Get("response.content").String())
+			media := response.Get("parts").Array()
+			require.Len(t, media, 2)
+			require.Equal(t, "image/png", media[0].Get("inlineData.mimeType").String())
+			require.Equal(t, "AQID", media[0].Get("inlineData.data").String())
+			require.Equal(t, "image/webp", media[1].Get("inlineData.mimeType").String())
+		})
+	}
+}
+
 func TestGeminiCompatPreservesToolResultImage(t *testing.T) {
 	req := map[string]any{"messages": []any{
 		map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": "call1", "name": "inspect", "input": map[string]any{}}}},
@@ -1425,7 +1452,7 @@ func TestGeminiCompatPreservesToolResultImage(t *testing.T) {
 	}}
 	body, err := json.Marshal(req)
 	require.NoError(t, err)
-	converted, err := convertClaudeMessagesToGeminiGenerateContent(body)
+	converted, err := convertClaudeMessagesToGeminiGenerateContent(body, "gemini-2.5-flash")
 	require.NoError(t, err)
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(converted, &got))
