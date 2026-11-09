@@ -72,6 +72,9 @@ func RegisterAdminRoutes(
 		// 运维监控（Ops）
 		registerOpsRoutes(admin, h)
 
+		// 调度拓扑（快照 + 实时路由事件流）
+		registerTopologyRoutes(admin, h)
+
 		// 系统管理
 		registerSystemRoutes(admin, h)
 
@@ -138,6 +141,15 @@ func registerAdminAPIKeyRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		// 跨用户密钥总表：只回掩码 Key，已登记为审计敏感 GET（middleware/audit_log.go auditSensitiveReads）
 		apiKeys.GET("", h.Admin.APIKey.List)
+	}
+}
+
+func registerTopologyRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	topology := admin.Group("/topology")
+	{
+		topology.GET("/snapshot", h.Admin.Topology.GetSnapshot)
+		// SSE：长连接，前端 fetch + Authorization 头读取
+		topology.GET("/events", h.Admin.Topology.StreamEvents)
 	}
 }
 
