@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"go.uber.org/zap"
 )
@@ -486,28 +487,17 @@ func openAILongContextBillingGate(account *Account) *bool {
 	return &enabled
 }
 
-// OAuth and SetupToken subscriptions are exempt from the official GPT-6.1 Sol
-// long-context surcharge. API keys and custom interval pricing are unchanged.
+// OAuth and SetupToken subscriptions are exempt from the GPT-6.1 Sol / Terra
+// long-context surcharge. API keys retain their API rate-card treatment.
 func openAISubscriptionLongContextExempt(account *Account, result *OpenAIForwardResult) bool {
 	if account == nil || !account.IsOpenAI() || (account.Type != AccountTypeOAuth && account.Type != AccountTypeSetupToken) || result == nil {
 		return false
 	}
-	model := strings.ToLower(strings.TrimSpace(result.UpstreamModel))
+	model := strings.TrimSpace(result.UpstreamModel)
 	if model == "" {
-		model = strings.ToLower(strings.TrimSpace(result.Model))
+		model = strings.TrimSpace(result.Model)
 	}
-	if model == "gpt-6.1-sol" {
-		return true
-	}
-	suffix, ok := strings.CutPrefix(model, "gpt-6.1-sol-")
-	if !ok {
-		return false
-	}
-	switch suffix {
-	case "none", "minimal", "low", "medium", "high", "xhigh", "max", "openai-compact":
-		return true
-	}
-	return false
+	return openai.IsGPT61SolModelSpelling(model) || openai.IsGPT61TerraModelSpelling(model)
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
