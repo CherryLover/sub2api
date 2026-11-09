@@ -114,3 +114,31 @@ func TestRequestBodyMemoryBudgetRetainedByAsyncTask(t *testing.T) {
 		t.Fatalf("async task did not release body allocation: %v", err)
 	}
 }
+
+func TestRequestBodyMemoryScopeRefundsPerAttempt(t *testing.T) {
+	budget := NewBodyMemoryBudget(1024)
+	ctx, finishHTTP := WithRequestBodyMemoryBudget(context.Background(), budget)
+	defer finishHTTP()
+	for attempt := 0; attempt < 3; attempt++ {
+		attemptCtx, finishAttempt := WithRequestBodyMemoryScope(ctx)
+		if err := ReserveRequestBodyMemory(attemptCtx, 700); err != nil {
+			t.Fatalf("attempt %d inherited previous budget: %v", attempt, err)
+		}
+		if err := ReserveRequestBodyMemory(attemptCtx, 500); !errors.Is(err, ErrRequestBodyMemoryBudget) {
+			t.Fatalf("attempt %d exceeded budget: %v", attempt, err)
+		}
+		ReleaseRequestBodyMemory(attemptCtx, 100)
+		ReleaseRequestBodyMemory(attemptCtx, 999) // cannot underflow or refund another request
+		finishAttempt()
+		finishAttempt()
+	}
+	if budget.used != 0 {
+		t.Fatalf("attempt allocations leaked: %d", budget.used)
+	}
+	finishHTTP()
+	closedScope, release := WithRequestBodyMemoryScope(ctx)
+	defer release()
+	if err := ReserveRequestBodyMemory(closedScope, 10); !errors.Is(err, ErrRequestBodyMemoryBudget) {
+		t.Fatalf("closed request accepted an attempt allocation: %v", err)
+	}
+}

@@ -66,6 +66,36 @@ func RetainRequestBodyMemoryBudget(ctx context.Context) func() {
 	return requestBodyMemoryReleaseCallback(r)
 }
 
+// WithRequestBodyMemoryScope holds allocations from one rewrite/forwarding
+// attempt independently. Releasing the scope refunds only its own bytes,
+// including when the enclosing HTTP handler is still waiting on a slot.
+func WithRequestBodyMemoryScope(ctx context.Context) (context.Context, func()) {
+	if ctx == nil {
+		return ctx, func() {}
+	}
+	parent, _ := ctx.Value(bodyMemoryReservationKey{}).(*bodyMemoryReservation)
+	if parent == nil {
+		return ctx, func() {}
+	}
+	parent.mu.Lock()
+	closed := parent.closed
+	parent.mu.Unlock()
+	r := &bodyMemoryReservation{budget: parent.budget, owners: 1, closed: closed}
+	return context.WithValue(ctx, bodyMemoryReservationKey{}, r), requestBodyMemoryReleaseCallback(r)
+}
+
+// ReserveRequestBodyMemory charges a rewritten request representation to its
+// scope. Unlike a socket read, an already-started upstream attempt may finish
+// after client cancellation and must still account for its own memory.
+func ReserveRequestBodyMemory(ctx context.Context, n int64) error {
+	return reserveBodyMemory(ctx, n)
+}
+
+// ReleaseRequestBodyMemory refunds only bytes charged to this scope.
+func ReleaseRequestBodyMemory(ctx context.Context, n int64) {
+	releaseRequestBodyMemory(ctx, n)
+}
+
 func requestBodyMemoryReleaseCallback(r *bodyMemoryReservation) func() {
 	var once sync.Once
 	return func() {
@@ -93,6 +123,13 @@ func (r *bodyMemoryReservation) releaseOwner() {
 func reserveRequestBodyMemory(ctx context.Context, n int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	return reserveBodyMemory(ctx, n)
+}
+
+func reserveBodyMemory(ctx context.Context, n int64) error {
+	if ctx == nil {
+		return nil
 	}
 	r, _ := ctx.Value(bodyMemoryReservationKey{}).(*bodyMemoryReservation)
 	if r == nil || n <= 0 {
@@ -126,6 +163,7 @@ func releaseRequestBodyMemory(ctx context.Context, n int64) {
 	if r.closed {
 		return
 	}
+	n = min(n, r.bytes)
 	r.budget.mu.Lock()
 	r.budget.used -= n
 	r.budget.mu.Unlock()

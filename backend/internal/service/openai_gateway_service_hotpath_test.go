@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -68,7 +69,7 @@ func TestOpenAIRequestView_ApplyPatches(t *testing.T) {
 	view.MarkPatchDelete("previous_response_id")
 	view.MarkPatchSet("reasoning.effort", "none")
 
-	patched, err := view.ApplyPatches()
+	patched, err := view.ApplyPatches(context.Background())
 	require.NoError(t, err)
 	require.JSONEq(t, `{"model":"gpt-5.1","reasoning":{"effort":"none"},"input":[{"type":"message","content":"hi"}]}`, string(patched))
 }
@@ -78,7 +79,7 @@ func TestOpenAIRequestView_RejectsEscapedPatchPath(t *testing.T) {
 	view.MarkPatchSet(`metadata.user\.id`, "new")
 
 	require.False(t, view.HasPatches())
-	_, err := view.ApplyPatches()
+	_, err := view.ApplyPatches(context.Background())
 	require.Error(t, err)
 }
 
@@ -87,7 +88,7 @@ func TestOpenAIRequestView_ApplyPatchesDisabled(t *testing.T) {
 	view.MarkPatchSet("model", "gpt-5.1")
 	view.DisablePatches()
 
-	_, err := view.ApplyPatches()
+	_, err := view.ApplyPatches(context.Background())
 	require.Error(t, err)
 }
 
@@ -1104,4 +1105,43 @@ func TestSanitizeEmptyBase64InputImagesInOpenAIBody(t *testing.T) {
 			]}
 		]
 	}`, string(body))
+}
+
+func TestOpenAIRequestView_PatchesUseScopedMemoryBudget(t *testing.T) {
+	budget := httputil.NewBodyMemoryBudget(256)
+	ctx, release := httputil.WithRequestBodyMemoryBudget(context.Background(), budget)
+	defer release()
+	for attempt := 0; attempt < 10; attempt++ {
+		scope, finish := httputil.WithRequestBodyMemoryScope(ctx)
+		view := newOpenAIRequestView([]byte(`{"model":"gpt-5","input":"hello"}`))
+		view.MarkPatchSet("model", "gpt-6.1-terra")
+		out, err := view.ApplyPatches(scope)
+		require.NoError(t, err)
+		require.Equal(t, "gpt-6.1-terra", gjson.GetBytes(out, "model").String())
+		finish()
+	}
+	smallBudget := httputil.NewBodyMemoryBudget(10)
+	smallCtx, releaseSmall := httputil.WithRequestBodyMemoryBudget(context.Background(), smallBudget)
+	defer releaseSmall()
+	scope, finish := httputil.WithRequestBodyMemoryScope(smallCtx)
+	defer finish()
+	view := newOpenAIRequestView([]byte(`{"model":"gpt-5","input":"hello"}`))
+	view.MarkPatchSet("model", "gpt-6.1-terra")
+	_, err := view.ApplyPatches(scope)
+	require.ErrorIs(t, err, httputil.ErrRequestBodyMemoryBudget)
+}
+
+func TestOpenAIRequestView_MovePatchesToMapPreservesAllEdits(t *testing.T) {
+	view := newOpenAIRequestView([]byte(`{"model":"gpt-5","input":"drop","metadata":{}}`))
+	view.MarkPatchSet("model", "gpt-6.1-terra")
+	view.MarkPatchSet("metadata.user_id", "abc")
+	view.MarkPatchDelete("input")
+	require.True(t, view.HasPatches())
+	decoded, err := view.Decode(nil)
+	require.NoError(t, err)
+	view.MovePatchesTo(decoded)
+	require.Equal(t, "gpt-6.1-terra", decoded["model"])
+	require.Equal(t, "abc", decoded["metadata"].(map[string]any)["user_id"])
+	require.NotContains(t, decoded, "input")
+	require.False(t, view.HasPatches())
 }

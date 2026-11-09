@@ -758,6 +758,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			})
 		}
 		if err != nil {
+			if result == nil && isRequestBodyMemoryBudgetExhausted(err) {
+				// Local memory pressure is not an upstream failure. Do not
+				// penalize the account or retry against another account.
+				c.Header("Retry-After", "1")
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Request body memory budget exhausted", streamStarted)
+				return
+			}
 			if result != nil && result.ClientDisconnect {
 				reqLog.Info("openai.client_disconnected",
 					zap.Int64("account_id", account.ID),
