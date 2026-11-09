@@ -78,29 +78,49 @@ func ReadLenientJSONRequestBodyWithPrealloc(req *http.Request, maxNormalizedByte
 func decompressRequestBody(encoding string, raw []byte) ([]byte, error) {
 	switch encoding {
 	case "zstd":
-		dec, err := zstd.NewReader(bytes.NewReader(raw))
+		dec, err := zstd.NewReader(bytes.NewReader(raw),
+			zstd.WithDecoderConcurrency(1),
+			zstd.WithDecoderMaxWindow(8<<20),
+			zstd.WithDecoderMaxMemory(maxDecompressedBodySize))
 		if err != nil {
 			return nil, err
 		}
 		defer dec.Close()
-		return io.ReadAll(io.LimitReader(dec, maxDecompressedBodySize))
+		return readBoundedDecodedBody(dec, maxDecompressedBodySize)
 	case "gzip", "x-gzip":
 		gr, err := gzip.NewReader(bytes.NewReader(raw))
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = gr.Close() }()
-		return io.ReadAll(io.LimitReader(gr, maxDecompressedBodySize))
+		return readBoundedDecodedBody(gr, maxDecompressedBodySize)
 	case "deflate":
 		zr, err := zlib.NewReader(bytes.NewReader(raw))
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = zr.Close() }()
-		return io.ReadAll(io.LimitReader(zr, maxDecompressedBodySize))
+		return readBoundedDecodedBody(zr, maxDecompressedBodySize)
 	default:
 		return nil, errors.New("unsupported Content-Encoding")
 	}
+}
+
+// readBoundedDecodedBody consumes one byte past the maximum to distinguish
+// a valid maximum-size payload from a compressed bomb. Returning truncated
+// content as a successful request would make downstream protocol parsing unsafe.
+func readBoundedDecodedBody(reader io.Reader, limit int64) ([]byte, error) {
+	if limit < 0 {
+		return nil, fmt.Errorf("negative decoded body limit")
+	}
+	decoded, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(decoded)) > limit {
+		return nil, &http.MaxBytesError{Limit: limit}
+	}
+	return decoded, nil
 }
 
 // NormalizeLenientJSONRequestBody escapes raw control bytes that broken
