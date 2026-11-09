@@ -144,7 +144,6 @@ func TestReadRequestBodyWithPrealloc_RespectsIdentityEncoding(t *testing.T) {
 	}
 }
 
-
 // The decode path must reject excess data, never silently truncate it into a
 // syntactically valid but incomplete JSON or image payload.
 func TestBoundedDecompressedBodyRejectsOverrunWithoutReturningData(t *testing.T) {

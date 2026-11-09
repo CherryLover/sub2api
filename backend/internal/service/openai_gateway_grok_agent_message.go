@@ -31,8 +31,8 @@ func normalizeGrokDelegatedAgentMessages(body []byte) ([]byte, error) {
 			continue
 		}
 		message, err := json.Marshal(map[string]any{
-			"type": "message",
-			"role": "user",
+			"type":    "message",
+			"role":    "user",
 			"content": content,
 		})
 		if err != nil {
@@ -63,9 +63,9 @@ func grokDelegatedAgentMessageText(content gjson.Result) string {
 	for _, part := range content.Array() {
 		switch part.Get("type").String() {
 		case "text", "input_text":
-			text.WriteString(part.Get("text").String())
+			_, _ = text.WriteString(part.Get("text").String())
 		case "encrypted_content":
-			text.WriteString(part.Get("encrypted_content").String())
+			_, _ = text.WriteString(part.Get("encrypted_content").String())
 		}
 	}
 	return text.String()
