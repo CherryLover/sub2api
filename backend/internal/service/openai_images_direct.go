@@ -268,8 +268,13 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesJSONAsStream(
 	eventName := openAIImagesStreamPrefix(parsed) + ".completed"
 	createdAt := gjson.GetBytes(body, "created").Int()
 	usageRaw := []byte(gjson.GetBytes(body, "usage").Raw)
-	for _, img := range results {
-		payload := buildOpenAIImagesStreamCompletedPayload(eventName, img, parsed.ResponseFormat, createdAt, usageRaw)
+	for i, img := range results {
+		// Emit aggregate usage once, on the final completed image only.
+		var eventUsage []byte
+		if i == len(results)-1 {
+			eventUsage = usageRaw
+		}
+		payload := buildOpenAIImagesStreamCompletedPayload(eventName, img, parsed.ResponseFormat, createdAt, eventUsage)
 		if err := s.writeOpenAIImagesStreamEvent(c, flusher, eventName, payload); err != nil {
 			// The upstream already produced the images; keep them billable.
 			logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Images stream client disconnected while relaying JSON response")

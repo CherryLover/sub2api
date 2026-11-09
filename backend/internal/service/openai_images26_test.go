@@ -25,7 +25,7 @@ func directImagesTestAccount() *Account {
 
 func TestGPTImage26ComplexityAcrossImageEndpoints(t *testing.T) {
 	for _, model := range []string{"gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
-		for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
+		for _, accountType := range []string{AccountTypeOAuth} {
 			for _, format := range []string{"generation", "json-edit", "multipart-edit"} {
 				for _, complexity := range []string{"", "low", "medium", "high"} {
 					t.Run(strings.Join([]string{model, accountType, format, complexity}, "/"), func(t *testing.T) {
@@ -83,6 +83,23 @@ func TestGPTImage26ComplexityAcrossImageEndpoints(t *testing.T) {
 			}
 		}
 	}
+}
+
+// SetupToken is an independent credential type. The lite gateway currently
+// does not accept it on Images: do not silently treat it as refreshable OAuth.
+func TestGPTImage26SetupTokenIsNotSilentlyAcceptedAsOAuth(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2.6-flare","prompt":"draw"}`)
+	c, _ := newOpenAIImagesTestContext(t, body)
+	upstream := &httpUpstreamRecorder{resp: openAIImagesJSONResponse()}
+	svc := newOpenAIImagesTestService(upstream)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	account := directImagesTestAccount()
+	account.Type = AccountTypeSetupToken
+	result, err := svc.ForwardImages(context.Background(), c, account, body, parsed, "")
+	require.Nil(t, result)
+	require.ErrorContains(t, err, "unsupported account type: setup-token")
+	require.Empty(t, upstream.requests)
 }
 
 func TestGPTImage26DoesNotFallbackToResponses(t *testing.T) {

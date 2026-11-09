@@ -1839,6 +1839,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	if err != nil {
 		return nil, err
 	}
+	SetActualOpenAIUpstreamEndpoint(c, upstreamReq.URL.Path)
 	upstreamReq.Header.Set("Content-Type", "application/json")
 	upstreamReq.Header.Set("Accept", "text/event-stream")
 	if direct {
@@ -1933,6 +1934,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 					UpstreamModel:    upstreamModel,
 					Stream:           parsed.Stream,
 					ResponseHeaders:  resp.Header.Clone(),
+					UpstreamEndpoint: upstreamReq.URL.Path,
 					Duration:         time.Since(startTime),
 					FirstTokenMs:     firstTokenMs,
 					ImageCount:       imageCount,
@@ -1981,6 +1983,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		UpstreamModel:    upstreamModel,
 		Stream:           parsed.Stream,
 		ResponseHeaders:  resp.Header.Clone(),
+		UpstreamEndpoint: upstreamReq.URL.Path,
 		Duration:         time.Since(startTime),
 		FirstTokenMs:     firstTokenMs,
 		ImageCount:       imageCount,
