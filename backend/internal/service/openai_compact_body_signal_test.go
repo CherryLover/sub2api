@@ -3,6 +3,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -53,4 +54,18 @@ func TestHasCompactionTriggerInInput_StringInput(t *testing.T) {
 func TestHasCompactionTriggerInInput_CompactTriggerOnly(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.5","input":[{"type":"compaction_trigger"}]}`)
 	require.True(t, HasCompactionTriggerInInput(body))
+}
+
+func TestHasCompactionTriggerInInput_UnicodeEscapedMarker(t *testing.T) {
+	// A JSON escape can hide the literal marker from the cheap byte check.
+	body := []byte(`{"input":[{"type":"compaction_\u0074rigger"}]}`)
+	require.True(t, HasCompactionTriggerInInput(body))
+}
+
+func TestHasCompactionTriggerInInput_NonCandidateLargeBody(t *testing.T) {
+	body := []byte(`{"input":[{"type":"message","role":"user","content":"` + strings.Repeat("text", 20000) + `"}]}`)
+	require.False(t, HasCompactionTriggerInInput(body))
+	// A message merely mentioning the marker is not a trigger.
+	body = []byte(`{"input":[{"type":"message","role":"user","content":"compaction_trigger"}]}`)
+	require.False(t, HasCompactionTriggerInInput(body))
 }
