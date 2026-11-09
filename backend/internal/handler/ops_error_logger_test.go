@@ -958,7 +958,6 @@ func TestClassifyOpsLocalBusinessLimitErrorsExcludedFromSLA(t *testing.T) {
 			wantErrType: "invalid_request_error",
 			wantPhase:   "request",
 		},
-
 	}
 
 	for _, tt := range tests {
