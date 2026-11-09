@@ -879,6 +879,10 @@ export default {
         responsesModeForceResponses: '强制 Responses',
         responsesModeForceChatCompletions: '强制 Chat Completions',
         responsesModeTextDisabledHint: '未启用 Responses / Chat Completions 端点时，此设置不适用。',
+        imageSizeTiers: '生图尺寸档位',
+        imageSizeTiersDesc:
+          '限制账号承接的图片尺寸档位。明确尺寸只调度到允许的账号；自动尺寸优先不限档位账号，再尝试 4K、2K、1K；全选表示不限。',
+        imageSizeTiersAtLeastOne: '至少保留一个档位',
         endpointCapabilities: '端点能力',
         endpointCapabilitiesDesc:
           '用于调度筛选。文本端点会跟随上方 Responses API 支持显示为 Responses、Chat Completions 或自动模式；Embeddings 独立控制 /v1/embeddings。',
