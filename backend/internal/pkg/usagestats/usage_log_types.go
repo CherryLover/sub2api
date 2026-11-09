@@ -280,6 +280,7 @@ type UsageLogFilters struct {
 	Stream                *bool
 	BillingType           *int8
 	BillingMode           string
+	RoutingMethod         string
 	UpstreamModelMismatch *bool
 	StartTime             *time.Time
 	EndTime               *time.Time

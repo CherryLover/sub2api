@@ -1577,7 +1577,70 @@ export interface UsageLogAccountSummary {
   name: string
 }
 
+// ==================== 调度可视化（选号诊断 / 选号信息） ====================
+// 字段名与后端 backend/internal/service/routing_observer.go 的 json tag 一一对应。
+
+/** 账号检查关卡名：平台 / 状态 / 额度 / 模型 / 空位 */
+export type RoutingGate = 'platform' | 'schedulable' | 'quota' | 'model' | 'capacity'
+
+/** 上游失败后接下来怎么办 */
+export type RoutingNext = 'same_account' | 'switch' | 'give_up'
+
+/** 成功请求的选号方式 */
+export type RoutingMethod = 'load_balance' | 'sticky' | 'single'
+
+/** 用量明细「选号方式」筛选值（后端 routing_method 查询参数） */
+export type RoutingMethodFilter = 'load_balance' | 'sticky' | 'switched' | 'queued'
+
+export interface RoutingCandidate {
+  account_id: number
+  account_name: string
+  platform?: string
+  /** 关卡 -> 是否通过；未检查到的关卡不出现 */
+  checks?: Partial<Record<RoutingGate, boolean>> & Record<string, boolean>
+  /** 没选它的原因代码；选中的账号为空 */
+  reason?: string
+  recover_at?: string | null
+  load_current: number
+  load_max: number
+  chosen?: boolean
+}
+
+export interface RoutingAttempt {
+  attempt: number
+  account_id: number
+  account_name: string
+  /** 0 表示网络错误 / 没有响应 */
+  status_code: number
+  duration_ms: number
+  next?: RoutingNext | string
+}
+
+/** 失败请求的选号诊断（ops_error_logs.routing_diagnosis） */
+export interface RoutingDiagnosis {
+  group_id?: number
+  group_name?: string
+  model?: string
+  pool_size: number
+  candidates: RoutingCandidate[] | null
+  attempts?: RoutingAttempt[] | null
+  reason?: string
+  raw?: string
+}
+
+/** 成功请求的选号信息（usage_logs.routing_info） */
+export interface RoutingInfo {
+  method: RoutingMethod | string
+  candidate_count: number
+  candidates?: RoutingCandidate[] | null
+  queue_wait_ms?: number
+  attempts?: RoutingAttempt[] | null
+}
+
 export interface AdminUsageLog extends UsageLog {
+  // 选号信息；旧数据或未记录时为 null
+  routing_info?: RoutingInfo | null
+
   upstream_model?: string | null
   upstream_response_model?: string | null
   upstream_model_mismatch?: boolean | null
@@ -1881,6 +1944,7 @@ export interface UsageQueryParams {
   stream?: boolean
   billing_type?: number | null
   billing_mode?: string | null
+  routing_method?: 'load_balance' | 'sticky' | 'switched' | 'queued'
   start_date?: string
   end_date?: string
   timezone?: string

@@ -112,6 +112,13 @@ func (h *UsageHandler) List(c *gin.Context) {
 	model := c.Query("model")
 	requestID := strings.TrimSpace(c.Query("request_id"))
 	billingMode := strings.TrimSpace(c.Query("billing_mode"))
+	routingMethod := strings.TrimSpace(c.Query("routing_method"))
+	switch routingMethod {
+	case "", "load_balance", "sticky", "switched", "queued":
+	default:
+		response.BadRequest(c, "Invalid routing_method value, use load_balance, sticky, switched or queued")
+		return
+	}
 
 	var requestType *int16
 	var stream *bool
@@ -194,6 +201,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 		Stream:                stream,
 		BillingType:           billingType,
 		BillingMode:           billingMode,
+		RoutingMethod:         routingMethod,
 		UpstreamModelMismatch: upstreamModelMismatch,
 		StartTime:             startTime,
 		EndTime:               endTime,

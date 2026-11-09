@@ -38,6 +38,7 @@ func ProvideAdminHandlers(
 	channelHandler *admin.ChannelHandler,
 	promptAuditHandler *securityaudit.PromptAdminHandler,
 	auditLogHandler *admin.AuditLogHandler,
+	topologyHandler *admin.TopologyHandler,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	openAIGatewayService *service.OpenAIGatewayService,
@@ -75,6 +76,7 @@ func ProvideAdminHandlers(
 		Channel:               channelHandler,
 		PromptAudit:           promptAuditHandler,
 		AuditLog:              auditLogHandler,
+		Topology:              topologyHandler,
 	}
 }
 
@@ -228,6 +230,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewScheduledTestHandler,
 	admin.NewChannelHandler,
 	admin.NewAuditLogHandler,
+	admin.NewTopologyHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

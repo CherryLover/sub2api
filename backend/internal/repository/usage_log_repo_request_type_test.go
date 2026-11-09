@@ -99,6 +99,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
 			sqlmock.AnyArg(), // session_id
+			sqlmock.AnyArg(), // routing_info
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(99), createdAt))
@@ -191,6 +192,7 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
 			sqlmock.AnyArg(), // session_id
+			sqlmock.AnyArg(), // routing_info
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(100), createdAt))
@@ -341,6 +343,69 @@ func TestAppendUsageLogBillingModeQueryFilter(t *testing.T) {
 
 	require.Equal(t, "SELECT * FROM usage_logs WHERE user_id = $1 AND (billing_mode = $2 OR ((billing_mode IS NULL OR billing_mode = '') AND COALESCE(image_count, 0) <= 0))", query)
 	require.Equal(t, []any{int64(42), string(service.BillingModeToken)}, args)
+}
+
+func TestAppendUsageLogRoutingMethodWhereCondition(t *testing.T) {
+	tests := []struct {
+		name     string
+		method   string
+		want     string
+		wantArgs []any
+	}{
+		{
+			name:     "load balance",
+			method:   "load_balance",
+			want:     "routing_info->>'method' = $1",
+			wantArgs: []any{"load_balance"},
+		},
+		{
+			name:     "sticky",
+			method:   " sticky ",
+			want:     "routing_info->>'method' = $1",
+			wantArgs: []any{"sticky"},
+		},
+		{
+			name:   "switched",
+			method: "switched",
+			want:   "COALESCE(jsonb_array_length(routing_info->'attempts'), 0) > 1",
+		},
+		{
+			name:   "queued",
+			method: "queued",
+			want:   "COALESCE((routing_info->>'queue_wait_ms')::bigint, 0) > 0",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			conditions, args := appendUsageLogRoutingMethodWhereCondition(nil, nil, tc.method)
+			require.Equal(t, []string{tc.want}, conditions)
+			require.Equal(t, tc.wantArgs, args)
+		})
+	}
+}
+
+func TestUsageLogRepositoryListWithFiltersRoutingMethod(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+
+	filters := usagestats.UsageLogFilters{
+		RoutingMethod: "switched",
+		ExactTotal:    true,
+	}
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM usage_logs WHERE COALESCE\(jsonb_array_length\(routing_info->'attempts'\), 0\) > 1`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
+	mock.ExpectQuery(`SELECT .* FROM usage_logs WHERE COALESCE\(jsonb_array_length\(routing_info->'attempts'\), 0\) > 1 ORDER BY id DESC LIMIT \$1 OFFSET \$2`).
+		WithArgs(20, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	logs, page, err := repo.ListWithFilters(context.Background(), pagination.PaginationParams{Page: 1, PageSize: 20}, filters)
+	require.NoError(t, err)
+	require.Empty(t, logs)
+	require.NotNil(t, page)
+	require.Equal(t, int64(0), page.Total)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func anySliceToDriverValues(values []any) []driver.Value {
@@ -839,6 +904,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullFloat64{},
 			sql.NullString{},
+			sql.NullString{}, // routing_info
 			now,
 		}})
 		require.NoError(t, err)
@@ -916,6 +982,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
 			sql.NullString{},  // session_id
+			sql.NullString{},  // routing_info
 			now,
 		}})
 		require.NoError(t, err)
@@ -976,6 +1043,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
 			sql.NullString{},  // session_id
+			sql.NullString{},  // routing_info
 			now,
 		}})
 		require.NoError(t, err)
@@ -1036,11 +1104,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
 			sql.NullString{},  // session_id
+			sql.NullString{},  // routing_info
 			now,
 		}})
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
 		require.Equal(t, "priority", *log.ServiceTier)
 	})
-
 }

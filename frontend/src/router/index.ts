@@ -339,6 +339,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/topology',
+    name: 'AdminTopology',
+    component: () => import('@/views/admin/TopologyView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Routing Topology',
+      titleKey: 'admin.topology.title',
+      descriptionKey: 'admin.topology.description'
+    }
+  },
+  {
     path: '/admin/usage',
     name: 'AdminUsage',
     component: () => import('@/views/admin/UsageView.vue'),

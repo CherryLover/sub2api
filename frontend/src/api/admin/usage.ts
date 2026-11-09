@@ -5,7 +5,7 @@
 
 import { apiClient } from '../client'
 import type { AdminUsageLog, UsageQueryParams, PaginatedResponse, UsageRequestType } from '@/types'
-import type { EndpointStat } from '@/types'
+import type { EndpointStat, RoutingMethodFilter } from '@/types'
 
 // ==================== Types ====================
 
@@ -93,6 +93,8 @@ export interface AdminUsageQueryParams extends UsageQueryParams {
   status_code?: number | null
   // 请求体大小下限(字节),仅错误请求 tab 使用
   min_request_body_bytes?: number | null
+  // 选号方式筛选,仅用量明细列表使用
+  routing_method?: RoutingMethodFilter
 }
 
 // ==================== API Functions ====================
