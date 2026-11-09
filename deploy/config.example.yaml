@@ -529,6 +529,9 @@ gateway:
   # SSE 单行最大字节数（默认 40MB）
   max_line_size: 41943040
   # Total size of an individual SSE event, bytes; 0 inherits max_line_size.
+  # Per-response buffered SSE queue budget (bytes, default 8 MiB).
+  # Backpressures upstream scanners; large lines are separately bounded.
+  sse_queue_max_bytes: 8388608
   sse_event_max_bytes: 0
   # Maximum non-empty lines in a single SSE event.
   sse_event_max_lines: 4096

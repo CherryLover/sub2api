@@ -6,12 +6,68 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-const defaultSSEEventMaxLines = 4096
+const (
+	defaultSSEEventMaxLines = 4096
+	defaultSSEQueueMaxBytes = 8 << 20
+)
+
+// sseQueueBudget bounds buffered SSE line retention in one response pump. A
+// line larger than the cap is charged at the cap, so it can pass alone while
+// the bounded scanner/event limits enforce the absolute input size.
+type sseQueueBudget struct {
+	limit     int64
+	used      atomic.Int64
+	available chan struct{}
+}
+
+func newSSEQueueBudget(cfg *config.Config) *sseQueueBudget {
+	limit := int64(defaultSSEQueueMaxBytes)
+	if cfg != nil && cfg.Gateway.SSEQueueMaxBytes > 0 {
+		limit = cfg.Gateway.SSEQueueMaxBytes
+	}
+	return &sseQueueBudget{limit: limit, available: make(chan struct{}, 1)}
+}
+
+func (b *sseQueueBudget) weight(size int) int64 {
+	return min(int64(max(size, 0)), b.limit)
+}
+
+func (b *sseQueueBudget) acquire(size int, done <-chan struct{}) bool {
+	weight := b.weight(size)
+	for {
+		select {
+		case <-done:
+			return false
+		default:
+		}
+		used := b.used.Load()
+		if weight <= b.limit-used && b.used.CompareAndSwap(used, used+weight) {
+			return true
+		}
+		select {
+		case <-done:
+			return false
+		case <-b.available:
+		}
+	}
+}
+
+func (b *sseQueueBudget) release(size int) {
+	if size <= 0 {
+		return
+	}
+	b.used.Add(-b.weight(size))
+	select {
+	case b.available <- struct{}{}:
+	default:
+	}
+}
 
 var errSSETransportLimit = errors.New("upstream SSE transport limit exceeded")
 
