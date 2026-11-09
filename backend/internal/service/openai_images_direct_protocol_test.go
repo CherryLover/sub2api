@@ -77,12 +77,18 @@ func TestCodexDirectImagesForwardJSONToSSEGenerationAndEdit(t *testing.T) {
 					if edit {
 						prefix = "image_edit.completed"
 					}
-					for _, e := range events {
+					for i, e := range events {
 						require.True(t, gjson.Valid(e.Data))
 						require.Equal(t, prefix, gjson.Get(e.Data, "type").String())
 						require.Equal(t, "gpt-image-2", gjson.Get(e.Data, "model").String())
 						require.Equal(t, png, gjson.Get(e.Data, "b64_json").String())
-						require.Equal(t, int64(24), gjson.Get(e.Data, "usage.output_tokens").Int())
+						// Upstream usage is aggregate for the entire image batch.
+						// Deliver it exactly once, on the final completion event.
+						if i == len(events)-1 {
+							require.Equal(t, int64(24), gjson.Get(e.Data, "usage.output_tokens").Int())
+						} else {
+							require.False(t, gjson.Get(e.Data, "usage").Exists(), "aggregate usage cannot repeat per image")
+						}
 						require.NotContains(t, e.Data, "\n")
 					}
 				} else {
