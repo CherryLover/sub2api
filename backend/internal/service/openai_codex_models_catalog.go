@@ -389,6 +389,14 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		}
 	}
 
+	if openai.IsGPT61TerraModelSpelling(modelID) {
+		// Overlay the official Codex model description. This intentionally
+		// differs from API pricing/effort validation (API still accepts none).
+		if err := json.Unmarshal(openai.CodexGPT61TerraMetadata, &descriptor); err != nil {
+			panic(fmt.Errorf("invalid bundled GPT-6.1 Terra Codex descriptor: %w", err))
+		}
+		descriptor.Slug = modelID
+	}
 	return descriptor
 }
 

@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -63,4 +64,16 @@ func TestDefaultModelsIncludeGPTImage25And26(t *testing.T) {
 	for _, model := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
 		require.Contains(t, DefaultModelIDs(), model)
 	}
+}
+
+func TestCodexBaseInstructionsForTerraOfficialDescriptor(t *testing.T) {
+	var descriptor struct {
+		ModelMessages struct {
+			InstructionsTemplate string `json:"instructions_template"`
+		} `json:"model_messages"`
+	}
+	require.NoError(t, json.Unmarshal(CodexGPT61TerraMetadata, &descriptor))
+	require.NotEmpty(t, descriptor.ModelMessages.InstructionsTemplate)
+	require.Equal(t, descriptor.ModelMessages.InstructionsTemplate, CodexBaseInstructionsForModel("openai/GPT-6.1-TERRA"))
+	require.NotEqual(t, CodexBaseInstructionsForModel("gpt-5.5"), CodexBaseInstructionsForModel("gpt-6.1-terra"))
 }
