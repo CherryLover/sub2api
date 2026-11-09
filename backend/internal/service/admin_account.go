@@ -99,16 +99,18 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	"crs_kind":       {},
 	"crs_synced_at":  {},
 	// Local quota usage and derived window timestamps must start fresh.
-	"quota_used":             {},
-	"quota_daily_used":       {},
-	"quota_weekly_used":      {},
-	"quota_monthly_used":     {},
-	"quota_daily_start":      {},
-	"quota_weekly_start":     {},
-	"quota_monthly_start":    {},
-	"quota_daily_reset_at":   {},
-	"quota_weekly_reset_at":  {},
-	"quota_monthly_reset_at": {},
+	"quota_used":                   {},
+	"quota_daily_used":             {},
+	"quota_weekly_used":            {},
+	"quota_monthly_used":           {},
+	"quota_daily_start":            {},
+	"quota_weekly_start":           {},
+	"quota_monthly_start":          {},
+	"quota_daily_reset_at":         {},
+	"quota_weekly_reset_at":        {},
+	"quota_monthly_reset_at":       {},
+	"quota_monthly_prorated_limit": {},
+	"quota_monthly_prorated_until": {},
 	// Provider observations, capability probes, and transient scheduling state.
 	"model_rate_limits":                      {},
 	"session_window_utilization":             {},
@@ -441,6 +443,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		}
 		ComputeQuotaResetAt(account.Extra)
 		NormalizeFixedQuotaWindows(account.Extra)
+		applyMonthlyQuotaProration(nil, account.Extra, time.Now())
 	}
 	if input.ExpiresAt != nil && *input.ExpiresAt > 0 {
 		expiresAt := time.Unix(*input.ExpiresAt, 0)
@@ -623,6 +626,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	requestedProbeEnabledUpdate := input.ProbeEnabled
 	requestedRateSyncEnabledUpdate := input.RateSyncEnabled
 	if input.Extra != nil {
+		oldExtra := account.Extra
 		requestedProbeEnabled, hasRequestedProbeEnabled := normalizedExtra[UpstreamBillingProbeEnabledExtraKey]
 		if hasRequestedProbeEnabled {
 			enabled, ok := requestedProbeEnabled.(bool)
@@ -649,6 +653,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			"quota_weekly_start",
 			"quota_monthly_used",
 			"quota_monthly_start",
+			"quota_monthly_prorated_limit",
+			"quota_monthly_prorated_until",
 			grokBillingExtraKey,
 			UpstreamBillingProbeEnabledExtraKey,
 			UpstreamBillingRateSyncEnabledExtraKey,
@@ -680,6 +686,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		ComputeQuotaResetAt(account.Extra)
 		NormalizeFixedQuotaWindows(account.Extra)
+		applyMonthlyQuotaProration(oldExtra, account.Extra, time.Now())
 	}
 	if input.Extra == nil {
 		account.Extra = prepareCodexFingerprintExtraForUpdate(account, account.Extra)

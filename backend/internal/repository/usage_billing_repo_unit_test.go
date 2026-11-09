@@ -34,6 +34,26 @@ func TestAccountQuotaIncrementSQLs_GuardOmittedDimensions(t *testing.T) {
 	}
 }
 
+func TestAccountQuotaIncrementSQLs_ReturnEffectiveMonthlyLimit(t *testing.T) {
+	require.Contains(t, accountQuotaIncrementReturning, accountQuotaMonthlyEffectiveLimitExpr)
+	require.Contains(t, accountQuotaIncrementReturning, "COALESCE(" + accountQuotaMonthlyEffectiveLimitExpr + ", 0)")
+	require.Contains(t, accountQuotaMonthlyEffectiveLimitExpr, "(extra->>'quota_monthly_prorated_until')::timestamptz > NOW()")
+	require.Contains(t, accountQuotaMonthlyEffectiveLimitExpr, "quota_monthly_prorated_limit")
+	require.Contains(t, accountQuotaMonthlyEffectiveLimitExpr, "quota_monthly_limit")
+	require.Contains(t, accountQuotaMonthlyEffectiveLimitExpr, "COALESCE(extra->>'quota_monthly_reset_mode', 'rolling') = 'fixed'")
+	require.Contains(t, accountQuotaMonthlyEffectiveLimitExpr, "jsonb_typeof(extra->'quota_monthly_prorate') = 'boolean'")
+	require.Contains(t, accountQuotaMonthlyEffectiveLimitExpr, "NULLIF(extra->>'quota_monthly_prorated_until', '') ~")
+	require.Contains(t, accountQuotaMonthlyEffectiveLimitExpr, ">= 0")
+	for _, daily := range []bool{false, true} {
+		for _, weekly := range []bool{false, true} {
+			for _, monthly := range []bool{false, true} {
+				query := accountQuotaIncrementSQLs[accountQuotaIncrementSQLIndex(daily, weekly, monthly)]
+				require.Contains(t, query, accountQuotaMonthlyEffectiveLimitExpr)
+			}
+		}
+	}
+}
+
 func TestIncrementUsageBillingAccountQuota_UsesStatementMatchingHints(t *testing.T) {
 	ctx := context.Background()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
@@ -147,6 +167,8 @@ func TestFilterSchedulerExtra_MonthlyQuotaContract(t *testing.T) {
 		"quota_monthly_start": "2026-01-01T00:00:00Z", "quota_monthly_reset_mode": "fixed",
 		"quota_monthly_reset_day": 31, "quota_monthly_reset_hour": 2,
 		"quota_monthly_reset_at": "2026-02-28T02:00:00Z", "quota_reset_timezone": "UTC",
+		"quota_monthly_prorate": true, "quota_monthly_prorated_limit": 25.0,
+		"quota_monthly_prorated_until": "2026-02-28T02:00:00Z",
 		"quota_daily_reset_at": "daily", "quota_weekly_reset_at": "weekly",
 	}
 	require.Equal(t, extra, filterSchedulerExtra(extra))

@@ -242,6 +242,26 @@ const accountQuotaMonthlyIncrementExpr = `
                     ELSE '{}'::jsonb END
             ELSE '{}'::jsonb END`
 
+// accountQuotaMonthlyEffectiveLimitExpr returns the raw monthly limit unless a
+// future-dated, non-negative prorated limit applies to a fixed reset window.
+const accountQuotaMonthlyEffectiveLimitExpr = `(
+            CASE WHEN COALESCE(extra->>'quota_monthly_reset_mode', 'rolling') = 'fixed'
+                AND COALESCE(CASE
+                    WHEN jsonb_typeof(extra->'quota_monthly_prorate') = 'boolean'
+                    THEN (extra->>'quota_monthly_prorate')::boolean
+                    ELSE false END, false)
+                AND CASE
+                    WHEN NULLIF(extra->>'quota_monthly_prorated_until', '') ~ '^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$'
+                    THEN (extra->>'quota_monthly_prorated_until')::timestamptz > NOW()
+                    ELSE false END
+                AND CASE
+                    WHEN jsonb_typeof(extra->'quota_monthly_prorated_limit') = 'number'
+                    THEN (extra->>'quota_monthly_prorated_limit')::numeric >= 0
+                    ELSE false END
+            THEN COALESCE((extra->>'quota_monthly_prorated_limit')::numeric, (extra->>'quota_monthly_limit')::numeric)
+            ELSE (extra->>'quota_monthly_limit')::numeric END
+        )`
+
 // accountQuotaExtraIsObjectCond 要求 extra 为 JSON 对象：省略某个维度的语句只在对象上与完整语句等价。
 //
 // accountQuotaDailyLimitUnsetCond / accountQuotaWeeklyLimitUnsetCond 在库中未设置日/周上限时为真：
@@ -269,7 +289,7 @@ const accountQuotaIncrementReturning = `
 			COALESCE((extra->>'quota_weekly_used')::numeric, 0),
 			COALESCE((extra->>'quota_weekly_limit')::numeric, 0),
             COALESCE((extra->>'quota_monthly_used')::numeric, 0),
-            COALESCE((extra->>'quota_monthly_limit')::numeric, 0)`
+            COALESCE(` + accountQuotaMonthlyEffectiveLimitExpr + `, 0)`
 
 // accountQuotaIncrementSQLs 按 accountQuotaIncrementSQLIndex 存放账号配额累加语句。省略日、周或月维度的语句
 // 在 WHERE 中附加 accountQuotaExtraIsObjectCond 与被省略维度的未设置条件，条件不成立时命中 0 行；

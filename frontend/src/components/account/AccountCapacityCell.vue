@@ -56,7 +56,13 @@
     <!-- API Key 账号配额限制 -->
     <QuotaBadge v-if="showDailyQuota" :used="account.quota_daily_used ?? 0" :limit="account.quota_daily_limit!" label="D" />
     <QuotaBadge v-if="showWeeklyQuota" :used="account.quota_weekly_used ?? 0" :limit="account.quota_weekly_limit!" label="W" />
-    <QuotaBadge v-if="showMonthlyQuota" :used="account.quota_monthly_used ?? 0" :limit="account.quota_monthly_limit!" label="M" />
+    <QuotaBadge
+      v-if="showMonthlyQuota"
+      :used="account.quota_monthly_used ?? 0"
+      :limit="monthlyQuotaLimit!"
+      label="M"
+      :note="monthlyProrationActive ? t('admin.accounts.quotaMonthlyProratedBadge') : null"
+    />
     <QuotaBadge v-if="showTotalQuota" :used="account.quota_used ?? 0" :limit="account.quota_limit!" />
   </div>
 </template>
@@ -68,6 +74,7 @@ import { adminAPI } from '@/api/admin'
 import type { AccountRecentRequestsResponse } from '@/api/admin/accounts'
 import type { Account } from '@/types'
 import { supportsAccountQuota } from '@/utils/accountQuota'
+import { isMonthlyProrationActive } from '@/utils/monthlyQuotaProration'
 import CapacityBadge from '@/components/account/CapacityBadge.vue'
 import QuotaBadge from '@/components/account/QuotaBadge.vue'
 
@@ -328,6 +335,14 @@ const showWeeklyQuota = computed(() =>
 const showMonthlyQuota = computed(() =>
   isQuotaEligible.value && props.account.quota_monthly_limit != null && props.account.quota_monthly_limit > 0
 )
+const monthlyQuotaLimit = computed(() =>
+  props.account.quota_monthly_effective_limit ?? props.account.quota_monthly_limit
+)
+const monthlyProrationActive = computed(() => isMonthlyProrationActive({
+  prorate: props.account.quota_monthly_prorate,
+  proratedLimit: props.account.quota_monthly_prorated_limit,
+  proratedUntil: props.account.quota_monthly_prorated_until,
+}, new Date()))
 const showTotalQuota = computed(() =>
   isQuotaEligible.value && props.account.quota_limit != null && props.account.quota_limit > 0
 )
