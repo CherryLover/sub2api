@@ -127,7 +127,13 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		"poll_url":   pollURL,
 	})
 
-	go h.run(task.ID, platform, taskCtx, recorder, cancel)
+	// The background executor may still reference the request body after the
+	// submission handler finishes. Hold its reservation through task execution.
+	releaseInputBodyBudget := pkghttputil.RetainRequestBodyMemoryBudget(c.Request.Context())
+	go func() {
+		defer releaseInputBodyBudget()
+		h.run(task.ID, platform, taskCtx, recorder, cancel)
+	}()
 }
 
 func (h *AsyncImageHandler) checkSecurityAuditBeforeSubmit(c *gin.Context, apiKey *service.APIKey, platform string, body []byte) bool {

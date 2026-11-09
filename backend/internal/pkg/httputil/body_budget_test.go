@@ -90,3 +90,27 @@ func TestMemoryBudgetDisabledPreservesExistingBodyBehavior(t *testing.T) {
 		t.Fatalf("disabled budget changed legacy behavior: %d, %v", len(data), err)
 	}
 }
+
+func TestRequestBodyMemoryBudgetRetainedByAsyncTask(t *testing.T) {
+	budget := NewBodyMemoryBudget(1024)
+	ctx, finishHTTP := WithRequestBodyMemoryBudget(context.Background(), budget)
+	input := httptest.NewRequest("POST", "/", bytes.NewReader(bytes.Repeat([]byte{'x'}, 700))).WithContext(ctx)
+	body, err := ReadRequestBodyWithPrealloc(input)
+	if err != nil || len(body) != 700 {
+		t.Fatalf("initial async input: len=%d err=%v", len(body), err)
+	}
+	finishAsync := RetainRequestBodyMemoryBudget(ctx)
+	finishHTTP()
+	finishHTTP()
+	anotherCtx, finishOther := WithRequestBodyMemoryBudget(context.Background(), budget)
+	defer finishOther()
+	other := httptest.NewRequest("POST", "/", bytes.NewReader(bytes.Repeat([]byte{'y'}, 700))).WithContext(anotherCtx)
+	if _, err := ReadRequestBodyWithPrealloc(other); !errors.Is(err, ErrRequestBodyMemoryBudget) {
+		t.Fatalf("async input was prematurely unreserved: %v", err)
+	}
+	finishAsync()
+	finishAsync()
+	if _, err := ReadRequestBodyWithPrealloc(other); err != nil {
+		t.Fatalf("async task did not release body allocation: %v", err)
+	}
+}
