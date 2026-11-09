@@ -591,6 +591,22 @@ const SignalIcon = {
     )
 }
 
+// 调度拓扑：左侧多条线汇入、右侧分出去的分流图标
+const TopologyIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M3 6h3.5c2 0 3 1.5 4 3l1 1.5M3 18h3.5c2 0 3-1.5 4-3l1-1.5M11.5 12H21m0 0l-2.5-2.5M21 12l-2.5 2.5M14 6h4.5m0 0L16 3.5M18.5 6L16 8.5M14 18h4.5m0 0L16 15.5m2.5 2.5L16 20.5'
+        })
+      ]
+    )
+}
+
 const ShieldIcon = {
   render: () =>
     h(
@@ -728,6 +744,8 @@ function buildAdminNavCatalog(): Record<string, NavItem> {
         { path: '/admin/prompt-audit', label: t('nav.promptAudit'), icon: ShieldIcon },
       ],
     },
+    // 调度拓扑：实时看请求怎么分到账号，属于进阶排查页，简单模式不显示（保持简单模式列表不变）。
+    topology: { path: '/admin/topology', label: t('nav.topology'), icon: TopologyIcon, hideInSimpleMode: true },
     usage: { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
     auditLogs: { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true },
     settings: { path: '/admin/settings', label: t('nav.settings'), icon: CogIcon },
@@ -766,7 +784,7 @@ const adminNavSections = computed((): NavSection[] => {
     {
       key: AdminNavSectionKeys.runtime,
       label: t('nav.groupRuntime'),
-      items: [c.dashboard, c.ops, c.upstreamErrors, c.usage],
+      items: [c.dashboard, c.ops, c.upstreamErrors, c.topology, c.usage],
     },
     {
       key: AdminNavSectionKeys.access,
