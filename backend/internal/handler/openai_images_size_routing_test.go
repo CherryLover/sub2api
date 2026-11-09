@@ -35,20 +35,20 @@ func newOpenAIImagesSizeRoutingTestHandler(t *testing.T, accounts []service.Acco
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	gatewayService := service.NewOpenAIGatewayService(
 		openAIImagesSizeRoutingAccountRepo{openAIImagesFailoverAccountRepo{accounts: accounts}},
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil,
 		cfg,
 		nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil,
 	)
-	billingService := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	billingService := service.NewBillingCacheService(nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingService.Stop)
 	handler := NewOpenAIGatewayHandler(
 		gatewayService,
 		service.NewConcurrencyService(nil),
 		billingService,
-		service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg),
-		nil, nil, nil, nil,
+		service.NewAPIKeyService(nil, nil, nil, nil, nil, cfg),
+		nil, nil, nil,
 		cfg,
 	)
 	handler.maxAccountSwitches = 10

@@ -381,8 +381,13 @@ func TestSelectAccountWithScheduler_PreviousResponseAccountUnderSizeRouting(t *t
 			}
 			for i := range accounts {
 				accounts[i].GroupIDs = []int64{groupID}
+				accounts[i].Extra["openai_apikey_responses_websockets_v2_enabled"] = true
 			}
 			svc := newOpenAIImageSizeSchedulerTestService(mode, accounts, nil, schedulerTestConcurrencyCache{})
+			// A previous_response_id owner is valid only when WSv2 was negotiated.
+			svc.cfg.Gateway.OpenAIWS.Enabled = true
+			svc.cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+			svc.cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
 			require.NoError(t, svc.getOpenAIWSStateStore().BindResponseAccount(context.Background(), groupID, "resp_image_size", 81102, time.Hour))
 
 			selectWithSize := func(size string) int64 {
@@ -457,6 +462,25 @@ func TestSelectOpenAIAccountByImageSizePasses_ReturnsEarliestWaitPlan(t *testing
 	require.Equal(t, 2, calls, "the unrestricted pass jumps straight to the 1K-only rank")
 }
 
+// The lite model-availability test repository must implement the optional
+// query explicitly rather than dispatching through a nil embedded interface.
+type imageSizeModelAvailabilityRepo struct {
+	schedulerTestOpenAIAccountRepo
+}
+
+func (r imageSizeModelAvailabilityRepo) ListModelAvailabilityCandidates(_ context.Context, _ *int64, platforms []string, _ bool) ([]Account, error) {
+	var out []Account
+	for _, account := range r.accounts {
+		for _, platform := range platforms {
+			if account.Platform == platform {
+				out = append(out, account)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 func TestOpenAIImageSizeTierUnsupported(t *testing.T) {
 	groupID := int64(93007)
 	lowOnly := newOpenAIImageSizeTestAccount(81091, 0, "1K", "2K")
@@ -464,7 +488,7 @@ func TestOpenAIImageSizeTierUnsupported(t *testing.T) {
 	textOnly := newOpenAIImageSizeTestAccount(81093, 0)
 	textOnly.Credentials = map[string]any{"model_mapping": map[string]any{"gpt-5.4": "gpt-5.4"}}
 
-	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{lowOnly, textOnly}}}
+	svc := &OpenAIGatewayService{accountRepo: imageSizeModelAvailabilityRepo{schedulerTestOpenAIAccountRepo{accounts: []Account{lowOnly, textOnly}}}}
 	tier, unsupported := svc.OpenAIImageSizeTierUnsupported(context.Background(), &groupID, "gpt-image-2", "3840x2160", "", OpenAIImagesCapabilityNative)
 	require.True(t, unsupported)
 	require.Equal(t, "4K", tier)
@@ -474,17 +498,17 @@ func TestOpenAIImageSizeTierUnsupported(t *testing.T) {
 	_, unsupported = svc.OpenAIImageSizeTierUnsupported(context.Background(), &groupID, "gpt-image-2", "auto", "", OpenAIImagesCapabilityNative)
 	require.False(t, unsupported)
 
-	svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{lowOnly, highOnly}}
+	svc.accountRepo = imageSizeModelAvailabilityRepo{schedulerTestOpenAIAccountRepo{accounts: []Account{lowOnly, highOnly}}}
 	_, unsupported = svc.OpenAIImageSizeTierUnsupported(context.Background(), &groupID, "gpt-image-2", "3840x2160", "", OpenAIImagesCapabilityNative)
 	require.False(t, unsupported)
 
-	svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{textOnly}}
+	svc.accountRepo = imageSizeModelAvailabilityRepo{schedulerTestOpenAIAccountRepo{accounts: []Account{textOnly}}}
 	_, unsupported = svc.OpenAIImageSizeTierUnsupported(context.Background(), &groupID, "gpt-image-2", "3840x2160", "", OpenAIImagesCapabilityNative)
 	require.False(t, unsupported, "no account serves the model: leave classification to model_not_found")
 
 	chatOnly := newOpenAIImageSizeTestAccount(81094, 0)
 	chatOnly.Extra["openai_responses_supported"] = false
-	svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{chatOnly, lowOnly}}
+	svc.accountRepo = imageSizeModelAvailabilityRepo{schedulerTestOpenAIAccountRepo{accounts: []Account{chatOnly, lowOnly}}}
 	_, unsupported = svc.OpenAIImageSizeTierUnsupported(context.Background(), &groupID, "gpt-5.4", "3840x2160", OpenAIEndpointCapabilityResponses, "")
 	require.True(t, unsupported, "an unrestricted account without the Responses capability cannot serve the request")
 	_, unsupported = svc.OpenAIImageSizeTierUnsupported(context.Background(), &groupID, "gpt-5.4", "3840x2160", OpenAIEndpointCapabilityChatCompletions, "")
