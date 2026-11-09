@@ -347,10 +347,10 @@ func TestAppendUsageLogBillingModeQueryFilter(t *testing.T) {
 
 func TestAppendUsageLogRoutingMethodWhereCondition(t *testing.T) {
 	tests := []struct {
-		name       string
-		method     string
-		want       string
-		wantArgs   []any
+		name     string
+		method   string
+		want     string
+		wantArgs []any
 	}{
 		{
 			name:     "load balance",
@@ -904,6 +904,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullFloat64{},
 			sql.NullString{},
+			sql.NullString{}, // routing_info
 			now,
 		}})
 		require.NoError(t, err)
@@ -1110,5 +1111,4 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 		require.NotNil(t, log.ServiceTier)
 		require.Equal(t, "priority", *log.ServiceTier)
 	})
-
 }

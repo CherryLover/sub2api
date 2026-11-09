@@ -69,4 +69,3 @@ func TestRoutingInfoFromNullJSON(t *testing.T) {
 	require.Equal(t, 1, got.CandidateCount)
 	require.Equal(t, int64(12), got.QueueWaitMs)
 }
-
