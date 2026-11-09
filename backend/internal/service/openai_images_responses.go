@@ -1804,7 +1804,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	// Roll out native Codex Images per account. Existing OAuth image accounts
 	// continue using the Responses bridge until explicitly opted in.
 	direct := usesCodexDirectImages(upstreamModel) &&
-		account.getExtraBool("codex_direct_images_enabled") &&
+		(requiresCodexDirectImages(upstreamModel) || account.getExtraBool("codex_direct_images_enabled")) &&
 		!isOpenAIImagesForceResponses(ctx)
 	logger.LegacyPrintf(
 		"service.openai_gateway",

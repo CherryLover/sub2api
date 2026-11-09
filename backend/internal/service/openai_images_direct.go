@@ -40,6 +40,17 @@ func usesCodexDirectImages(model string) bool {
 	}
 }
 
+// GPT Image 2.6 must use native Codex Images: a Responses image tool maps
+// to a different internal model and cannot preserve the requested 2.6 variant.
+func requiresCodexDirectImages(model string) bool {
+	switch strings.TrimSpace(model) {
+	case "gpt-image-2.6-flare", "gpt-image-2.6-sunburst":
+		return true
+	default:
+		return false
+	}
+}
+
 // 正式转发与后台测试共用同一份端点选择和请求构造。
 func buildOpenAIImagesOAuthPayload(parsed *OpenAIImagesRequest, model string) ([]byte, string, error) {
 	if parsed == nil {
