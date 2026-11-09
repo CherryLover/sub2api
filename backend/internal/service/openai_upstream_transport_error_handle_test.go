@@ -49,7 +49,7 @@ func TestHandleOpenAIUpstreamTransportError_DNSCooldownConfig(t *testing.T) {
 			Err: "no such host", Name: "chatgpt.com", Server: "127.0.0.11:53", IsNotFound: true,
 		}},
 	}
-	require.True(t, classifyUpstreamTransportError(transportErr).Persistent)
+	require.True(t, classifyOpenAITransportError(transportErr).Persistent)
 	for _, testCase := range []struct {
 		name     string
 		cfg      *config.Config
