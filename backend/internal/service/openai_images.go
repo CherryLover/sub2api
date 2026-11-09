@@ -1039,7 +1039,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 ) (OpenAIUsage, int, []string, *int, error) {
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
-	if direct != nil || contentType == "" {
+	if contentType == "" {
 		contentType = "text/event-stream"
 	}
 	c.Status(resp.StatusCode)
@@ -1114,26 +1114,6 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		}
 		body := bytes.TrimSpace(fallbackBody.Bytes())
 		if len(body) == 0 {
-			return
-		}
-		if direct != nil {
-			// Codex edits can return a complete JSON image despite stream=true.
-			// Deliver it as completion events before marking it successful, so a
-			// paid image is neither discarded nor retried on another account.
-			results, err := parseCodexDirectImagesResponse(body)
-			if err != nil {
-				streamErr = err
-				return
-			}
-			createdAt := gjson.GetBytes(body, "created").Int()
-			usageRaw := []byte(gjson.GetBytes(body, "usage").Raw)
-			for i, result := range results {
-				var eventUsage []byte
-				if i == len(results)-1 {
-					eventUsage = usageRaw
-				}
-				processSSEData(buildOpenAIImagesStreamCompletedPayload(openAIImagesStreamPrefix(direct)+".completed", result, direct.ResponseFormat, createdAt, eventUsage))
-			}
 			return
 		}
 		mergeOpenAIUsage(&usage, body)
