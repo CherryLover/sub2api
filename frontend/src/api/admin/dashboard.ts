@@ -5,6 +5,7 @@
 
 import { apiClient } from '../client'
 import type {
+  APIKeyBreakdownItem,
   DashboardStats,
   TrendDataPoint,
   ModelStat,
@@ -106,6 +107,8 @@ export interface UserBreakdownParams {
   limit?: number
   // Sort column for the ranking (allowlisted server-side; falls back to actual_cost)
   sort_by?: 'total_tokens' | 'input_tokens' | 'output_tokens' | 'cache_tokens' | 'requests' | 'cost' | 'actual_cost'
+  // 展开行需要的模型明细
+  include_models?: boolean
   // Additional filter conditions
   user_id?: number
   api_key_id?: number
@@ -123,6 +126,22 @@ export interface UserBreakdownResponse {
 
 export async function getUserBreakdown(params: UserBreakdownParams): Promise<UserBreakdownResponse> {
   const { data } = await apiClient.get<UserBreakdownResponse>('/admin/dashboard/user-breakdown', {
+    params
+  })
+  return data
+}
+
+// API Key 排行：筛选参数与用户排行一致，额外支持 include_models 拉行内展开的模型明细。
+export type APIKeyBreakdownParams = UserBreakdownParams
+
+export interface APIKeyBreakdownResponse {
+  api_keys: APIKeyBreakdownItem[]
+  start_date: string
+  end_date: string
+}
+
+export async function getAPIKeyBreakdown(params: APIKeyBreakdownParams): Promise<APIKeyBreakdownResponse> {
+  const { data } = await apiClient.get<APIKeyBreakdownResponse>('/admin/dashboard/api-key-breakdown', {
     params
   })
   return data

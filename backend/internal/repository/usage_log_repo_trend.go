@@ -628,53 +628,11 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 		WHERE ul.created_at >= $1 AND ul.created_at < $2
 	`
 	args := []any{startTime, endTime}
-
-	if dim.GroupID > 0 {
-		query += fmt.Sprintf(" AND ul.group_id = $%d", len(args)+1)
-		args = append(args, dim.GroupID)
-	}
-	if dim.Model != "" {
-		query += fmt.Sprintf(" AND %s = $%d", resolveModelDimensionExpression(dim.ModelType), len(args)+1)
-		args = append(args, dim.Model)
-	}
-	if dim.Endpoint != "" {
-		col := resolveEndpointColumn(dim.EndpointType)
-		query += fmt.Sprintf(" AND %s = $%d", col, len(args)+1)
-		args = append(args, dim.Endpoint)
-	}
-	if dim.UserID > 0 {
-		query += fmt.Sprintf(" AND ul.user_id = $%d", len(args)+1)
-		args = append(args, dim.UserID)
-	}
-	if dim.APIKeyID > 0 {
-		query += fmt.Sprintf(" AND ul.api_key_id = $%d", len(args)+1)
-		args = append(args, dim.APIKeyID)
-	}
-	if dim.AccountID > 0 {
-		query += fmt.Sprintf(" AND ul.account_id = $%d", len(args)+1)
-		args = append(args, dim.AccountID)
-	}
-	if dim.RequestType != nil {
-		condition, conditionArgs := buildRequestTypeFilterConditionWithAlias(len(args)+1, *dim.RequestType, "ul")
-		query += " AND " + condition
-		args = append(args, conditionArgs...)
-	}
-	if dim.Stream != nil {
-		query += fmt.Sprintf(" AND ul.stream = $%d", len(args)+1)
-		args = append(args, *dim.Stream)
-	}
-	if dim.BillingType != nil {
-		query += fmt.Sprintf(" AND ul.billing_type = $%d", len(args)+1)
-		args = append(args, *dim.BillingType)
-	}
+	clause, args := breakdownFilterClause(dim, args)
+	query += clause
 
 	// ORDER BY 列来自固定 allowlist(非用户原样字符串),避免 SQL 注入。
-	orderBy := "actual_cost"
-	switch dim.SortBy {
-	case "total_tokens", "input_tokens", "output_tokens", "cache_tokens", "requests", "cost", "actual_cost":
-		orderBy = dim.SortBy
-	}
-	query += " GROUP BY ul.user_id, u.email ORDER BY " + orderBy + " DESC"
+	query += " GROUP BY ul.user_id, u.email ORDER BY " + breakdownOrderColumn(dim.SortBy) + " DESC"
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}

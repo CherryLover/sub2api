@@ -35,32 +35,46 @@
             </th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-200 bg-white dark:divide-dark-700 dark:bg-dark-900">
-          <tr v-if="loading">
+        <tbody v-if="loading">
+          <tr>
             <td :colspan="sortableColumns.length + 2" class="py-12 text-center">
               <LoadingSpinner />
             </td>
           </tr>
-          <tr v-else-if="items.length === 0">
+        </tbody>
+        <tbody v-else-if="items.length === 0">
+          <tr>
             <td :colspan="sortableColumns.length + 2" class="py-12 text-center text-sm text-gray-400">
               {{ t('admin.dashboard.noDataAvailable') }}
             </td>
           </tr>
+        </tbody>
+        <tbody v-else class="divide-y divide-gray-200 bg-white dark:divide-dark-700 dark:bg-dark-900">
+          <template v-for="(item, index) in items" :key="item.user_id">
           <tr
-            v-for="(item, index) in items"
-            v-else
-            :key="item.user_id"
             class="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-dark-700/40"
             :title="t('admin.usage.tokenRanking.rowHint')"
             @click="$emit('select-user', item.user_id, item.email)"
           >
             <td class="px-4 py-3 sm:px-6">
-              <span
-                v-if="index < 3"
-                class="inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold"
-                :class="RANK_BADGE_CLASSES[index]"
-              >{{ index + 1 }}</span>
-              <span v-else class="inline-block w-6 text-center text-sm tabular-nums text-gray-400">{{ index + 1 }}</span>
+              <span class="inline-flex items-center gap-1.5">
+                <button
+                  type="button"
+                  class="rounded p-0.5 text-gray-400 transition-transform hover:text-gray-600 dark:hover:text-gray-300"
+                  :class="expandedUserId === item.user_id ? 'rotate-90' : ''"
+                  :aria-label="t('admin.usage.rankingDetail.toggle')"
+                  :aria-expanded="expandedUserId === item.user_id"
+                  @click.stop="toggle(item.user_id)"
+                >
+                  <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                </button>
+                <span
+                  v-if="index < 3"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold"
+                  :class="RANK_BADGE_CLASSES[index]"
+                >{{ index + 1 }}</span>
+                <span v-else class="inline-block w-6 text-center text-sm tabular-nums text-gray-400">{{ index + 1 }}</span>
+              </span>
             </td>
             <td class="max-w-[260px] truncate px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-200" :title="item.email">
               {{ item.email || `User #${item.user_id}` }}
@@ -73,6 +87,18 @@
             <td class="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-gray-900 dark:text-gray-100">{{ fmtTokens(item.total_tokens) }}</td>
             <td class="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-green-600 dark:text-green-400">${{ fmtCost(item.actual_cost) }}</td>
           </tr>
+          <tr v-if="expandedUserId === item.user_id" class="bg-white dark:bg-dark-900">
+            <td :colspan="sortableColumns.length + 2" class="px-4 pb-4 pt-0 sm:px-6">
+              <BreakdownModelDetail
+                :models="item.models || []"
+                :row-cost="item.actual_cost"
+                :overall-cost="resolvedOverallCost"
+                :requests="item.requests"
+                :total-tokens="item.total_tokens"
+              />
+            </td>
+          </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -80,19 +106,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getUserBreakdown, type UserBreakdownParams } from '@/api/admin/dashboard'
 import { formatCompactNumber, formatCostFixed } from '@/utils/format'
 import type { UserBreakdownItem } from '@/types'
 import Select from '@/components/common/Select.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import BreakdownModelDetail from './BreakdownModelDetail.vue'
 
 const props = defineProps<{
   startDate: string
   endDate: string
   filters: Record<string, unknown>
   model?: string
+  overallCost?: number
 }>()
 
 defineEmits<{ (e: 'select-user', userId: number, email: string): void }>()
@@ -124,10 +152,22 @@ const RANK_BADGE_CLASSES = [
 ]
 
 const items = ref<UserBreakdownItem[]>([])
+const expandedUserId = ref<number | null>(null)
 const loading = ref(false)
 const sortBy = ref<SortKey>('total_tokens')
 const limit = ref(50)
 let reqSeq = 0
+
+// 页面没给总额时退化成当前列表合计，保证展开面板的「占全站」至少自洽。
+const resolvedOverallCost = computed(() => {
+  const provided = props.overallCost ?? 0
+  if (provided > 0) return provided
+  return items.value.reduce((sum, item) => sum + item.actual_cost, 0)
+})
+
+const toggle = (userId: number) => {
+  expandedUserId.value = expandedUserId.value === userId ? null : userId
+}
 
 const fmtTokens = (v: number) => formatCompactNumber(v)
 const fmtCost = (v: number) => formatCostFixed(v, 4)
@@ -148,6 +188,7 @@ const load = async () => {
       end_date: props.endDate,
       sort_by: sortBy.value,
       limit: limit.value,
+      include_models: true
     }
     if (props.model) params.model = props.model
     const res = await getUserBreakdown(params)

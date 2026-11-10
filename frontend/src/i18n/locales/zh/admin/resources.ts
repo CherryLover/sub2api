@@ -315,6 +315,55 @@ export default {
           cost: '费用'
         }
       },
+      rankingTrend: {
+        title: '用量趋势',
+        hourly: '按小时 · 跟随页面时间范围',
+        daily: '按天 · 跟随页面时间范围',
+        metricRequests: '请求数',
+        metricTokens: 'Token',
+        metricCost: '实际消耗',
+        peak: '峰值',
+        average: '平均'
+      },
+      rankingShare: {
+        title: '消耗占比',
+        subtitleUser: '按实际消耗 · Top 6 + 其他',
+        subtitleKeys: '按实际消耗 · Top 6 + 其他',
+        top: 'Top 6',
+        total: '实际消耗',
+        other: '其他 {count} 个',
+        otherRest: '其他'
+      },
+      keyRanking: {
+        subtitle: '按当前筛选与时间范围统计每个 API Key 的用量',
+        rowHint: '点击展开该 Key 的模型明细',
+        keyCount: '共 {count} 个 Key',
+        viewUsage: '查看该 Key 的用量明细',
+        modelCount: '{count} 个模型',
+        columns: {
+          key: 'API Key',
+          requests: '请求数',
+          tokens: 'Token',
+          cost: '费用',
+          share: '占整体消耗'
+        }
+      },
+      rankingDetail: {
+        toggle: '展开/收起明细',
+        models: '模型明细 · {count} 个模型',
+        costBasis: '费用口径：实际消耗',
+        noModels: '该范围内没有可拆分的模型记录',
+        model: '模型',
+        requests: '请求数',
+        tokens: 'Token',
+        cost: '费用',
+        selfShare: '占本行',
+        overallShare: '占全站',
+        legendSelf: '占本行费用',
+        legendOverall: '占全站费用',
+        summary: '概况',
+        avgPerRequest: '平均单次'
+      },
       cleanup: {
         button: '清理',
         title: '清理使用记录',

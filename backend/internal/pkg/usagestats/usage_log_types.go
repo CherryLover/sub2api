@@ -176,6 +176,45 @@ type UserBreakdownItem struct {
 	Cost         float64 `json:"cost"`          // 标准计费
 	ActualCost   float64 `json:"actual_cost"`   // 实际扣除
 	AccountCost  float64 `json:"account_cost"`  // 账号成本
+	// Models 是按模型拆开的明细，仅在 include_models=true 时填充。
+	Models []BreakdownModelShare `json:"models,omitempty"`
+}
+
+// BreakdownModelDimension 指定模型明细挂在哪个聚合维度上。
+type BreakdownModelDimension string
+
+const (
+	// BreakdownModelByUser 按 user_id 聚合模型明细。
+	BreakdownModelByUser BreakdownModelDimension = "user_id"
+	// BreakdownModelByAPIKey 按 api_key_id 聚合模型明细。
+	BreakdownModelByAPIKey BreakdownModelDimension = "api_key_id"
+)
+
+// BreakdownModelShare 是排行行展开后「按模型」的一条明细。
+// 费用口径与实际扣除一致，排序也只按 ActualCost。
+type BreakdownModelShare struct {
+	Model      string  `json:"model"`
+	Requests   int64   `json:"requests"`
+	Tokens     int64   `json:"tokens"`
+	Cost       float64 `json:"cost"`        // 标准计费
+	ActualCost float64 `json:"actual_cost"` // 实际扣除
+}
+
+// APIKeyBreakdownItem represents per-API-key usage breakdown within a dimension.
+// 与 UserBreakdownItem 同口径，额外带上 Key 名称、归属用户和模型明细。
+type APIKeyBreakdownItem struct {
+	APIKeyID     int64                 `json:"api_key_id"`
+	Name         string                `json:"name"`
+	UserID       int64                 `json:"user_id"`
+	Email        string                `json:"email"`
+	Requests     int64                 `json:"requests"`
+	InputTokens  int64                 `json:"input_tokens"`
+	OutputTokens int64                 `json:"output_tokens"`
+	CacheTokens  int64                 `json:"cache_tokens"`
+	TotalTokens  int64                 `json:"total_tokens"`
+	Cost         float64               `json:"cost"`
+	ActualCost   float64               `json:"actual_cost"`
+	Models       []BreakdownModelShare `json:"models,omitempty"`
 }
 
 // UserBreakdownDimension specifies the dimension to filter for user breakdown.

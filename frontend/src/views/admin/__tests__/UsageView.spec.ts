@@ -188,7 +188,7 @@ const mountRouteFilteredUsageView = () => mount(UsageView, {
     Pagination: true, Select: true,
     DateRangePicker: true, Icon: true, TokenUsageTrend: true,
     ModelDistributionChart: true, GroupDistributionChart: true,
-    EndpointDistributionChart: true, UserTokenRanking: true,
+    EndpointDistributionChart: true, UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true,
   } },
 })
 
@@ -371,7 +371,7 @@ describe('admin UsageView distribution metric toggles', () => {
         AuditLogModal: true, Pagination: true, Select: true,
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: ModelDistributionChartStub, GroupDistributionChart: GroupDistributionChartStub,
-        EndpointDistributionChart: true, UserTokenRanking: true,
+        EndpointDistributionChart: true, UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true,
       } },
     })
     vi.advanceTimersByTime(120)
@@ -408,7 +408,7 @@ describe('admin UsageView distribution metric toggles', () => {
           TokenUsageTrend: true,
           ModelDistributionChart: ModelDistributionChartStub,
           GroupDistributionChart: GroupDistributionChartStub,
-          UserTokenRanking: true,
+          UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true,
         },
       },
     })
@@ -484,7 +484,7 @@ describe('admin UsageView request ID column visibility', () => {
           ModelDistributionChart: true,
           GroupDistributionChart: true,
           EndpointDistributionChart: true,
-          UserTokenRanking: true,
+          UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true,
         },
       },
     })
@@ -555,7 +555,7 @@ describe('admin UsageView handleUserClick', () => {
           ModelDistributionChart: true,
           GroupDistributionChart: true,
           EndpointDistributionChart: true,
-          UserTokenRanking: true,
+          UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true,
         },
       },
     })
@@ -588,7 +588,7 @@ describe('admin UsageView handleUserClick', () => {
           ModelDistributionChart: true,
           GroupDistributionChart: true,
           EndpointDistributionChart: true,
-          UserTokenRanking: true,
+          UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true,
         },
       },
     })
@@ -642,7 +642,7 @@ describe('admin UsageView errors tab filter forwarding', () => {
         AuditLogModal: true, Pagination: true, Select: true,
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
-        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
       } },
     })
     vi.advanceTimersByTime(120)
@@ -676,7 +676,7 @@ describe('admin UsageView errors tab filter forwarding', () => {
         AuditLogModal: true, Pagination: true, Select: true,
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
-        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
       } },
     })
     vi.advanceTimersByTime(120)
@@ -706,7 +706,7 @@ describe('admin UsageView errors tab filter forwarding', () => {
         Pagination: true, Select: true,
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
-        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
         ErrorKindSummary: ErrorKindSummaryStub,
       } },
     })
@@ -741,7 +741,7 @@ describe('admin UsageView errors tab filter forwarding', () => {
         Pagination: true, Select: true,
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
-        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
         ErrorKindSummary: ErrorKindSummaryStub,
       } },
     })
@@ -774,7 +774,7 @@ describe('admin UsageView errors tab filter forwarding', () => {
         Pagination: true, Select: true,
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
-        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
         ErrorKindSummary: ErrorKindSummaryStub,
       } },
     })
@@ -819,6 +819,7 @@ describe('admin UsageView ranking tab', () => {
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
         UserTokenRanking: UserTokenRankingStub, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true,
       } },
     })
     vi.advanceTimersByTime(120)
@@ -828,7 +829,7 @@ describe('admin UsageView ranking tab', () => {
     expect(wrapper.find('[data-test="ranking"]').exists()).toBe(false)
 
     const tabs = wrapper.findAll('[data-testid="usage-detail-tab"]')
-    expect(tabs).toHaveLength(3)
+    expect(tabs).toHaveLength(4)
     await tabs[2].trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-test="ranking"]').exists()).toBe(true)
@@ -916,7 +917,7 @@ describe('admin UsageView routing visibility', () => {
     AuditLogModal: true, Pagination: true, Select: true,
     DateRangePicker: true, Icon: true, TokenUsageTrend: true,
     ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
-    UserTokenRanking: true, ErrorKindSummary: true, OpsErrorLogTable: OpsErrorLogTableStub,
+    UserTokenRanking: true, APIKeyTokenRanking: true, RankingTrendCard: true, RankingShareCard: true, ErrorKindSummary: true, OpsErrorLogTable: OpsErrorLogTableStub,
   })
 
   beforeEach(() => {

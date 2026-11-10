@@ -651,10 +651,94 @@ func (h *DashboardHandler) GetBatchAPIKeysUsage(c *gin.Context) {
 
 // GetUserBreakdown handles getting per-user usage breakdown within a dimension.
 // GET /api/v1/admin/dashboard/user-breakdown
-// Query params: start_date, end_date, group_id, model, endpoint, endpoint_type, limit
+// Query params: start_date, end_date, group_id, model, endpoint, endpoint_type, limit, include_models
 func (h *DashboardHandler) GetUserBreakdown(c *gin.Context) {
 	startTime, endTime := parseTimeRange(c)
 
+	dim, limit, ok := parseBreakdownQuery(c)
+	if !ok {
+		return
+	}
+
+	stats, err := h.dashboardService.GetUserBreakdownStats(
+		c.Request.Context(), startTime, endTime, dim, limit,
+	)
+	if err != nil {
+		response.Error(c, 500, "Failed to get user breakdown stats")
+		return
+	}
+
+	// 行内展开用的模型明细按需加载：ids 来自本次返回的行，避免为整表拉全量。
+	if parseIncludeModels(c) && len(stats) > 0 {
+		ids := make([]int64, 0, len(stats))
+		for _, item := range stats {
+			ids = append(ids, item.UserID)
+		}
+		shares, shareErr := h.dashboardService.GetBreakdownModelShares(
+			c.Request.Context(), startTime, endTime, dim, usagestats.BreakdownModelByUser, ids,
+		)
+		if shareErr != nil {
+			response.Error(c, 500, "Failed to get user breakdown model shares")
+			return
+		}
+		for i := range stats {
+			stats[i].Models = shares[stats[i].UserID]
+		}
+	}
+
+	response.Success(c, gin.H{
+		"users":      stats,
+		"start_date": startTime.Format("2006-01-02"),
+		"end_date":   endTime.Add(-24 * time.Hour).Format("2006-01-02"),
+	})
+}
+
+// GetAPIKeyBreakdown handles getting per-API-key usage breakdown within a dimension.
+// GET /api/v1/admin/dashboard/api-key-breakdown
+// Query params 与用户排行一致，额外支持 include_models。
+func (h *DashboardHandler) GetAPIKeyBreakdown(c *gin.Context) {
+	startTime, endTime := parseTimeRange(c)
+
+	dim, limit, ok := parseBreakdownQuery(c)
+	if !ok {
+		return
+	}
+
+	stats, err := h.dashboardService.GetAPIKeyBreakdownStats(
+		c.Request.Context(), startTime, endTime, dim, limit,
+	)
+	if err != nil {
+		response.Error(c, 500, "Failed to get API key breakdown stats")
+		return
+	}
+
+	if parseIncludeModels(c) && len(stats) > 0 {
+		ids := make([]int64, 0, len(stats))
+		for _, item := range stats {
+			ids = append(ids, item.APIKeyID)
+		}
+		shares, shareErr := h.dashboardService.GetBreakdownModelShares(
+			c.Request.Context(), startTime, endTime, dim, usagestats.BreakdownModelByAPIKey, ids,
+		)
+		if shareErr != nil {
+			response.Error(c, 500, "Failed to get API key breakdown model shares")
+			return
+		}
+		for i := range stats {
+			stats[i].Models = shares[stats[i].APIKeyID]
+		}
+	}
+
+	response.Success(c, gin.H{
+		"api_keys":   stats,
+		"start_date": startTime.Format("2006-01-02"),
+		"end_date":   endTime.Add(-24 * time.Hour).Format("2006-01-02"),
+	})
+}
+
+// parseBreakdownQuery 解析用户排行与 API Key 排行共用的筛选、排序与 limit。
+// 参数非法时已经写好响应，ok=false 表示调用方应直接返回。
+func parseBreakdownQuery(c *gin.Context) (usagestats.UserBreakdownDimension, int, bool) {
 	dim := usagestats.UserBreakdownDimension{}
 	if v := c.Query("group_id"); v != "" {
 		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -665,7 +749,7 @@ func (h *DashboardHandler) GetUserBreakdown(c *gin.Context) {
 	rawModelSource := strings.TrimSpace(c.DefaultQuery("model_source", usagestats.ModelSourceRequested))
 	if !usagestats.IsValidModelSource(rawModelSource) {
 		response.BadRequest(c, "Invalid model_source, use requested/upstream/mapping")
-		return
+		return dim, 0, false
 	}
 	dim.ModelType = rawModelSource
 	dim.Endpoint = c.Query("endpoint")
@@ -691,7 +775,7 @@ func (h *DashboardHandler) GetUserBreakdown(c *gin.Context) {
 		parsed, err := service.ParseUsageRequestType(v)
 		if err != nil {
 			response.BadRequest(c, err.Error())
-			return
+			return dim, 0, false
 		}
 		rtVal := int16(parsed)
 		dim.RequestType = &rtVal
@@ -717,18 +801,15 @@ func (h *DashboardHandler) GetUserBreakdown(c *gin.Context) {
 			limit = n
 		}
 	}
+	return dim, limit, true
+}
 
-	stats, err := h.dashboardService.GetUserBreakdownStats(
-		c.Request.Context(), startTime, endTime, dim, limit,
-	)
-	if err != nil {
-		response.Error(c, 500, "Failed to get user breakdown stats")
-		return
+// parseIncludeModels 解析 include_models，只有显式 true 才展开模型明细。
+func parseIncludeModels(c *gin.Context) bool {
+	if v := c.Query("include_models"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
 	}
-
-	response.Success(c, gin.H{
-		"users":      stats,
-		"start_date": startTime.Format("2006-01-02"),
-		"end_date":   endTime.Add(-24 * time.Hour).Format("2006-01-02"),
-	})
+	return false
 }

@@ -416,6 +416,24 @@ func (s *DashboardService) GetUserBreakdownStats(ctx context.Context, startTime,
 	return stats, nil
 }
 
+// GetAPIKeyBreakdownStats 按 API Key 聚合排行数据（排序/筛选口径与用户排行一致）。
+func (s *DashboardService) GetAPIKeyBreakdownStats(ctx context.Context, startTime, endTime time.Time, dim usagestats.UserBreakdownDimension, limit int) ([]usagestats.APIKeyBreakdownItem, error) {
+	stats, err := s.usageRepo.GetAPIKeyBreakdownStats(ctx, startTime, endTime, dim, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get api key breakdown stats: %w", err)
+	}
+	return stats, nil
+}
+
+// GetBreakdownModelShares 取排行行展开用的「按模型」明细。
+func (s *DashboardService) GetBreakdownModelShares(ctx context.Context, startTime, endTime time.Time, dim usagestats.UserBreakdownDimension, modelDim usagestats.BreakdownModelDimension, ids []int64) (map[int64][]usagestats.BreakdownModelShare, error) {
+	shares, err := s.usageRepo.GetBreakdownModelShares(ctx, startTime, endTime, dim, modelDim, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get breakdown model shares: %w", err)
+	}
+	return shares, nil
+}
+
 func (s *DashboardService) GetBatchUserUsageStats(ctx context.Context, userIDs []int64, startTime, endTime time.Time) (map[int64]*usagestats.BatchUserUsageStats, error) {
 	stats, err := s.usageRepo.GetBatchUserUsageStats(ctx, userIDs, startTime, endTime)
 	if err != nil {
