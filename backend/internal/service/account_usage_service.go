@@ -513,13 +513,10 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		return usage, nil
 	}
 
-	// Setup Token cannot call the usage API (no profile scope). Anthropic
-	// accounts still have real 7d windows sampled from upstream response headers.
+	// Setup Token账号：根据session_window推算（没有profile scope，无法调用usage API）
 	if account.Type == AccountTypeSetupToken {
-		if supportsAnthropicPassiveUsage(account) {
-			return s.getPassiveUsageForAccount(ctx, account)
-		}
 		usage := s.estimateSetupTokenUsage(account)
+		// 添加窗口统计
 		s.addWindowStats(ctx, account, usage)
 		return usage, nil
 	}
@@ -530,7 +527,7 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 
 // GetUsage 获取账号使用量
 // OAuth账号: 调用Anthropic API获取真实数据（需要profile scope），API响应缓存10分钟，窗口统计缓存1分钟
-// Setup Token账号: Anthropic 使用响应头被动采样的5h/7d；其他平台回退session_window估算
+// Setup Token账号: 根据session_window推算5h窗口，7d数据不可用（没有profile scope）
 // API Key账号: 不支持usage查询
 func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, force ...bool) (*UsageInfo, error) {
 	forceProbe := len(force) > 0 && force[0]
