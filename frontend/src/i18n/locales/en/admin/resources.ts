@@ -317,6 +317,55 @@ export default {
           cost: 'Cost'
         }
       },
+      rankingTrend: {
+        title: 'Usage Trend',
+        hourly: 'Hourly · follows the page range',
+        daily: 'Daily · follows the page range',
+        metricRequests: 'Requests',
+        metricTokens: 'Tokens',
+        metricCost: 'Actual Cost',
+        peak: 'Peak',
+        average: 'Average'
+      },
+      rankingShare: {
+        title: 'Cost Share',
+        subtitleUser: 'By actual cost · Top 6 + other',
+        subtitleKeys: 'By actual cost · Top 6 + other',
+        top: 'Top 6',
+        total: 'Actual cost',
+        other: '{count} others',
+        otherRest: 'Others'
+      },
+      keyRanking: {
+        subtitle: 'Per-API-key usage for the current filters and time range',
+        rowHint: "Click to expand this key's model breakdown",
+        keyCount: '{count} keys',
+        viewUsage: "View this key's usage details",
+        modelCount: '{count} models',
+        columns: {
+          key: 'API Key',
+          requests: 'Requests',
+          tokens: 'Tokens',
+          cost: 'Cost',
+          share: 'Share of Cost'
+        }
+      },
+      rankingDetail: {
+        toggle: 'Expand or collapse details',
+        models: 'Models · {count}',
+        costBasis: 'Cost basis: actual cost',
+        noModels: 'No model records to break down in this range',
+        model: 'Model',
+        requests: 'Requests',
+        tokens: 'Tokens',
+        cost: 'Cost',
+        selfShare: 'Of Row',
+        overallShare: 'Of Total',
+        legendSelf: 'Share of row cost',
+        legendOverall: 'Share of total cost',
+        summary: 'Summary',
+        avgPerRequest: 'Avg / request'
+      },
       cleanup: {
         button: 'Cleanup',
         title: 'Cleanup Usage Records',

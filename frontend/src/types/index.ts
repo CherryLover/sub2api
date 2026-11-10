@@ -1803,6 +1803,14 @@ export interface GroupStat {
   account_cost?: number // 账号成本（仅管理员接口返回）
 }
 
+export interface BreakdownModelShare {
+  model: string
+  requests: number
+  tokens: number
+  cost: number
+  actual_cost: number
+}
+
 export interface UserBreakdownItem {
   user_id: number
   email: string
@@ -1814,6 +1822,22 @@ export interface UserBreakdownItem {
   cost: number
   actual_cost: number
   account_cost: number
+  models?: BreakdownModelShare[]
+}
+
+export interface APIKeyBreakdownItem {
+  api_key_id: number
+  name: string
+  user_id: number
+  email: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  cache_tokens: number
+  total_tokens: number
+  cost: number
+  actual_cost: number
+  models?: BreakdownModelShare[]
 }
 
 export interface UserUsageTrendPoint {
