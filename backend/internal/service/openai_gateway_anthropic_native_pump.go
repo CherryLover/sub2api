@@ -42,10 +42,10 @@ type anthropicNativeLineEvent struct {
 // anthropicNativeLinePump 以独立 goroutine 泵送 scanner 的行，并对逐行到达
 // 间隔施加 interval 上限（<=0 表示禁用，可经 enableInterval 启用）。
 type anthropicNativeLinePump struct {
-	events     chan anthropicNativeLineEvent
-	done       chan struct{}
-	timer      *time.Timer
-	interval   time.Duration
+	events      chan anthropicNativeLineEvent
+	done        chan struct{}
+	timer       *time.Timer
+	interval    time.Duration
 	lastDataAt  time.Time
 	queueBudget *sseQueueBudget
 }
