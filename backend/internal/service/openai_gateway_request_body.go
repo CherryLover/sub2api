@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
@@ -789,9 +790,31 @@ func (v openAIRequestView) HasPatches() bool {
 	return !v.patchesDisabled && len(v.patches) > 0
 }
 
-func (v openAIRequestView) ApplyPatches() ([]byte, error) {
+// MovePatchesTo replays raw patches on a map decoded from the same unpatched
+// body when byte editing is unavailable, preserving the full original edit set.
+func (v *openAIRequestView) MovePatchesTo(reqBody map[string]any) {
+	if v == nil {
+		return
+	}
+	for _, patch := range v.patches {
+		if patch.delete {
+			deleteOpenAIRequestMapPath(reqBody, patch.path)
+		} else {
+			setOpenAIRequestMapPath(reqBody, patch.path, patch.value)
+		}
+	}
+	v.DisablePatches()
+}
+
+// ApplyPatches retains one materialized output under the caller's attempt
+// budget. Temporary scratch is released when the attempt's scope ends.
+func (v openAIRequestView) ApplyPatches(ctx context.Context) ([]byte, error) {
 	if v.patchesDisabled || len(v.patches) == 0 {
 		return nil, errors.New("openai request patches disabled")
+	}
+	reserved := int64(len(v.body))
+	if err := httputil.ReserveRequestBodyMemory(ctx, reserved); err != nil {
+		return nil, err
 	}
 	body := v.body
 	for _, patch := range v.patches {
@@ -802,8 +825,17 @@ func (v openAIRequestView) ApplyPatches() ([]byte, error) {
 			body, err = sjson.SetBytes(body, patch.path, patch.value)
 		}
 		if err != nil {
+			httputil.ReleaseRequestBodyMemory(ctx, reserved)
 			return nil, err
 		}
+	}
+	if extra := int64(len(body)) - reserved; extra > 0 {
+		if err := httputil.ReserveRequestBodyMemory(ctx, extra); err != nil {
+			httputil.ReleaseRequestBodyMemory(ctx, reserved)
+			return nil, err
+		}
+	} else {
+		httputil.ReleaseRequestBodyMemory(ctx, -extra)
 	}
 	return body, nil
 }
@@ -1034,24 +1066,6 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 	}
 
 	return normalized, changed, nil
-}
-
-func detectOpenAIPassthroughInstructionsRejectReason(reqModel string, body []byte) string {
-	if !isOpenAICodexModel(reqModel) {
-		return ""
-	}
-
-	instructions := gjson.GetBytes(body, "instructions")
-	if !instructions.Exists() {
-		return ""
-	}
-	if instructions.Type != gjson.String {
-		return "instructions_not_string"
-	}
-	if strings.TrimSpace(instructions.String()) == "" {
-		return "instructions_empty"
-	}
-	return ""
 }
 
 func isOpenAICodexModel(model string) bool {
@@ -1804,25 +1818,30 @@ func hasEffectiveGPT61SolCompatEffort(body []byte) bool {
 	return outputEffort.Type == gjson.String && outputEffort.String() != ""
 }
 
-// validateGPT61SolCompatRequest rejects unsupported reasoning settings before
-// protocol conversion can silently discard explicit user intent.
-func validateGPT61SolCompatRequest(body []byte, model string) error {
-	if !openai.IsGPT61SolModelSpelling(model) {
+// validateGPT61CompatRequest rejects unsupported reasoning levels for GPT-6.1
+// Sol/Terra before protocol conversion can silently discard explicit effort.
+func validateGPT61CompatRequest(body []byte, model string) error {
+	if !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) {
 		return nil
 	}
 	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {
-		if err := openai.ValidateGPT61SolReasoningEffort(model, gjson.GetBytes(body, path).String()); err != nil {
+		if err := openai.ValidateGPT61ReasoningEffort(model, gjson.GetBytes(body, path).String()); err != nil {
 			return err
 		}
 	}
 	if gjson.GetBytes(body, "thinking.type").String() == "disabled" {
-		return openai.ValidateGPT61SolReasoningEffort(model, "none")
+		return openai.ValidateGPT61ReasoningEffort(model, "none")
 	}
 	if !hasEffectiveGPT61SolCompatEffort(body) {
 		requestedModel := openai.CanonicalizeOpenAIModelAliasSpelling(gjson.GetBytes(body, "model").String())
-		if openai.IsGPT61SolModelSpelling(requestedModel) {
-			if effort, ok := strings.CutPrefix(requestedModel, "gpt-6.1-sol-"); ok && effort != "openai-compact" {
-				return openai.ValidateGPT61SolReasoningEffort(model, effort)
+		for _, base := range []string{"gpt-6.1-sol", "gpt-6.1-terra"} {
+			matches := (base == "gpt-6.1-sol" && openai.IsGPT61SolModelSpelling(requestedModel)) ||
+				(base == "gpt-6.1-terra" && (openai.IsGPT61TerraModelSpelling(requestedModel) || requestedModel == "gpt-6.1-terra-minimal"))
+			if !matches {
+				continue
+			}
+			if effort, ok := strings.CutPrefix(requestedModel, base+"-"); ok && effort != "openai-compact" {
+				return openai.ValidateGPT61ReasoningEffort(model, effort)
 			}
 		}
 	}

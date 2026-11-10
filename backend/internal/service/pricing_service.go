@@ -22,6 +22,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// GPT Image 2.5/2.6 fallback rates from the v0.2.20 model catalog.
+var openAIGPTImage25FallbackPricing = &LiteLLMModelPricing{
+	InputCostPerToken:            5e-06,
+	CacheReadInputTokenCost:      1.25e-06,
+	InputCostPerImageToken:       8e-06,
+	CacheReadInputImageTokenCost: 2e-06,
+	OutputCostPerImageToken:      3e-05,
+	LiteLLMProvider:              "openai",
+	Mode:                         "image_generation",
+	SupportsPromptCaching:        true,
+}
+
 var (
 	openAIModelDatePattern     = regexp.MustCompile(`-\d{8}$`)
 	openAIModelBasePattern     = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
@@ -235,7 +247,8 @@ type LiteLLMModelPricing struct {
 	SupportsPromptCaching               bool     `json:"supports_prompt_caching"`
 	OutputCostPerImage                  float64  `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
 	OutputCostPerImageToken             float64  `json:"output_cost_per_image_token"` // 图片输出 token 价格
-	InputCostPerImageToken              float64  `json:"input_cost_per_image_token"`  // 图片输入 token 价格（如 gpt-image-2 图片编辑）
+	InputCostPerImageToken              float64  `json:"input_cost_per_image_token"`
+	CacheReadInputImageTokenCost        float64  `json:"cache_read_input_image_token_cost"` // 图片缓存输入 token 价格
 
 	// TokenPricingAbsent 表示源数据中 input/output token 价格均缺失（仅有图片价）。
 	// 此类条目只可用于图片计费，token 计费必须回退到 fallback 或 fail-closed，
@@ -1193,6 +1206,15 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 		return openAIGPT54FallbackPricing
 	}
 
+	// Prefer 2.5/2.6 rates over older image model fallback while mirrors catch up.
+	if model == "gpt-image-2.6-flare" || model == "gpt-image-2.6-sunburst" {
+		return openAIGPTImage25FallbackPricing
+	}
+	for _, imageModel := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+		if model == imageModel || model == imageModel+"-2026-09-08" {
+			return openAIGPTImage25FallbackPricing
+		}
+	}
 	if isOpenAIImageGenerationModel(model) {
 		for _, candidate := range []string{"gpt-image-2", "gpt-image-1.5", "gpt-image-1"} {
 			if pricing, ok := s.pricingData[candidate]; ok {

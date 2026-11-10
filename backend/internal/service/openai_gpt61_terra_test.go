@@ -39,12 +39,26 @@ func TestGPT61TerraLiteIdentityAndEffort(t *testing.T) {
 
 	descriptor := newConfiguredCodexModelDescriptor("gpt-6.1-terra")
 	require.NotNil(t, descriptor.DefaultReasoningLevel)
-	require.Equal(t, "medium", *descriptor.DefaultReasoningLevel)
+	require.Equal(t, "low", *descriptor.DefaultReasoningLevel)
+	require.EqualValues(t, 500_000, descriptor.ContextWindow)
+	require.EqualValues(t, 872_000, descriptor.MaxContextWindow)
+	require.Equal(t, "GPT-6.1 Terra", descriptor.DisplayName)
+	require.Equal(t, "shell_command", descriptor.ShellType)
+	require.Equal(t, "code_mode_only", descriptor.ToolMode)
+	require.True(t, descriptor.SupportsParallelToolCalls)
+	require.True(t, descriptor.SupportsImageDetailOriginal)
+	require.Equal(t, "text_and_image", descriptor.WebSearchToolType)
+	require.NotEmpty(t, descriptor.ModelMessages.InstructionsTemplate)
+	require.Equal(t, descriptor.ModelMessages.InstructionsTemplate, openai.CodexBaseInstructionsForModel("gpt-6.1-terra"))
 	var levels []string
 	for _, level := range descriptor.SupportedReasoningLevels {
 		levels = append(levels, level.Effort)
 	}
-	require.Equal(t, []string{"none", "low", "medium", "high", "xhigh", "max"}, levels)
+	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"}, levels)
+	// API requests accept none, while the official Codex descriptor does not
+	// advertise it as an interactive Codex reasoning choice.
+	require.NoError(t, openai.ValidateGPT61TerraReasoningEffort("gpt-6.1-terra", "none"))
+	require.Error(t, openai.ValidateGPT61TerraReasoningEffort("gpt-6.1-terra", "minimal"))
 }
 
 func TestGPT61TerraLiteFallbackPricing(t *testing.T) {

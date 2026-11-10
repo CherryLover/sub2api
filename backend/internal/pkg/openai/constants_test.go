@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -47,4 +48,32 @@ func TestGPT61SolModelRecognizesAliasesAndRejectsDisabledReasoning(t *testing.T)
 func TestDefaultModelsPreferConcreteGPT56SolForAccountTests(t *testing.T) {
 	require.NotEmpty(t, DefaultModels)
 	require.Equal(t, "gpt-5.6-sol", DefaultModels[0].ID)
+}
+
+func TestValidateGPT61TerraReasoningEffort(t *testing.T) {
+	for _, model := range []string{"gpt-6.1-terra", "openai/gpt-6.1-terra-minimal"} {
+		require.Error(t, ValidateGPT61ReasoningEffort(model, "minimal"), model)
+		require.NoError(t, ValidateGPT61ReasoningEffort(model, "none"), model)
+		require.NoError(t, ValidateGPT61ReasoningEffort(model, "max"), model)
+	}
+	require.NoError(t, ValidateGPT61ReasoningEffort("gpt-6.1-sol", "max"))
+	require.NoError(t, ValidateGPT61ReasoningEffort("gpt-5.6-sol", "minimal"))
+}
+
+func TestDefaultModelsIncludeGPTImage25And26(t *testing.T) {
+	for _, model := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
+		require.Contains(t, DefaultModelIDs(), model)
+	}
+}
+
+func TestCodexBaseInstructionsForTerraOfficialDescriptor(t *testing.T) {
+	var descriptor struct {
+		ModelMessages struct {
+			InstructionsTemplate string `json:"instructions_template"`
+		} `json:"model_messages"`
+	}
+	require.NoError(t, json.Unmarshal(CodexGPT61TerraMetadata, &descriptor))
+	require.NotEmpty(t, descriptor.ModelMessages.InstructionsTemplate)
+	require.Equal(t, descriptor.ModelMessages.InstructionsTemplate, CodexBaseInstructionsForModel("openai/GPT-6.1-TERRA"))
+	require.NotEqual(t, CodexBaseInstructionsForModel("gpt-5.5"), CodexBaseInstructionsForModel("gpt-6.1-terra"))
 }

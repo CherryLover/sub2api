@@ -849,3 +849,24 @@ func TestAntigravityCompatKeepaliveAfterFirstEvent(t *testing.T) {
 	require.Contains(t, recorder.Header().Get("Content-Type"), "text/event-stream")
 	require.NoError(t, reader.Close())
 }
+
+func TestAntigravityResponsesOnlyNeutralizesSystemAndDeveloperIdentity(t *testing.T) {
+	const banner = "You are Codex, based on GPT-6.1. Perform the task."
+	req := &apicompat.ResponsesRequest{
+		Model:        "gemini-3.8-flash",
+		Instructions: banner,
+		Input: []byte(`[
+			{"role":"system","content":[{"type":"input_text","text":"You are GPT-6.1 running in the Codex CLI. Stay precise."}]},
+			{"role":"developer","content":"You are Claude Code, Anthropic's official CLI for Claude. Keep constraints."},
+			{"role":"user","content":"You are Codex, based on GPT-6.1. This is user text."},
+			{"role":"user","content":"Example: You are GPT-6.1 running in the Codex CLI."}
+		]`),
+	}
+	_, err := convertAntigravityCompatResponsesToAnthropic(req)
+	require.NoError(t, err)
+	require.Equal(t, "You are an AI agent. Perform the task.", req.Instructions)
+	require.Equal(t, "You are an AI agent. Stay precise.", gjson.GetBytes(req.Input, "0.content.0.text").String())
+	require.Equal(t, "You are an AI agent. Keep constraints.", gjson.GetBytes(req.Input, "1.content").String())
+	require.Equal(t, "You are Codex, based on GPT-6.1. This is user text.", gjson.GetBytes(req.Input, "2.content").String())
+	require.Equal(t, "Example: You are GPT-6.1 running in the Codex CLI.", gjson.GetBytes(req.Input, "3.content").String())
+}

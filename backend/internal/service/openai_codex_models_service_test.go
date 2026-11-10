@@ -511,6 +511,11 @@ func TestAdjustAPIKeyCodexModelsManifest(t *testing.T) {
 			want: `{"models":[{"slug":"gpt-5.6-sol","unknown_model":{"enabled":true},"use_responses_lite":false},{"slug":"gpt-5.6-terra","use_responses_lite":false},{"slug":"gpt-5.6-luna","use_responses_lite":false}],"unknown_top":{"version":1}}`,
 		},
 		{
+			name: "Terra disables Responses Lite only for API Key provider manifests",
+			body: `{"models":[{"slug":"gpt-6.1-terra","use_responses_lite":true},{"slug":"gpt-6.1-terra-high","use_responses_lite":true}]}`,
+			want: `{"models":[{"slug":"gpt-6.1-terra","use_responses_lite":false},{"slug":"gpt-6.1-terra-high","use_responses_lite":true}]}`,
+		},
+		{
 			name: "unaffected model unchanged",
 			body: ` {"models":[{"slug":"gpt-5.6-codex","use_responses_lite":true}]} `,
 			want: ` {"models":[{"slug":"gpt-5.6-codex","use_responses_lite":true}]} `,

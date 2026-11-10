@@ -39,18 +39,9 @@ func (s *RateLimitService) handleCNProviderConcurrencyLimit403(
 	ctx context.Context,
 	account *Account,
 ) {
-	until := time.Now().Add(time.Duration(openAI403CooldownMinutesDefault) * time.Minute)
-	reason := cnConcurrencyLimitReasonPrefix + ": " + kimiConcurrentRequestLimitMessage
-	s.notifyAccountSchedulingBlocked(account, until, cnConcurrencyLimitReasonPrefix)
-	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
-		slog.Warn("cn_concurrency_limit_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
-		return
-	}
-	slog.Info("cn_provider_concurrency_limited",
-		"account_id", account.ID,
-		"platform", account.Platform,
-		"until", until.UTC(),
-	)
+	// Concurrency exhaustion is brief; reuse the configurable seconds-based
+	// 429 fallback instead of taking the entire account offline for 10 minutes.
+	s.apply429FallbackRateLimit(ctx, account, cnConcurrencyLimitReasonPrefix)
 }
 
 // cnBalanceLowReason 构造余额不足临时停调的 reason（带稳定前缀）。

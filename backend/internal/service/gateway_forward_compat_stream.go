@@ -66,7 +66,7 @@ func newAnthropicCompatStream(cfg *config.Config, c *gin.Context, resp *http.Res
 	}
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
 	stream := &anthropicCompatStream{
-		pump:        newAnthropicNativeLinePump(scanner, anthropicNativeStreamInterval(cfg)),
+		pump:        newAnthropicNativeLinePump(scanner, anthropicNativeStreamInterval(cfg), cfg),
 		body:        resp.Body,
 		maxLineSize: maxLineSize,
 		logPrefix:   logPrefix,

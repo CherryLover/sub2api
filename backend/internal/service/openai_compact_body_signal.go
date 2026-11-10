@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"net/http"
 	"strings"
 
@@ -116,6 +117,12 @@ func applyOpenAICodexBetaFeatures(c *gin.Context, account *Account, h http.Heade
 // wire from the legacy /responses/compact bridge.
 func HasCompactionTriggerInInput(body []byte) bool {
 	if len(body) == 0 {
+		return false
+	}
+	// Ordinary requests cannot contain a compaction trigger when neither
+	// the literal marker nor a JSON unicode escape is present. Skip JSON
+	// parsing on this hot path; ambiguous escaped forms use the full parser.
+	if !bytes.Contains(body, []byte("compaction_trigger")) && !bytes.Contains(body, []byte(`\u`)) {
 		return false
 	}
 	input := gjson.GetBytes(body, "input")

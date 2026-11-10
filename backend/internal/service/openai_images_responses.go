@@ -326,6 +326,10 @@ func openAIImageOutputMIMEType(outputFormat string) string {
 		return "image/jpeg"
 	case "webp":
 		return "image/webp"
+	case "gif":
+		return "image/gif"
+	case "svg":
+		return "image/svg+xml"
 	default:
 		return "image/png"
 	}
@@ -365,6 +369,9 @@ func isOpenAIImagesSelfBuiltRequest(ctx context.Context) bool {
 func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel string) ([]byte, error) {
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
+	}
+	if parsed.MarkupImageURL != "" || parsed.MarkupUpload != nil || parsed.SVG != nil || parsed.FrameCount != nil || parsed.FrameDurationMS != nil {
+		return nil, fmt.Errorf("markup, SVG author options and GIF frame controls require the native Images endpoint")
 	}
 	prompt := strings.TrimSpace(parsed.Prompt)
 	if prompt == "" {
@@ -418,6 +425,7 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	}{
 		{path: "size", value: parsed.Size},
 		{path: "quality", value: parsed.Quality},
+		{path: "complexity", value: parsed.Complexity},
 		{path: "background", value: parsed.Background},
 		{path: "output_format", value: parsed.OutputFormat},
 		{path: "moderation", value: parsed.Moderation},
@@ -1661,11 +1669,16 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 	}
 	events := make(chan readEvent, 16)
 	done := make(chan struct{})
+	queueBudget := newSSEQueueBudget(s.cfg)
 	sendEvent := func(ev readEvent) bool {
+		if !queueBudget.acquire(len(ev.line), done) {
+			return false
+		}
 		select {
 		case events <- ev:
 			return true
 		case <-done:
+			queueBudget.release(len(ev.line))
 			return false
 		}
 	}
@@ -1716,6 +1729,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 	for {
 		select {
 		case ev, ok := <-events:
+			if ok {
+				queueBudget.release(len(ev.line))
+			}
 			if !ok {
 				if done, processErr := flushData(); processErr != nil {
 					return usage, imageCount, imageOutputSizes, firstTokenMs, processErr
@@ -1796,7 +1812,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	// Roll out native Codex Images per account. Existing OAuth image accounts
 	// continue using the Responses bridge until explicitly opted in.
 	direct := usesCodexDirectImages(upstreamModel) &&
-		account.getExtraBool("codex_direct_images_enabled") &&
+		(requiresCodexDirectImages(upstreamModel) || account.getExtraBool("codex_direct_images_enabled")) &&
 		!isOpenAIImagesForceResponses(ctx)
 	logger.LegacyPrintf(
 		"service.openai_gateway",
@@ -1831,6 +1847,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	if err != nil {
 		return nil, err
 	}
+	SetActualOpenAIUpstreamEndpoint(c, upstreamReq.URL.Path)
 	upstreamReq.Header.Set("Content-Type", "application/json")
 	upstreamReq.Header.Set("Accept", "text/event-stream")
 	if direct {
@@ -1925,6 +1942,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 					UpstreamModel:    upstreamModel,
 					Stream:           parsed.Stream,
 					ResponseHeaders:  resp.Header.Clone(),
+					UpstreamEndpoint: upstreamReq.URL.Path,
 					Duration:         time.Since(startTime),
 					FirstTokenMs:     firstTokenMs,
 					ImageCount:       imageCount,
@@ -1973,6 +1991,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		UpstreamModel:    upstreamModel,
 		Stream:           parsed.Stream,
 		ResponseHeaders:  resp.Header.Clone(),
+		UpstreamEndpoint: upstreamReq.URL.Path,
 		Duration:         time.Since(startTime),
 		FirstTokenMs:     firstTokenMs,
 		ImageCount:       imageCount,

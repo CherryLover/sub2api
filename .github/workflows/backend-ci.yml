@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   shell:
-    runs-on: macos-15
+    # These are shell/fixture tests, not real Apple Container integration tests.
+    # A macos-15 runner may remain unallocated and be cancelled before running
+    # any step; portable fixtures keep the same checks on an available runner.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - name: Check deployment scripts

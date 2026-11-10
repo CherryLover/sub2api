@@ -809,6 +809,10 @@ export default {
         responsesModeForceChatCompletions: 'Force Chat Completions',
         responsesModeTextDisabledHint:
           'Not applicable when the Responses / Chat Completions endpoint is not enabled.',
+        imageSizeTiers: 'Image size tiers',
+        imageSizeTiersDesc:
+          'Restrict the image resolutions accepted by this account. Explicit sizes route only to accounts permitting that tier; auto sizes prefer unrestricted accounts followed by 4K, 2K and 1K. Selecting all tiers means unrestricted.',
+        imageSizeTiersAtLeastOne: 'Keep at least one tier',
         endpointCapabilities: 'Endpoint capabilities',
         endpointCapabilitiesDesc:
           'Used by account routing. The text endpoint follows the Responses API support setting above and is shown as Responses, Chat Completions, or auto mode; Embeddings independently controls /v1/embeddings.',

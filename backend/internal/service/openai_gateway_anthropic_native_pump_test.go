@@ -411,3 +411,67 @@ func TestResponsesBufferedFromNativeAnthropic_ToolArgumentsAreValidJSON(t *testi
 		t.Fatalf("expected valid tool arguments, got %q", args)
 	}
 }
+
+// A fast native Anthropic upstream must not fill the buffered channel with
+// unbounded large lines when conversion/downstream output is slower.
+func TestAnthropicNativeLinePump_ByteBudgetBackpressure(t *testing.T) {
+	const line = "data: a" // 7 bytes; only one line may be queued at a time.
+	scanner := bufio.NewScanner(strings.NewReader(line + "\n" + line + "\n"))
+	pump := newAnthropicNativeLinePump(scanner, 0, &config.Config{Gateway: config.GatewayConfig{SSEQueueMaxBytes: 7}})
+	defer pump.stop()
+
+	deadline := time.After(time.Second)
+	for len(pump.events) == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("first SSE line was not queued")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if got := pump.queueBudget.used.Load(); got != 7 {
+		t.Fatalf("queued line charge = %d, want 7", got)
+	}
+	if got := len(pump.events); got != 1 {
+		t.Fatalf("queue depth = %d, want 1 (backpressure)", got)
+	}
+	for i := 0; i < 2; i++ {
+		got, err := pump.next()
+		if err != nil || got != line {
+			t.Fatalf("line %d = %q, %v; want %q", i, got, err, line)
+		}
+	}
+	if got := pump.queueBudget.used.Load(); got != 0 {
+		t.Fatalf("budget not released after delivery: %d", got)
+	}
+	if _, err := pump.next(); err != io.EOF {
+		t.Fatalf("expected EOF, got %v", err)
+	}
+}
+
+// When a timer expires before delivering buffered heartbeat lines, the
+// discarded heartbeat must still release its reserved byte budget.
+func TestAnthropicNativeLinePump_ExpiredHeartbeatReleasesBudget(t *testing.T) {
+	const heartbeat = ": keepalive"
+	budget := newSSEQueueBudget(&config.Config{Gateway: config.GatewayConfig{SSEQueueMaxBytes: 16}})
+	done := make(chan struct{})
+	if !budget.acquire(len(heartbeat), done) {
+		t.Fatal("could not reserve heartbeat budget")
+	}
+	pump := &anthropicNativeLinePump{
+		events:      make(chan anthropicNativeLineEvent, 1),
+		done:        done,
+		timer:       time.NewTimer(0),
+		interval:    time.Second,
+		lastDataAt:  time.Now().Add(-2 * time.Second),
+		queueBudget: budget,
+	}
+	pump.events <- anthropicNativeLineEvent{line: heartbeat}
+	defer pump.stop()
+	if _, err := pump.next(); err != errAnthropicNativeStreamIdle {
+		t.Fatalf("expected expired stream, got %v", err)
+	}
+	if got := budget.used.Load(); got != 0 {
+		t.Fatalf("discarded heartbeat leaked %d bytes", got)
+	}
+}

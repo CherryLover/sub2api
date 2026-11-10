@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"math"
 	"regexp"
 	"sort"
@@ -60,7 +61,8 @@ type jsonRange struct {
 }
 
 type RequestBodyRef struct {
-	data []byte
+	data   []byte
+	parsed *gatewayRequestBodyState
 }
 
 func NewRequestBodyRef(data []byte) *RequestBodyRef {
@@ -86,6 +88,51 @@ func (b *RequestBodyRef) Replace(data []byte) {
 		return
 	}
 	b.data = data
+	b.parsed = nil
+}
+
+// A request snapshot holds only scalar values and byte ranges. Every reuse
+// verifies the body is unchanged, including cases where callers reuse an
+// existing byte slice and mutate its contents in place.
+var gatewayRequestBodySeed = maphash.MakeSeed()
+
+type gatewayRequestBodyState struct {
+	model, metadataUserID, outputEffort, speed string
+	stream, hasSystem, thinkingEnabled         bool
+	maxTokens                                  int
+	protocol                                   string
+	systemRange, messagesRange, inputRange     jsonRange
+	fingerprint                                uint64
+}
+
+func (p *ParsedRequest) saveBodyState() {
+	p.Body.parsed = &gatewayRequestBodyState{
+		model: p.Model, metadataUserID: p.MetadataUserID, outputEffort: p.OutputEffort, speed: p.Speed,
+		stream: p.Stream, hasSystem: p.HasSystem, thinkingEnabled: p.ThinkingEnabled, maxTokens: p.MaxTokens,
+		protocol: p.protocol, systemRange: p.systemRange, messagesRange: p.messagesRange, inputRange: p.inputRange,
+		fingerprint: maphash.Bytes(gatewayRequestBodySeed, p.Body.Bytes()),
+	}
+}
+
+func (p *ParsedRequest) restoreBodyState(state *gatewayRequestBodyState) {
+	p.Model, p.MetadataUserID, p.OutputEffort, p.Speed = state.model, state.metadataUserID, state.outputEffort, state.speed
+	p.Stream, p.HasSystem, p.ThinkingEnabled, p.MaxTokens = state.stream, state.hasSystem, state.thinkingEnabled, state.maxTokens
+	p.protocol = state.protocol
+	p.systemRange, p.messagesRange, p.inputRange = state.systemRange, state.messagesRange, state.inputRange
+}
+
+func (p *ParsedRequest) reusableBodyState(data []byte) *gatewayRequestBodyState {
+	if p == nil || p.Body == nil || p.Body.parsed == nil || p.Body.parsed.protocol != p.protocol {
+		return nil
+	}
+	current := p.Body.Bytes()
+	if len(data) == 0 || len(data) != len(current) || &data[0] != &current[0] {
+		return nil
+	}
+	if maphash.Bytes(gatewayRequestBodySeed, data) != p.Body.parsed.fingerprint {
+		return nil
+	}
+	return p.Body.parsed
 }
 
 func missingJSONRange() jsonRange {
@@ -180,6 +227,7 @@ func parseGatewayRequestCurrentBody(parsed *ParsedRequest, protocol string) erro
 	if parsed == nil || parsed.Body == nil {
 		return fmt.Errorf("empty request body")
 	}
+	parsed.Body.parsed = nil
 
 	bodyBytes := parsed.Body.Bytes()
 	if !gjson.ValidBytes(bodyBytes) {
@@ -241,6 +289,7 @@ func parseGatewayRequestCurrentBody(parsed *ParsedRequest, protocol string) erro
 	}
 
 	setGatewayRequestRanges(parsed, protocol, jsonStr)
+	parsed.saveBodyState()
 	return nil
 }
 
@@ -418,6 +467,11 @@ func (p *ParsedRequest) CloneForBody(body []byte) (*ParsedRequest, error) {
 	clone := *p
 	clone.Body = NewRequestBodyRef(body)
 	clone.OnUpstreamAccepted = nil
+	if state := p.reusableBodyState(body); state != nil {
+		clone.Body.parsed = state
+		clone.restoreBodyState(state)
+		return &clone, nil
+	}
 	if err := refreshGatewayRequestRanges(&clone, clone.protocol); err != nil {
 		return nil, err
 	}
@@ -428,6 +482,10 @@ func (p *ParsedRequest) CloneForBody(body []byte) (*ParsedRequest, error) {
 func (p *ParsedRequest) ReplaceBody(data []byte) error {
 	if p == nil {
 		return fmt.Errorf("parse request: empty request")
+	}
+	if state := p.reusableBodyState(data); state != nil {
+		p.restoreBodyState(state)
+		return nil
 	}
 	if p.Body == nil {
 		p.Body = NewRequestBodyRef(data)

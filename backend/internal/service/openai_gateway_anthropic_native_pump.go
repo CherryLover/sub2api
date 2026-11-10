@@ -42,38 +42,51 @@ type anthropicNativeLineEvent struct {
 // anthropicNativeLinePump 以独立 goroutine 泵送 scanner 的行，并对逐行到达
 // 间隔施加 interval 上限（<=0 表示禁用，可经 enableInterval 启用）。
 type anthropicNativeLinePump struct {
-	events     chan anthropicNativeLineEvent
-	done       chan struct{}
-	timer      *time.Timer
-	interval   time.Duration
-	lastDataAt time.Time
+	events      chan anthropicNativeLineEvent
+	done        chan struct{}
+	timer       *time.Timer
+	interval    time.Duration
+	lastDataAt  time.Time
+	queueBudget *sseQueueBudget
 }
 
 // newAnthropicNativeLinePump 启动泵 goroutine；调用方 defer pump.stop()。
-func newAnthropicNativeLinePump(scanner *bufio.Scanner, interval time.Duration) *anthropicNativeLinePump {
+func newAnthropicNativeLinePump(scanner *bufio.Scanner, interval time.Duration, cfg ...*config.Config) *anthropicNativeLinePump {
+	var configForBudget *config.Config
+	if len(cfg) > 0 {
+		configForBudget = cfg[0]
+	}
 	p := &anthropicNativeLinePump{
-		events:     make(chan anthropicNativeLineEvent, 16),
-		done:       make(chan struct{}),
-		interval:   interval,
-		lastDataAt: time.Now(),
+		events:      make(chan anthropicNativeLineEvent, 16),
+		done:        make(chan struct{}),
+		interval:    interval,
+		lastDataAt:  time.Now(),
+		queueBudget: newSSEQueueBudget(configForBudget),
 	}
 	if interval > 0 {
 		p.timer = time.NewTimer(interval)
 	}
+	sendEvent := func(ev anthropicNativeLineEvent) bool {
+		if !p.queueBudget.acquire(len(ev.line), p.done) {
+			return false
+		}
+		select {
+		case p.events <- ev:
+			return true
+		case <-p.done:
+			p.queueBudget.release(len(ev.line))
+			return false
+		}
+	}
 	go func() {
 		defer close(p.events)
 		for scanner.Scan() {
-			select {
-			case p.events <- anthropicNativeLineEvent{line: scanner.Text()}:
-			case <-p.done:
+			if !sendEvent(anthropicNativeLineEvent{line: scanner.Text()}) {
 				return
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			select {
-			case p.events <- anthropicNativeLineEvent{err: err}:
-			case <-p.done:
-			}
+			_ = sendEvent(anthropicNativeLineEvent{err: err})
 		}
 	}()
 	return p
@@ -105,6 +118,9 @@ func (p *anthropicNativeLinePump) nextOrClientGone(clientGone <-chan struct{}) (
 			case ev, ok := <-p.events:
 				if ok && ev.err == nil && !anthropicSSELineIsHeartbeat(ev.line) {
 					return p.deliver(ev, ok)
+				}
+				if ok && p.queueBudget != nil {
+					p.queueBudget.release(len(ev.line))
 				}
 			default:
 			}
@@ -140,6 +156,9 @@ func (p *anthropicNativeLinePump) nextOrClientGone(clientGone <-chan struct{}) (
 func (p *anthropicNativeLinePump) deliver(ev anthropicNativeLineEvent, ok bool) (string, error) {
 	if !ok {
 		return "", io.EOF
+	}
+	if p.queueBudget != nil {
+		p.queueBudget.release(len(ev.line))
 	}
 	if ev.err == nil && !anthropicSSELineIsHeartbeat(ev.line) {
 		p.resetTimer()

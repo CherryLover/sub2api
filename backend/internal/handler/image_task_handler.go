@@ -77,6 +77,11 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
+		if isRequestBodyMemoryBudgetExhausted(err) {
+			imageTaskJSONError(c, http.StatusServiceUnavailable, "api_error", "Request body memory budget exhausted")
+			return
+		}
+
 		if maxErr, ok := extractMaxBytesError(err); ok {
 			imageTaskJSONError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
 			return
@@ -122,7 +127,13 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		"poll_url":   pollURL,
 	})
 
-	go h.run(task.ID, platform, taskCtx, recorder, cancel)
+	// The background executor may still reference the request body after the
+	// submission handler finishes. Hold its reservation through task execution.
+	releaseInputBodyBudget := pkghttputil.RetainRequestBodyMemoryBudget(c.Request.Context())
+	go func() {
+		defer releaseInputBodyBudget()
+		h.run(task.ID, platform, taskCtx, recorder, cancel)
+	}()
 }
 
 func (h *AsyncImageHandler) checkSecurityAuditBeforeSubmit(c *gin.Context, apiKey *service.APIKey, platform string, body []byte) bool {

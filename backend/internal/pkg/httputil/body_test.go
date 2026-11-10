@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"compress/zlib"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -139,5 +141,47 @@ func TestReadRequestBodyWithPrealloc_RespectsIdentityEncoding(t *testing.T) {
 	}
 	if string(got) != samplePayload {
 		t.Fatalf("body mismatch: got %q", got)
+	}
+}
+
+// The decode path must reject excess data, never silently truncate it into a
+// syntactically valid but incomplete JSON or image payload.
+func TestBoundedDecompressedBodyRejectsOverrunWithoutReturningData(t *testing.T) {
+	for _, size := range []int{0, 4, 16} {
+		t.Run(fmt.Sprintf("max_%d", size), func(t *testing.T) {
+			atLimit := bytes.Repeat([]byte("a"), size)
+			decoded, err := readBoundedDecodedBody(bytes.NewReader(atLimit), int64(size))
+			if err != nil || !bytes.Equal(decoded, atLimit) {
+				t.Fatalf("valid body: len=%d, err=%v", len(decoded), err)
+			}
+			decoded, err = readBoundedDecodedBody(bytes.NewReader(append(atLimit, '!')), int64(size))
+			var maxErr *http.MaxBytesError
+			if decoded != nil || !errors.As(err, &maxErr) || maxErr.Limit != int64(size) {
+				t.Fatalf("overlimit not rejected: len=%d, err=%v", len(decoded), err)
+			}
+		})
+	}
+}
+
+func TestGzipExpandedBodyLimitIsNotSilentlyTruncated(t *testing.T) {
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	chunk := bytes.Repeat([]byte("x"), 1<<20)
+	for i := 0; i < maxDecompressedBodySize/len(chunk); i++ {
+		if _, err := writer.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := writer.Write([]byte("!")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := newRequestWithBody(t, compressed.Bytes(), "gzip")
+	got, err := ReadRequestBodyWithPrealloc(req)
+	var maxErr *http.MaxBytesError
+	if got != nil || !errors.As(err, &maxErr) || maxErr.Limit != maxDecompressedBodySize {
+		t.Fatalf("compressed body truncated or accepted: len=%d err=%v", len(got), err)
 	}
 }
