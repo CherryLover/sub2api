@@ -161,7 +161,7 @@ func (r *usageLogRepository) GetBreakdownModelShares(
 	dim usagestats.UserBreakdownDimension,
 	modelDim usagestats.BreakdownModelDimension,
 	ids []int64,
-) (map[int64][]usagestats.BreakdownModelShare, error) {
+) (shares map[int64][]usagestats.BreakdownModelShare, err error) {
 	column, ok := breakdownModelColumn(modelDim)
 	if !ok || len(ids) == 0 {
 		return map[int64][]usagestats.BreakdownModelShare{}, nil
@@ -190,9 +190,14 @@ func (r *usageLogRepository) GetBreakdownModelShares(
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+			shares = nil
+		}
+	}()
 
-	shares := make(map[int64][]usagestats.BreakdownModelShare, len(ids))
+	shares = make(map[int64][]usagestats.BreakdownModelShare, len(ids))
 	for rows.Next() {
 		var id int64
 		var share usagestats.BreakdownModelShare
