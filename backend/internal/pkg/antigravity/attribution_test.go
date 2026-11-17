@@ -199,3 +199,15 @@ func TestNeutralizeSystemIdentityCodexPreservesTask(t *testing.T) {
 		})
 	}
 }
+
+func TestAntigravityNeutralizesPiSystemIdentityWithoutEditingInstructions(t *testing.T) {
+	cases := []struct{ name, text, want string }{
+		{"pi opener", "You are a coding assistant running inside pi, a coding agent harness. Help users inspect files.", "You are an AI agent. Help users inspect files."},
+		{"expert opener", "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files.", "You are an AI agent. You help users by reading files."},
+		{"pi reference in instructions", "Follow the pi documentation in ~/.pi/agent.", "Follow the pi documentation in ~/.pi/agent."},
+		{"pi in nonopening text", "Example: You are a coding assistant running inside pi, a coding agent harness.", "Example: You are a coding assistant running inside pi, a coding agent harness."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, NeutralizeSystemIdentity(tc.text)) })
+	}
+}

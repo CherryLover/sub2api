@@ -332,6 +332,9 @@ func neutralizeClaudeIdentity(text string) string {
 var codexIdentityOpeners = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^[ \t\r\n]*You are Codex,? (?:a coding agent |an agent )?based on GPT-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+)*\.?`),
 	regexp.MustCompile(`(?i)^[ \t\r\n]*You are GPT-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+)* running in the Codex CLI\.?`),
+	// This known Pi client identity is metadata, not the task instruction.
+	// Only leading system-block attribution is rewritten; interior mentions stay intact.
+	regexp.MustCompile(`(?i)^[ \t\r\n]*You are (?:an? )?(?:expert )?coding (?:assistant|agent) (?:running|operating|working) inside pi(?:,? a coding agent harness)?\.?`),
 }
 
 // This Claude Code 2.1.325 security-policy sentence causes Antigravity to

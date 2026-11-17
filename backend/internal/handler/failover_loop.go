@@ -105,6 +105,10 @@ type FailoverState struct {
 	ForceCacheBilling     bool
 	hasBoundSession       bool
 
+	// The first account cooled by this request. Subsequent accounts still
+	// fail over, but one malformed request must not cool the entire pool.
+	tempUnscheduledAccountID int64
+
 	// profitVetoedAccountIDs 记录被分组利润门终检否决的账号，是 FailedAccountIDs
 	// 的子集。之所以单独维护：HandleSelectionExhausted 的 503 退避分支会清空
 	// FailedAccountIDs，而利润否决在同一请求内的判定不会改变（下游倍率 D 已在
@@ -219,9 +223,22 @@ func (s *FailoverState) HandleFailoverError(
 		return FailoverExhausted
 	}
 
-	// 同账号重试用尽，执行临时封禁
+	// Exhausted same-account retries: only one account may be cooled by
+	// one downstream request. Request-scoped faults never consume this budget.
 	if failoverErr.RetryableOnSameAccount {
-		gatewayService.TempUnscheduleRetryableError(ctx, accountID, failoverErr)
+		if failoverErr.RequestScopedTransient {
+			// Service-level handling does not cool request-scoped faults.
+			gatewayService.TempUnscheduleRetryableError(ctx, accountID, failoverErr)
+		} else if s.tempUnscheduledAccountID == 0 || s.tempUnscheduledAccountID == accountID {
+			s.tempUnscheduledAccountID = accountID
+			gatewayService.TempUnscheduleRetryableError(ctx, accountID, failoverErr)
+		} else {
+			logger.FromContext(ctx).Warn("gateway.failover_temp_unschedule_skipped",
+				zap.Int64("account_id", accountID),
+				zap.Int64("already_unscheduled_account_id", s.tempUnscheduledAccountID),
+				zap.Int("upstream_status", failoverErr.StatusCode),
+			)
+		}
 	}
 
 	// 加入失败列表

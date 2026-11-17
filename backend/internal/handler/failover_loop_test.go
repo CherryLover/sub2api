@@ -1018,3 +1018,34 @@ func TestHandleFailoverError_EmptyStreamDoesNotSwitchAccount(t *testing.T) {
 	require.NotContains(t, fs.FailedAccountIDs, int64(100))
 	require.Empty(t, mock.calls)
 }
+
+// A request that repeatedly triggers the same upstream failure must not remove
+// every healthy account it traverses from the shared scheduling pool.
+func TestFailoverRequestDoesNotCoolMultipleAccounts(t *testing.T) {
+	mock := &mockTempUnscheduler{}
+	state := NewFailoverState(10, false)
+	err := newTestFailoverErr(http.StatusBadGateway, true, false)
+	for _, id := range []int64{21, 22, 23} {
+		require.Equal(t, FailoverContinue, state.HandleFailoverError(context.Background(), mock, id, service.PlatformOpenAI, 0, err))
+	}
+	require.Equal(t, []int64{21}, func() []int64 {
+		ids := make([]int64, 0, len(mock.calls))
+		for _, call := range mock.calls {
+			ids = append(ids, call.accountID)
+		}
+		return ids
+	}())
+	require.Len(t, state.FailedAccountIDs, 3, "all failing accounts remain excluded from this request")
+}
+
+func TestFailoverRequestScopedErrorDoesNotUseCoolDownBudget(t *testing.T) {
+	mock := &mockTempUnscheduler{}
+	state := NewFailoverState(10, false)
+	transient := &service.UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true, RequestScopedTransient: true}
+	persistent := newTestFailoverErr(http.StatusBadGateway, true, false)
+	require.Equal(t, FailoverContinue, state.HandleFailoverError(context.Background(), mock, 21, service.PlatformOpenAI, 0, transient))
+	require.Equal(t, FailoverContinue, state.HandleFailoverError(context.Background(), mock, 22, service.PlatformOpenAI, 0, persistent))
+	require.Equal(t, FailoverContinue, state.HandleFailoverError(context.Background(), mock, 23, service.PlatformOpenAI, 0, persistent))
+	require.Len(t, mock.calls, 2, "request-scoped error should not exhaust the cooldown budget")
+	require.Equal(t, int64(22), mock.calls[1].accountID)
+}
