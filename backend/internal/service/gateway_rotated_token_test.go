@@ -91,7 +91,7 @@ func TestGatewayService_RotatedClaudeToken(t *testing.T) {
 				{name: "disabled_account", storedToken: "new-token", inactive: true, wantCalls: 1, wantCooldown: 0},
 				{name: "unschedulable_account", storedToken: "new-token", unschedulable: true, wantCalls: 1, wantCooldown: 0},
 				{name: "cache_delete_failed", storedToken: "new-token", cacheDeleteErr: errors.New("cache unavailable"), wantCalls: 2},
-				{name: "setup_token", accountType: AccountTypeSetupToken, storedToken: "new-token", wantCalls: 1, wantError: 1},
+				{name: "setup_token", accountType: AccountTypeSetupToken, storedToken: "new-token", wantCalls: 1, wantError: 0},
 				{name: "api_key", accountType: AccountTypeAPIKey, storedToken: "new-token", wantCalls: 1, wantError: 1},
 			} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", path, stream, tc.name), func(t *testing.T) {
