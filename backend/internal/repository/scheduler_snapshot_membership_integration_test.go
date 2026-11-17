@@ -61,6 +61,16 @@ func TestSchedulerSnapshotConfiguredMembership(t *testing.T) {
 				}
 			}
 
+			// Simple/ungrouped pools also include accounts created by unrelated
+			// integration fixtures. Assert the scope only against the accounts
+			// owned by this fixture, while still checking cross-group leakage.
+			ownedIDs := make(map[int64]struct{})
+			for _, groupIDs := range ids {
+				for _, id := range groupIDs {
+					ownedIDs[id] = struct{}{}
+				}
+			}
+
 			for _, scope := range []string{"simple", "group", "ungrouped"} {
 				for _, forced := range []bool{false, true} {
 					t.Run(fmt.Sprintf("%s/forced=%t", scope, forced), func(t *testing.T) {
@@ -88,9 +98,11 @@ func TestSchedulerSnapshotConfiguredMembership(t *testing.T) {
 						cache := NewSchedulerCache(testRedis(t))
 						svc := service.NewSchedulerSnapshotService(cache, nil, repo, nil, cfg)
 						accountIDs := func(accounts []service.Account) []int64 {
-							out := make([]int64, len(accounts))
-							for i := range accounts {
-								out[i] = accounts[i].ID
+							var out []int64
+							for _, account := range accounts {
+								if _, owned := ownedIDs[account.ID]; owned {
+									out = append(out, account.ID)
+								}
 							}
 							return out
 						}
@@ -112,9 +124,11 @@ func TestSchedulerSnapshotConfiguredMembership(t *testing.T) {
 						members, hit, err := cache.GetSnapshot(ctx, bucket)
 						require.NoError(t, err)
 						require.True(t, hit)
-						memberIDs := make([]int64, len(members))
-						for i := range members {
-							memberIDs[i] = members[i].ID
+						var memberIDs []int64
+						for _, member := range members {
+							if _, owned := ownedIDs[member.ID]; owned {
+								memberIDs = append(memberIDs, member.ID)
+							}
 						}
 						require.ElementsMatch(t, wantMembers, memberIDs, "the stored pool retains timed blocks without widening platform/group or manual eligibility")
 					})
