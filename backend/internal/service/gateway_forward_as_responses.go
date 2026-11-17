@@ -125,32 +125,43 @@ func (s *GatewayService) ForwardAsResponses(
 		proxyURL = account.Proxy.URL()
 	}
 
-	// 10. Build upstream request
-	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-	upstreamReq, _, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
-	releaseUpstreamCtx()
-	if err != nil {
-		return nil, fmt.Errorf("build upstream request: %w", err)
-	}
-
-	// 11. Send request
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-	if err != nil {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
+	// Build each attempt from the same request, reusing the account only if
+	// another worker rotated the OAuth token after our previous attempt.
+	var resp *http.Response
+	for retriedRotatedToken := false; ; {
+		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
+		upstreamReq, _, buildErr := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
+		releaseUpstreamCtx()
+		if buildErr != nil {
+			return nil, fmt.Errorf("build upstream request: %w", buildErr)
 		}
-		safeErr := sanitizeUpstreamErrorMessage(err.Error())
-		setOpsUpstreamError(c, 0, safeErr, "")
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: 0,
-			Kind:               "request_error",
-			Message:            safeErr,
-		})
-		writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
-		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+		if err != nil {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			safeErr := sanitizeUpstreamErrorMessage(err.Error())
+			setOpsUpstreamError(c, 0, safeErr, "")
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: 0,
+				Kind:               "request_error",
+				Message:            safeErr,
+			})
+			writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
+			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		}
+		if resp.StatusCode == http.StatusUnauthorized && !retriedRotatedToken {
+			if rotated := s.rotatedClaudeAccessToken(ctx, account, token); rotated != "" {
+				_ = resp.Body.Close()
+				token = rotated
+				retriedRotatedToken = true
+				continue
+			}
+		}
+		break
 	}
 	defer func() { _ = resp.Body.Close() }()
 
