@@ -54,7 +54,8 @@ const geminiModels = [
   'gemini-2.5-pro',
   'gemini-3.5-flash',
   'gemini-3-flash-preview',
-  'gemini-3-pro-preview'
+  'gemini-3-pro-preview',
+  'gemini-4-carbon'
 ]
 
 // Antigravity 官方支持的模型（精确匹配）
@@ -85,6 +86,7 @@ const antigravityModels = [
   'gemini-3.1-pro',
   'gemini-3.1-pro-high',
   'gemini-3.1-pro-low',
+  'gemini-4-carbon',
   'gemini-3-pro-image',
   // 其他
   'gpt-oss-120b-medium',
@@ -344,6 +346,7 @@ const grokPresetMappings = [
 
 // Antigravity 预设映射（支持通配符）
 const antigravityPresetMappings = [
+  { label: 'Gemini 4 Carbon', from: 'gemini-4-carbon', to: 'gemini-4-carbon', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },
   // Claude 通配符映射
   { label: 'Claude→Sonnet', from: 'claude-*', to: 'claude-sonnet-4-5', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
   { label: 'Fable 5', from: 'claude-fable-5', to: 'claude-fable-5', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },

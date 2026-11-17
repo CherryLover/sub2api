@@ -156,6 +156,8 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.8-flash-low":    "gemini-3.8-flash-low",
 	"gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
 	"gemini-3.8-flash-tiered": "gemini-3.8-flash-tiered",
+	// Gemini 4 Carbon uses the published base model ID without Argon tier routing.
+	"gemini-4-carbon": "gemini-4-carbon",
 	// Gemini 4 Argon: default routes to the high tier.
 	"gemini-4-argon":        "gemini-4-argon-high",
 	"gemini-4-argon-high":   "gemini-4-argon-high",

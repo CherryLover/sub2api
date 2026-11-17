@@ -450,6 +450,21 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown: false,
 	}
 
+	// Gemini 4 Carbon introductory global rates are valid through 2026-11-30.
+	// The announced 2026-12-01 price transition needs a date-aware settlement
+	// policy before release; keep this shared catalog immutable and do not
+	// silently apply promotional prices beyond their validity.
+	// Implicit caching only: no cache storage charge.
+	s.fallbackPrices["gemini-4-carbon"] = &ModelPricing{
+		InputPricePerToken:             2e-6,
+		OutputPricePerToken:            10e-6,
+		CacheReadPricePerToken:         0.1e-6,
+		InputPricePerTokenPriority:     3.6e-6,
+		OutputPricePerTokenPriority:    18e-6,
+		CacheReadPricePerTokenPriority: 0.18e-6,
+		SupportsCacheBreakdown:         false,
+	}
+
 	// Gemini 4 Argon: $2/$10/$0.10 per MTok introductory rates until
 	// 2026-11-30; these explicit fallbacks cover Antigravity aliases.
 	s.fallbackPrices["gemini-4-argon"] = &ModelPricing{
@@ -1077,6 +1092,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 	if strings.Contains(modelLower, "gemini-3.7-flash") || strings.Contains(modelLower, "gemini-3-7-flash") {
 		return s.fallbackPrices["gemini-3.7-flash"]
+	}
+	if normalizeGeminiThinkingTierAlias(lastSegment(strings.TrimSpace(modelLower))) == "gemini-4-carbon" {
+		return s.fallbackPrices["gemini-4-carbon"]
 	}
 	if strings.Contains(modelLower, "gemini-4-argon-cyber") {
 		return s.fallbackPrices["gemini-4-argon-cyber-permissive"]
