@@ -16,6 +16,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // ForwardAsChatCompletions serves OpenAI Chat Completions clients through
@@ -106,6 +108,8 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	}
 	geminiReq = ensureGeminiFunctionCallThoughtSignatures(geminiReq)
 	geminiReq = applyGeminiCompatThinkingConfig(geminiReq, claudeBody, mappedModel, clientStream)
+	format := gjson.GetBytes(originalChatBody, "response_format")
+	geminiReq = applyGeminiChatResponseFormat(geminiReq, json.RawMessage(format.Raw), mappedModel)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -404,15 +408,22 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 					fullURL += "?alt=sse"
 				}
 
-				var inner any
-				if err := json.Unmarshal(geminiReq, &inner); err != nil {
-					return nil, "", fmt.Errorf("failed to parse gemini request: %w", err)
+				// Preserve the original JSON schema text within the CLI wrapper;
+				// re-encoding through interface{} can round large numeric literals.
+				if !json.Valid(geminiReq) {
+					return nil, "", errors.New("failed to parse gemini request: invalid JSON")
 				}
-				wrappedBytes, _ := json.Marshal(map[string]any{
+				wrapperBytes, err := json.Marshal(map[string]any{
 					"model":   mappedModel,
 					"project": projectID,
-					"request": inner,
 				})
+				if err != nil {
+					return nil, "", err
+				}
+				wrappedBytes, err := sjson.SetRawBytes(wrapperBytes, "request", geminiReq)
+				if err != nil {
+					return nil, "", err
+				}
 
 				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
 				if err != nil {

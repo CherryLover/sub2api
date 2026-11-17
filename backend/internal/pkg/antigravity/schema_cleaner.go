@@ -324,12 +324,10 @@ func cleanJSONSchemaRecursive(value any) any {
 			}
 			schemaMap["type"] = selectedType
 		} else {
-			// 默认 object 如果有 properties (虽然上面白名单过滤可能删了 type 如果它不在... 但 type 必在 allowlist)
-			// 如果没有 type，但有 properties，补一个
-			if hasKey(schemaMap, "properties") {
-				schemaMap["type"] = "object"
+			// A schema with items but no type is an array schema, not an object.
+			if hasKey(schemaMap, "items") && !hasKey(schemaMap, "properties") {
+				schemaMap["type"] = "array"
 			} else {
-				// 默认为 string ? or object? Gemini 通常需要明确 type
 				schemaMap["type"] = "object"
 			}
 		}
@@ -345,6 +343,9 @@ func cleanJSONSchemaRecursive(value any) any {
 			}
 		}
 
+		// Gemini only accepts items on arrays, and requires a schema object.
+		// A union selecting a scalar type must not retain array-only items.
+		// Perform this after type normalization and enum coercion below.
 		// 9. Enum 值强制转字符串
 		if enumVals, ok := schemaMap["enum"].([]any); ok {
 			hasNonString := false
@@ -362,6 +363,13 @@ func cleanJSONSchemaRecursive(value any) any {
 			if hasNonString {
 				schemaMap["type"] = "string"
 			}
+		}
+		if typ, _ := schemaMap["type"].(string); typ == "array" {
+			if items, ok := schemaMap["items"].(map[string]any); !ok || len(items) == 0 {
+				schemaMap["items"] = map[string]any{"type": "string"}
+			}
+		} else {
+			delete(schemaMap, "items")
 		}
 	}
 
