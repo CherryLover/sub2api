@@ -448,9 +448,56 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		sendErrorEvent(code, message)
 		return resultWithUsage(), fmt.Errorf("stream read error: %w", scanErr), true
 	}
+	// Upstream SSE keepalive events are protocol frames, not semantic first
+	// output. Deliver them without exposing attempt-specific buffered frames or
+	// stopping the first-output timeout, so downstream SDK idle timers can reset.
+	upstreamKeepaliveEvent := false
+	keepaliveEventDirect := false
+	writeKeepaliveDirect := func(fragment string) {
+		if clientDisconnected {
+			return
+		}
+		n, err := w.Write([]byte(fragment))
+		recordOpenAIStreamKeepaliveBytes(c, n)
+		if err != nil {
+			clientDisconnected = true
+			logger.LegacyPrintf("service.openai_gateway", "Client disconnected while forwarding upstream SSE keepalive")
+		}
+	}
 	processSSELine := func(line string, queueDrained bool) {
 		if streamEarlyErr != nil {
 			return
+		}
+		if stageFirstOutput && firstOutputStage != nil && !firstOutputStage.closed {
+			if strings.HasPrefix(line, "event:") {
+				upstreamKeepaliveEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:")) == "keepalive"
+				if upstreamKeepaliveEvent {
+					keepaliveEventDirect = true
+					eventInProgress = true
+					writeKeepaliveDirect(line + "\n")
+					return
+				}
+			}
+			if data, ok := extractOpenAISSEDataLine(line); ok &&
+				(upstreamKeepaliveEvent || strings.TrimSpace(gjson.Get(data, "type").String()) == "keepalive") {
+				keepaliveEventDirect = true
+				eventInProgress = true
+				writeKeepaliveDirect(line + "\n")
+				return
+			}
+			if keepaliveEventDirect {
+				writeKeepaliveDirect(line + "\n")
+				if line == "" {
+					keepaliveEventDirect = false
+					upstreamKeepaliveEvent = false
+					eventInProgress = false
+					if !clientDisconnected {
+						flusher.Flush()
+						lastDownstreamWriteAt = time.Now()
+					}
+				}
+				return
+			}
 		}
 		// Extract data from SSE line (supports both "data: " and "data:" formats)
 		if data, ok := extractOpenAISSEDataLine(line); ok {
