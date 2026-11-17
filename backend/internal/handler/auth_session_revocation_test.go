@@ -38,6 +38,10 @@ func (s *userHandlerRefreshTokenCacheStub) DeleteRefreshToken(context.Context, s
 	return nil
 }
 
+func (s *userHandlerRefreshTokenCacheStub) ConsumeRefreshToken(context.Context, string) (*service.RefreshTokenData, error) {
+	return nil, service.ErrRefreshTokenNotFound
+}
+
 func (s *userHandlerRefreshTokenCacheStub) DeleteUserRefreshTokens(_ context.Context, userID int64) error {
 	s.revokedUserIDs = append(s.revokedUserIDs, userID)
 	return nil
