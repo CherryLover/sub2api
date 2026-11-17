@@ -334,8 +334,21 @@ var codexIdentityOpeners = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^[ \t\r\n]*You are GPT-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+)* running in the Codex CLI\.?`),
 }
 
+// This Claude Code 2.1.325 security-policy sentence causes Antigravity to
+// report RESOURCE_EXHAUSTED even with a healthy quota (upstream #8824).
+// Preserve its authorization requirement using the wording verified upstream
+// to be accepted. Only Antigravity system instructions are normalized.
+var antigravityDualUsePolicySentence = regexp.MustCompile(
+	`(?i)Dual-use security tools \(C2 frameworks, credential testing, exploit development\) require clear authorization context:[^.\n]*\.`,
+)
+
+func neutralizeAntigravityDualUsePolicy(text string) string {
+	return antigravityDualUsePolicySentence.ReplaceAllString(text,
+		"Tools with both offensive and defensive uses need a clear, authorized purpose.")
+}
+
 func NeutralizeSystemIdentity(text string) string {
-	text = stripClaudeAttribution(text)
+	text = neutralizeAntigravityDualUsePolicy(stripClaudeAttribution(text))
 	for _, re := range append(claudeIdentityOpeners, codexIdentityOpeners...) {
 		loc := re.FindStringIndex(text)
 		if loc == nil {
