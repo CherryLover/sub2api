@@ -44,6 +44,10 @@ type RefreshTokenCache interface {
 	// 用于Token轮转时使旧Token失效
 	DeleteRefreshToken(ctx context.Context, tokenHash string) error
 
+	// ConsumeRefreshToken atomically reads and invalidates a token during rotation.
+	// Only one concurrent caller can succeed; a missing token returns ErrRefreshTokenNotFound.
+	ConsumeRefreshToken(ctx context.Context, tokenHash string) (*RefreshTokenData, error)
+
 	// DeleteUserRefreshTokens 删除用户的所有Refresh Token
 	// 用于密码更改或用户主动登出所有设备
 	DeleteUserRefreshTokens(ctx context.Context, userID int64) error
