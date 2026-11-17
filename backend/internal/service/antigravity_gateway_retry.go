@@ -917,8 +917,13 @@ func (s *AntigravityGatewayService) setAntigravityModelRateLimits(ctx context.Co
 	if account == nil || repo == nil {
 		return false
 	}
-	keys := antigravityModelRateLimitKeys(modelName)
-	if len(keys) == 0 {
+	return s.setAntigravityModelRateLimitKeys(ctx, repo, account, antigravityModelRateLimitKeys(account, modelName), prefix, statusCode, resetAt, afterSmartRetry)
+}
+
+// setAntigravityModelRateLimitKeys persists only the requested keys and refreshes
+// the scheduler snapshot. A bare 429 must not spill over into the family pool.
+func (s *AntigravityGatewayService) setAntigravityModelRateLimitKeys(ctx context.Context, repo AccountRepository, account *Account, keys []string, prefix string, statusCode int, resetAt time.Time, afterSmartRetry bool) bool {
+	if account == nil || repo == nil || len(keys) == 0 {
 		return false
 	}
 
@@ -1283,11 +1288,17 @@ func (s *AntigravityGatewayService) handleUpstreamError(
 		}
 		if modelKey != "" {
 			ra := s.resolveResetTime(resetAt, defaultDur)
-			if !s.setAntigravityModelRateLimits(ctx, s.accountRepo, account, modelKey, prefix, statusCode, ra, false) {
+			keys := antigravityModelRateLimitKeys(account, modelKey)
+			if resetAt == nil && len(keys) > 1 {
+				// Upstream also returns a bare 429 without RetryInfo on prompt
+				// rejection. Without quota-reset evidence, limit this model only.
+				keys = keys[:1]
+			}
+			if !s.setAntigravityModelRateLimitKeys(ctx, s.accountRepo, account, keys, prefix, statusCode, ra, false) {
 				logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 model_rate_limit_set_failed model=%s", prefix, modelKey)
 			} else {
-				logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 model_rate_limited model=%s account=%d reset_at=%v reset_in=%v",
-					prefix, modelKey, account.ID, ra.Format("15:04:05"), time.Until(ra).Truncate(time.Second))
+				logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 model_rate_limited model=%s keys=%s account=%d reset_at=%v reset_in=%v",
+					prefix, modelKey, strings.Join(keys, ","), account.ID, ra.Format("15:04:05"), time.Until(ra).Truncate(time.Second))
 			}
 			return nil
 		}
