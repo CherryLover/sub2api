@@ -626,6 +626,8 @@ type ClaudeUsage struct {
 	CacheCreation1hTokens               int  // 1小时缓存创建token（来自嵌套 cache_creation 对象）
 	cacheCreationInputTokensPresent     bool // distinguish missing vs explicit zero
 	cacheCreationInputTokensFromDetails bool // TTL aggregate derived only when absent
+	promptTotalTokens                   int  // source prompt total to preserve across sparse deltas
+	promptTotalPresent                  bool // true only after an authoritative prompt total
 	ImageOutputTokens                   int  `json:"image_output_tokens,omitempty"`
 }
 
