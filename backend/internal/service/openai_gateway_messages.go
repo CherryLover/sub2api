@@ -42,6 +42,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		body = sanitized
 	}
 
+	if account.IsOpenAI() {
+		patternBody, patternChanged, patternErr := sanitizeOpenAIResponsesToolSchemaPatterns(body)
+		if patternErr != nil {
+			return nil, patternErr
+		}
+		if patternChanged {
+			body = patternBody
+		}
+	}
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	// Web Search 模拟：Chat Completions 转换会丢掉 web_search 工具，纯 web_search

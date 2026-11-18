@@ -69,6 +69,15 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if toolSchemaSanitized {
 		body = sanitizedToolBody
 	}
+	if account.IsOpenAI() {
+		patternBody, patternChanged, patternErr := sanitizeOpenAIResponsesToolSchemaPatterns(body)
+		if patternErr != nil {
+			return nil, fmt.Errorf("sanitize OpenAI Responses tool patterns: %w", patternErr)
+		}
+		if patternChanged {
+			body = patternBody
+		}
+	}
 	if account.IsOpenAI() && account.IsOAuth() {
 		reasoningBody, reasoningChanged, reasoningErr := normalizeOpenAIResponsesReasoningMode(body, account.GetMappedModel(gjson.GetBytes(body, "model").String()))
 		if reasoningErr != nil {
