@@ -682,7 +682,11 @@ export default {
         grokLastProbe: '探测 {time}',
         grokLastHeadersSeen: '响应头 {time}',
         passiveSampled: '被动采样',
-        activeQuery: '查询'
+        activeQuery: '查询',
+        quotaRefreshFailedCached: '额度刷新失败，显示的是上次观测值，可能已过期。',
+        quotaRefreshFailedUnknown: '额度刷新失败，当前使用率未知。',
+        quotaObservedAt: '观测时间：',
+        quotaObservationUnknown: '未知'
       },
       openaiQuotaReset: {
         count: '次数',

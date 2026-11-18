@@ -1721,7 +1721,11 @@ export default {
         grokLastProbe: 'Probe {time}',
         grokLastHeadersSeen: 'Headers {time}',
         passiveSampled: 'Passive',
-        activeQuery: 'Query'
+        activeQuery: 'Query',
+        quotaRefreshFailedCached: 'Quota refresh failed; last observed values may be stale.',
+        quotaRefreshFailedUnknown: 'Quota could not be refreshed; current utilization is unknown.',
+        quotaObservedAt: 'Observed at:',
+        quotaObservationUnknown: 'Unknown'
       },
       openaiQuotaReset: {
         count: 'Credits',
