@@ -153,6 +153,39 @@ describe('AccountUsageCell', () => {
     wrapper.unmount()
   })
 
+  it('keeps existing Claude quota mounted while batch usage refreshes', async () => {
+    const snapshot = (value: number): AccountUsageInfo => ({
+      updated_at: null,
+      five_hour: { utilization: value, resets_at: null, remaining_seconds: 0 },
+      seven_day: null,
+      seven_day_sonnet: null,
+    })
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 98101, platform: 'anthropic', type: 'oauth' }),
+        requestBatchedUsage: vi.fn(),
+        batchedUsage: snapshot(21),
+        batchedUsageLoading: false,
+      },
+      global: { stubs: {
+        UsageProgressBar: { props: ['utilization'], template: '<div data-test="quota">{{ utilization }}</div>' },
+        AccountQuotaInfo: true,
+      } },
+    })
+    await flushPromises()
+    const quota = wrapper.get('[data-test="quota"]').element
+    await wrapper.setProps({ batchedUsageLoading: true })
+    expect(wrapper.get('[data-test="quota"]').text()).toBe('21')
+    expect(wrapper.get('[data-test="quota"]').element).toBe(quota)
+    expect(wrapper.find('.animate-pulse').exists()).toBe(false)
+    expect(wrapper.attributes('aria-busy')).toBe('true')
+    await wrapper.setProps({ batchedUsage: snapshot(44), batchedUsageLoading: false })
+    expect(wrapper.get('[data-test="quota"]').text()).toBe('44')
+    expect(wrapper.get('[data-test="quota"]').element).toBe(quota)
+    expect(wrapper.attributes('aria-busy')).toBe('false')
+    wrapper.unmount()
+  })
+
   it('renders eligible Ollama Cloud state and forwards query updates', async () => {
     const wrapper = mount(AccountUsageCell, {
       props: {
