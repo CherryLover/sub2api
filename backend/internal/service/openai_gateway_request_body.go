@@ -895,7 +895,7 @@ func extractOpenAIRequestMetaFromBody(body []byte) (model string, stream bool, p
 }
 
 func normalizeGPT6ResponsesSampling(body []byte, model string) ([]byte, bool, error) {
-	if (!openai.IsGPT6SolOrLunaModelSpelling(model) && !openai.IsGPT61SolModelSpelling(model)) || gjson.GetBytes(body, "reasoning.effort").String() == "none" {
+	if (!openai.IsGPT6SolOrLunaModelSpelling(model) && !openai.IsGPT61SolModelSpelling(model) && openai.GPT62ModelID(model) == "") || gjson.GetBytes(body, "reasoning.effort").String() == "none" {
 		return body, false, nil
 	}
 	out := body
@@ -1821,7 +1821,7 @@ func hasEffectiveGPT61SolCompatEffort(body []byte) bool {
 // validateGPT61CompatRequest rejects unsupported reasoning levels for GPT-6.1
 // Sol/Terra before protocol conversion can silently discard explicit effort.
 func validateGPT61CompatRequest(body []byte, model string) error {
-	if !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) {
+	if !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) && openai.GPT62ModelID(model) == "" {
 		return nil
 	}
 	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {
@@ -1834,8 +1834,9 @@ func validateGPT61CompatRequest(body []byte, model string) error {
 	}
 	if !hasEffectiveGPT61SolCompatEffort(body) {
 		requestedModel := openai.CanonicalizeOpenAIModelAliasSpelling(gjson.GetBytes(body, "model").String())
-		for _, base := range []string{"gpt-6.1-sol", "gpt-6.1-terra"} {
-			matches := (base == "gpt-6.1-sol" && openai.IsGPT61SolModelSpelling(requestedModel)) ||
+		for _, base := range []string{"gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol", "gpt-6.1-terra"} {
+			matches := (openai.GPT62ModelID(requestedModel) == base) ||
+				(base == "gpt-6.1-sol" && openai.IsGPT61SolModelSpelling(requestedModel)) ||
 				(base == "gpt-6.1-terra" && (openai.IsGPT61TerraModelSpelling(requestedModel) || requestedModel == "gpt-6.1-terra-minimal"))
 			if !matches {
 				continue

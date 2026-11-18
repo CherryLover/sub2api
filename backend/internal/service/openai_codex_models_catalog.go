@@ -392,6 +392,16 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		}
 	}
 
+	if base := openai.GPT62ModelID(modelID); base != "" {
+		metadata := openai.CodexGPT62SolMetadata
+		if base == "gpt-6.2-astra" {
+			metadata = openai.CodexGPT62AstraMetadata
+		}
+		if err := json.Unmarshal(metadata, &descriptor); err != nil {
+			panic(fmt.Errorf("invalid bundled %s Codex descriptor: %w", base, err))
+		}
+		descriptor.Slug = modelID
+	}
 	if openai.IsGPT61TerraModelSpelling(modelID) {
 		// Overlay the official Codex model description. This intentionally
 		// differs from API pricing/effort validation (API still accepts none).
