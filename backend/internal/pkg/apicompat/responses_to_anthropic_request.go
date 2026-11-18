@@ -27,7 +27,8 @@ func ResponsesToAnthropicRequestWithOptions(req *ResponsesRequest, opts Response
 	isOpus55 := claude.IsOpus55(req.Model)
 	isSonnet55 := claude.IsSonnet55(req.Model)
 	isHaiku55 := claude.IsHaiku55(req.Model)
-	system, messages, err := convertResponsesInputToAnthropicWithSystem(req.Instructions, req.Input, isOpus55 || isSonnet55 || isHaiku55, opts.MidConversationSystem, req.chatInputAudio)
+	isClaude52 := claude.IsFable52(req.Model) || claude.IsMythos52(req.Model)
+	system, messages, err := convertResponsesInputToAnthropicWithSystem(req.Instructions, req.Input, isOpus55 || isSonnet55 || isHaiku55 || isClaude52, opts.MidConversationSystem, req.chatInputAudio)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +74,7 @@ func ResponsesToAnthropicRequestWithOptions(req *ResponsesRequest, opts Response
 	// Haiku 5.5 uses disabled (at high effort or below) instead.
 	// Resolve the upstream model before conversion: client aliases need not
 	// identify a Claude model.
-	if isOpus55 || isSonnet55 || isHaiku55 {
+	if isOpus55 || isSonnet55 || isHaiku55 || isClaude52 {
 		var choice struct {
 			Type string `json:"type"`
 		}
@@ -86,7 +87,7 @@ func ResponsesToAnthropicRequestWithOptions(req *ResponsesRequest, opts Response
 			return nil, fmt.Errorf("%s does not support forced tool_choice; use auto or none", req.Model)
 		}
 		effort := "medium"
-		if isSonnet55 {
+		if isSonnet55 || isClaude52 {
 			effort = "high"
 			if req.Temperature != nil && *req.Temperature != 1 {
 				return nil, fmt.Errorf("claude-sonnet-5-5 does not support non-default temperature")
@@ -95,11 +96,11 @@ func ResponsesToAnthropicRequestWithOptions(req *ResponsesRequest, opts Response
 				return nil, fmt.Errorf("claude-sonnet-5-5 does not support non-default top_p")
 			}
 		}
-		if isHaiku55 {
+		if isHaiku55 || isClaude52 {
 			if req.Temperature != nil && *req.Temperature != 1 {
 				return nil, fmt.Errorf("claude-haiku-5-5 does not support non-default temperature")
 			}
-			if req.TopP != nil && (*req.TopP < 0.99 || *req.TopP > 1) {
+			if req.TopP != nil && (isClaude52 && *req.TopP != 0.99 || !isClaude52 && (*req.TopP < 0.99 || *req.TopP > 1)) {
 				return nil, fmt.Errorf("claude-haiku-5-5 does not support non-default top_p")
 			}
 			if req.Temperature != nil && req.TopP != nil {

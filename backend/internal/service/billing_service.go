@@ -450,6 +450,20 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown: false,
 	}
 
+	// Fable/Mythos 5.2 official fallback prices; these model IDs have no
+	// legacy family price. Do not overwrite explicit channel or group rates.
+	for _, model := range []string{"claude-fable-5-2", "claude-mythos-5-2"} {
+		p := claude52FallbackPricing
+		s.fallbackPrices[model] = &ModelPricing{
+			InputPricePerToken: p.InputCostPerToken, OutputPricePerToken: p.OutputCostPerToken,
+			CacheCreationPricePerToken: p.CacheCreationInputTokenCost,
+			CacheCreation5mPrice:       p.CacheCreationInputTokenCost,
+			CacheCreation1hPrice:       p.CacheCreationInputTokenCostAbove1hr,
+			CacheReadPricePerToken:     p.CacheReadInputTokenCost,
+			SupportsCacheBreakdown:     true,
+		}
+	}
+
 	// Gemini 4 Carbon introductory global rates are valid through 2026-11-30.
 	// The announced 2026-12-01 price transition needs a date-aware settlement
 	// policy before release; keep this shared catalog immutable and do not
@@ -1040,6 +1054,12 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 
 	// 按模型系列匹配
+	if claude.IsFable52(modelLower) {
+		return s.fallbackPrices["claude-fable-5-2"]
+	}
+	if claude.IsMythos52(modelLower) {
+		return s.fallbackPrices["claude-mythos-5-2"]
+	}
 	if claude.IsOpus55(modelLower) {
 		return s.fallbackPrices["claude-opus-5-5"]
 	}

@@ -176,6 +176,8 @@ var DefaultAntigravityModelMapping = map[string]string{
 // 注意：此处的 "us." 前缀仅为默认值，ResolveBedrockModelID 会根据账号配置的
 // aws_region 自动调整为匹配的区域前缀（如 eu.、apac.、jp. 等）
 var DefaultBedrockModelMapping = map[string]string{
+	"claude-fable-5-2":  "anthropic.claude-fable-5-2",
+	"claude-mythos-5-2": "anthropic.claude-mythos-5-2",
 	// Claude Fable
 	"claude-fable-5": "anthropic.claude-fable-5",
 	// Claude Opus
