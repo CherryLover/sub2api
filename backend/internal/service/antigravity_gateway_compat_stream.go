@@ -304,11 +304,24 @@ func mergeAntigravityCompatUsage(dst *ClaudeUsage, src *antigravity.ClaudeUsage)
 	if dst == nil || src == nil {
 		return
 	}
-	dst.InputTokens = src.InputTokens
-	dst.OutputTokens = src.OutputTokens
-	dst.CacheCreationInputTokens = src.CacheCreationInputTokens
-	dst.CacheReadInputTokens = src.CacheReadInputTokens
-	dst.ImageOutputTokens = src.ImageOutputTokens
+	// Anthropic message_start reports input/cache usage, while subsequent
+	// message_delta events often report only output_tokens. Zero-valued fields
+	// in an output-only delta are absent, not a request to erase prior usage.
+	if src.InputTokens > 0 {
+		dst.InputTokens = src.InputTokens
+	}
+	if src.OutputTokens > 0 {
+		dst.OutputTokens = src.OutputTokens
+	}
+	if src.CacheCreationInputTokens > 0 {
+		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
+	}
+	if src.CacheReadInputTokens > 0 {
+		dst.CacheReadInputTokens = src.CacheReadInputTokens
+	}
+	if src.ImageOutputTokens > 0 {
+		dst.ImageOutputTokens = src.ImageOutputTokens
+	}
 }
 
 func (s *AntigravityGatewayService) handleAntigravityCompatStream(
