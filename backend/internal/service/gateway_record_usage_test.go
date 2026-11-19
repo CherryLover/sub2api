@@ -787,12 +787,14 @@ func TestGatewayServiceRecordUsage_AccountStatsPreservesCacheTTLBreakdown(t *tes
 			name                string
 			cache5m             int
 			cache1h             int
+			detailOnly          bool
 			overrideTarget      string
 			wantCacheCost       float64
 			wantCustomCacheCost float64
 		}{
 			{name: "1h", cache1h: 10000, wantCacheCost: 0.08, wantCustomCacheCost: 0.12},
 			{name: "mixed", cache5m: 4000, cache1h: 6000, wantCacheCost: 0.068, wantCustomCacheCost: 0.082},
+			{name: "detail_only_mixed", cache5m: 4000, cache1h: 6000, detailOnly: true, wantCacheCost: 0.068, wantCustomCacheCost: 0.082},
 			{name: "5m", cache5m: 10000, wantCacheCost: 0.05, wantCustomCacheCost: 0.025},
 			{name: "aggregate_only", wantCacheCost: 0.05, wantCustomCacheCost: 0.025},
 			{name: "override_1h", cache5m: 10000, overrideTarget: "1h", wantCacheCost: 0.08, wantCustomCacheCost: 0.12},
@@ -816,13 +818,17 @@ func TestGatewayServiceRecordUsage_AccountStatsPreservesCacheTTLBreakdown(t *tes
 						"cache_ttl_override_target":  tt.overrideTarget,
 					}
 				}
+				aggregate := 10000
+				if tt.detailOnly {
+					aggregate = 0
+				}
 				err := svc.RecordUsage(context.Background(), &RecordUsageInput{
 					Result: &ForwardResult{
 						RequestID: "gateway_account_stats_cache_ttl_" + pricingSource + "_" + tt.name,
 						Model:     model, UpstreamModel: model,
 						Usage: ClaudeUsage{
 							InputTokens: 1000, OutputTokens: 500, CacheReadInputTokens: 1000,
-							CacheCreationInputTokens: 10000,
+							CacheCreationInputTokens: aggregate,
 							CacheCreation5mTokens:    tt.cache5m,
 							CacheCreation1hTokens:    tt.cache1h,
 						},
@@ -835,6 +841,7 @@ func TestGatewayServiceRecordUsage_AccountStatsPreservesCacheTTLBreakdown(t *tes
 				require.NoError(t, err)
 				require.NotNil(t, usageRepo.lastLog)
 				log := usageRepo.lastLog
+				require.Equal(t, 10000, log.CacheCreationTokens, "cache-only TTL snapshots must persist their effective aggregate")
 				// Input, output and cache-read prices are the same in both pricing sources.
 				const nonCacheWriteCost = 0.0142
 				customerTotal := nonCacheWriteCost + tt.wantCacheCost
