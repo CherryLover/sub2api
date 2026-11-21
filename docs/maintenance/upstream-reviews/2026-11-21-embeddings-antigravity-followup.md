@@ -50,5 +50,6 @@
 - 实际触发 fork backend-ci.yml 返回 Run ID 44892499861，对应此前的代码 SHA b66b87083；旧 HTTP 422 限制已解除，但该运行启动不等于最终 SHA 检查通过。
 - 删除 .github/workflows/cla.yml：该文件所有 job 都限定 github.repository == 'Wei-Shaw/sub2api'，在精简版 CherryLover/sub2api 和个人 fork xiaoguai1818/sub2api 从不执行有效检查，是无效的上游专用遗留流程。
 - 保留 backend-ci.yml 与 security-scan.yml 必要门禁；auto-release.yml、release.yml、main-docker-image.yml、branch-docker-image.yml 在目标仓库有真实运行记录，不能作为旧工作流盲删。
+- 清理 Branch Docker Image 的旧代理分支触发：原配置允许 claude/** 分支 push 以提交信息 [rc-build] 自动出 RC 镜像。目标仓库历史仅 2026 年 8 月底出现这类触发（多数跳过），已无持续必要；保留 workflow_dispatch 和 internal-rc-* 标签两种显式入口，删除分支推送触发及不再可达的 job 守卫。目标正式发布和镜像兜底流程保持完整。
 - Fork Actions API 列出 5 个流程，CI/Security active；Branch/Main Docker 与 Release 均 disabled_manually，且 fork 历史零运行。保留该禁用状态，不触发发布或镜像构建，也不删除审核历史。
 - 必须在本轮清理后的最终 SHA 重新运行 fork CI 与 Security Scan 并确认全部 job 终态；之后解释与目标旧 PR #73–#81 重叠，再创建唯一统一 PR。本轮代码清理不修改 Go/Vue 生产逻辑。
