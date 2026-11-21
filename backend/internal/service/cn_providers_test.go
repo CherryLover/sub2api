@@ -103,8 +103,7 @@ func TestParseKimiUsageTiers_LimitZero(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"limits":[{"detail":{"limit":0,"remaining":0,"resetTime":"2026-08-14T15:00:00Z"}}]}`)
 	tiers := parseKimiUsageTiers(body)
-	require.Len(t, tiers, 1)
-	require.InDelta(t, 0.0, tiers[0].UsedPercent, 1e-9)
+	require.Empty(t, tiers, "zero total capacity is not a valid 0-percent usage observation")
 }
 
 // TestParseZhipuTokenTiers_UnitClassification 显式 unit（3=5h / 6=weekly）优先分类，

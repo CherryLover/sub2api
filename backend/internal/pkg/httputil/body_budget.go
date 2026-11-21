@@ -23,12 +23,24 @@ func NewBodyMemoryBudget(limit int64) *BodyMemoryBudget {
 	return &BodyMemoryBudget{limit: limit}
 }
 
+// Used reports currently reserved ingress and processing memory.
+func (b *BodyMemoryBudget) Used() int64 {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.used
+}
+
 type bodyMemoryReservation struct {
-	mu     sync.Mutex
-	budget *BodyMemoryBudget
-	bytes  int64
-	owners int
-	closed bool
+	mu                sync.Mutex
+	budget            *BodyMemoryBudget
+	bytes             int64
+	processingBytes   int64
+	processingSettled int64
+	owners            int
+	closed            bool
 }
 
 type bodyMemoryReservationKey struct{}
@@ -118,6 +130,8 @@ func (r *bodyMemoryReservation) releaseOwner() {
 	r.budget.used -= r.bytes
 	r.budget.mu.Unlock()
 	r.bytes = 0
+	r.processingBytes = 0
+	r.processingSettled = 0
 }
 
 func reserveRequestBodyMemory(ctx context.Context, n int64) error {
@@ -163,7 +177,8 @@ func releaseRequestBodyMemory(ctx context.Context, n int64) {
 	if r.closed {
 		return
 	}
-	n = min(n, r.bytes)
+	// Ordinary allocation refunds cannot consume the processing reservation.
+	n = min(n, max(r.bytes-r.processingBytes, 0))
 	r.budget.mu.Lock()
 	r.budget.used -= n
 	r.budget.mu.Unlock()

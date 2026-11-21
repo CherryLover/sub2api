@@ -2,6 +2,7 @@ package service
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -34,14 +35,15 @@ const (
 const antigravityCompatMaxTokens = 64000
 
 type antigravityCompatRequest struct {
-	protocol        antigravityCompatProtocol
-	originalBody    []byte
-	claudeBody      []byte
-	originalModel   string
-	clientStream    bool
-	includeUsage    bool
-	startTime       time.Time
-	reasoningEffort *string
+	protocol          antigravityCompatProtocol
+	originalBody      []byte
+	claudeBody        []byte
+	originalModel     string
+	clientStream      bool
+	includeUsage      bool
+	startTime         time.Time
+	reasoningEffort   *string
+	clientToolMapping apicompat.ResponsesClientToolMapping
 }
 
 type antigravityCompatUpstreamCall struct {
@@ -118,9 +120,27 @@ func (s *AntigravityGatewayService) ForwardAsResponses(
 		return nil, err
 	}
 
+	// Decode the full original body before adaptation: the shared tool adapter
+	// accepts one JSON document and must not make a malformed trailing document
+	// look valid. Plain text requests retain the original single-decode path.
 	var request apicompat.ResponsesRequest
 	if json.Unmarshal(body, &request) != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+	}
+	var clientToolMapping apicompat.ResponsesClientToolMapping
+	if len(request.Tools) > 0 || bytes.Contains(request.Input, []byte("additional_tools")) {
+		// Lower client-only tools for the Gemini/Anthropic compatibility chain,
+		// retaining the mapping to restore custom calls in both response modes.
+		adaptedBody, mapping, adaptErr := adaptResponsesClientToolsForAnthropic(body)
+		if adaptErr != nil {
+			return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", adaptErr.Error())
+		}
+		clientToolMapping = mapping
+		if !bytes.Equal(adaptedBody, body) {
+			if err := json.Unmarshal(adaptedBody, &request); err != nil {
+				return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse adapted request body")
+			}
+		}
 	}
 	if strings.TrimSpace(request.Model) == "" {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
@@ -137,13 +157,14 @@ func (s *AntigravityGatewayService) ForwardAsResponses(
 	}
 
 	return s.forwardAntigravityCompat(ctx, c, account, antigravityCompatRequest{
-		protocol:        antigravityCompatResponses,
-		originalBody:    body,
-		claudeBody:      claudeBody,
-		originalModel:   request.Model,
-		clientStream:    request.Stream,
-		startTime:       time.Now(),
-		reasoningEffort: ExtractResponsesReasoningEffortFromBody(body),
+		protocol:          antigravityCompatResponses,
+		originalBody:      body,
+		claudeBody:        claudeBody,
+		originalModel:     request.Model,
+		clientStream:      request.Stream,
+		startTime:         time.Now(),
+		reasoningEffort:   ExtractResponsesReasoningEffortFromBody(body),
+		clientToolMapping: clientToolMapping,
 	})
 }
 
@@ -446,6 +467,10 @@ func antigravityCompatProxyURL(account *Account) string {
 }
 
 func (s *AntigravityGatewayService) handleAntigravityCompatTransportError(c *gin.Context, err error) error {
+	var failoverErr *UpstreamFailoverError
+	if errors.As(err, &failoverErr) {
+		return failoverErr
+	}
 	if switchErr, ok := IsAntigravityAccountSwitchError(err); ok {
 		return &UpstreamFailoverError{
 			StatusCode:        http.StatusServiceUnavailable,
@@ -512,13 +537,13 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatSuccess(
 				call.request.includeUsage,
 			)
 		}
-		return s.handleResponsesStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel)
+		return s.handleResponsesStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel, call.request.clientToolMapping)
 	}
 
 	if call.request.protocol == antigravityCompatChatCompletions {
 		return s.handleChatCompletionsNonStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel)
 	}
-	return s.handleResponsesNonStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel)
+	return s.handleResponsesNonStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel, call.request.clientToolMapping)
 }
 
 func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
@@ -529,6 +554,26 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 	resp *http.Response,
 ) error {
 	body := s.readUpstreamErrorBody(resp)
+	// 当前账号不支持该模型：只有换号才能成功。跳过 handleUpstreamError，
+	// 避免把账号/模型不匹配的 404 记成账号健康失败。
+	if s.isAntigravityAccountModelUnavailableError(resp.StatusCode, body) {
+		message := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractAntigravityErrorMessage(body)))
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Platform:           account.Platform,
+			AccountID:          account.ID,
+			AccountName:        account.Name,
+			UpstreamStatusCode: resp.StatusCode,
+			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			Kind:               "failover",
+			Message:            message,
+			Detail:             s.getUpstreamErrorDetail(body),
+		})
+		return &UpstreamFailoverError{
+			StatusCode:      resp.StatusCode,
+			ResponseBody:    body,
+			ResponseHeaders: resp.Header.Clone(),
+		}
+	}
 	s.handleUpstreamError(
 		ctx,
 		call.prefix,
@@ -656,6 +701,7 @@ func (s *AntigravityGatewayService) handleResponsesNonStreamingFromAntigravity(
 	resp *http.Response,
 	startTime time.Time,
 	originalModel string,
+	mapping apicompat.ResponsesClientToolMapping,
 ) (*antigravityStreamResult, error) {
 	claudeResponse, result, err := s.collectClaudeStreamResponse(c, resp, startTime, originalModel)
 	if err != nil {
@@ -665,7 +711,16 @@ func (s *AntigravityGatewayService) handleResponsesNonStreamingFromAntigravity(
 	if json.Unmarshal(claudeResponse, &anthropicResponse) != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
-	c.JSON(http.StatusOK, apicompat.AnthropicToResponsesResponse(&anthropicResponse))
+	converted := apicompat.AnthropicToResponsesResponse(&anthropicResponse)
+	payload, err := json.Marshal(converted)
+	if err != nil {
+		return nil, fmt.Errorf("marshal antigravity responses payload: %w", err)
+	}
+	payload, _, err = apicompat.RestoreResponsesClientToolPayload(payload, mapping)
+	if err != nil {
+		return nil, fmt.Errorf("restore antigravity responses client tools: %w", err)
+	}
+	c.Data(http.StatusOK, "application/json; charset=utf-8", payload)
 	return result, nil
 }
 

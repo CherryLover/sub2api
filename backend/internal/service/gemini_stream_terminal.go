@@ -26,7 +26,7 @@ func geminiStreamTerminalReason(body []byte) string {
 		return reason
 	}
 	block := strings.ToUpper(strings.TrimSpace(root.Get("promptFeedback.blockReason").String()))
-	if block != "" && block != "BLOCKED_REASON_UNSPECIFIED" {
+	if block != "" && block != "BLOCK_REASON_UNSPECIFIED" && block != "BLOCKED_REASON_UNSPECIFIED" {
 		return "SAFETY"
 	}
 	return ""

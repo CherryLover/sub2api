@@ -22,12 +22,14 @@ const (
 	BetaStructuredOutputs = "structured-outputs-2025-11-13"
 
 	// 新增（对齐官方 CLI 2.1.9x 以来的流量）
-	BetaPromptCachingScope      = "prompt-caching-scope-2026-01-05"
-	BetaEffort                  = "effort-2025-11-24"
-	BetaRedactThinking          = "redact-thinking-2026-02-12"
-	BetaContextManagement       = "context-management-2025-06-27"
-	BetaThinkingBindingControls = "thinking-binding-controls-2026-08-01"
-	BetaExtendedCacheTTL        = "extended-cache-ttl-2025-04-11"
+	BetaPromptCachingScope          = "prompt-caching-scope-2026-01-05"
+	BetaEffort                      = "effort-2025-11-24"
+	BetaRedactThinking              = "redact-thinking-2026-02-12"
+	BetaContextManagement           = "context-management-2025-06-27"
+	BetaThinkingBindingControls     = "thinking-binding-controls-2026-08-01"
+	BetaExtendedCacheTTL            = "extended-cache-ttl-2025-04-11"
+	BetaMidConversationOutputConfig = "mid-conversation-output-config-2026-07-01"
+	BetaPerTurnControl              = "per-turn-control-2026-07-01"
 
 	// server-side refusal fallback beta 字段族（beta Messages API 专有）。
 	// 仅用于 sanitize 的条件判断（strip-or-keep），禁止加入默认 mimicry / Bedrock 白名单。

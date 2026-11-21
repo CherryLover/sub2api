@@ -132,7 +132,11 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 
 	// Auto-recover account if test succeeded and auto_recover is enabled.
 	if result.Status == "success" && plan.AutoRecover {
-		s.tryRecoverAccount(ctx, plan.AccountID, plan.ID)
+		recoveryCtx := ctx
+		if result.openAIProbeProof != nil {
+			recoveryCtx = context.WithValue(ctx, openAIAccountProbeProofKey{}, result.openAIProbeProof)
+		}
+		s.tryRecoverAccount(recoveryCtx, plan.AccountID, plan.ID)
 	}
 
 	nextRun, err := computeNextRun(plan.CronExpression, time.Now())

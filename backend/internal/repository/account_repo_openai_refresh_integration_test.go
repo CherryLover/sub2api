@@ -123,7 +123,7 @@ func (s *AccountRepoSuite) TestUpdateOpenAIOAuthCredentialsIfUnchanged_DoesNotRo
 	child := mustCreateAccount(s.T(), s.client, &service.Account{Name: "openai-cas-child", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Credentials: map[string]any{"access_token": "child-access", "refresh_token": "child-refresh"}})
 	observed, err := s.repo.GetByID(s.ctx, child.ID)
 	s.Require().NoError(err)
-	_, err = s.client.Account.UpdateOneID(child.ID).SetParentAccountID(parent.ID).Save(s.ctx)
+	_, err = s.client.Account.UpdateOneID(child.ID).SetParentAccountID(parent.ID).SetQuotaDimension("spark").Save(s.ctx)
 	s.Require().NoError(err)
 	applied, err := s.repo.UpdateOpenAIOAuthCredentialsIfUnchanged(s.ctx, child.ID, observed.Credentials, observed.ProxyID, map[string]any{"access_token": "incorrect-access", "refresh_token": "incorrect-refresh"})
 	s.Require().NoError(err)

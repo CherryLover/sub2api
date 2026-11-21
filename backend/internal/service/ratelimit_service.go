@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -2272,8 +2273,8 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 	updates := map[string]any{}
 	if rollover {
 		updates["session_window_utilization"] = nil
-		updates["passive_usage_sampled_at"] = nil
 	}
+	keptWeekly := false
 	now := time.Now()
 	for _, window := range [...]struct{ utilizationKey, resetKey string }{
 		{"passive_usage_7d_utilization", "passive_usage_7d_reset"},
@@ -2281,6 +2282,7 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 	} {
 		resetAt := parseSchedulingResetAt(account.Extra[window.resetKey])
 		if resetAt != nil && resetAt.After(now) {
+			keptWeekly = true
 			continue
 		}
 		if resetAt == nil && !rollover {
@@ -2288,6 +2290,10 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 		}
 		updates[window.utilizationKey] = nil
 		updates[window.resetKey] = nil
+	}
+	// Retained weekly readings keep their original observation time.
+	if rollover && !keptWeekly {
+		updates["passive_usage_sampled_at"] = nil
 	}
 	if len(updates) > 0 {
 		_ = s.accountRepo.UpdateExtra(ctx, account.ID, updates)
@@ -2314,13 +2320,13 @@ func (s *RateLimitService) samplePassiveUsageFromHeaders(ctx context.Context, ac
 	extraUpdates := make(map[string]any, 6)
 	// 5h utilization（0-1 小数），供 estimateSetupTokenUsage 使用
 	if utilStr := headers.Get("anthropic-ratelimit-unified-5h-utilization"); utilStr != "" {
-		if util, err := strconv.ParseFloat(utilStr, 64); err == nil {
+		if util, err := strconv.ParseFloat(utilStr, 64); err == nil && validPassiveUsageUtilization(util) {
 			extraUpdates["session_window_utilization"] = util
 		}
 	}
 	// 7d utilization（0-1 小数）
 	if utilStr := headers.Get("anthropic-ratelimit-unified-7d-utilization"); utilStr != "" {
-		if util, err := strconv.ParseFloat(utilStr, 64); err == nil {
+		if util, err := strconv.ParseFloat(utilStr, 64); err == nil && validPassiveUsageUtilization(util) {
 			extraUpdates["passive_usage_7d_utilization"] = util
 		}
 	}
@@ -2335,7 +2341,7 @@ func (s *RateLimitService) samplePassiveUsageFromHeaders(ctx context.Context, ac
 	}
 	// 7d_oi (Fable 专属 7d 窗口) utilization（0-1 小数）
 	if utilStr := headers.Get("anthropic-ratelimit-unified-7d_oi-utilization"); utilStr != "" {
-		if util, err := strconv.ParseFloat(utilStr, 64); err == nil {
+		if util, err := strconv.ParseFloat(utilStr, 64); err == nil && validPassiveUsageUtilization(util) {
 			extraUpdates["passive_usage_7d_oi_utilization"] = util
 		}
 	}
@@ -2354,6 +2360,12 @@ func (s *RateLimitService) samplePassiveUsageFromHeaders(ctx context.Context, ac
 			slog.Warn("passive_usage_update_failed", "account_id", account.ID, "error", err)
 		}
 	}
+	if utilization, ok := extraUpdates["passive_usage_7d_oi_utilization"].(float64); ok &&
+		!fableQuotaStatusRejected(headers.Get("anthropic-ratelimit-unified-7d_oi-status")) &&
+		!isAnthropicWindowExceeded(headers, "7d_oi") {
+		recoverObservedAnthropicFableLimit(ctx, s.accountRepo, account, utilization)
+	}
+
 }
 
 // ClearRateLimit 清除账号的限流状态
@@ -2397,6 +2409,14 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 		return nil, err
 	}
 
+	return s.recoverAccountStateSnapshot(ctx, account, options)
+}
+
+func (s *RateLimitService) recoverAccountStateSnapshot(ctx context.Context, account *Account, options AccountRecoveryOptions) (*SuccessfulTestRecoveryResult, error) {
+	if account == nil {
+		return nil, errors.New("account not found")
+	}
+	accountID := account.ID
 	result := &SuccessfulTestRecoveryResult{}
 	if account.Status == StatusError {
 		if err := s.accountRepo.ClearError(ctx, accountID); err != nil {
@@ -2429,7 +2449,34 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 // RecoverAccountAfterSuccessfulTest 将一次成功测试视为正常请求，
 // 按需恢复 error / rate-limit / overload / temp-unsched / model-rate-limit 等运行时状态。
 func (s *RateLimitService) RecoverAccountAfterSuccessfulTest(ctx context.Context, accountID int64) (*SuccessfulTestRecoveryResult, error) {
-	return s.RecoverAccountState(ctx, accountID, AccountRecoveryOptions{})
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if plainOpenAIOAuthProbe(account) {
+		result := &SuccessfulTestRecoveryResult{}
+		proof, _ := ctx.Value(openAIAccountProbeProofKey{}).(*openAIAccountProbeProof)
+		if proof == nil || proof.account == nil || proof.owner == nil || proof.account.ID != accountID || !recoverableOpenAIProbeError(proof.account) {
+			return result, nil
+		}
+		repo, ok := s.accountRepo.(OpenAIAccountProbeStateRepository)
+		if !ok {
+			return result, nil
+		}
+		applied, err := repo.SetOpenAIOAuthProbeStateIfUnchanged(ctx, proof.account, proof.owner, "")
+		if err != nil {
+			return nil, err
+		}
+		result.ClearedError = applied
+		if applied {
+			s.notifyAccountSchedulingBlockCleared(accountID)
+		}
+		// One successful model probe does not prove every independent quota
+		// or concurrent runtime cooldown has recovered. Explicit manual reset
+		// continues to use RecoverAccountState unchanged.
+		return result, nil
+	}
+	return s.recoverAccountStateSnapshot(ctx, account, AccountRecoveryOptions{})
 }
 
 func (s *RateLimitService) ClearTempUnschedulable(ctx context.Context, accountID int64) error {

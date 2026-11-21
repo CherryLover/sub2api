@@ -166,6 +166,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			}
 		}
 
+		if resp.StatusCode == http.StatusForbidden {
+			break // Do not cool shared accounts before classifying a 403.
+		}
 		checked, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel)
 		resp = rebuilt
 		checkedPolicy = checked
@@ -241,6 +244,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
+		if handled, denial := s.handleGeminiRequest403(ctx, c, account, resp, respBody, originalChatBody, "chat"); handled {
+			return nil, denial
+		}
 		policy := ErrorPolicyNone
 		if s.rateLimitService != nil {
 			policy = s.finalErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel, checkedPolicy)
@@ -282,10 +288,16 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	var firstTokenMs *int
 	clientDisconnect := false
 	streamFinished := false
+	var streamErr error
 	if clientStream {
 		streamRes, err := s.handleChatCompletionsStreamingResponseFromGemini(c, resp, startTime, originalModel, account.Type == AccountTypeOAuth, includeUsage)
 		if err != nil {
-			return nil, err
+			var failover *UpstreamFailoverError
+			if streamRes == nil || errors.As(err, &failover) || !c.Writer.Written() ||
+				(streamRes.usage == nil || !streamRes.usage.hasObservedTokens()) && observedGeminiImageOutputs(c) == 0 {
+				return nil, err
+			}
+			streamErr = err
 		}
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
@@ -339,7 +351,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		ImageSize:        imageSize,
 		ImageInputSize:   imageInputSize,
 		ClientDisconnect: clientDisconnect,
-	}, nil
+	}, streamErr
 }
 
 func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestFunc(
@@ -559,6 +571,11 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	isOAuth bool,
 	includeUsage bool,
 ) (*geminiStreamResult, error) {
+	reader, preludeUsage, prepareErr := s.prepareGeminiStream(c, resp, "chat")
+	if prepareErr != nil {
+		return &geminiStreamResult{usage: preludeUsage}, prepareErr
+	}
+	defer reader.Close()
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
@@ -662,7 +679,6 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 		return disconnected
 	}
 
-	reader := newBoundedSSELineReader(resp.Body, s.cfg)
 	for {
 		line, err := reader.ReadLineString()
 		if len(line) > 0 {
@@ -830,7 +846,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 				clientDisconnect = true
 				return streamResult(), nil
 			}
-			return nil, fmt.Errorf("stream read error: %w", err)
+			return streamResult(), fmt.Errorf("stream read error: %w", err)
 		}
 	}
 

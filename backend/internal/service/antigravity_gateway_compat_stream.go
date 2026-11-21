@@ -71,12 +71,18 @@ func (a *antigravityChatStreamAdapter) emitResponseEvent(event *apicompat.Respon
 
 type antigravityResponsesStreamAdapter struct {
 	anthropicState *apicompat.AnthropicEventToResponsesState
+	toolRestorer   *apicompat.ResponsesClientToolStreamRestorer
 }
 
-func newAntigravityResponsesStreamAdapter(model string) *antigravityResponsesStreamAdapter {
+func newAntigravityResponsesStreamAdapter(model string, mappings ...apicompat.ResponsesClientToolMapping) *antigravityResponsesStreamAdapter {
 	state := apicompat.NewAnthropicEventToResponsesState()
 	state.Model = model
-	return &antigravityResponsesStreamAdapter{anthropicState: state}
+	mapping := antigravityCompatToolMapping(mappings)
+	adapter := &antigravityResponsesStreamAdapter{anthropicState: state}
+	if len(mapping.CustomTools) > 0 || mapping.ToolSearch || len(mapping.NamespaceTools) > 0 {
+		adapter.toolRestorer = apicompat.NewResponsesClientToolStreamRestorer(mapping)
+	}
+	return adapter
 }
 
 func (a *antigravityResponsesStreamAdapter) Emit(event *apicompat.AnthropicStreamEvent, writer *antigravityClientWriter) {
@@ -96,8 +102,16 @@ func (a *antigravityResponsesStreamAdapter) WriteError(writer *antigravityClient
 }
 
 func (a *antigravityResponsesStreamAdapter) emitResponseEvent(event apicompat.ResponsesStreamEvent, writer *antigravityClientWriter) {
-	if data, err := apicompat.ResponsesEventToSSE(event); err == nil {
-		writer.Write([]byte(data))
+	if a.toolRestorer == nil {
+		if data, err := apicompat.ResponsesEventToSSE(event); err == nil {
+			writer.Write([]byte(data))
+		}
+		return
+	}
+	for _, restored := range a.toolRestorer.Restore(event) {
+		if data, err := apicompat.ResponsesEventToSSE(restored); err == nil {
+			writer.Write([]byte(data))
+		}
 	}
 }
 
@@ -376,6 +390,9 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 				return session.finish()
 			}
 			if event.err != nil {
+				if errors.Is(event.err, errAntigravityFirstByteTimeout) {
+					return nil, newAntigravityFirstByteTimeoutFailoverError(resp, prefix)
+				}
 				return s.handleAntigravityCompatReadError(c, session, event.err, maxLineSize, prefix)
 			}
 			resetAntigravityCompatTimer(timeoutTimer, timeout)
@@ -551,13 +568,23 @@ func (s *AntigravityGatewayService) handleResponsesStreamingFromAntigravity(
 	resp *http.Response,
 	startTime time.Time,
 	originalModel string,
+	mappings ...apicompat.ResponsesClientToolMapping,
 ) (*antigravityStreamResult, error) {
 	return s.handleAntigravityCompatStream(
 		c,
 		resp,
 		startTime,
 		originalModel,
-		newAntigravityResponsesStreamAdapter(originalModel),
+		newAntigravityResponsesStreamAdapter(originalModel, antigravityCompatToolMapping(mappings)),
 		"antigravity responses stream",
 	)
+}
+
+// antigravityCompatToolMapping preserves the empty mapping for direct
+// stream handler tests and non-Responses callers.
+func antigravityCompatToolMapping(mappings []apicompat.ResponsesClientToolMapping) apicompat.ResponsesClientToolMapping {
+	if len(mappings) == 0 {
+		return apicompat.ResponsesClientToolMapping{}
+	}
+	return mappings[0]
 }

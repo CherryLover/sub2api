@@ -43,7 +43,7 @@
       </div>
 
       <!-- Percentage -->
-      <span :class="['w-[32px] shrink-0 text-right text-[10px] font-medium', textClass]">
+      <span :class="['shrink-0 text-right text-[10px] font-medium', precisePercent ? 'min-w-[32px] whitespace-nowrap' : 'w-[32px]', textClass]">
         {{ displayPercent }}
       </span>
 
@@ -71,6 +71,7 @@ const props = defineProps<{
   windowStats?: WindowStats | null
   showNowWhenIdle?: boolean
   remainingCapacity?: boolean
+  precisePercent?: boolean
 }>()
 
 const { t } = useI18n()
@@ -156,6 +157,9 @@ const barWidth = computed(() => {
 // Display percentage (cap at 999% for readability)
 const displayPercent = computed(() => {
   if (props.utilizationUnknown) return '—'
+  if (props.precisePercent && props.utilization > 0 && props.utilization < 100) {
+    return props.utilization < 0.01 ? '<0.01%' : `${props.utilization.toFixed(2)}%`
+  }
   const percent = Math.round(
     props.remainingCapacity
       ? Math.min(Math.max(props.utilization, 0), 100)

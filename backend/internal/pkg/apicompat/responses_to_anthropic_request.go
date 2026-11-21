@@ -32,6 +32,12 @@ func ResponsesToAnthropicRequestWithOptions(req *ResponsesRequest, opts Response
 	if err != nil {
 		return nil, err
 	}
+	// Responses input is history, never an Anthropic assistant prefill.
+	// Interrupted commentary or a stripped unanswered call may otherwise
+	// leave an assistant last and make the upstream reject the next turn.
+	if len(messages) > 0 && messages[len(messages)-1].Role == "assistant" {
+		messages = append(messages, anthropicMessageFromBlocks("user", []AnthropicContentBlock{{Type: "text", Text: "Continue."}}))
+	}
 
 	out := &AnthropicRequest{
 		Model:       req.Model,
@@ -348,6 +354,7 @@ func convertResponsesInputToAnthropicWithSystem(instructions string, inputRaw js
 	// sat between a call and its output), so a second merge restores alternation.
 	messages = mergeConsecutiveMessages(messages)
 	messages = normalizeAnthropicToolPairing(messages)
+	messages = stripTrailingThinkingFromAssistantMessages(messages)
 	if inlineSystem {
 		var err error
 		messages, err = placeAnthropicSystemMessages(messages)
@@ -864,4 +871,34 @@ func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage
 
 	// Pass through unknown
 	return raw, nil
+}
+
+// stripTrailingThinkingFromAssistantMessages removes trailing thinking or
+// redacted_thinking blocks from every assistant message. Anthropic rejects any
+// assistant message whose final content block is thinking ("messages.N: The
+// final block in an assistant message cannot be `thinking`"), which otherwise
+// happens when an unanswered tool_use after a signed thinking block is dropped
+// by normalizeAnthropicToolPairing. An assistant message that held only
+// thinking blocks is dropped altogether so the surrounding user turns can merge.
+func stripTrailingThinkingFromAssistantMessages(messages []AnthropicMessage) []AnthropicMessage {
+	out := make([]AnthropicMessage, 0, len(messages))
+	for _, m := range messages {
+		if m.Role != "assistant" {
+			out = append(out, m)
+			continue
+		}
+		blocks := parseContentBlocks(m.Content)
+		trimmed := len(blocks)
+		for trimmed > 0 && (blocks[trimmed-1].Type == "thinking" || blocks[trimmed-1].Type == "redacted_thinking") {
+			trimmed--
+		}
+		if trimmed == 0 {
+			continue
+		}
+		if trimmed != len(blocks) {
+			m = anthropicMessageFromBlocks("assistant", blocks[:trimmed])
+		}
+		out = append(out, m)
+	}
+	return out
 }

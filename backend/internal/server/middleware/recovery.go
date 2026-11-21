@@ -17,8 +17,11 @@ import (
 // It preserves Gin's broken-pipe handling by not attempting to write a response
 // when the client connection is already gone.
 func Recovery() gin.HandlerFunc {
-	return gin.CustomRecoveryWithWriter(gin.DefaultErrorWriter, func(c *gin.Context, recovered any) {
+	inner := gin.CustomRecoveryWithWriter(gin.DefaultErrorWriter, func(c *gin.Context, recovered any) {
 		recoveredErr, _ := recovered.(error)
+		if errors.Is(recoveredErr, http.ErrAbortHandler) {
+			panic(http.ErrAbortHandler)
+		}
 
 		if isBrokenPipe(recoveredErr) {
 			if recoveredErr != nil {
@@ -42,6 +45,28 @@ func Recovery() gin.HandlerFunc {
 		)
 		c.Abort()
 	})
+	return func(c *gin.Context) {
+		inner(c)
+		// Let access/ops/usage middleware finish before signaling a transport
+		// failure. A normal chunked EOF would hide truncation from Gemini SDKs.
+		if c.GetBool(abortTruncatedStreamKey) && c.Request != nil &&
+			c.Request.Context().Err() == nil && c.Request.Context().Value(http.ServerContextKey) != nil {
+			panic(http.ErrAbortHandler)
+		}
+	}
+}
+
+const abortTruncatedStreamKey = "sub2api.abort_truncated_stream"
+
+func IsCommittedEventStream(c *gin.Context) bool {
+	return c != nil && c.Writer != nil && c.Writer.Written() && c.Writer.Status() == http.StatusOK &&
+		strings.HasPrefix(strings.ToLower(c.Writer.Header().Get("Content-Type")), "text/event-stream")
+}
+
+func MarkAbortTruncatedStream(c *gin.Context) {
+	if IsCommittedEventStream(c) && c.Request != nil && c.Request.Context().Err() == nil {
+		c.Set(abortTruncatedStreamKey, true)
+	}
 }
 
 func isBrokenPipe(err error) bool {

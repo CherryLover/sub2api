@@ -80,7 +80,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { CNProviderQuotaProbeResult } from '@/api/admin/cnProviders'
@@ -103,6 +103,8 @@ const visible = computed(() => cnQuotaCellVisible(props.account.platform, readMo
 const loading = ref(false)
 const error = ref<string | null>(null)
 const data = ref<CNProviderQuotaProbeResult | null>(null)
+let probeGeneration = 0
+onUnmounted(() => { probeGeneration += 1 })
 
 // 后端周期任务/手动探测写入的 extra 快照键（<provider>_ 前缀，与后端
 // cnQuotaExtraUpdates 对齐）。页面加载即有数据，无需等待探测。
@@ -127,13 +129,17 @@ const snapshotData = computed<CNProviderQuotaProbeResult | null>(() => {
   const platform = props.account.platform
   const used5h = readExtraNumber(`${platform}_5h_used_percent`)
   const usedWeekly = readExtraNumber(`${platform}_weekly_used_percent`)
-  if (used5h == null && usedWeekly == null) return null
+  const usedMonthly = platform === 'kimi' ? readExtraNumber(`${platform}_monthly_used_percent`) : null
+  if (used5h == null && usedWeekly == null && usedMonthly == null) return null
   const tiers: CNProviderQuotaProbeResult['tiers'] = []
   if (used5h != null) {
     tiers.push({ window: '5h', used_percent: used5h, reset_at: readExtraString(`${platform}_5h_reset_at`) || undefined })
   }
   if (usedWeekly != null) {
     tiers.push({ window: 'weekly', used_percent: usedWeekly, reset_at: readExtraString(`${platform}_weekly_reset_at`) || undefined })
+  }
+  if (usedMonthly != null) {
+    tiers.push({ window: 'monthly', used_percent: usedMonthly, reset_at: readExtraString(`${platform}_monthly_reset_at`) || undefined })
   }
   return { success: true, tiers } as CNProviderQuotaProbeResult
 })
@@ -181,7 +187,9 @@ const truncatedError = computed(() => {
 })
 
 const windowLabel = (window: string) =>
-  window === 'weekly'
+  window === 'monthly'
+    ? t('admin.accounts.cnProviders.windowMonthly')
+    : window === 'weekly'
     ? t('admin.accounts.cnProviders.windowWeekly')
     : t('admin.accounts.cnProviders.window5h')
 
@@ -216,8 +224,12 @@ const handleProbe = async () => {
   if (loading.value) return
   loading.value = true
   error.value = null
+  const accountID = props.account.id
+  const generation = ++probeGeneration
+  const isCurrent = () => generation === probeGeneration && accountID === props.account.id
   try {
-    const result = await adminAPI.cnProviders.queryQuota(props.account.id)
+    const result = await adminAPI.cnProviders.queryQuota(accountID)
+    if (!isCurrent()) return
     // 失败时保留已渲染的快照条形图（仅显示错误行），成功才覆盖。
     if (result.success) {
       data.value = result
@@ -225,16 +237,17 @@ const handleProbe = async () => {
       error.value = result.error || t('common.error')
     }
   } catch (e) {
-    error.value = extractErrorMessage(e)
+    if (isCurrent()) error.value = extractErrorMessage(e)
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
 watch(
   () => props.account.id,
   () => {
-    data.value = null
+    probeGeneration += 1
+    data.value = snapshotData.value
     error.value = null
     loading.value = false
   }

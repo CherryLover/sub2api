@@ -1094,6 +1094,10 @@ func sanitizeAnthropicBodyForBetaTokens(body []byte, anthropicBetaHeader string)
 		body, changed = b, true
 	}
 
+	if next, stripped := stripAnthropicMessageOutputConfigUnlessBeta(body, anthropicBetaHeader); stripped {
+		body, changed = next, true
+	}
+
 	return body, changed
 }
 

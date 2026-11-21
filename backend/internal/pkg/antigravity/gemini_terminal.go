@@ -29,7 +29,7 @@ func isTerminalGeminiFinishReason(finishReason string) bool {
 
 func isTerminalGeminiBlockReason(blockReason string) bool {
 	upper := strings.ToUpper(strings.TrimSpace(blockReason))
-	return upper != "" && upper != "BLOCKED_REASON_UNSPECIFIED"
+	return upper != "" && upper != "BLOCK_REASON_UNSPECIFIED" && upper != "BLOCKED_REASON_UNSPECIFIED"
 }
 
 func mapGeminiFinishReasonToClaudeStopReason(finishReason string, usedTool bool) string {

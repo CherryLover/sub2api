@@ -20,16 +20,16 @@ type chatMessageContent struct {
 // true. store is always false and reasoning.encrypted_content is always
 // included so that the response translator has full context.
 func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest, error) {
-	return chatCompletionsToResponses(req, false)
+	return chatCompletionsToResponses(req, false, false)
 }
 
 var ErrUnsupportedInputAudio = errors.New("input_audio is not supported on this conversion route")
 
 func ChatCompletionsToResponsesForGemini(req *ChatCompletionsRequest) (*ResponsesRequest, error) {
-	return chatCompletionsToResponses(req, true)
+	return chatCompletionsToResponses(req, true, false)
 }
 
-func chatCompletionsToResponses(req *ChatCompletionsRequest, allowAudio bool) (*ResponsesRequest, error) {
+func chatCompletionsToResponses(req *ChatCompletionsRequest, allowAudio, replayAnthropicThinking bool) (*ResponsesRequest, error) {
 	if req.ambiguousInputAudio {
 		if !allowAudio {
 			return nil, fmt.Errorf("duplicate input_audio message or content fields: %w", ErrUnsupportedInputAudio)
@@ -121,7 +121,7 @@ func chatCompletionsToResponses(req *ChatCompletionsRequest, allowAudio bool) (*
 		case message.Role == "function" && message.ToolCallID == "":
 			message.ToolCallID = legacyIDs.claim(message.Name)
 		}
-		items, err := chatMessageToResponsesItems(message)
+		items, err := chatMessageToResponsesItemsWithThinking(message, replayAnthropicThinking)
 		if err != nil {
 			return nil, err
 		}
@@ -304,16 +304,14 @@ func (ids *legacyFunctionCallIDs) claim(name string) string {
 	return queue[0]
 }
 
-// chatMessageToResponsesItems converts a single ChatMessage into one or more
-// ResponsesInputItem values.
-func chatMessageToResponsesItems(m ChatMessage) ([]ResponsesInputItem, error) {
+func chatMessageToResponsesItemsWithThinking(m ChatMessage, replayThinking bool) ([]ResponsesInputItem, error) {
 	switch m.Role {
 	case "system", "developer":
 		return chatSystemToResponses(m)
 	case "user":
 		return chatUserToResponses(m)
 	case "assistant":
-		return chatAssistantToResponses(m)
+		return chatAssistantToResponsesWithThinking(m, replayThinking)
 	case "tool":
 		return chatToolToResponses(m)
 	case "function":
@@ -358,7 +356,14 @@ func chatUserToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
 // tool_call becomes a function_call item. If the content is empty/nil and
 // there are tool_calls, only the reasoning and function_call items are emitted.
 func chatAssistantToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
+	return chatAssistantToResponsesWithThinking(m, false)
+}
+
+func chatAssistantToResponsesWithThinking(m ChatMessage, replayThinking bool) ([]ResponsesInputItem, error) {
 	var items []ResponsesInputItem
+	if replayThinking {
+		items = anthropicReasoningDetailsToResponsesItems(m.ReasoningDetails)
+	}
 
 	// Reasoning must travel as a dedicated reasoning item, never as text inside
 	// the assistant message: models condition on their own prior visible output
@@ -379,7 +384,8 @@ func chatAssistantToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
 			reasoning += contentReasoning
 		}
 	}
-	if reasoning != "" {
+	// Valid signed blocks supersede the plain summary, but never visible text.
+	if reasoning != "" && len(items) == 0 {
 		summaryJSON, err := json.Marshal([]ResponsesSummary{{Type: "summary_text", Text: reasoning}})
 		if err != nil {
 			return nil, err

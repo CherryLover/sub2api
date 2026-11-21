@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 )
 
 type PromptService struct {
@@ -73,6 +75,7 @@ func (s *PromptService) Shutdown(ctx context.Context) error {
 	s.lifecycleMu.Lock()
 	cancel := s.cancel
 	s.cancel = nil
+	s.background = nil // Close admission before waiting for registered enqueue work.
 	s.lifecycleMu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -107,8 +110,23 @@ func (s *PromptService) EffectiveMode() Mode {
 	return s.config.EffectiveMode()
 }
 
-func (s *PromptService) Enqueue(_ context.Context, req Request) error {
+func (s *PromptService) Enqueue(requestCtx context.Context, req Request) error {
 	if s == nil || s.enqueuer == nil || s.EffectiveMode() != ModeAsync {
+		return nil
+	}
+	// Enqueuer rechecks configuration before persistence. Check it here too so
+	// requests outside the audit scope never copy their potentially large body.
+	cfg, ok := s.config.Active()
+	if !ok || cfg.EffectiveMode() != ModeAsync {
+		return nil
+	}
+	if !cfg.IncludesGroup(req.GroupID) {
+		LogInfo(EventEnqueueSkipped, mergeLogFields(requestLogFields(req), map[string]any{"config_version": cfg.ConfigVersion, "status": "skipped", "error_code": "group_out_of_scope"}))
+		return nil
+	}
+	if len(cfg.EnabledEndpoints()) == 0 {
+		s.enqueuer.recordDropped()
+		LogWarn(EventEnqueueDropped, mergeLogFields(requestLogFields(req), map[string]any{"config_version": cfg.ConfigVersion, "status": "dropped", "error_code": "no_enabled_endpoint"}))
 		return nil
 	}
 	select {
@@ -122,15 +140,34 @@ func (s *PromptService) Enqueue(_ context.Context, req Request) error {
 	}
 	s.lifecycleMu.Lock()
 	background := s.background
-	s.lifecycleMu.Unlock()
-	if background == nil {
+	if background == nil || background.Err() != nil {
+		s.lifecycleMu.Unlock()
 		<-s.enqueueSlots
 		return errors.New("prompt audit service not started")
 	}
-	requestCopy := req.Clone()
+	// Register under the same lock that closes admission. Shutdown cannot
+	// observe zero work, finish Wait, and then race a new Add after cloning.
 	s.enqueueWG.Add(1)
+	s.lifecycleMu.Unlock()
+	// Snapshot/copy work may outlive the submitting handler. It owns a
+	// separate scope in the same pool and refunds only when enqueue ends.
+	workCtx, releaseMemory := httputil.WithRequestBodyMemoryScope(requestCtx)
+	memoryErr := httputil.ReserveRequestBodyMemory(workCtx, int64(len(req.Body)))
+	if memoryErr == nil {
+		memoryErr = httputil.ReserveJSONProcessingMemory(workCtx, req.Body)
+	}
+	if memoryErr != nil {
+		s.enqueueWG.Done()
+		releaseMemory()
+		<-s.enqueueSlots
+		s.enqueuer.recordDropped()
+		LogWarn(EventEnqueueDropped, mergeLogFields(requestLogFields(req), map[string]any{"config_version": cfg.ConfigVersion, "status": "dropped", "error_code": "local_memory_busy"}))
+		return nil // Existing async audit overload remains best-effort.
+	}
+	requestCopy := req.Clone()
 	go func() {
 		defer s.enqueueWG.Done()
+		defer releaseMemory()
 		defer func() { <-s.enqueueSlots }()
 		ctx, cancel := context.WithTimeout(background, 2*time.Second)
 		defer cancel()

@@ -202,6 +202,9 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 	if api.tokenCache != nil {
 		acquired, lockErr := api.tokenCache.AcquireRefreshLock(ctx, cacheKey, api.lockTTL)
 		if lockErr != nil {
+			if probeMode, _ := ctx.Value(openAIAccountProbeModeKey{}).(bool); probeMode {
+				return nil, errors.New("OpenAI OAuth probe recovery lock is unavailable")
+			}
 			// Redis 错误，降级为无锁刷新（进程内互斥锁仍生效）
 			slog.Warn("oauth_refresh_lock_failed_degraded",
 				"account_id", account.ID,
@@ -244,7 +247,8 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 	if freshAccount.ID != account.ID {
 		return nil, fmt.Errorf("%w: account identity mismatch", errOAuthRefreshAccountRereadFailed)
 	}
-	if !freshAccount.IsActive() {
+	probeMode, _ := ctx.Value(openAIAccountProbeModeKey{}).(bool)
+	if !freshAccount.IsActive() && (!probeMode || !recoverableOpenAIProbeError(freshAccount)) {
 		if requestPath {
 			return nil, fmt.Errorf("%w: account is not active", errOAuthRefreshAccountStateChanged)
 		}

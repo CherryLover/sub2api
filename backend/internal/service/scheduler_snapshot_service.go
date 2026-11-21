@@ -143,6 +143,8 @@ type SchedulerSnapshotService struct {
 	fullRebuildRequested uint64
 	fullRebuildCompleted uint64
 	fullRebuildLastErr   error
+
+	fallbackLoads schedulerFallbackLoads
 }
 
 func NewSchedulerSnapshotService(
@@ -243,38 +245,8 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		}
 	}
 
-	if err := s.guardFallback(ctx); err != nil {
-		return nil, useMixed, err
-	}
-
-	fallbackCtx, cancel := s.withFallbackTimeout(ctx)
-	defer cancel()
-
-	accounts, err := s.loadAccountsFromDB(fallbackCtx, bucket, useMixed)
-	if err != nil {
-		return nil, useMixed, err
-	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, useMixed, ctxErr
-	}
-
-	if s.cache != nil && canPublish {
-		if err := s.cache.SetSnapshot(fallbackCtx, bucket, writeToken, accounts); err != nil {
-			if errors.Is(err, ErrSchedulerBucketRetired) || errors.Is(err, ErrSchedulerBucketWriteFenced) {
-				slog.Debug("[Scheduler] cache publish fenced", "bucket", bucket.String())
-			} else {
-				logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] cache write failed: bucket=%s err=%v", bucket.String(), err)
-			}
-		}
-	}
-
-	eligible := make([]Account, 0, len(accounts))
-	for _, account := range accounts {
-		if account.IsSchedulable() {
-			eligible = append(eligible, account)
-		}
-	}
-	return eligible, useMixed, nil
+	accounts, err := s.loadCoalescedFallback(ctx, bucket, useMixed, writeToken, canPublish)
+	return accounts, useMixed, err
 }
 
 func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int64) (*Account, error) {

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -43,15 +42,6 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	originalModel := ccReq.Model
 	clientStream := ccReq.Stream
 
-	// 2. Convert CC → Responses → Anthropic (chained conversion)
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
-	if err != nil {
-		if errors.Is(err, apicompat.ErrUnsupportedInputAudio) {
-			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-		}
-		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
-	}
-
 	// Resolve the final upstream model before model-specific conversion.
 	mappedModel := originalModel
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
@@ -68,6 +58,15 @@ func (s *GatewayService) ForwardAsChatCompletions(
 			mappedModel = normalized
 		}
 	}
+	// The replay gate follows the actual mapped model, not the public alias.
+	responsesReq, err := apicompat.ChatCompletionsToResponsesWithOptions(&ccReq, apicompat.ChatCompletionsToResponsesOptions{ReplayAnthropicThinking: isClaude55SignedThinkingModel(mappedModel)})
+	if err != nil {
+		if errors.Is(err, apicompat.ErrUnsupportedInputAudio) {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		}
+		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
+	}
+
 	if err := validateClaude55Request(body, mappedModel); err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
@@ -270,36 +269,58 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	startTime time.Time,
 ) (*ForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
+	observer := beginUpstreamResponseModelObservation(c)
 
-	scanner := bufio.NewScanner(resp.Body)
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
-	}
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	stream := newAnthropicCompatStream(s.cfg, c, resp, "anthropic buffered compatibility", requestID)
+	defer stream.stop()
+	writerSizeBeforeStream := c.Writer.Size()
 
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	resultWithUsage := func() *ForwardResult {
+		return &ForwardResult{
+			RequestID:                     requestID,
+			Usage:                         usage,
+			Model:                         originalModel,
+			UpstreamModel:                 mappedModel,
+			UpstreamResponseModel:         observer.Model(),
+			UpstreamResponseModelConflict: observer.Conflict(),
+			ReasoningEffort:               reasoningEffort,
+			Stream:                        false,
+			Duration:                      time.Since(startTime),
+		}
+	}
+
+	for {
+		line, ok := stream.nextLine()
+		if !ok {
+			break
+		}
 		// SSE 规范允许 `event:xxx`（冒号后无空格）：Kimi 等 Anthropic 兼容上游
 		// 返回紧凑格式，严格匹配 "event: " 会丢弃全部事件（#4653 同根因）。
 		if _, ok := extractOpenAISSEEventLine(line); !ok {
 			continue
 		}
 
-		if !scanner.Scan() {
+		dataLine, ok := stream.nextLine()
+		if !ok {
 			break
 		}
-		payload, ok := extractOpenAISSEDataLine(scanner.Text())
+		payload, ok := extractOpenAISSEDataLine(dataLine)
 		if !ok {
 			continue
 		}
 
+		observer.ObserveAnthropic([]byte(payload))
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
+		}
+
+		stream.observe(&event, payload)
+		if stream.upstreamErrType != "" {
+			break
 		}
 
 		// message_start carries the initial response structure and cache usage
@@ -328,6 +349,8 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 					finalResp.Content[idx].Text += event.Delta.Text
 				case "thinking_delta":
 					finalResp.Content[idx].Thinking += event.Delta.Thinking
+				case "signature_delta":
+					finalResp.Content[idx].Signature += event.Delta.Signature
 				case "input_json_delta":
 					finalResp.Content[idx].Input = appendRawJSON(finalResp.Content[idx].Input, event.Delta.PartialJSON)
 				}
@@ -335,13 +358,15 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn("forward_as_cc buffered: read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-		}
+	if failure := stream.failure(); failure != nil {
+		return finishAnthropicCompatStreamFailure(c, writerSizeBeforeStream, failure, resultWithUsage(), func() {
+			writeGatewayCCError(c, http.StatusBadGateway, failure.errType, failure.message)
+		})
+	}
+	if stream.clientDisconnected {
+		result := resultWithUsage()
+		result.ClientDisconnect = true
+		return result, nil
 	}
 
 	if finalResp == nil {
@@ -352,9 +377,13 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	// Update usage from accumulated delta
 	normalizeAnthropicEventUsageForResponses(&apicompat.AnthropicStreamEvent{Message: finalResp}, usage)
 
-	// Chain: Anthropic → Responses → Chat Completions
-	responsesResp := apicompat.AnthropicToResponsesResponse(finalResp)
-	ccResp := apicompat.ResponsesToChatCompletions(responsesResp, originalModel)
+	// The observer retained the real response model before this conversion copy.
+	convertedResp := *finalResp
+	convertedResp.Model = mappedModel
+	responsesResp := apicompat.AnthropicToResponsesResponse(&convertedResp)
+	ccResp := apicompat.ResponsesToChatCompletionsWithOptions(responsesResp, originalModel, apicompat.ResponsesToChatCompletionsOptions{
+		AnthropicReasoningDetails: isClaude55SignedThinkingModel(mappedModel),
+	})
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -374,15 +403,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		c.JSON(http.StatusOK, ccResp)
 	}
 
-	return &ForwardResult{
-		RequestID:       requestID,
-		Usage:           usage,
-		Model:           originalModel,
-		UpstreamModel:   mappedModel,
-		ReasoningEffort: reasoningEffort,
-		Stream:          false,
-		Duration:        time.Since(startTime),
-	}, nil
+	return resultWithUsage(), nil
 }
 
 // handleCCStreamingFromAnthropic reads Anthropic SSE events, converts each
@@ -396,6 +417,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	startTime time.Time,
 ) (*ForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
+	observer := beginUpstreamResponseModelObservation(c)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -409,8 +431,10 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	// Use Anthropic→Responses state machine, then convert Responses→CC
 	anthState := apicompat.NewAnthropicEventToResponsesState()
 	anthState.Model = originalModel
+	anthState.PreserveThinkingSignatures = isClaude55SignedThinkingModel(mappedModel)
 	ccState := apicompat.NewResponsesEventToChatState()
 	ccState.Model = originalModel
+	ccState.AnthropicReasoningDetails = isClaude55SignedThinkingModel(mappedModel)
 
 	var usage ClaudeUsage
 	var firstTokenMs *int
@@ -422,15 +446,17 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:        requestID,
-			Usage:            usage,
-			Model:            originalModel,
-			UpstreamModel:    mappedModel,
-			ReasoningEffort:  reasoningEffort,
-			Stream:           true,
-			Duration:         time.Since(startTime),
-			FirstTokenMs:     firstTokenMs,
-			ClientDisconnect: stream.clientDisconnected,
+			RequestID:                     requestID,
+			Usage:                         usage,
+			Model:                         originalModel,
+			UpstreamModel:                 mappedModel,
+			UpstreamResponseModel:         observer.Model(),
+			UpstreamResponseModelConflict: observer.Conflict(),
+			ReasoningEffort:               reasoningEffort,
+			Stream:                        true,
+			Duration:                      time.Since(startTime),
+			FirstTokenMs:                  firstTokenMs,
+			ClientDisconnect:              stream.clientDisconnected,
 		}
 	}
 
@@ -518,6 +544,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			continue
 		}
 
+		observer.ObserveAnthropic([]byte(payload))
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue

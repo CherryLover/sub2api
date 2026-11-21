@@ -93,3 +93,45 @@ describe('CNProviderQuotaCell', () => {
     expect(queryQuota).toHaveBeenCalledWith(account.id)
   })
 })
+
+describe('Kimi monthly quota snapshots', () => {
+  const kimiAccount = (id: number) => ({
+    ...account, id, platform: 'kimi',
+    extra: { kimi_monthly_used_percent: 95, kimi_monthly_reset_at: '2026-12-26T00:00:00Z', kimi_usage_updated_at: new Date().toISOString() }
+  }) as Account
+
+  beforeEach(() => { queryQuota.mockReset() })
+
+  it('renders a monthly-only snapshot with the monthly label without querying', async () => {
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: kimiAccount(830) } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('95%')
+    expect(wrapper.text()).toContain('admin.accounts.cnProviders.windowMonthly')
+    expect(wrapper.findAll('[data-test="cn-provider-quota-tier"]')).toHaveLength(1)
+    expect(queryQuota).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('retains the monthly snapshot when a probe returns no valid quota', async () => {
+    queryQuota.mockResolvedValue({ success: false, error: 'quota snapshot unavailable' })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: kimiAccount(831) } })
+    await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('95%')
+    expect(wrapper.text()).toContain('quota snapshot unavailable')
+    wrapper.unmount()
+  })
+
+  it('does not publish a previous account response after the row is reused', async () => {
+    let resolveOld!: (value: unknown) => void
+    queryQuota.mockReturnValue(new Promise(resolve => { resolveOld = resolve }))
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: kimiAccount(832) } })
+    await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click')
+    await wrapper.setProps({ account: { ...kimiAccount(833), extra: { kimi_monthly_used_percent: 24, kimi_usage_updated_at: new Date().toISOString() } } as Account })
+    resolveOld({ success: true, tiers: [{ window: 'monthly', used_percent: 100 }] })
+    await flushPromises()
+    expect(wrapper.text()).toContain('24%')
+    expect(wrapper.text()).not.toContain('100%')
+    wrapper.unmount()
+  })
+})

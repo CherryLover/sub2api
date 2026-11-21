@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -35,15 +36,17 @@ const (
 	cnExtraSuffix5hReset      = "5h_reset_at"
 	cnExtraSuffixWeeklyUsed   = "weekly_used_percent"
 	cnExtraSuffixWeeklyReset  = "weekly_reset_at"
+	cnExtraSuffixMonthlyUsed  = "monthly_used_percent"
+	cnExtraSuffixMonthlyReset = "monthly_reset_at"
 	cnExtraSuffixUsageUpdated = "usage_updated_at"
 )
 
 // cnExtraKey 拼接 provider 维度的 extra 键。
 func cnExtraKey(provider, suffix string) string { return provider + "_" + suffix }
 
-// CNQuotaTier 表示一个滚动用量窗口档位（5h / weekly）。
+// CNQuotaTier 表示一个滚动用量窗口档位（5h / weekly / monthly）。
 type CNQuotaTier struct {
-	Window      string  `json:"window"`             // "5h" | "weekly"
+	Window      string  `json:"window"`             // "5h" | "weekly" | "monthly"
 	UsedPercent float64 `json:"used_percent"`       // 已用百分比（0-100+，不做裁剪）
 	ResetAt     string  `json:"reset_at,omitempty"` // RFC3339，空表示无重置时间
 }
@@ -195,7 +198,7 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 		return nil, infraerrors.Newf(http.StatusBadGateway, "CN_QUOTA_REQUEST_FAILED", "upstream request failed: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, cnQuotaMaxBodyBytes))
+	bodyBytes, bodyErr := io.ReadAll(io.LimitReader(resp.Body, cnQuotaMaxBodyBytes+1))
 
 	now := time.Now().UTC()
 	result := &CNProviderQuotaProbeResult{
@@ -215,6 +218,16 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 		return result, nil
 	}
 
+	// A partial or oversized document cannot establish that an old quota
+	// window disappeared. Keep the old snapshot, including its observed time.
+	if bodyErr != nil || len(bodyBytes) > cnQuotaMaxBodyBytes || !gjson.ValidBytes(bodyBytes) || !gjson.ParseBytes(bodyBytes).IsObject() {
+		result.Error = "Invalid or incomplete quota response; keeping the previous snapshot"
+		return result, nil
+	}
+	if provider == PlatformKimi && !kimiQuotaSnapshotComplete(bodyBytes) {
+		result.Error = "Invalid Kimi quota window; keeping the previous snapshot"
+		return result, nil
+	}
 	// 智谱业务级错误（HTTP 2xx 但 success=false）。
 	if provider == PlatformZhipu {
 		if success := gjson.GetBytes(bodyBytes, "success"); success.Exists() && !success.Bool() {
@@ -227,6 +240,10 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 		}
 	}
 
+	if provider == PlatformZhipu && !zhipuQuotaSnapshotComplete(bodyBytes) {
+		result.Error = "Invalid Zhipu quota window; keeping the previous snapshot"
+		return result, nil
+	}
 	var tiers []CNQuotaTier
 	switch provider {
 	case PlatformKimi:
@@ -236,10 +253,15 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 		result.PlanLevel = strings.TrimSpace(gjson.GetBytes(bodyBytes, "data.level").String())
 	}
 	result.Tiers = tiers
+	if len(tiers) == 0 {
+		result.Error = "Quota response contains no recognized usage window; keeping the previous snapshot"
+		return result, nil
+	}
 	result.Success = true
 	result.CredentialValid = true
 
 	updates := cnQuotaExtraUpdates(provider, tiers, now)
+	clearAbsentCNQuotaWindows(provider, tiers, updates)
 	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
 		slog.Warn("cn_quota_persist_failed", "account_id", account.ID, "provider", provider, "error", err)
 	} else {
@@ -326,50 +348,100 @@ func zhipuQuotaHost(baseURL string) string {
 func parseKimiUsageTiers(body []byte) []CNQuotaTier {
 	var tiers []CNQuotaTier
 
+	hasFiveHour := false
 	if limits := gjson.GetBytes(body, "limits"); limits.IsArray() {
 		limits.ForEach(func(_, item gjson.Result) bool {
 			detail := item.Get("detail")
 			if !detail.Exists() {
 				return true
 			}
-			limit, _ := cnParseF64(detail.Get("limit").Value())
-			remaining, _ := cnParseF64(detail.Get("remaining").Value())
-			used := limit - remaining
-			if used < 0 {
-				used = 0
+			// 字段节点存在不等于数值可信：limit/remaining 必须可解析、limit>0、
+			// remaining 落在 [0, limit]，否则跳过该条（`{"detail":{}}` 或 limit=0
+			// 不能产出一个「已用 0%」的伪窗口，那会掩盖真实的额度耗尽状态）。
+			limit, okLimit := cnParseF64(detail.Get("limit").Value())
+			remaining, okRemaining := cnParseF64(detail.Get("remaining").Value())
+			if !okLimit || !okRemaining || limit <= 0 || remaining < 0 || remaining > limit {
+				return true
 			}
-			var util float64
-			if limit > 0 {
-				util = used / limit * 100
-			}
+			util := (limit - remaining) / limit * 100
 			tiers = append(tiers, CNQuotaTier{
 				Window:      "5h",
 				UsedPercent: util,
 				ResetAt:     cnNormalizeResetTime(detail.Get("resetTime").Value()),
 			})
-			return false // 取首个 detail 作为 5h 窗口
+			hasFiveHour = true
+			return false // 取首个有效 detail 作为 5h 窗口
 		})
 	}
+	if !hasFiveHour {
+		if tier, ok := kimiUsedRatioTier(body, "limit_5h", "5h"); ok {
+			tiers = append(tiers, tier)
+			hasFiveHour = true
+		}
+	}
 
-	if usage := gjson.GetBytes(body, "usage"); usage.Exists() {
-		limit, _ := cnParseF64(usage.Get("limit").Value())
-		remaining, _ := cnParseF64(usage.Get("remaining").Value())
-		used := limit - remaining
-		if used < 0 {
-			used = 0
+	// 周窗口：usages.limit_7d 优先，顶层 usage（老套餐单数）兜底。
+	if tier, ok := kimiUsedRatioTier(body, "limit_7d", "weekly"); ok {
+		tiers = append(tiers, tier)
+	} else if usage := gjson.GetBytes(body, "usage"); usage.Exists() {
+		limit, okLimit := cnParseF64(usage.Get("limit").Value())
+		remaining, okRemaining := cnParseF64(usage.Get("remaining").Value())
+		if okLimit && okRemaining && limit > 0 && remaining >= 0 && remaining <= limit {
+			tiers = append(tiers, CNQuotaTier{
+				Window:      "weekly",
+				UsedPercent: (limit - remaining) / limit * 100,
+				ResetAt:     cnNormalizeResetTime(usage.Get("resetTime").Value()),
+			})
 		}
-		var util float64
-		if limit > 0 {
-			util = used / limit * 100
+	}
+
+	// 月度限额（新套餐）：total 与 code 是两个**独立**的限流窗口，任一耗尽都会限流。
+	// 用量取两者较大值；重置时间取**较晚**者——取较早会在另一个窗口仍耗尽时提前
+	// 解除预停调（例如 total 到 11-26 才恢复、code 到 11-20 恢复）。宁可晚回池，
+	// 不可提前撞 429。
+	total, hasTotal := kimiUsedRatioTier(body, "limit_month_total", "monthly")
+	code, hasCode := kimiUsedRatioTier(body, "limit_month_code", "monthly")
+	if hasTotal || hasCode {
+		monthly := total
+		if !hasTotal {
+			monthly = code
+		} else if hasCode {
+			if code.UsedPercent > monthly.UsedPercent {
+				monthly.UsedPercent = code.UsedPercent
+			}
+			if code.ResetAt != "" && (monthly.ResetAt == "" || code.ResetAt > monthly.ResetAt) {
+				monthly.ResetAt = code.ResetAt
+			}
 		}
-		tiers = append(tiers, CNQuotaTier{
-			Window:      "weekly",
-			UsedPercent: util,
-			ResetAt:     cnNormalizeResetTime(usage.Get("resetTime").Value()),
-		})
+		tiers = append(tiers, monthly)
 	}
 
 	return tiers
+}
+
+func kimiUsedRatioTier(body []byte, key, window string) (CNQuotaTier, bool) {
+	node := gjson.GetBytes(body, "usages."+key)
+	if !node.Exists() {
+		return CNQuotaTier{}, false
+	}
+	ratioNode := node.Get("used_ratio")
+	if !ratioNode.Exists() {
+		return CNQuotaTier{}, false
+	}
+	ratio, ok := cnParseF64(ratioNode.Value())
+	if !ok {
+		return CNQuotaTier{}, false
+	}
+	// 必须落在上游声明区间 [0,1]：越界值（例如把百分数 65 直接塞进 used_ratio）
+	// 会算出 6500%，NaN/Inf 同理不可信。
+	if ratio < 0 || ratio > 1 {
+		return CNQuotaTier{}, false
+	}
+	return CNQuotaTier{
+		Window:      window,
+		UsedPercent: ratio * 100,
+		ResetAt:     cnNormalizeResetTime(node.Get("reset_time").Value()),
+	}, true
 }
 
 // cnZhipuWindow 标识智谱 TOKENS_LIMIT 条目所属窗口。
@@ -448,9 +520,9 @@ func parseZhipuTokenTiers(data gjson.Result) []CNQuotaTier {
 		if limitType != "TOKENS_LIMIT" && limitType != "CREDIT_LIMIT" {
 			return true
 		}
-		percentage := 0.0
-		if p, ok := cnParseF64(item.Get("percentage").Value()); ok {
-			percentage = p
+		percentage, valid := cnParseF64(item.Get("percentage").Value())
+		if !valid || percentage < 0 || percentage > 100 {
+			return true
 		}
 		var (
 			resetMs  int64
@@ -523,6 +595,13 @@ func cnQuotaExtraUpdates(provider string, tiers []CNQuotaTier, now time.Time) ma
 			if t.ResetAt != "" {
 				updates[cnExtraKey(provider, cnExtraSuffix5hReset)] = t.ResetAt
 			}
+		case "monthly":
+			if provider == PlatformKimi {
+				updates[cnExtraKey(provider, cnExtraSuffixMonthlyUsed)] = t.UsedPercent
+				if t.ResetAt != "" {
+					updates[cnExtraKey(provider, cnExtraSuffixMonthlyReset)] = t.ResetAt
+				}
+			}
 		case "weekly":
 			updates[cnExtraKey(provider, cnExtraSuffixWeeklyUsed)] = t.UsedPercent
 			if t.ResetAt != "" {
@@ -535,24 +614,37 @@ func cnQuotaExtraUpdates(provider string, tiers []CNQuotaTier, now time.Time) ma
 
 // cnParseF64 把 JSON 数值或字符串解析为 float64（兼容 "100" 与 100）。
 func cnParseF64(raw any) (float64, bool) {
+	var value float64
 	switch v := raw.(type) {
 	case float64:
-		return v, true
+		value = v
 	case float32:
-		return float64(v), true
+		value = float64(v)
 	case int:
-		return float64(v), true
+		value = float64(v)
 	case int64:
-		return float64(v), true
+		value = float64(v)
 	case json.Number:
 		f, err := v.Float64()
-		return f, err == nil
+		if err != nil {
+			return 0, false
+		}
+		value = f
 	case string:
 		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-		return f, err == nil
+		if err != nil {
+			return 0, false
+		}
+		value = f
 	default:
 		return 0, false
 	}
+	// strconv.ParseFloat 接受 "NaN"/"Inf"，JSON 的 1e999 也会得到 +Inf；
+	// 这类值参与百分比与阈值比较会让停调判定失效，一律视为不可解析。
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, false
+	}
+	return value, true
 }
 
 // cnNormalizeResetTime 把上游重置时间（ISO8601 字符串 / 秒级 / 毫秒级数字）归一化为
@@ -596,4 +688,26 @@ func cnMillisToRFC3339(n int64) string {
 		ms = n
 	}
 	return time.UnixMilli(ms).UTC().Format(time.RFC3339)
+}
+
+func clearAbsentCNQuotaWindows(provider string, tiers []CNQuotaTier, updates map[string]any) {
+	present := make(map[string]CNQuotaTier, len(tiers))
+	for _, tier := range tiers {
+		present[tier.Window] = tier
+	}
+	for _, window := range []struct{ name, used, reset string }{
+		{"5h", cnExtraSuffix5hUsed, cnExtraSuffix5hReset},
+		{"weekly", cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset},
+		{"monthly", cnExtraSuffixMonthlyUsed, cnExtraSuffixMonthlyReset},
+	} {
+		tier, ok := present[window.name]
+		if !ok {
+			updates[cnExtraKey(provider, window.used)] = nil
+			updates[cnExtraKey(provider, window.reset)] = nil
+			continue
+		}
+		if tier.ResetAt == "" {
+			updates[cnExtraKey(provider, window.reset)] = nil
+		}
+	}
 }

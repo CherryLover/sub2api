@@ -364,10 +364,14 @@ func cnProviderThresholdCandidates(account *Account, provider string) []*account
 	if account == nil || len(account.Extra) == 0 {
 		return nil
 	}
-	return []*accountSchedulingThresholdCandidate{
+	candidates := []*accountSchedulingThresholdCandidate{
 		cnThresholdCandidate(account.Extra, provider, "5h"),
 		cnThresholdCandidate(account.Extra, provider, "weekly"),
 	}
+	if provider == PlatformKimi {
+		candidates = append(candidates, cnThresholdCandidate(account.Extra, provider, "monthly"))
+	}
+	return candidates
 }
 
 func cnThresholdCandidate(extra map[string]any, provider, window string) *accountSchedulingThresholdCandidate {
@@ -379,6 +383,12 @@ func cnThresholdCandidate(extra map[string]any, provider, window string) *accoun
 	case "weekly":
 		usedKey = cnExtraKey(provider, cnExtraSuffixWeeklyUsed)
 		resetKey = cnExtraKey(provider, cnExtraSuffixWeeklyReset)
+	case "monthly":
+		if provider != PlatformKimi {
+			return nil
+		}
+		usedKey = cnExtraKey(provider, cnExtraSuffixMonthlyUsed)
+		resetKey = cnExtraKey(provider, cnExtraSuffixMonthlyReset)
 	default:
 		return nil
 	}

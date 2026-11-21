@@ -1,5 +1,7 @@
 # Sub2API 上游 v0.2.23 增量回移审查与开发续记
 
+> **2026-11-21 后续真实验证更新**：调度回源、请求内存、Responses 历史修复已继续实施；真实 PG/Redis 仓储 1,384 项通过（1 原有跳过），审计 207 项通过。最新状态见[续作记录](2026-11-21-scheduler-memory-integration.md)，下方“数据库未运行”描述属于早期阶段。统一交付范围仍未全部完成。
+
 > **2026-11-21 隔离统一开发续记**：见[开发与验收记录](2026-11-21-unified-validation.md)。统一代码最终收尾 `660108582d14d71812441660515f328b51509b11`；全仓 unit、关键 race、前端、构建、Lint 和本地安全门禁已有证据。真实 PostgreSQL/Redis 未执行，GitHub CI/Scan dispatch 返回 Actions disabled (HTTP 422)；剩余适用范围及统一 PR 仍未完成。原始工作区只读。
 
 > 2026-11-18：上游 `upstream/main=2af3f1e15c98c893a89255a037f551046883b8c0`，已发布 `v0.2.23`；精简版 `lite/main=8fe8e095ed8abfef9a7e9fda6de4ae45de425296`，仍为 `0.1.224`。沿用[原回移清单](2026-11-17-v022-backport-development-checklist.md)和“全部适用项开发/综合验收后集中交付 PR”策略。**本文件记录新增范围，不宣称所有回移已结束。**
@@ -41,3 +43,8 @@
 - **验证已执行**：OpenAI idle 与 Raw Chat SSE 聚焦、扩大 Go 测试和 Service/Handler 编译；GPT-6.2 Sol/Astra 核心目录/标准价卡/别名/采样单测，前端 Vue typecheck 和 16 个白名单测试。测试结果不得外推成整仓 CI、生产套餐资格或实网 WebSocket 行为。
 - **后续优先级**：核实 GPT-6.2 HTTP/WS/Composite/订阅 eligibility 与成本生效时间，再拆 Anthropic TTL 保真；其后审查剩余 v0.2.22 主线（Hydrogen、Vertex、多轮协议与账单），保留精简版的授权、默认调度和 schema 定制。
 - **争议范围**：Ultra Fast 促销期与订阅资格、Carbon/Hydrogen 切换价格、缓存 TTL 计费迁移和多实例租约应按上游证据及精简版行为逐项提出审批，不默认采用。最终 PR 标题/正文写功能变化和上游链接，不写开发编号；最终 SHA GitHub CI/Security Scan 全绿前不报验收完成，不自动合并/部署。
+
+
+## 2026-11-21 续作进度（未统一验收）
+
+后续协议、额度、账号探测及费用口径开发见 [统一续作记录](2026-11-21-unified-followup.md)。本轮尚未提交，定向结果不能替代最终全仓/真实数据库/CI；原审批边界与一个最终 PR 的要求保持不变。

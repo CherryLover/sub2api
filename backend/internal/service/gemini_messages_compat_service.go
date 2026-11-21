@@ -924,6 +924,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
+		if resp.StatusCode == http.StatusForbidden {
+			break // Classify request/resource failures before account mutation.
+		}
 		checked, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel)
 		resp = rebuilt
 		checkedPolicy = checked
@@ -992,6 +995,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
+		if handled, denial := s.handleGeminiRequest403(ctx, c, account, resp, respBody, body, "claude"); handled {
+			return nil, denial
+		}
 		// 统一错误策略：自定义错误码 + 临时不可调度
 		if s.rateLimitService != nil {
 			policy := s.finalErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel, checkedPolicy)
@@ -1122,10 +1128,16 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	var firstTokenMs *int
 	clientDisconnect := false
 	streamFinished := false
+	var streamErr error
 	if req.Stream {
 		streamRes, err := s.handleStreamingResponse(c, resp, startTime, originalModel)
 		if err != nil {
-			return nil, err
+			var failover *UpstreamFailoverError
+			if streamRes == nil || errors.As(err, &failover) || !c.Writer.Written() ||
+				(streamRes.usage == nil || !streamRes.usage.hasObservedTokens()) && observedGeminiImageOutputs(c) == 0 {
+				return nil, err
+			}
+			streamErr = err
 		}
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
@@ -1178,7 +1190,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		ImageCount:                    imageCount,
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
-	}, nil
+	}, streamErr
 }
 
 func isGeminiSignatureRelatedError(respBody []byte) bool {
@@ -1439,6 +1451,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
+		if resp.StatusCode == http.StatusForbidden {
+			break // Classify request/resource failures before account mutation.
+		}
 		checked, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel)
 		resp = rebuilt
 		checkedPolicy = checked
@@ -1546,6 +1561,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			}, nil
 		}
 
+		if handled, denial := s.handleGeminiRequest403(ctx, c, account, resp, respBody, body, "native"); handled {
+			return nil, denial
+		}
 		// 统一错误策略：自定义错误码 + 临时不可调度
 		if s.rateLimitService != nil {
 			policy := s.finalErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel, checkedPolicy)
@@ -1652,11 +1670,17 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	var firstTokenMs *int
 	clientDisconnect := false
 	streamFinished := false
+	var streamErr error
 
 	if stream {
 		streamRes, err := s.handleNativeStreamingResponse(c, resp, startTime, isOAuth)
 		if err != nil {
-			return nil, err
+			var failover *UpstreamFailoverError
+			if streamRes == nil || errors.As(err, &failover) || !c.Writer.Written() ||
+				(streamRes.usage == nil || !streamRes.usage.hasObservedTokens()) && observedGeminiImageOutputs(c) == 0 {
+				return nil, err
+			}
+			streamErr = err
 		}
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
@@ -1709,7 +1733,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		ImageCount:                    imageCount,
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
-	}, nil
+	}, streamErr
 }
 
 // checkErrorPolicyInLoop 在重试循环内预检查错误策略。
@@ -2174,6 +2198,11 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 }
 
 func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (*geminiStreamResult, error) {
+	reader, preludeUsage, prepareErr := s.prepareGeminiStream(c, resp, "messages")
+	if prepareErr != nil {
+		return &geminiStreamResult{usage: preludeUsage}, prepareErr
+	}
+	defer reader.Close()
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -2221,7 +2250,6 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	var toolBoundary geminiToolCallBoundary
 	var seenToolJSON geminiTextDelta
 
-	reader := newBoundedSSELineReader(resp.Body, s.cfg)
 	for {
 		line, err := reader.ReadLineString()
 		if err != nil && !errors.Is(err, io.EOF) {
@@ -2234,7 +2262,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					finished:         finishReason != "",
 				}, nil
 			}
-			return nil, fmt.Errorf("stream read error: %w", err)
+			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs, finished: finishReason != ""}, fmt.Errorf("stream read error: %w", err)
 		}
 
 		if !strings.HasPrefix(line, "data:") {
@@ -2828,6 +2856,11 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Co
 }
 
 func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, isOAuth bool) (*geminiNativeStreamResult, error) {
+	reader, preludeUsage, prepareErr := s.prepareGeminiStream(c, resp, "native")
+	if prepareErr != nil {
+		return &geminiNativeStreamResult{usage: preludeUsage}, prepareErr
+	}
+	defer reader.Close()
 	if s.cfg != nil && s.cfg.Gateway.GeminiDebugResponseHeaders {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ========== Streaming Response Headers ==========")
 		for key, values := range resp.Header {
@@ -2858,7 +2891,6 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 		return nil, errors.New("streaming not supported")
 	}
 
-	reader := newBoundedSSELineReader(resp.Body, s.cfg)
 	usage := &ClaudeUsage{}
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
@@ -2929,7 +2961,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 		}
 		if err != nil {
 			if !geminiStreamAbortedWithBillableOutput(c, err, usage) {
-				return nil, err
+				return &geminiNativeStreamResult{usage: usage, firstTokenMs: firstTokenMs, finished: finished}, err
 			}
 			clientDisconnect = true
 			logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] Client disconnected during native stream, billing collected usage: %v", err)

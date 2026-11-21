@@ -159,8 +159,8 @@ type UsageProgress struct {
 
 // AntigravityModelQuota Antigravity 单个模型的配额信息
 type AntigravityModelQuota struct {
-	Utilization int    `json:"utilization"` // 使用率 0-100
-	ResetTime   string `json:"reset_time"`  // 重置时间 ISO8601
+	Utilization float64 `json:"utilization"` // 使用率 0-100，保留上游小数精度
+	ResetTime   string  `json:"reset_time"`  // 重置时间 ISO8601
 }
 
 // AntigravityModelDetail Antigravity 单个模型的详细能力信息
@@ -251,8 +251,26 @@ type UsageInfo struct {
 
 // ClaudeUsageWindow Anthropic /api/oauth/usage 返回的单个用量窗口
 type ClaudeUsageWindow struct {
-	Utilization float64 `json:"utilization"`
-	ResetsAt    string  `json:"resets_at"`
+	Utilization        float64 `json:"utilization"`
+	ResetsAt           string  `json:"resets_at"`
+	utilizationMissing bool
+}
+
+// UnmarshalJSON distinguishes an explicit zero from an absent observation.
+// A missing or null utilization must never be evidence for quota recovery.
+func (w *ClaudeUsageWindow) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Utilization *float64 `json:"utilization"`
+		ResetsAt    string   `json:"resets_at"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*w = ClaudeUsageWindow{ResetsAt: raw.ResetsAt, utilizationMissing: raw.Utilization == nil}
+	if raw.Utilization != nil {
+		w.Utilization = *raw.Utilization
+	}
+	return nil
 }
 
 // ClaudeUsageResponse Anthropic API返回的usage结构
@@ -271,8 +289,20 @@ type ClaudeUsageResponse struct {
 	} `json:"seven_day_sonnet"`
 	// Fable 专属 7d 窗口（对应响应头 7d_oi，claim 名为 seven_day_overage_included，
 	// 见 anthropic-ratelimit-unified-representative-claim 头）。上游 usage API
-	// 若不下发该字段，GetUsage 会用被动采样数据回填。
+	// 若不下发该字段，先读取 limits[]，仍缺失时 GetUsage 用被动采样回填。
 	SevenDayOverageIncluded ClaudeUsageWindow `json:"seven_day_overage_included"`
+	Limits                  []struct {
+		Kind     string   `json:"kind"`
+		Group    string   `json:"group"`
+		Percent  *float64 `json:"percent"`
+		ResetsAt string   `json:"resets_at"`
+		Scope    struct {
+			Model struct {
+				DisplayName string `json:"display_name"`
+			} `json:"model"`
+			Surface json.RawMessage `json:"surface"`
+		} `json:"scope"`
+	} `json:"limits"`
 }
 
 // ClaudeUsageFetchOptions 包含获取 Claude 用量数据所需的所有选项
@@ -505,6 +535,8 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 
 		// 5. 将主动查询结果同步到被动缓存，下次 passive 加载即为最新值
 		s.syncActiveToPassive(ctx, account.ID, usage)
+		// Only the freshly fetched window is recovery evidence; never the passive fallback below.
+		recoverObservedActiveFableUsage(ctx, s.accountRepo, account, usage)
 
 		// 6. 上游 usage API 目前不一定下发 Fable 7d 窗口；缺失时回填被动采样
 		// （7d_oi 响应头）的数据，避免主动查询后 7d F 进度条丢失。
@@ -1922,7 +1954,29 @@ func (s *AccountUsageService) buildUsageInfo(resp *ClaudeUsageResponse, updatedA
 	}
 
 	// 7天Fable窗口（响应头 7d_oi 对应的窗口）
-	if fable := resp.SevenDayOverageIncluded; fable.ResetsAt != "" {
+	fable := resp.SevenDayOverageIncluded
+	if fable.utilizationMissing || !validPassiveUsageUtilization(fable.Utilization) {
+		fable = ClaudeUsageWindow{}
+	}
+	if fable.ResetsAt == "" {
+		// 新版 usage 将模型周窗口放在 limits[]。仅投影无 surface 限定的
+		// Fable 周额度；percent 已是百分比，显式 0 也必须覆盖旧被动采样。
+		for _, limit := range resp.Limits {
+			if limit.Kind != "weekly_scoped" || limit.Group != "weekly" ||
+				limit.Scope.Model.DisplayName != "Fable" || limit.Percent == nil || !validPassiveUsageUtilization(*limit.Percent) {
+				continue
+			}
+			if surface := bytes.TrimSpace(limit.Scope.Surface); len(surface) > 0 && !bytes.Equal(surface, []byte("null")) {
+				continue
+			}
+			if _, err := parseTime(limit.ResetsAt); err != nil {
+				continue
+			}
+			fable = ClaudeUsageWindow{Utilization: *limit.Percent, ResetsAt: limit.ResetsAt}
+			break
+		}
+	}
+	if fable.ResetsAt != "" {
 		if fableReset, err := parseTime(fable.ResetsAt); err == nil {
 			info.SevenDayFable = &UsageProgress{
 				Utilization:      fable.Utilization,

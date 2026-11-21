@@ -549,6 +549,22 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 			return
 		}
 
+		// The composite route can rewrite JSON before the text handler. Reserve
+		// that shared peak here; the handler's later call is high-water, not additive.
+		if gjson.ValidBytes(body) {
+			if err := pkghttputil.ReserveJSONProcessingMemory(c.Request.Context(), body); err != nil {
+				status, kind, message := http.StatusServiceUnavailable, "api_error", "Request body memory budget exhausted"
+				if errors.Is(err, pkghttputil.ErrRequestBodyMemoryTooLarge) {
+					status, kind, message = http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body processing exceeds configured memory budget"
+				} else {
+					c.Header("Retry-After", "1")
+				}
+				c.JSON(status, gin.H{"error": gin.H{"type": kind, "message": message}})
+				c.Abort()
+				return
+			}
+		}
+
 		includeSession := strings.Contains(c.Request.URL.Path, "/realtime/calls") ||
 			strings.HasSuffix(strings.TrimRight(c.Request.URL.Path, "/"), "/live")
 		if err := service.ValidateRequestModelCarriers(c.GetHeader("Content-Type"), body, includeSession); err != nil {

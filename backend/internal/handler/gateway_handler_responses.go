@@ -329,7 +329,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				// Can't failover if streaming content already sent
-				if c.Writer.Size() != writerSizeBeforeForward {
+				if !gatewayForwardMayFailover(c, writerSizeBeforeForward, failoverErr) {
 					h.handleResponsesFailoverExhausted(c, failoverErr, true)
 					return
 				}
@@ -381,8 +381,15 @@ func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code
 
 // handleResponsesFailoverExhausted writes a failover-exhausted error in Responses format.
 func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
+	streamStarted = streamStarted || (c != nil && c.Writer != nil && c.Writer.Written())
 	if streamStarted {
-		return // Can't write error after stream started
+		// A first-byte failure has not written semantic output, but an outer
+		// heartbeat may have committed HTTP 200. Terminate it in-band once.
+		if lastErr != nil && lastErr.SafeToFailoverAfterWrite && !service.IsResponseCommitted(c) {
+			service.MarkResponseCommitted(c)
+			h.handleStreamingAwareError(c, http.StatusBadGateway, "server_error", "All available accounts exhausted", true)
+		}
+		return
 	}
 	if lastErr != nil {
 		copyFailoverRetryAfter(c, lastErr.ResponseHeaders)

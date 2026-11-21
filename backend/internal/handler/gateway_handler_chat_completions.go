@@ -344,7 +344,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				if c.Writer.Size() != writerSizeBeforeForward {
+				if !gatewayForwardMayFailover(c, writerSizeBeforeForward, failoverErr) {
 					h.handleCCFailoverExhausted(c, failoverErr, true)
 					return
 				}
@@ -396,7 +396,14 @@ func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int
 
 // handleCCFailoverExhausted writes a failover-exhausted error in CC format.
 func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
+	streamStarted = streamStarted || (c != nil && c.Writer != nil && c.Writer.Written())
 	if streamStarted {
+		// A first-byte failure has not written semantic output, but an outer
+		// heartbeat may have committed HTTP 200. Terminate it in-band once.
+		if lastErr != nil && lastErr.SafeToFailoverAfterWrite && !service.IsResponseCommitted(c) {
+			service.MarkResponseCommitted(c)
+			h.handleStreamingAwareError(c, http.StatusBadGateway, "server_error", "All available accounts exhausted", true)
+		}
 		return
 	}
 	if lastErr != nil {

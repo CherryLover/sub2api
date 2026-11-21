@@ -261,8 +261,10 @@ type openAIWSConn struct {
 	closedCh  chan struct{}
 	closeOnce sync.Once
 
-	readMu  sync.Mutex
-	writeMu sync.Mutex
+	readMu             sync.Mutex
+	writeMu            sync.Mutex
+	responseCreateSent bool // writeMu protects initial hosted-search capability.
+	initialWebSearch   bool
 
 	waiters       atomic.Int32
 	createdAtNano atomic.Int64
@@ -399,6 +401,9 @@ func (c *openAIWSConn) writeJSON(value any, writeCtx context.Context) error {
 	}
 	if err := c.ws.WriteJSON(writeCtx, value); err != nil {
 		return err
+	}
+	if !c.responseCreateSent {
+		c.recordInitialWebSearch(value)
 	}
 	c.touch()
 	return nil

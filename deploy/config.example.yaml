@@ -17,6 +17,9 @@ server:
   # Port to listen on
   # 监听端口
   port: 8080
+  # Graceful HTTP drain deadline in seconds; 5 preserves the existing default.
+  # 到期后关闭剩余 HTTP 连接；应用清理仍先等待工作队列，再关闭 Redis/数据库。
+  shutdown_drain_timeout: 5
   # Mode: "debug" for development, "release" for production
   # 运行模式："debug" 用于开发，"release" 用于生产环境
   mode: "release"
@@ -216,6 +219,9 @@ gateway:
   # Timeout for waiting upstream response headers (seconds)
   # 等待上游响应头超时时间（秒）
   response_header_timeout: 600
+  # Optional Antigravity header/body first-byte deadline; 0 preserves existing behavior.
+  # 首字节截止时间（秒）：0 保持现有行为；可显式设置 5–600，超时仅在无内容时换号。
+  antigravity_first_byte_timeout: 0
   # OpenAI/Codex upstream response header timeout (seconds, 0=disabled)
   # OpenAI/Codex 等待上游响应头超时时间（秒，0=禁用本地响应头超时）
   openai_response_header_timeout: 0
@@ -242,7 +248,12 @@ gateway:
   max_body_size: 268435456
   # Process-wide budget for buffered gateway request bodies (bytes).
   # 0 disables the feature; set according to container memory and concurrency.
-  # Excess capacity is transient overload, not a malformed or oversized body.
+  # OpenAI JSON transforms reserve 6x body bytes plus 128 bytes per structural
+  # token outside strings, before account selection. An individually impossible
+  # request returns 413; temporary contention returns 503 with Retry-After: 1.
+  # Successful upstream handoff settles to ingress plus one outbound body;
+  # retries re-reserve the transform peak. Async prompt audit owns its reservation.
+  # 仍默认关闭；显式启用时须覆盖读入、JSON 改写和异步副本，不改变实例预算默认值。
   request_body_memory_budget_bytes: 0
   # Per-socket-read idle timeout. 0 disables; unlike server.read_timeout,
   # it does not cap a long image upload or streamed response end to end.
@@ -337,6 +348,12 @@ gateway:
     max_session_duration_seconds: 3600
   # OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
   openai_ws:
+    # Optional native WS current-window recovery, not first-frame replay.
+    # 单连接 0 默认关闭；只有完整、自包含历史且尚未输出时才允许跨账号恢复。
+    # 未知 response ID、跨账号资源、工具副作用或预算不足会拒绝重放。
+    native_replay_max_session_bytes: 0
+    native_replay_max_total_bytes: 67108864
+    native_replay_max_items: 8192
     # 新版 WS mode 路由（默认关闭）。关闭时忽略账号级 WS mode（包括 http_bridge），保持 legacy ctx_pool 行为。
     # 环境变量：GATEWAY_OPENAI_WS_MODE_ROUTER_V2_ENABLED=true
     mode_router_v2_enabled: false
