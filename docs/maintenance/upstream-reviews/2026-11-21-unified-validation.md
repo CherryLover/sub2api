@@ -3,6 +3,7 @@
 > 状态：集中开发中，未达到最终 PR 门槛。原始冲突工作区只读；局部通过不等于全部完成。
 
 ## 固定基线
+- 最后代码收尾提交：`660108582d14d71812441660515f328b51509b11`；backend tree `cb36d6609162363fe22b83085d6d51734d62c9e9`。本轮累计 81 个 Go 文件（38 个生产文件、43 个测试文件）；最终全仓复验逐一核对 2,778 个后端文件内容，测试期间没有源码变化。
 - 本轮统一代码提交：`3acfbe004dede5e70754430c2090608cef1c26f4`，70 个 Go 文件（37 个生产文件、33 个测试文件），含前轮未提交改动；后续文档提交不改变该代码树。
 - 隔离分支 `backport/unified-integration-20261120`，开始 HEAD `7b24c3d54e2df8fda903cec62c8d47d57e4ddba9`，已有 40 个提交。
 - 上游 main `328db26f450edbdf9f8d4344a3ea903ac6396842`，v0.2.24；lite/main `8fe8e095ed8abfef9a7e9fda6de4ae45de425296`。
@@ -28,19 +29,24 @@
 ## 本地验证证据与限制
 - service 在 10m 上限约 208s 结束；原先 100/180s 是整个包过短上限，不能凭空闲 WS worker 栈认定死锁根因。
 - 六入口 Gemini/Antigravity+Redis 扩大回归：5 包、1434 测试/子测试通过。
-- 全仓 `go test -tags=unit ./... -count=1 -timeout=10m`：52 个有测试的包通过，19,640 个测试/子测试通过，14 个按条件跳过。另 36 个包没有可运行测试。原 handler 上游额外 bootstrap 依赖及 GPT-5.6 首项旧断言均已修正。
+- 全仓 `go test -tags=unit ./... -count=1 -timeout=10m`：52 个有测试的包通过，19,657 个测试/子测试通过，14 个按条件跳过。另 36 个包没有可运行测试。原 handler 上游额外 bootstrap 依赖及 GPT-5.6 首项旧断言均已修正。
 - 关键 OAuth、租约、流式、真实 handler/WS、上下文和工具 ID 的 `-race`：182 项通过；随后新增 terminal_info 和 AG thinking 的竞态补验 60 项通过。两次测试范围有重叠，不把 182+60 宣称成去重数量。
 - 全仓 unit 的 14 个跳过：3 个 TLS 实网测试、1 个 Linux 专属抓包样本、9 个需要显式 PostgreSQL/Redis 环境的 Prompt Audit 集成测试、1 个需要真实 OPENAI_API_KEY 的计数比对。它们未在本机运行，不声称全通过。
 - 前端 typecheck、lint:check、227 文件/1841 Vitest、生产 build 通过；构建仅有体积/Browserslist 提示。
 - embed 构建及 5 组部署脚本 fixture 通过。Apple container 测试使用临时目录和 fake container PATH；没有真实部署、删除生产卷或发布镜像。
-- 新增 4 个 PostgreSQL OAuth CAS 集成用例：保存/调度 outbox、并发重新授权、影子账号与 outbox 原子回滚。已有真实 Redis 启动租约和 PostgreSQL TTL、分组倍率/调度成员资格用例也纳入统一 CI。
-- 本机 Docker 引擎未启动，因此真实 PostgreSQL/Redis 执行由统一验证推送后的 GitHub CI 提供。具体执行结果以对应最终 SHA 的 CI 日志为准；绝不把数据库 skip 视为通过。
-- fork Actions 已核实 enabled。只推统一验证分支，不创建 PR；CI/Security 通过也不能替代下方尚未完成的全部适用范围。
+- 新增 4 个 PostgreSQL OAuth CAS 集成用例：保存/调度 outbox、并发重新授权、影子账号与 outbox 原子回滚。原子性用例改用 autocommit 连接，避免测试自身 SAVEPOINT 回滚掩盖生产部分写入。已编译通过，未实际执行数据库；Redis 启动租约和 PostgreSQL TTL 等用例也已准备，待真实环境执行。
+- 本机 Docker/OrbStack 引擎未运行，因此真实 PostgreSQL/Redis 尚未执行。没有启动生产服务或用 skip 替代实测。
+- GitHub 验证遇到服务端阻塞：权限 API 虽显示 `enabled:true` 且工作流 `active`，但 CI (`354018963`) 和 Security Scan (`354018960`) 的实际 dispatch 都返回 HTTP 422：`Actions has been disabled for this repository.` 对已推送 SHA `94da627f36b72bd7170f9f319dfd32ddce52f7ce` 查询得到 0 个 runs。之前的“enabled”观察只表示配置返回值，不代表工作流已成功启动。
+- 本地后端 `govulncheck ./...`（Darwin）和 Linux/amd64 源码目标扫描均退出 0：无代码可达漏洞；7 个未被代码调用的 required-module 漏洞提示仍保留。它们不是 GitHub Security Scan 或 Linux 实机执行。
+- 前端原始生产依赖审计有 2 high / 12 moderate / 2 low。按仓库既有门禁运行后通过；两个 SheetJS high (`GHSA-4r6h-8v6p-xvw6`、`GHSA-5pgg-2g8v-p4x9`) 使用既有只写导出豁免，截止 2027-01-06，本轮没有新增、延期或放宽豁免。通过门禁不等于依赖零漏洞。
+- 本机 Python 3.9 不能直接求值门禁脚本的 `str | None` 注解；使用 future annotations 编译标志执行同一脚本、原参数和原豁免文件后通过，没有修改门禁策略。
+- 最后代码树全仓 unit：19,657 通过、14 显式跳过、0 失败，52 个有测试的包通过。`golangci-lint v2.9.0 --max-same-issues=0 --max-issues-per-linter=0`：0 issues，退出 0；原配置未变。处理 Builder 写入返回值、旧 GPT-6.2 测试格式和旧测试 Fatal 后显式退出，没有改业务控制流或关闭检查。
+- Lint 首次只显示同类问题上限内的结果；取消显示上限后完整修正并复验。受影响 Antigravity/OpenAI 包另有 315 项 race 通过；与前述 182/60 项有重叠，不累加成唯一数量。
 
 ## 剩余范围，不能标为完成
-1. 全仓 unit、真实 handler、race、embed/build、脚本及真实 PostgreSQL/Redis；最终 SHA CI/Security。
+1. 本轮本地 unit、真实 handler 模拟、race、embed/build、脚本和本地安全门禁已取得上述证据；真实 PostgreSQL/Redis 与最终 SHA GitHub CI/Security 仍阻塞。后续剩余功能完成后还需统一重验。
 2. #8856 账号测试恢复与已有早期 401 差异；#8742/#8739 beta/effort；#8664/#8358 缓存身份/搜索重连；#8745/#8727/#8728/#8796 实际响应模型。
-3. 原清单其余 Gemini includeThoughts/首字节、Fable/Kimi/DeepSeek 额度价格、Grok/账单、请求体内存及快照必须有逐项证据，未读完不能标已覆盖。
+3. 原清单其余 Gemini 首字节/403/404 边界、Fable/Kimi/DeepSeek 额度价格、Grok/账单、请求体内存及快照必须有逐项证据，未读完不能标已覆盖。
 4. Hydrogen 完整链路、真实模型资格不能由价卡推定；#8778 已关闭未合并。
 5. Ultra Fast/Carbon 日期倍率、30m/12h 缓存 schema/计价、Vertex 默认路由、按用户批结算须先用户决策，未批准不改。
 6. Rerank、Decisions API、DeepSeek Files/多模态、新平台只评估范围，不擅自扩产品边界。

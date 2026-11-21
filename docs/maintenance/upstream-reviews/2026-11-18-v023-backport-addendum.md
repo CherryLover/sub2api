@@ -1,6 +1,6 @@
 # Sub2API 上游 v0.2.23 增量回移审查与开发续记
 
-> **2026-11-21 隔离统一开发续记**：见[本轮开发与验收记录](2026-11-21-unified-validation.md)。本轮统一代码提交 `3acfbe004dede5e70754430c2090608cef1c26f4`。这是隔离副本，原始文件只读；局部开发和本地验证已推进，全部范围与最终 CI/统一 PR 尚未完成。
+> **2026-11-21 隔离统一开发续记**：见[开发与验收记录](2026-11-21-unified-validation.md)。统一代码最终收尾 `660108582d14d71812441660515f328b51509b11`；全仓 unit、关键 race、前端、构建、Lint 和本地安全门禁已有证据。真实 PostgreSQL/Redis 未执行，GitHub CI/Scan dispatch 返回 Actions disabled (HTTP 422)；剩余适用范围及统一 PR 仍未完成。原始工作区只读。
 
 > 2026-11-18：上游 `upstream/main=2af3f1e15c98c893a89255a037f551046883b8c0`，已发布 `v0.2.23`；精简版 `lite/main=8fe8e095ed8abfef9a7e9fda6de4ae45de425296`，仍为 `0.1.224`。沿用[原回移清单](2026-11-17-v022-backport-development-checklist.md)和“全部适用项开发/综合验收后集中交付 PR”策略。**本文件记录新增范围，不宣称所有回移已结束。**
 
