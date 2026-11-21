@@ -35,3 +35,12 @@
 
 - 国产 Embeddings 兼容路由参考 #8773 与 #8309 的路径核对，只回移在 Lite 既有端点可复现的选号问题，不恢复新增平台。
 - Antigravity Responses 兼容工具参考 #8164、#8804，使用 Lite 现有 shared client-tool mapping 重写，不将未合并上游补丁整包复制。
+
+## 2026-11-21 统一 PR 交付门槛复核
+
+- 统一分支 backport/unified-integration-20261120 已推送个人 fork xiaoguai1818/sub2api。推送时 SHA 660588592c304d5365211f3a6cdfa7e9495004ca，目标 CherryLover/sub2api:main，未创建 PR。
+- lite/main 基线 8fe8e095e，上游 main 328db26f4，最新标签 v0.2.24。原始冲突工作区只读。
+- 本地 52 包 Go unit、真实 PostgreSQL/Redis 仓储/审计、关键四包 race、前端 typecheck/lint/1,858 Vitest/build、golangci-lint 0 issues、embed build 已通过；不等于最终 SHA 远端 CI。
+- Fork 仓库 Actions 权限 API 显示 enabled=true,allowed_actions=all、workflow state=active。但 push 未创建最终 SHA 运行，手动 dispatch backend-ci.yml 和 security-scan.yml 都返回 **HTTP 422 Actions has been disabled for this repository**。使用管理员权限幂等 PUT 开启 Actions 后复测仍返回 422；没有 run ID 或结果。
+- CherryLover/sub2api 上 #73–#81 九项旧 PR 仍 Open，其变更也包含在统一分支；不得隐瞒重叠或擅自关闭旧 PR。
+- **结论：暂不创建正式 PR。** 先在 fork Actions 页核对开关状态；若仍 422，需要 GitHub Support 排查执行限制，或由目标仓库维护者明确允许在 PR 内运行 CI。只有最终 SHA CI/Security Scan 实际执行且通过后再创建一个功能标题清晰的 PR，不合并或部署；新计价、迁移和新 API 仍待范围审批。
