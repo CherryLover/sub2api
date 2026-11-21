@@ -451,12 +451,12 @@ func parseAssistantContent(raw json.RawMessage) (string, string, error) {
 		switch typ {
 		case "thinking", "reasoning":
 			if thinking != "" {
-				reasoning.WriteString(thinking)
+				_, _ = reasoning.WriteString(thinking)
 			} else {
-				reasoning.WriteString(text)
+				_, _ = reasoning.WriteString(text)
 			}
 		default:
-			visible.WriteString(text)
+			_, _ = visible.WriteString(text)
 		}
 	}
 
