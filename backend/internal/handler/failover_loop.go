@@ -226,7 +226,9 @@ func (s *FailoverState) HandleFailoverError(
 	// Exhausted same-account retries: only one account may be cooled by
 	// one downstream request. Request-scoped faults never consume this budget.
 	if failoverErr.RetryableOnSameAccount {
-		if failoverErr.RequestScopedTransient {
+		if failoverErr.EmptyStream {
+			// Empty output only excludes this account from the current request.
+		} else if failoverErr.RequestScopedTransient {
 			// Service-level handling does not cool request-scoped faults.
 			gatewayService.TempUnscheduleRetryableError(ctx, accountID, failoverErr)
 		} else if s.tempUnscheduledAccountID == 0 || s.tempUnscheduledAccountID == accountID {

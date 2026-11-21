@@ -684,7 +684,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 							ms := int(time.Since(startTime).Milliseconds())
 							firstTokenMs = &ms
 						}
-						if fr := extractGeminiFinishReason(geminiResp); fr != "" {
+						if fr := geminiStreamTerminalReason(rawBytes); fr != "" {
 							finishReason = fr
 						}
 						if u := extractGeminiUsage(rawBytes); u != nil {
@@ -832,6 +832,11 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 			}
 			return nil, fmt.Errorf("stream read error: %w", err)
 		}
+	}
+
+	if finishReason == "" && !clientDisconnect {
+		writeGeminiIncompleteStreamError(c, "chat")
+		return streamResult(), errGeminiStreamIncomplete
 	}
 
 	if closeOpenBlock() {

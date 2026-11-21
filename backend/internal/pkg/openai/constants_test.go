@@ -45,9 +45,10 @@ func TestGPT61SolModelRecognizesAliasesAndRejectsDisabledReasoning(t *testing.T)
 	require.NoError(t, ValidateGPT61SolReasoningEffort("gpt-6-sol", "none"))
 }
 
-func TestDefaultModelsPreferConcreteGPT56SolForAccountTests(t *testing.T) {
+func TestDefaultModelsPreferConcreteGPT62SolForAccountTests(t *testing.T) {
 	require.NotEmpty(t, DefaultModels)
-	require.Equal(t, "gpt-5.6-sol", DefaultModels[0].ID)
+	require.Equal(t, "gpt-6.2-sol", DefaultModels[0].ID)
+	require.Contains(t, DefaultModelIDs(), "gpt-5.6-sol", "older explicitly selected models remain available")
 }
 
 func TestValidateGPT61TerraReasoningEffort(t *testing.T) {

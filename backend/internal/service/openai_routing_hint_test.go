@@ -272,6 +272,7 @@ func TestOpenAIWSConnPoolPreferredContinuationIgnoresRoutingHintChanges(t *testi
 	cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 2
 
 	pool := newOpenAIWSConnPool(cfg)
+	t.Cleanup(pool.Close)
 	dialer := &openAIWSCountingDialer{}
 	pool.setClientDialerForTest(dialer)
 	account := &Account{ID: 913, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
@@ -318,6 +319,7 @@ func TestOpenAIWSConnPoolUsesRoutingHintAsSoftDialAffinity(t *testing.T) {
 	cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 4
 
 	pool := newOpenAIWSConnPool(cfg)
+	t.Cleanup(pool.Close)
 	dialer := &openAIWSCountingDialer{}
 	pool.setClientDialerForTest(dialer)
 	account := &Account{ID: 913, Platform: PlatformOpenAI, Type: AccountTypeOAuth}

@@ -204,12 +204,18 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 
 		// MODEL_CAPACITY_EXHAUSTED 使用独立的重试参数（60 次，固定 1s 间隔）
 		maxAttempts := antigravitySmartRetryMaxAttempts
+		capacitySwitch := false
 		if isModelCapacityExhausted {
-			maxAttempts = antigravityModelCapacityRetryMaxAttempts
 			waitDuration = antigravityModelCapacityRetryWait
+			capacitySwitch = !isSingleAccountRetry(p.ctx)
+			if capacitySwitch {
+				maxAttempts = antigravityModelCapacitySwitchAttempts
+			} else {
+				maxAttempts = antigravityModelCapacityRetryMaxAttempts
+			}
 
 			// 全局去重：如果其他 goroutine 已在重试同一模型且尚在 cooldown 中，直接返回 503
-			if modelName != "" {
+			if modelName != "" && !capacitySwitch {
 				modelCapacityExhaustedMu.RLock()
 				cooldownUntil, exists := modelCapacityExhaustedUntil[modelName]
 				modelCapacityExhaustedMu.RUnlock()
@@ -284,10 +290,11 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 				_ = retryResp.Body.Close()
 			}
 
-			// 解析新的重试信息，用于下次重试的等待时间（MODEL_CAPACITY_EXHAUSTED 使用固定循环，跳过）
-			if !isModelCapacityExhausted && attempt < maxAttempts && lastRetryBody != nil {
-				newShouldRetry, _, newWaitDuration, _, _ := shouldTriggerAntigravitySmartRetry(p.account, lastRetryBody)
-				if newShouldRetry && newWaitDuration > 0 {
+			// The final upstream RetryInfo also determines the model cooldown.
+			// Capacity exhaustion retains its independent fixed retry policy.
+			if !isModelCapacityExhausted && lastRetryBody != nil {
+				newShouldRetry, newShouldRateLimit, newWaitDuration, newModelName, newIsCapacity := shouldTriggerAntigravitySmartRetry(p.account, lastRetryBody)
+				if !newIsCapacity && (newShouldRetry || newShouldRateLimit) && newModelName == modelName && newWaitDuration > 0 {
 					waitDuration = newWaitDuration
 				}
 			}
@@ -301,6 +308,17 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		retryBody := lastRetryBody
 		if retryBody == nil {
 			retryBody = respBody
+		}
+
+		if isModelCapacityExhausted && capacitySwitch {
+			resetAt := time.Now().Add(antigravityModelCapacityAccountCooldown)
+			if modelName != "" && setModelRateLimitByModelName(p.ctx, p.accountRepo, p.account.ID, modelName, p.prefix, resp.StatusCode, resetAt, true) {
+				s.updateAccountModelRateLimitInCache(p.ctx, p.account, modelName, resetAt)
+			}
+			s.clearStickySession(p.ctx, p.groupID, p.sessionHash)
+			return &smartRetryResult{action: smartRetryActionBreakWithResp, switchError: &AntigravityAccountSwitchError{
+				OriginalAccountID: p.account.ID, RateLimitedModel: modelName, IsStickySession: p.isStickySession,
+			}}
 		}
 
 		// MODEL_CAPACITY_EXHAUSTED：模型容量不足，切换账号无意义

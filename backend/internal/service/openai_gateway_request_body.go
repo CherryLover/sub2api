@@ -1022,7 +1022,7 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 		}
 	}
 
-	cleaned, metadataChanged, metadataErr := stripOpenAIOAuthInputMetadataBody(normalized)
+	cleaned, metadataChanged, metadataErr := normalizeOpenAIOAuthInputCompatibilityBody(normalized)
 	if metadataErr != nil {
 		return body, false, metadataErr
 	}

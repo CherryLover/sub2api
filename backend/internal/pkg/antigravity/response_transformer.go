@@ -55,6 +55,7 @@ type NonStreamingProcessor struct {
 	thinkingSignature string
 	trailingSignature string
 	hasToolCall       bool
+	turnGuard         turnBoundaryGuard
 }
 
 // NewNonStreamingProcessor 创建非流式响应处理器
@@ -75,9 +76,12 @@ func (p *NonStreamingProcessor) Process(geminiResp *GeminiResponse, responseID, 
 	// 处理所有 parts
 	for _, part := range parts {
 		p.processPart(&part)
+		if p.turnGuard.Triggered() {
+			break
+		}
 	}
 
-	if len(geminiResp.Candidates) > 0 {
+	if !p.turnGuard.Triggered() && len(geminiResp.Candidates) > 0 {
 		if grounding := geminiResp.Candidates[0].GroundingMetadata; grounding != nil {
 			p.processGrounding(grounding)
 		}
@@ -88,7 +92,7 @@ func (p *NonStreamingProcessor) Process(geminiResp *GeminiResponse, responseID, 
 	p.flushText()
 
 	// 处理 trailingSignature
-	if p.trailingSignature != "" {
+	if !p.turnGuard.Triggered() && p.trailingSignature != "" {
 		p.contentBlocks = append(p.contentBlocks, ClaudeContentItem{
 			Type:      "thinking",
 			Thinking:  "",
@@ -173,11 +177,35 @@ func (p *NonStreamingProcessor) processPart(part *GeminiPart) {
 				return
 			}
 
+			safe, triggered := p.turnGuard.Feed(part.Text)
+			if triggered {
+				if safe != "" {
+					p.flushThinking()
+					if p.trailingSignature != "" {
+						p.flushTextBuilder()
+						p.contentBlocks = append(p.contentBlocks, ClaudeContentItem{
+							Type:      "thinking",
+							Thinking:  "",
+							Signature: p.trailingSignature,
+						})
+						p.trailingSignature = ""
+					}
+					p.textBuilder += safe
+				}
+				return
+			}
+			if safe == "" {
+				if signature != "" {
+					p.trailingSignature = signature
+				}
+				return
+			}
+
 			p.flushThinking()
 
 			// 处理之前的 trailingSignature
 			if p.trailingSignature != "" {
-				p.flushText()
+				p.flushTextBuilder()
 				p.contentBlocks = append(p.contentBlocks, ClaudeContentItem{
 					Type:      "thinking",
 					Thinking:  "",
@@ -188,9 +216,10 @@ func (p *NonStreamingProcessor) processPart(part *GeminiPart) {
 
 			// 非空 text 带签名 - 特殊处理：先输出 text，再输出空 thinking 块
 			if signature != "" {
+				p.flushTextBuilder()
 				p.contentBlocks = append(p.contentBlocks, ClaudeContentItem{
 					Type: "text",
-					Text: part.Text,
+					Text: safe,
 				})
 				p.contentBlocks = append(p.contentBlocks, ClaudeContentItem{
 					Type:      "thinking",
@@ -199,7 +228,7 @@ func (p *NonStreamingProcessor) processPart(part *GeminiPart) {
 				})
 			} else {
 				// 普通 text (无签名) - 累积到 builder
-				p.textBuilder += part.Text
+				p.textBuilder += safe
 			}
 		}
 	}
@@ -226,8 +255,8 @@ func (p *NonStreamingProcessor) processGrounding(grounding *GeminiGroundingMetad
 	p.flushText()
 }
 
-// flushText 刷新 text builder
-func (p *NonStreamingProcessor) flushText() {
+// flushTextBuilder emits accumulated text without resetting turnGuard state.
+func (p *NonStreamingProcessor) flushTextBuilder() {
 	if p.textBuilder == "" {
 		return
 	}
@@ -237,6 +266,16 @@ func (p *NonStreamingProcessor) flushText() {
 		Text: p.textBuilder,
 	})
 	p.textBuilder = ""
+}
+
+// flushText 刷新 text builder 以及 turnGuard 暂存文本
+func (p *NonStreamingProcessor) flushText() {
+	if !p.turnGuard.Triggered() {
+		if pending := p.turnGuard.FlushAndResetBlock(); pending != "" {
+			p.textBuilder += pending
+		}
+	}
+	p.flushTextBuilder()
 }
 
 // flushThinking 刷新 thinking builder
@@ -269,12 +308,16 @@ func (p *NonStreamingProcessor) buildResponse(geminiResp *GeminiResponse, respon
 		}
 	}
 
-	stopReason := "end_turn"
-	if p.hasToolCall {
-		stopReason = "tool_use"
-	} else if finishReason == "MAX_TOKENS" {
-		stopReason = "max_tokens"
+	if p.turnGuard.Triggered() {
+		log.Printf("[Antigravity] Truncated leaked turn boundary in response for model %s", originalModel)
 	}
+
+	if p.turnGuard.Triggered() {
+		finishReason = "STOP"
+	} else if geminiResp.PromptFeedback != nil && isTerminalGeminiBlockReason(geminiResp.PromptFeedback.BlockReason) {
+		finishReason = "SAFETY"
+	}
+	stopReason := mapGeminiFinishReasonToClaudeStopReason(finishReason, p.hasToolCall)
 
 	// 注意：Gemini 的 promptTokenCount 包含 cachedContentTokenCount，
 	// 但 Claude 的 input_tokens 不包含 cache_read_input_tokens，需要减去。

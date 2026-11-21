@@ -460,7 +460,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		})
 	}
 
-	cleanedMetadata, _, metadataErr := normalizeOpenAIOAuthInputMetadataForAccount(body, account)
+	cleanedMetadata, _, metadataErr := normalizeOpenAIOAuthInputCompatibilityForAccount(body, account)
 	if metadataErr != nil {
 		return nil, metadataErr
 	}

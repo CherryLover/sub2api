@@ -50,6 +50,7 @@ func TestOpenAIWSv2StreamingRepairsConcatenatedJSONDocumentsInSingleMessage(t *t
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 
 	pool := newOpenAIWSConnPool(cfg)
+	t.Cleanup(pool.Close)
 	pool.setClientDialerForTest(&openAIWSCaptureDialer{conn: captureConn})
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,
@@ -122,6 +123,7 @@ func TestOpenAIWSv2RejectsMalformedEventAfterWritingDownstream(t *testing.T) {
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 
 	pool := newOpenAIWSConnPool(cfg)
+	t.Cleanup(pool.Close)
 	pool.setClientDialerForTest(&openAIWSCaptureDialer{conn: captureConn})
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,
@@ -185,6 +187,7 @@ func testOpenAIWSv2RejectsMalformedEventBeforeWritingDownstream(t *testing.T, ma
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 
 	pool := newOpenAIWSConnPool(cfg)
+	t.Cleanup(pool.Close)
 	pool.setClientDialerForTest(&openAIWSCaptureDialer{conn: captureConn})
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,
@@ -260,6 +263,7 @@ func TestOpenAIWSv2StreamingBreaksConnectionWhenTerminalHasTrailingDocument(t *t
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 
 	pool := newOpenAIWSConnPool(cfg)
+	t.Cleanup(pool.Close)
 	pool.setClientDialerForTest(&openAIWSCaptureDialer{conn: captureConn})
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,

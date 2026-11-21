@@ -481,7 +481,12 @@ func TestForwardGrokChatViaResponsesTraeCompatibilityFieldsKeepCacheRoute(t *tes
 	require.Equal(t, "priority", gjson.GetBytes(upstream.lastBody, "service_tier").String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "stop").Exists())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning").Exists())
-	require.Contains(t, gjson.GetBytes(upstream.lastBody, "input.1.content.0.text").String(), "<thinking>I should use lookup</thinking>")
+	// Historical reasoning is a dedicated item, not visible assistant output.
+	require.Equal(t, "reasoning", gjson.GetBytes(upstream.lastBody, "input.1.type").String())
+	require.Equal(t, "summary_text", gjson.GetBytes(upstream.lastBody, "input.1.summary.0.type").String())
+	require.Equal(t, "I should use lookup", gjson.GetBytes(upstream.lastBody, "input.1.summary.0.text").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "input.1.content").Exists())
+	require.NotContains(t, string(upstream.lastBody), "<thinking>")
 	require.Equal(t, "function_call", gjson.GetBytes(upstream.lastBody, "input.2.type").String())
 	require.Equal(t, "function_call_output", gjson.GetBytes(upstream.lastBody, "input.3.type").String())
 

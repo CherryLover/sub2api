@@ -369,6 +369,10 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 				if !session.hasMeaningfulData() && !writer.Disconnected() {
 					return nil, antigravityCompatEmptyStreamError()
 				}
+				if !session.processor.HasTerminalState() && !writer.Disconnected() {
+					writeAntigravityCompatStreamError(c, adapter, writer, "stream_incomplete")
+					return session.collectResult(false), errGeminiStreamIncomplete
+				}
 				return session.finish()
 			}
 			if event.err != nil {
@@ -377,6 +381,9 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 			resetAntigravityCompatTimer(timeoutTimer, timeout)
 			s.observeAntigravityGeminiSSELine(c, event.line)
 			session.consume(event.line)
+			if session.processor.TruncatedOnTurnBoundary() {
+				return session.finish()
+			}
 
 		case <-timeoutCh:
 			if writer.Disconnected() {
@@ -516,6 +523,7 @@ func antigravityCompatEmptyStreamError() error {
 		StatusCode:             http.StatusBadGateway,
 		ResponseBody:           []byte(`{"error":"empty stream response from upstream"}`),
 		RetryableOnSameAccount: true,
+		EmptyStream:            true,
 		RequestScopedTransient: true,
 		NextAccountAction:      NextAccountStop,
 	}

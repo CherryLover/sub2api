@@ -2267,7 +2267,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			continue
 		}
 
-		if fr := extractGeminiFinishReason(geminiResp); fr != "" {
+		if fr := geminiStreamTerminalReason(unwrappedBytes); fr != "" {
 			finishReason = fr
 		}
 
@@ -2454,6 +2454,11 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		if errors.Is(err, io.EOF) {
 			break
 		}
+	}
+
+	if finishReason == "" {
+		writeGeminiIncompleteStreamError(c, "messages")
+		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, errGeminiStreamIncomplete
 	}
 
 	if openBlockIndex >= 0 {
@@ -2895,7 +2900,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					observer.ObserveGemini(rawBytes)
 					observeGeminiImageOutputs(c, rawBytes)
 
-					if gjson.GetBytes(rawBytes, "candidates.0.finishReason").String() != "" {
+					if geminiStreamTerminalReason(rawBytes) != "" {
 						finished = true
 					}
 
@@ -2932,7 +2937,12 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 		}
 	}
 
-	return &geminiNativeStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnect, finished: finished}, nil
+	result := &geminiNativeStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnect, finished: finished}
+	if !finished && !clientDisconnect {
+		writeGeminiIncompleteStreamError(c, "native")
+		return result, errGeminiStreamIncomplete
+	}
+	return result, nil
 
 }
 
@@ -3466,8 +3476,9 @@ func mapGeminiFinishReasonToClaudeStopReason(finishReason string) string {
 	switch strings.ToUpper(strings.TrimSpace(finishReason)) {
 	case "MAX_TOKENS":
 		return "max_tokens"
-	case "STOP":
-		return "end_turn"
+	case "SAFETY", "RECITATION", "LANGUAGE", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII",
+		"IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION":
+		return "refusal"
 	default:
 		return "end_turn"
 	}

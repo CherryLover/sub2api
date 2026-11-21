@@ -1389,6 +1389,7 @@ func filterCodexInput(input []any, preserveReferences bool) []any {
 
 func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []any {
 	filtered := make([]any, 0, len(input))
+	additionalToolsIDs := codexAdditionalToolsIDMappings(input)
 	for _, item := range input {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -1460,8 +1461,12 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 			for key, value := range m {
 				newItem[key] = value
 			}
-			if id, ok := newItem["id"].(string); ok && strings.HasPrefix(id, "call_") {
-				newItem["id"] = fixCallIDPrefix(id)
+			if id, ok := newItem["id"].(string); ok {
+				if normalized, exists := additionalToolsIDs[id]; exists {
+					newItem["id"] = normalized
+				} else if strings.HasPrefix(id, "call_") {
+					newItem["id"] = fixCallIDPrefix(id)
+				}
 			}
 			filtered = append(filtered, newItem)
 			continue
@@ -1521,7 +1526,15 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 			}
 		}
 
-		if !opts.PreserveReferences {
+		// Additional tool declarations belong to this request, not stored history.
+		if typ == "additional_tools" {
+			if id, ok := m["id"].(string); ok {
+				if normalized, exists := additionalToolsIDs[id]; exists {
+					ensureCopy()
+					newItem["id"] = normalized
+				}
+			}
+		} else if !opts.PreserveReferences {
 			ensureCopy()
 			delete(newItem, "id")
 		} else if id, ok := m["id"].(string); ok && shouldStripOpenAIResponsesInputItemID(typ, id) {
