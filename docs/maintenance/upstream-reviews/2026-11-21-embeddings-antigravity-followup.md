@@ -44,3 +44,11 @@
 - Fork 仓库 Actions 权限 API 显示 enabled=true,allowed_actions=all、workflow state=active。但 push 未创建最终 SHA 运行，手动 dispatch backend-ci.yml 和 security-scan.yml 都返回 **HTTP 422 Actions has been disabled for this repository**。使用管理员权限幂等 PUT 开启 Actions 后复测仍返回 422；没有 run ID 或结果。
 - CherryLover/sub2api 上 #73–#81 九项旧 PR 仍 Open，其变更也包含在统一分支；不得隐瞒重叠或擅自关闭旧 PR。
 - **结论：暂不创建正式 PR。** 先在 fork Actions 页核对开关状态；若仍 422，需要 GitHub Support 排查执行限制，或由目标仓库维护者明确允许在 PR 内运行 CI。只有最终 SHA CI/Security Scan 实际执行且通过后再创建一个功能标题清晰的 PR，不合并或部署；新计价、迁移和新 API 仍待范围审批。
+
+## 2026-11-21 GitHub Actions 恢复与 workflow 最小清理
+
+- 实际触发 fork backend-ci.yml 返回 Run ID 44892499861，对应此前的代码 SHA b66b87083；旧 HTTP 422 限制已解除，但该运行启动不等于最终 SHA 检查通过。
+- 删除 .github/workflows/cla.yml：该文件所有 job 都限定 github.repository == 'Wei-Shaw/sub2api'，在精简版 CherryLover/sub2api 和个人 fork xiaoguai1818/sub2api 从不执行有效检查，是无效的上游专用遗留流程。
+- 保留 backend-ci.yml 与 security-scan.yml 必要门禁；auto-release.yml、release.yml、main-docker-image.yml、branch-docker-image.yml 在目标仓库有真实运行记录，不能作为旧工作流盲删。
+- Fork Actions API 列出 5 个流程，CI/Security active；Branch/Main Docker 与 Release 均 disabled_manually，且 fork 历史零运行。保留该禁用状态，不触发发布或镜像构建，也不删除审核历史。
+- 必须在本轮清理后的最终 SHA 重新运行 fork CI 与 Security Scan 并确认全部 job 终态；之后解释与目标旧 PR #73–#81 重叠，再创建唯一统一 PR。本轮代码清理不修改 Go/Vue 生产逻辑。
