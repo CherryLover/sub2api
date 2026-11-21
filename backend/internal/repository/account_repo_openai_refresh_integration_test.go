@@ -2,7 +2,12 @@
 
 package repository
 
-import "github.com/Wei-Shaw/sub2api/internal/service"
+import (
+	"context"
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/service"
+)
 
 func (s *AccountRepoSuite) TestUpdateOpenAIOAuthCredentialsIfUnchanged_AppliesAndPublishesSchedulerState() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{
@@ -129,20 +134,39 @@ func (s *AccountRepoSuite) TestUpdateOpenAIOAuthCredentialsIfUnchanged_DoesNotRo
 }
 
 func (s *AccountRepoSuite) TestUpdateOpenAIOAuthCredentialsIfUnchanged_OutboxFailureRollsBackRotation() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "openai-cas-rollback", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Credentials: map[string]any{"access_token": "original-access", "refresh_token": "original-refresh"}})
-	observed, err := s.repo.GetByID(s.ctx, account.ID)
+	// Use an autocommit connection: rolling the fixture transaction back to a
+	// savepoint would hide an accidental credential UPDATE outside the outbox statement.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	account := mustCreateAccount(s.T(), integrationEntClient, &service.Account{
+		Name: "openai-cas-rollback", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+		Credentials: map[string]any{"access_token": "original-access", "refresh_token": "original-refresh"},
+	})
+	t := s.T()
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		if _, err := integrationDB.ExecContext(cleanupCtx, "DELETE FROM scheduler_outbox WHERE account_id = $1", account.ID); err != nil {
+			t.Errorf("remove OAuth rotation outbox fixture: %v", err)
+		}
+		if err := integrationEntClient.Account.DeleteOneID(account.ID).Exec(cleanupCtx); err != nil {
+			t.Errorf("remove OAuth rotation account fixture: %v", err)
+		}
+	})
+	repo := NewAccountRepository(integrationEntClient, integrationDB, nil).(*accountRepository)
+	observed, err := repo.GetByID(ctx, account.ID)
 	s.Require().NoError(err)
-	realSQL := s.repo.sql
-	_, err = realSQL.ExecContext(s.ctx, "SAVEPOINT openai_rotation_atomicity")
-	s.Require().NoError(err)
-	s.repo.sql = &failAtomicSchedulerOutboxSQLExecutor{sqlExecutor: realSQL}
-	applied, updateErr := s.repo.UpdateOpenAIOAuthCredentialsIfUnchanged(s.ctx, account.ID, observed.Credentials, observed.ProxyID, map[string]any{"access_token": "new-access", "refresh_token": "new-refresh"})
-	s.repo.sql = realSQL
-	_, err = realSQL.ExecContext(s.ctx, "ROLLBACK TO SAVEPOINT openai_rotation_atomicity")
-	s.Require().NoError(err)
+	repo.sql = &failAtomicSchedulerOutboxSQLExecutor{sqlExecutor: integrationDB}
+	applied, updateErr := repo.UpdateOpenAIOAuthCredentialsIfUnchanged(ctx, account.ID, observed.Credentials, observed.ProxyID,
+		map[string]any{"access_token": "new-access", "refresh_token": "new-refresh"})
+	repo.sql = integrationDB
 	s.Require().Error(updateErr)
 	s.Require().False(applied)
-	stored, err := s.repo.GetByID(s.ctx, account.ID)
+	stored, err := repo.GetByID(ctx, account.ID)
 	s.Require().NoError(err)
 	s.Require().Equal("original-refresh", stored.GetOpenAIRefreshToken())
+	var outboxCount int
+	err = integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduler_outbox WHERE account_id = $1", account.ID).Scan(&outboxCount)
+	s.Require().NoError(err)
+	s.Require().Zero(outboxCount)
 }

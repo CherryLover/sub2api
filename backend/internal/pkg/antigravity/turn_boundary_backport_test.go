@@ -19,11 +19,11 @@ func TestBackportTurnBoundarySuppressesLeakedTextAndTools(t *testing.T) {
 			for _, text := range []string{prefix + marker[:split], marker[split:] + "fake user turn"} {
 				b, err := json.Marshal(map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{map[string]any{"text": text}}}}}})
 				require.NoError(t, err)
-				output.Write(p.ProcessLine("data: " + string(b)))
+				_, _ = output.Write(p.ProcessLine("data: " + string(b)))
 			}
-			output.Write(p.ProcessLine(`data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"unwanted_tool","args":{"x":1}}}]},"finishReason":"STOP"}]}`))
+			_, _ = output.Write(p.ProcessLine(`data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"unwanted_tool","args":{"x":1}}}]},"finishReason":"STOP"}]}`))
 			end, _ := p.Finish()
-			output.Write(end)
+			_, _ = output.Write(end)
 			require.Contains(t, output.String(), "The answer is ready.")
 			require.NotContains(t, output.String(), "fake user turn")
 			require.NotContains(t, output.String(), "unwanted_tool")
