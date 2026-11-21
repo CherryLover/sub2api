@@ -1,5 +1,8 @@
 # Sub2API v0.2.21–v0.2.22 选择性回移：开发任务清单与跨会话交接
 
+> **2026-11-21 最新开发证据**：统一分支已本地提交 [Antigravity custom tool 与国产 Embeddings、调度/OAuth/用量/内存综合修复](2026-11-21-embeddings-antigravity-followup.md)，代码 SHA aa2f369bc。全仓 Go unit 52 测试包、关键 race 四包、真实 PostgreSQL/Redis 仓储 1,384 pass/1 skip 与审计 210 pass、前端 1,858 项及构建、Lint 0 均通过；**最终 PR HEAD 的 GitHub CI/Security 尚未执行，待审批数据库迁移、计费/默认路由及新 API 不得算完成**。未创建 PR、未合并或部署。
+
+
 > **2026-11-21 后续真实验证更新**：调度回源、请求内存、Responses 历史修复已继续实施；真实 PG/Redis 仓储 1,384 项通过（1 原有跳过），审计 207 项通过。最新状态见[续作记录](2026-11-21-scheduler-memory-integration.md)，下方“数据库未运行”描述属于早期阶段。统一交付范围仍未全部完成。
 
 > **2026-11-21 隔离统一开发续记**：见[开发与验收记录](2026-11-21-unified-validation.md)。统一代码最终收尾 `660108582d14d71812441660515f328b51509b11`；全仓 unit、关键 race、前端、构建、Lint 和本地安全门禁已有证据。真实 PostgreSQL/Redis 未执行，GitHub CI/Scan dispatch 返回 Actions disabled (HTTP 422)；剩余适用范围及统一 PR 仍未完成。原始工作区只读。

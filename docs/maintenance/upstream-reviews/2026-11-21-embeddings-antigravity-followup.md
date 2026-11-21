@@ -4,7 +4,7 @@
 
 ## 基线
 
-- 隔离 worktree：/Users/leobot/Projects/.webcodex-worktrees/sub2api-edb4965d，分支 backport/unified-integration-20261120，已提交 HEAD 29509a944；本轮代码仍未提交。
+- 隔离 worktree：/Users/leobot/Projects/.webcodex-worktrees/sub2api-edb4965d，分支 backport/unified-integration-20261120，起始已提交 HEAD 29509a944；本轮主要代码提交 aa2f369bcff32d4523f2d5e843e5bfb224dc5da5（统一 PR 暂未创建）。
 - 刷新后上游 328db26f4、精简版 8fe8e095e、正式版 v0.2.24。
 - 保留此前会话未提交修改及备份，没有覆盖或清理原始工作区。
 
@@ -24,7 +24,7 @@
 - 最新关键 race：go test -race -tags=unit 针对 service、handler、repository、securityaudit 四个包成功；覆盖调度/OAuth/Antigravity/custom tools/Embeddings/审计关键并发。
 - 最终 embed 构建：go build -tags=embed -trimpath ./cmd/server 成功（输出仅在独立临时验证目录）。
 - 最新代码 manifest：3,218 个 backend Go / frontend src 文件，SHA256 40911d6176377385abaacfaa0f44634dd014c02e219746cfadb6316fca236df7；git diff --check 0。
-- 最终 Git 提交 SHA、GitHub CI/Security 仍待，不能用本地结果替代远端运行。
+- 本轮主要代码提交 aa2f369bc；最终 PR HEAD 对应的 GitHub CI/Security 仍待，不能用本地结果替代远端运行。
 
 ## 仍需收尾
 
