@@ -338,6 +338,7 @@ func TestCCBufferedFromNativeAnthropic_HappyPathStillConverts(t *testing.T) {
 	}
 	if res == nil {
 		t.Fatalf("expected result")
+		return
 	}
 	body := rec.Body.String()
 	if !strings.Contains(body, "Hello") {

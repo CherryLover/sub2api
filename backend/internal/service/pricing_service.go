@@ -133,6 +133,14 @@ var (
 		Mode:                                "chat",
 		SupportsPromptCaching:               true,
 	}
+	// Fable/Mythos 5.2 official standard fallback; explicit operator catalog
+	// pricing takes precedence, including separate 5m and 1h cache creation.
+	claude52FallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken: 8e-6, OutputCostPerToken: 40e-6,
+		CacheCreationInputTokenCost: 10e-6, CacheCreationInputTokenCostAbove1hr: 16e-6,
+		CacheReadInputTokenCost: 0.2e-6,
+		LiteLLMProvider:         "anthropic", Mode: "chat", SupportsPromptCaching: true,
+	}
 	claudeOpus55FallbackPricing = &LiteLLMModelPricing{
 		InputCostPerToken: 4e-6, OutputCostPerToken: 20e-6,
 		CacheCreationInputTokenCost: 5e-6, CacheCreationInputTokenCostAbove1hr: 8e-6,
@@ -329,7 +337,10 @@ func (s *PricingService) Initialize() error {
 	// 启动定时更新
 	s.startUpdateScheduler()
 
-	logger.LegacyPrintf("service.pricing", "[Pricing] Service initialized with %d models", len(s.pricingData))
+	s.mu.RLock()
+	modelCount := len(s.pricingData)
+	s.mu.RUnlock()
+	logger.LegacyPrintf("service.pricing", "[Pricing] Service initialized with %d models", modelCount)
 	return nil
 }
 
@@ -390,25 +401,14 @@ func (s *PricingService) checkAndUpdatePricing() error {
 		return s.downloadPricingData()
 	}
 
-	// 如果配置了哈希URL，通过远程哈希检查是否有更新
+	// 如果配置了哈希URL，通过远程哈希检查是否有更新。本地文件已加载，服务已可用，
+	// 校验放到后台做：远端慢或不通时不挡启动与监听（fetchRemoteHash 请求挂住时会一直等到客户端超时）。
 	if s.cfg.Pricing.HashURL != "" {
-		remoteHash, err := s.fetchRemoteHash()
-		if err != nil {
-			logger.LegacyPrintf("service.pricing", "[Pricing] Failed to fetch remote hash on startup: %v", err)
-			return nil // 已加载本地文件，哈希获取失败不影响启动
-		}
-
-		s.mu.RLock()
-		localHash := s.localHash
-		s.mu.RUnlock()
-
-		if localHash == "" || remoteHash != localHash {
-			logger.LegacyPrintf("service.pricing", "[Pricing] Remote hash differs on startup (local=%s remote=%s), downloading...",
-				localHash[:min(8, len(localHash))], remoteHash[:min(8, len(remoteHash))])
-			if err := s.downloadPricingData(); err != nil {
-				logger.LegacyPrintf("service.pricing", "[Pricing] Download failed, using existing file: %v", err)
-			}
-		}
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.checkRemoteHashOnStartup()
+		}()
 		return nil
 	}
 
@@ -429,6 +429,27 @@ func (s *PricingService) checkAndUpdatePricing() error {
 	}
 
 	return nil
+}
+
+// checkRemoteHashOnStartup 启动后在后台比对远程哈希，不同则下载；失败只记日志，沿用已加载的本地文件。
+func (s *PricingService) checkRemoteHashOnStartup() {
+	remoteHash, err := s.fetchRemoteHash()
+	if err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to fetch remote hash on startup: %v", err)
+		return
+	}
+
+	s.mu.RLock()
+	localHash := s.localHash
+	s.mu.RUnlock()
+
+	if localHash == "" || remoteHash != localHash {
+		logger.LegacyPrintf("service.pricing", "[Pricing] Remote hash differs on startup (local=%s remote=%s), downloading...",
+			localHash[:min(8, len(localHash))], remoteHash[:min(8, len(remoteHash))])
+		if err := s.downloadPricingData(); err != nil {
+			logger.LegacyPrintf("service.pricing", "[Pricing] Download failed, using existing file: %v", err)
+		}
+	}
 }
 
 // syncWithRemote 与远程同步（基于哈希校验）
@@ -931,7 +952,7 @@ func normalizeModelNameForPricing(model string) string {
 // behavior, not the published token rate, so this keeps -high/-low/-medium and
 // -tiered requests on the corresponding base model's price card.
 func normalizeGeminiThinkingTierAlias(model string) string {
-	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon"} {
+	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-4-argon", "gemini-4-carbon"} {
 		for _, tier := range []string{"-high", "-low", "-medium", "-tiered"} {
 			if model == baseModel+tier {
 				return baseModel
@@ -969,6 +990,18 @@ func (s *PricingService) extractBaseName(model string) string {
 
 // matchByModelFamily 基于模型系列匹配
 func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
+	if claude.IsFable52(model) {
+		if pricing, ok := s.pricingData["claude-fable-5-2"]; ok {
+			return pricing
+		}
+		return claude52FallbackPricing
+	}
+	if claude.IsMythos52(model) {
+		if pricing, ok := s.pricingData["claude-mythos-5-2"]; ok {
+			return pricing
+		}
+		return claude52FallbackPricing
+	}
 	if claude.IsOpus55(model) {
 		if pricing, ok := s.pricingData["claude-opus-5-5"]; ok {
 			return pricing

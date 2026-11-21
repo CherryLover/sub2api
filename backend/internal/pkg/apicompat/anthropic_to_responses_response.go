@@ -28,6 +28,23 @@ func encodeAnthropicThinking(block AnthropicContentBlock) string {
 	return anthropicThinkingEnvelopePrefix + base64.RawStdEncoding.EncodeToString(payload)
 }
 
+func anthropicCacheCreationInputTokens(usage AnthropicUsage) int {
+	if usage.CacheCreationInputTokens > 0 {
+		return max(usage.CacheCreationInputTokens, 0)
+	}
+	if usage.CacheCreation != nil && (usage.CacheCreation.Ephemeral5mInputTokens != nil || usage.CacheCreation.Ephemeral1hInputTokens != nil) {
+		cacheCreationTokens := 0
+		if usage.CacheCreation.Ephemeral5mInputTokens != nil {
+			cacheCreationTokens += max(*usage.CacheCreation.Ephemeral5mInputTokens, 0)
+		}
+		if usage.CacheCreation.Ephemeral1hInputTokens != nil {
+			cacheCreationTokens += max(*usage.CacheCreation.Ephemeral1hInputTokens, 0)
+		}
+		return cacheCreationTokens
+	}
+	return max(usage.CacheCreationInputTokens, 0)
+}
+
 // AnthropicToResponsesResponse converts an Anthropic Messages response into a
 // Responses API response. This is the reverse of ResponsesToAnthropic and
 // enables Anthropic upstream responses to be returned in OpenAI Responses format.
@@ -50,7 +67,7 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 	for _, block := range resp.Content {
 		switch block.Type {
 		case "thinking", "redacted_thinking":
-			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model) || claude.IsHaiku55(resp.Model)) && (block.Signature != "" || block.Data != "") {
+			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model) || claude.IsHaiku55(resp.Model) || claude.IsFable52(resp.Model) || claude.IsMythos52(resp.Model)) && (block.Signature != "" || block.Data != "") {
 				item := ResponsesOutput{Type: "reasoning", ID: generateItemID(), EncryptedContent: encodeAnthropicThinking(block)}
 				if block.Thinking != "" {
 					item.Summary = []ResponsesSummary{{Type: "summary_text", Text: block.Thinking}}
@@ -69,7 +86,7 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 				})
 			}
 		case "text":
-			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model) || claude.IsHaiku55(resp.Model)) && block.Text != "" {
+			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model) || claude.IsHaiku55(resp.Model) || claude.IsFable52(resp.Model) || claude.IsMythos52(resp.Model)) && block.Text != "" {
 				outputs = append(outputs, ResponsesOutput{Type: "message", ID: generateItemID(), Role: "assistant", Status: "completed", Content: []ResponsesContentPart{{Type: "output_text", Text: block.Text}}})
 				continue
 			}
@@ -118,23 +135,25 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 	out.Output = outputs
 
 	// Map stop_reason → status
-	out.Status = anthropicStopReasonToResponsesStatus(AnthropicStopReasonString(resp.StopReason), resp.Content)
+	stopReason := AnthropicStopReasonString(resp.StopReason)
+	out.Status = anthropicStopReasonToResponsesStatus(stopReason, resp.Content)
 	if out.Status == "incomplete" {
-		out.IncompleteDetails = &ResponsesIncompleteDetails{Reason: "max_output_tokens"}
+		_, out.IncompleteDetails = anthropicResponsesStreamTerminalState(stopReason)
 	}
 
 	// Usage
 	// Anthropic's input_tokens excludes cache_read/cache_creation, while OpenAI
 	// Responses' input_tokens is the total including cached tokens. Add them back
 	// when converting so downstream consumers see OpenAI semantics.
+	cacheCreationTokens := anthropicCacheCreationInputTokens(resp.Usage)
 	totalInputTokens := resp.Usage.InputTokens +
 		resp.Usage.CacheReadInputTokens +
-		resp.Usage.CacheCreationInputTokens
+		cacheCreationTokens
 	out.Usage = &ResponsesUsage{
 		InputTokens:              totalInputTokens,
 		OutputTokens:             resp.Usage.OutputTokens,
 		TotalTokens:              totalInputTokens + resp.Usage.OutputTokens,
-		CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
+		CacheCreationInputTokens: cacheCreationTokens,
 	}
 	if resp.Usage.CacheReadInputTokens > 0 {
 		out.Usage.InputTokensDetails = &ResponsesInputTokensDetails{
@@ -148,7 +167,7 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 // anthropicStopReasonToResponsesStatus maps Anthropic stop_reason to Responses status.
 func anthropicStopReasonToResponsesStatus(stopReason string, blocks []AnthropicContentBlock) string {
 	switch stopReason {
-	case "max_tokens":
+	case "max_tokens", "refusal":
 		return "incomplete"
 	case "end_turn", "tool_use", "stop_sequence":
 		return "completed"
@@ -209,6 +228,10 @@ type AnthropicEventToResponsesState struct {
 	OutputTokens             int
 	CacheReadInputTokens     int
 	CacheCreationInputTokens int
+	CacheCreation            AnthropicCacheCreation
+
+	cacheCreationInputTokensPresent     bool
+	cacheCreationInputTokensFromDetails bool
 
 	StopReason string
 }
@@ -217,6 +240,28 @@ type AnthropicEventToResponsesState struct {
 func NewAnthropicEventToResponsesState() *AnthropicEventToResponsesState {
 	return &AnthropicEventToResponsesState{
 		Created: time.Now().Unix(),
+	}
+}
+
+func (state *AnthropicEventToResponsesState) mergeCacheCreationUsage(usage AnthropicUsage) {
+	if usage.HasCacheCreationInputTokens() && (usage.CacheCreationInputTokens > 0 || state.CacheCreationInputTokens <= 0) {
+		state.CacheCreationInputTokens = max(usage.CacheCreationInputTokens, 0)
+		state.cacheCreationInputTokensPresent = true
+		state.cacheCreationInputTokensFromDetails = false
+	}
+	if usage.CacheCreation != nil {
+		if usage.CacheCreation.Ephemeral5mInputTokens != nil {
+			tokens := max(*usage.CacheCreation.Ephemeral5mInputTokens, 0)
+			state.CacheCreation.Ephemeral5mInputTokens = &tokens
+		}
+		if usage.CacheCreation.Ephemeral1hInputTokens != nil {
+			tokens := max(*usage.CacheCreation.Ephemeral1hInputTokens, 0)
+			state.CacheCreation.Ephemeral1hInputTokens = &tokens
+		}
+	}
+	if (!state.cacheCreationInputTokensPresent || state.cacheCreationInputTokensFromDetails || state.CacheCreationInputTokens <= 0) && (state.CacheCreation.Ephemeral5mInputTokens != nil || state.CacheCreation.Ephemeral1hInputTokens != nil) {
+		state.CacheCreationInputTokens = anthropicCacheCreationInputTokens(AnthropicUsage{CacheCreation: &state.CacheCreation})
+		state.cacheCreationInputTokensFromDetails = true
 	}
 }
 
@@ -276,7 +321,7 @@ func ResponsesEventToSSE(evt ResponsesStreamEvent) (string, error) {
 func anthToResHandleMessageStart(evt *AnthropicStreamEvent, state *AnthropicEventToResponsesState) []ResponsesStreamEvent {
 	if evt.Message != nil {
 		state.ResponseID = evt.Message.ID
-		state.PreserveThinkingSignatures = state.PreserveThinkingSignatures || claude.IsOpus55(evt.Message.Model) || claude.IsSonnet55(evt.Message.Model) || claude.IsHaiku55(evt.Message.Model)
+		state.PreserveThinkingSignatures = state.PreserveThinkingSignatures || claude.IsOpus55(evt.Message.Model) || claude.IsSonnet55(evt.Message.Model) || claude.IsHaiku55(evt.Message.Model) || claude.IsFable52(evt.Message.Model) || claude.IsMythos52(evt.Message.Model)
 		if state.Model == "" {
 			state.Model = evt.Message.Model
 		}
@@ -286,9 +331,7 @@ func anthToResHandleMessageStart(evt *AnthropicStreamEvent, state *AnthropicEven
 		if evt.Message.Usage.CacheReadInputTokens > 0 {
 			state.CacheReadInputTokens = evt.Message.Usage.CacheReadInputTokens
 		}
-		if evt.Message.Usage.CacheCreationInputTokens > 0 {
-			state.CacheCreationInputTokens = evt.Message.Usage.CacheCreationInputTokens
-		}
+		state.mergeCacheCreationUsage(evt.Message.Usage)
 	}
 
 	if state.CreatedSent {
@@ -519,16 +562,16 @@ func anthToResHandleContentBlockStop(evt *AnthropicStreamEvent, state *Anthropic
 
 func anthToResHandleMessageDelta(evt *AnthropicStreamEvent, state *AnthropicEventToResponsesState) []ResponsesStreamEvent {
 	if evt.Usage != nil {
-		state.OutputTokens = evt.Usage.OutputTokens
+		if evt.Usage.OutputTokens > 0 {
+			state.OutputTokens = evt.Usage.OutputTokens
+		}
 		if evt.Usage.InputTokens > 0 {
 			state.InputTokens = evt.Usage.InputTokens
 		}
 		if evt.Usage.CacheReadInputTokens > 0 {
 			state.CacheReadInputTokens = evt.Usage.CacheReadInputTokens
 		}
-		if evt.Usage.CacheCreationInputTokens > 0 {
-			state.CacheCreationInputTokens = evt.Usage.CacheCreationInputTokens
-		}
+		state.mergeCacheCreationUsage(*evt.Usage)
 	}
 	if evt.Delta != nil && evt.Delta.StopReason != "" {
 		state.StopReason = evt.Delta.StopReason
@@ -554,10 +597,14 @@ func anthToResHandleMessageStop(state *AnthropicEventToResponsesState) []Respons
 // --- helper functions ---
 
 func anthropicResponsesStreamTerminalState(stopReason string) (string, *ResponsesIncompleteDetails) {
-	if stopReason == "max_tokens" {
+	switch stopReason {
+	case "max_tokens":
 		return "incomplete", &ResponsesIncompleteDetails{Reason: "max_output_tokens"}
+	case "refusal":
+		return "incomplete", &ResponsesIncompleteDetails{Reason: "content_filter"}
+	default:
+		return "completed", nil
 	}
-	return "completed", nil
 }
 
 func closeCurrentResponsesItem(state *AnthropicEventToResponsesState) []ResponsesStreamEvent {

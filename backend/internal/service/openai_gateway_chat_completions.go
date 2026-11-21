@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -92,6 +93,9 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	defaultMappedModel string,
 	compatPromptCacheTenantIsolated bool,
 ) (*OpenAIForwardResult, error) {
+	if err := httputil.ReserveJSONProcessingMemory(ctx, body); err != nil {
+		return nil, err
+	}
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if err := validateChatCompletionsTokenLimits(body); err != nil {
@@ -264,6 +268,9 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		if err != nil {
 			return nil, fmt.Errorf("marshal responses request: %w", err)
 		}
+		// responsesReq lives until billing after the stream; only its scalar
+		// fields are read from here on, so drop the body-sized input.
+		responsesReq.Input = nil
 	}
 
 	logFields := []zap.Field{
@@ -374,7 +381,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	if account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	resp, err := s.doOpenAIProcessingUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}
@@ -684,7 +691,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
-	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai chat_completions buffered", requestID)
+	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, account, "openai chat_completions buffered", requestID)
 	if err != nil {
 		return nil, s.newOpenAICompatBufferedReadFailoverError(c, account, resp, requestID, err)
 	}
@@ -840,6 +847,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 
 	state := apicompat.NewResponsesEventToChatState()
 	state.Model = originalModel
+	state.XAIServerSideSearch = account != nil && account.IsGrok()
 	// 网关作为计费链路的一环，不能把下游 usage 输出绑定到客户端是否显式请求。
 	// raw Chat Completions 直转路径已经强制透出 usage，这里保持同样行为，避免级联代理计费为 0。
 	state.IncludeUsage = true
@@ -855,7 +863,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	var streamNonFailoverErr error
 	// Grok chat bridge reuses Responses SSE; count native search tools for surcharge.
 	searchCount := 0
-	streamSearchSeen := make(map[string]struct{})
+	var streamSearchCounter grokSearchStreamCounter
 	countSearch := account != nil && account.IsGrok()
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
@@ -904,7 +912,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			firstTokenMs = &ms
 		}
 		if countSearch {
-			searchCount += countGrokNativeSearchCallsInSSEDataDedup([]byte(payload), streamSearchSeen)
+			searchCount = streamSearchCounter.observe([]byte(payload))
 		}
 
 		var event apicompat.ResponsesStreamEvent
@@ -927,7 +935,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
 			}
 		}
-		if strings.TrimSpace(event.Type) == "response.failed" {
+		if strings.TrimSpace(event.Type) == "response.failed" || strings.TrimSpace(event.Type) == "error" {
 			payloadBytes := []byte(payload)
 			message := extractOpenAISSEErrorMessage(payloadBytes)
 			if hit, code, msg := detectOpenAICyberPolicy(payloadBytes); hit {
@@ -961,10 +969,13 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				}
 				return true
 			}
-			if openAIStreamFailedEventShouldFailover(payloadBytes, message) {
+			// Never splice a second account's stream onto content already
+			// delivered to the client; update this account's health instead.
+			if !clientOutputStarted && openAIStreamFailedEventShouldFailover(payloadBytes, message) {
 				streamFailoverErr = s.newOpenAIStreamFailoverError(c, account, false, requestID, payloadBytes, message, resp.Header)
 				return true
 			}
+			s.handleOpenAICompatStreamTerminalAccountSideEffects(c, account, payloadBytes, message, upstreamModel)
 			message = s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", payloadBytes, message)
 			defaultStatus, defaultErrType, defaultMsg := http.StatusBadGateway, "upstream_error", message
 			// 统一走语义状态推断 + body 归一化（与 /v1/responses 路径一致），

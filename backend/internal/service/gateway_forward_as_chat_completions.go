@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -43,15 +42,6 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	originalModel := ccReq.Model
 	clientStream := ccReq.Stream
 
-	// 2. Convert CC → Responses → Anthropic (chained conversion)
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
-	if err != nil {
-		if errors.Is(err, apicompat.ErrUnsupportedInputAudio) {
-			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-		}
-		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
-	}
-
 	// Resolve the final upstream model before model-specific conversion.
 	mappedModel := originalModel
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
@@ -68,6 +58,15 @@ func (s *GatewayService) ForwardAsChatCompletions(
 			mappedModel = normalized
 		}
 	}
+	// The replay gate follows the actual mapped model, not the public alias.
+	responsesReq, err := apicompat.ChatCompletionsToResponsesWithOptions(&ccReq, apicompat.ChatCompletionsToResponsesOptions{ReplayAnthropicThinking: isClaude55SignedThinkingModel(mappedModel)})
+	if err != nil {
+		if errors.Is(err, apicompat.ErrUnsupportedInputAudio) {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		}
+		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
+	}
+
 	if err := validateClaude55Request(body, mappedModel); err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
@@ -97,6 +96,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	if err != nil {
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
+	if !account.IsOAuth() {
+		// OAuth accounts get their id from the mimicry below.
+		anthropicBody = withChatCompletionsMetadataUserID(body, anthropicBody)
+	}
 
 	// 6. Apply Claude Code mimicry for OAuth accounts.
 	// Chat Completions 协议进来的请求永远不是 Claude Code 客户端，所以对 OAuth 账号
@@ -125,38 +128,51 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		proxyURL = account.Proxy.URL()
 	}
 
-	// 10. Build upstream request
-	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-	upstreamReq, forwardedBody, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
-	releaseUpstreamCtx()
-	if err != nil {
-		return nil, fmt.Errorf("build upstream request: %w", err)
-	}
-	// Bill the final Anthropic effort after conversion and account normalization.
-	// For example, OpenAI xhigh is forwarded as output_config.effort=max.
-	reasoningEffort := NormalizeClaudeOutputEffort(gjson.GetBytes(forwardedBody, "output_config.effort").String())
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, forwardedBody, mappedModel)
-
-	// 11. Send request
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-	if err != nil {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
+	// Build each attempt from the same request, reusing the account only if
+	// another worker rotated the OAuth token after our previous attempt.
+	var resp *http.Response
+	var forwardedBody []byte
+	for retriedRotatedToken := false; ; {
+		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
+		upstreamReq, wireBody, buildErr := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
+		releaseUpstreamCtx()
+		if buildErr != nil {
+			return nil, fmt.Errorf("build upstream request: %w", buildErr)
 		}
-		safeErr := sanitizeUpstreamErrorMessage(err.Error())
-		setOpsUpstreamError(c, 0, safeErr, "")
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: 0,
-			Kind:               "request_error",
-			Message:            safeErr,
-		})
-		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
-		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		forwardedBody = wireBody
+		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+		if err != nil {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			safeErr := sanitizeUpstreamErrorMessage(err.Error())
+			setOpsUpstreamError(c, 0, safeErr, "")
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: 0,
+				Kind:               "request_error",
+				Message:            safeErr,
+			})
+			writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
+			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		}
+		if resp.StatusCode == http.StatusUnauthorized && !retriedRotatedToken {
+			if rotated := s.rotatedClaudeAccessToken(ctx, account, token); rotated != "" {
+				_ = resp.Body.Close()
+				token = rotated
+				retriedRotatedToken = true
+				continue
+			}
+		}
+		break
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	// Bill the final Anthropic effort after conversion and account normalization.
+	reasoningEffort := NormalizeClaudeOutputEffort(gjson.GetBytes(forwardedBody, "output_config.effort").String())
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, forwardedBody, mappedModel)
 
 	// 12. Handle error response with failover
 	if resp.StatusCode >= 400 {
@@ -167,7 +183,12 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
+		// Account-specific custom error rules also apply outside default failover statuses.
+		shouldDisable := false
+		if s.rateLimitService != nil {
+			shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+		}
+		if shouldDisable || s.shouldFailoverUpstreamError(resp.StatusCode) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
@@ -177,10 +198,6 @@ func (s *GatewayService) ForwardAsChatCompletions(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			shouldDisable := false
-			if s.rateLimitService != nil {
-				shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
-			}
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
@@ -252,36 +269,58 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	startTime time.Time,
 ) (*ForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
+	observer := beginUpstreamResponseModelObservation(c)
 
-	scanner := bufio.NewScanner(resp.Body)
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
-	}
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	stream := newAnthropicCompatStream(s.cfg, c, resp, "anthropic buffered compatibility", requestID)
+	defer stream.stop()
+	writerSizeBeforeStream := c.Writer.Size()
 
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	resultWithUsage := func() *ForwardResult {
+		return &ForwardResult{
+			RequestID:                     requestID,
+			Usage:                         usage,
+			Model:                         originalModel,
+			UpstreamModel:                 mappedModel,
+			UpstreamResponseModel:         observer.Model(),
+			UpstreamResponseModelConflict: observer.Conflict(),
+			ReasoningEffort:               reasoningEffort,
+			Stream:                        false,
+			Duration:                      time.Since(startTime),
+		}
+	}
+
+	for {
+		line, ok := stream.nextLine()
+		if !ok {
+			break
+		}
 		// SSE 规范允许 `event:xxx`（冒号后无空格）：Kimi 等 Anthropic 兼容上游
 		// 返回紧凑格式，严格匹配 "event: " 会丢弃全部事件（#4653 同根因）。
 		if _, ok := extractOpenAISSEEventLine(line); !ok {
 			continue
 		}
 
-		if !scanner.Scan() {
+		dataLine, ok := stream.nextLine()
+		if !ok {
 			break
 		}
-		payload, ok := extractOpenAISSEDataLine(scanner.Text())
+		payload, ok := extractOpenAISSEDataLine(dataLine)
 		if !ok {
 			continue
 		}
 
+		observer.ObserveAnthropic([]byte(payload))
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
+		}
+
+		stream.observe(&event, payload)
+		if stream.upstreamErrType != "" {
+			break
 		}
 
 		// message_start carries the initial response structure and cache usage
@@ -310,6 +349,8 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 					finalResp.Content[idx].Text += event.Delta.Text
 				case "thinking_delta":
 					finalResp.Content[idx].Thinking += event.Delta.Thinking
+				case "signature_delta":
+					finalResp.Content[idx].Signature += event.Delta.Signature
 				case "input_json_delta":
 					finalResp.Content[idx].Input = appendRawJSON(finalResp.Content[idx].Input, event.Delta.PartialJSON)
 				}
@@ -317,13 +358,15 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn("forward_as_cc buffered: read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-		}
+	if failure := stream.failure(); failure != nil {
+		return finishAnthropicCompatStreamFailure(c, writerSizeBeforeStream, failure, resultWithUsage(), func() {
+			writeGatewayCCError(c, http.StatusBadGateway, failure.errType, failure.message)
+		})
+	}
+	if stream.clientDisconnected {
+		result := resultWithUsage()
+		result.ClientDisconnect = true
+		return result, nil
 	}
 
 	if finalResp == nil {
@@ -332,18 +375,15 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	}
 
 	// Update usage from accumulated delta
-	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
-		finalResp.Usage = apicompat.AnthropicUsage{
-			InputTokens:              usage.InputTokens,
-			OutputTokens:             usage.OutputTokens,
-			CacheCreationInputTokens: usage.CacheCreationInputTokens,
-			CacheReadInputTokens:     usage.CacheReadInputTokens,
-		}
-	}
+	normalizeAnthropicEventUsageForResponses(&apicompat.AnthropicStreamEvent{Message: finalResp}, usage)
 
-	// Chain: Anthropic → Responses → Chat Completions
-	responsesResp := apicompat.AnthropicToResponsesResponse(finalResp)
-	ccResp := apicompat.ResponsesToChatCompletions(responsesResp, originalModel)
+	// The observer retained the real response model before this conversion copy.
+	convertedResp := *finalResp
+	convertedResp.Model = mappedModel
+	responsesResp := apicompat.AnthropicToResponsesResponse(&convertedResp)
+	ccResp := apicompat.ResponsesToChatCompletionsWithOptions(responsesResp, originalModel, apicompat.ResponsesToChatCompletionsOptions{
+		AnthropicReasoningDetails: isClaude55SignedThinkingModel(mappedModel),
+	})
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -363,15 +403,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		c.JSON(http.StatusOK, ccResp)
 	}
 
-	return &ForwardResult{
-		RequestID:       requestID,
-		Usage:           usage,
-		Model:           originalModel,
-		UpstreamModel:   mappedModel,
-		ReasoningEffort: reasoningEffort,
-		Stream:          false,
-		Duration:        time.Since(startTime),
-	}, nil
+	return resultWithUsage(), nil
 }
 
 // handleCCStreamingFromAnthropic reads Anthropic SSE events, converts each
@@ -385,6 +417,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	startTime time.Time,
 ) (*ForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
+	observer := beginUpstreamResponseModelObservation(c)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -398,8 +431,10 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	// Use Anthropic→Responses state machine, then convert Responses→CC
 	anthState := apicompat.NewAnthropicEventToResponsesState()
 	anthState.Model = originalModel
+	anthState.PreserveThinkingSignatures = isClaude55SignedThinkingModel(mappedModel)
 	ccState := apicompat.NewResponsesEventToChatState()
 	ccState.Model = originalModel
+	ccState.AnthropicReasoningDetails = isClaude55SignedThinkingModel(mappedModel)
 
 	var usage ClaudeUsage
 	var firstTokenMs *int
@@ -411,15 +446,17 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:        requestID,
-			Usage:            usage,
-			Model:            originalModel,
-			UpstreamModel:    mappedModel,
-			ReasoningEffort:  reasoningEffort,
-			Stream:           true,
-			Duration:         time.Since(startTime),
-			FirstTokenMs:     firstTokenMs,
-			ClientDisconnect: stream.clientDisconnected,
+			RequestID:                     requestID,
+			Usage:                         usage,
+			Model:                         originalModel,
+			UpstreamModel:                 mappedModel,
+			UpstreamResponseModel:         observer.Model(),
+			UpstreamResponseModelConflict: observer.Conflict(),
+			ReasoningEffort:               reasoningEffort,
+			Stream:                        true,
+			Duration:                      time.Since(startTime),
+			FirstTokenMs:                  firstTokenMs,
+			ClientDisconnect:              stream.clientDisconnected,
 		}
 	}
 
@@ -507,6 +544,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			continue
 		}
 
+		observer.ObserveAnthropic([]byte(payload))
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue

@@ -8,6 +8,7 @@ import (
 
 type PromptEngine interface {
 	EffectiveMode() Mode
+	// Enqueue borrows req read-only for this call; implementations copy retained memory.
 	Enqueue(ctx context.Context, req Request) error
 	Evaluate(ctx context.Context, req Request) (*PromptDecision, error)
 }
@@ -32,7 +33,7 @@ func (c *Coordinator) Check(ctx context.Context, req Request) Decision {
 	case ModeAsync:
 		// Enqueue is deliberately best-effort. The implementation owns a bounded
 		// context and copies request memory before it can outlive the Handler.
-		_ = c.prompt.Enqueue(ctx, req.Clone())
+		_ = c.prompt.Enqueue(ctx, req)
 		return allowDecision(nil)
 	case ModeBlocking:
 		return c.checkBlocking(ctx, req)

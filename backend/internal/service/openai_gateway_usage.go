@@ -124,6 +124,25 @@ func openAIUsagePricingAt(input *OpenAIRecordUsageInput) time.Time {
 	return timezone.Now()
 }
 
+// billingUsageTokens carries native Anthropic TTL buckets to billing without
+// charging cached input a second time as ordinary uncached input.
+func (usage OpenAIUsage) billingUsageTokens() UsageTokens {
+	creation := usage.CacheCreationInputTokens
+	if creation <= 0 {
+		creation = max(usage.CacheCreation5mTokens, 0) + max(usage.CacheCreation1hTokens, 0)
+	}
+	return UsageTokens{
+		InputTokens:           max(usage.InputTokens-usage.CacheReadInputTokens-creation, 0),
+		ImageInputTokens:      usage.ImageInputTokens,
+		OutputTokens:          usage.OutputTokens,
+		CacheCreationTokens:   creation,
+		CacheCreation5mTokens: usage.CacheCreation5mTokens,
+		CacheCreation1hTokens: usage.CacheCreation1hTokens,
+		CacheReadTokens:       usage.CacheReadInputTokens,
+		ImageOutputTokens:     usage.ImageOutputTokens,
+	}
+}
+
 // RecordUsage records usage and deducts the API key's quota
 func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRecordUsageInput) error {
 	if input == nil {
@@ -146,20 +165,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	// OpenAI input_tokens 是总输入，包含缓存读取和缓存写入明细。
 	// 将三类 token 拆成互斥桶，避免缓存写入同时按普通输入和 cache_write 重复计费。
-	actualInputTokens := result.Usage.InputTokens - result.Usage.CacheReadInputTokens - result.Usage.CacheCreationInputTokens
-	if actualInputTokens < 0 {
-		actualInputTokens = 0
-	}
-
-	// Calculate cost
-	tokens := UsageTokens{
-		InputTokens:         actualInputTokens,
-		ImageInputTokens:    result.Usage.ImageInputTokens,
-		OutputTokens:        result.Usage.OutputTokens,
-		CacheCreationTokens: result.Usage.CacheCreationInputTokens,
-		CacheReadTokens:     result.Usage.CacheReadInputTokens,
-		ImageOutputTokens:   result.Usage.ImageOutputTokens,
-	}
+	tokens := result.Usage.billingUsageTokens()
+	actualInputTokens := tokens.InputTokens
 
 	// Get rate multiplier
 	multiplier := 1.0
@@ -330,7 +337,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		UpstreamEndpoint:      optionalTrimmedStringPtr(input.UpstreamEndpoint),
 		InputTokens:           actualInputTokens,
 		OutputTokens:          result.Usage.OutputTokens,
-		CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
+		CacheCreationTokens:   tokens.CacheCreationTokens,
+		CacheCreation5mTokens: result.Usage.CacheCreation5mTokens,
+		CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
 		CacheReadTokens:       result.Usage.CacheReadInputTokens,
 		ImageInputTokens:      result.Usage.ImageInputTokens,
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
@@ -393,14 +402,13 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		billingMode := string(BillingModeToken)
 		usageLog.BillingMode = &billingMode
 	}
-	// 添加 UserAgent
-	if input.UserAgent != "" {
-		usageLog.UserAgent = &input.UserAgent
+	// 添加 UserAgent / IPAddress。取副本地址：指向 input 字段会让整个 input（含 Result
+	// 及其引用的请求体）随异步写入的 usageLog 一直存活。
+	if userAgent := input.UserAgent; userAgent != "" {
+		usageLog.UserAgent = &userAgent
 	}
-
-	// 添加 IPAddress
-	if input.IPAddress != "" {
-		usageLog.IPAddress = &input.IPAddress
+	if ipAddress := input.IPAddress; ipAddress != "" {
+		usageLog.IPAddress = &ipAddress
 	}
 
 	// 添加 SessionID（客户端显式会话标识；缺失/无效时保持 nil）

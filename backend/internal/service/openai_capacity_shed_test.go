@@ -337,6 +337,14 @@ func TestOpenAIStreamKeepaliveOnlyFailureDoesNotRecordFirstToken(t *testing.T) {
 			require.ErrorAs(t, err, &failoverErr)
 			require.True(t, failoverErr.RetryableOnSameAccount)
 			require.True(t, failoverErr.RequestScopedTransient)
+			if !passthrough {
+				// Native Responses forwards upstream keepalive SSE frames before
+				// first semantic output. Keepalives do not record firstTokenMs
+				// and cannot prevent this failed attempt from failing over.
+				require.Equal(t, "data: {\"type\":\"keepalive\"}\n\n", rec.Body.String())
+				require.Equal(t, -1, OpenAICompactKeepaliveAdjustedWrittenSize(c))
+				return
+			}
 			require.Empty(t, rec.Body.String())
 		})
 	}

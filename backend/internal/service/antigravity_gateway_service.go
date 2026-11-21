@@ -39,6 +39,8 @@ const (
 	// 使用固定 1s 间隔重试，最多重试 60 次
 	antigravityModelCapacityRetryMaxAttempts = 60
 	antigravityModelCapacityRetryWait        = 1 * time.Second
+	antigravityModelCapacitySwitchAttempts   = 2
+	antigravityModelCapacityAccountCooldown  = 60 * time.Second
 
 	// Google RPC 状态和类型常量
 	googleRPCStatusResourceExhausted      = "RESOURCE_EXHAUSTED"

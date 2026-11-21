@@ -698,12 +698,17 @@ func newOpenAIRequestView(body []byte) openAIRequestView {
 
 	view := openAIRequestView{body: body}
 	var seen uint8
-	// parseRawJSONView reads body without copying; view keeps body alive for extracted strings.
+	// parseRawJSONView reads body without copying, so extracted strings alias the
+	// body. They flow into usage logs and async tasks that outlive the request, so
+	// clone them; otherwise a multi-MB body stays alive after its budget is freed.
+	field := func(value gjson.Result) string {
+		return strings.Clone(strings.TrimSpace(value.String()))
+	}
 	parseRawJSONView(body).ForEach(func(key, value gjson.Result) bool {
 		switch key.Str {
 		case "model":
 			if seen&modelField == 0 {
-				view.Model = strings.TrimSpace(value.String())
+				view.Model = field(value)
 				seen |= modelField
 			}
 		case "stream":
@@ -713,22 +718,22 @@ func newOpenAIRequestView(body []byte) openAIRequestView {
 			}
 		case "prompt_cache_key":
 			if seen&promptCacheKeyField == 0 {
-				view.PromptCacheKey = strings.TrimSpace(value.String())
+				view.PromptCacheKey = field(value)
 				seen |= promptCacheKeyField
 			}
 		case "previous_response_id":
 			if seen&previousResponseIDField == 0 {
-				view.PreviousResponseID = strings.TrimSpace(value.String())
+				view.PreviousResponseID = field(value)
 				seen |= previousResponseIDField
 			}
 		case "service_tier":
 			if seen&serviceTierField == 0 {
-				view.ServiceTier = strings.TrimSpace(value.String())
+				view.ServiceTier = field(value)
 				seen |= serviceTierField
 			}
 		case "reasoning":
 			if seen&reasoningField == 0 {
-				view.ReasoningEffort = strings.TrimSpace(value.Get("effort").String())
+				view.ReasoningEffort = field(value.Get("effort"))
 				seen |= reasoningField
 			}
 		}
@@ -895,7 +900,7 @@ func extractOpenAIRequestMetaFromBody(body []byte) (model string, stream bool, p
 }
 
 func normalizeGPT6ResponsesSampling(body []byte, model string) ([]byte, bool, error) {
-	if (!openai.IsGPT6SolOrLunaModelSpelling(model) && !openai.IsGPT61SolModelSpelling(model)) || gjson.GetBytes(body, "reasoning.effort").String() == "none" {
+	if (!openai.IsGPT6SolOrLunaModelSpelling(model) && !openai.IsGPT61SolModelSpelling(model) && openai.GPT62ModelID(model) == "") || gjson.GetBytes(body, "reasoning.effort").String() == "none" {
 		return body, false, nil
 	}
 	out := body
@@ -1022,7 +1027,7 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 		}
 	}
 
-	cleaned, metadataChanged, metadataErr := stripOpenAIOAuthInputMetadataBody(normalized)
+	cleaned, metadataChanged, metadataErr := normalizeOpenAIOAuthInputCompatibilityBody(normalized)
 	if metadataErr != nil {
 		return body, false, metadataErr
 	}
@@ -1821,7 +1826,7 @@ func hasEffectiveGPT61SolCompatEffort(body []byte) bool {
 // validateGPT61CompatRequest rejects unsupported reasoning levels for GPT-6.1
 // Sol/Terra before protocol conversion can silently discard explicit effort.
 func validateGPT61CompatRequest(body []byte, model string) error {
-	if !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) {
+	if !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) && openai.GPT62ModelID(model) == "" {
 		return nil
 	}
 	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {
@@ -1834,8 +1839,9 @@ func validateGPT61CompatRequest(body []byte, model string) error {
 	}
 	if !hasEffectiveGPT61SolCompatEffort(body) {
 		requestedModel := openai.CanonicalizeOpenAIModelAliasSpelling(gjson.GetBytes(body, "model").String())
-		for _, base := range []string{"gpt-6.1-sol", "gpt-6.1-terra"} {
-			matches := (base == "gpt-6.1-sol" && openai.IsGPT61SolModelSpelling(requestedModel)) ||
+		for _, base := range []string{"gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol", "gpt-6.1-terra"} {
+			matches := (openai.GPT62ModelID(requestedModel) == base) ||
+				(base == "gpt-6.1-sol" && openai.IsGPT61SolModelSpelling(requestedModel)) ||
 				(base == "gpt-6.1-terra" && (openai.IsGPT61TerraModelSpelling(requestedModel) || requestedModel == "gpt-6.1-terra-minimal"))
 			if !matches {
 				continue

@@ -42,6 +42,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
+	SetActualOpenAIUpstreamEndpoint(c, "/v1/messages")
 
 	// 1. Lower Codex client-side tools to function tools understood by Anthropic.
 	adaptedBody, clientToolMapping, err := adaptResponsesClientToolsForAnthropic(body)
@@ -125,7 +126,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	resp, err := s.doOpenAIProcessingUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
@@ -262,14 +263,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 		return nil, fmt.Errorf("upstream stream ended without response")
 	}
 
-	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
-		finalResp.Usage = apicompat.AnthropicUsage{
-			InputTokens:              usage.InputTokens,
-			OutputTokens:             usage.OutputTokens,
-			CacheCreationInputTokens: usage.CacheCreationInputTokens,
-			CacheReadInputTokens:     usage.CacheReadInputTokens,
-		}
-	}
+	normalizeAnthropicEventUsageForResponses(&apicompat.AnthropicStreamEvent{Message: finalResp}, usage)
 
 	if isClaude55SignedThinkingModel(upstreamModel) {
 		finalResp.Model = upstreamModel
@@ -444,6 +438,12 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 				return onIdle()
 			}
 			logReadErr(rerr)
+			if !errors.Is(rerr, io.EOF) {
+				if !clientDisconnected {
+					writeNativeAnthropicCompatStreamReadError(c)
+				}
+				return resultWithUsage(), rerr
+			}
 			break
 		}
 		if _, ok := extractOpenAISSEEventLine(line); !ok {
@@ -456,6 +456,12 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 				return onIdle()
 			}
 			logReadErr(rerr)
+			if !errors.Is(rerr, io.EOF) {
+				if !clientDisconnected {
+					writeNativeAnthropicCompatStreamReadError(c)
+				}
+				return resultWithUsage(), rerr
+			}
 			break
 		}
 		payload, ok := extractOpenAISSEDataLine(dataLine)

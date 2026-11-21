@@ -506,7 +506,7 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 		// A snapshot's confirmed-nil override avoids a DB query for every request.
 		// Fallback to DB only when this group has not been resolved in the snapshot.
 		var override *int
-		if user.UserGroupRPMOverride != nil || user.UserGroupRPMOverrideGroupID == group.ID {
+		if user.UserGroupRPMOverrideGroupID == group.ID {
 			override = user.UserGroupRPMOverride
 		} else if s.userGroupRateRepo != nil {
 			dbOverride, err := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, user.ID, group.ID)

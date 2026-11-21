@@ -93,7 +93,12 @@ func TestGeminiForwardNative_UpstreamReadErrorWithLiveClientStaysError(t *testin
 
 	result, err := svc.ForwardNative(context.Background(), c, geminiPoolModeAPIKeyAccount(), "gemini-3-flash-preview", "streamGenerateContent", true, reqBody)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
-	require.Nil(t, result)
+	// Observation is retained with the error; this is not a successful request
+	// and does not authorize replay or change handler billing policy.
+	require.NotNil(t, result)
+	require.False(t, result.ClientDisconnect)
+	require.Equal(t, 10, result.Usage.InputTokens)
+	require.Equal(t, 5, result.Usage.OutputTokens)
 }
 
 func TestGeminiForwardNative_ClientDisconnectBillsOnlyDeliveredImages(t *testing.T) {
@@ -133,7 +138,10 @@ func TestGeminiCompatForward_ClientDisconnectAfterFinalChunkBillsCollectedUsage(
 		svc, c, _ := newGeminiAbortingStreamService(t, "/v1/messages", reqBody, geminiAbortTextChunk+geminiAbortFinalChunk, false)
 		result, err := svc.Forward(context.Background(), c, geminiPoolModeAPIKeyAccount(), reqBody)
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
-		require.Nil(t, result)
+		require.NotNil(t, result)
+		require.False(t, result.ClientDisconnect)
+		require.Equal(t, 10, result.Usage.InputTokens)
+		require.Equal(t, 5, result.Usage.OutputTokens)
 	})
 }
 

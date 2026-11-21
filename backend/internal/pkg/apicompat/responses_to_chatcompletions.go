@@ -18,6 +18,10 @@ import (
 // choices[0].message.content, refusal parts into choices[0].message.refusal;
 // function_call items become tool_calls.
 func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatCompletionsResponse {
+	return ResponsesToChatCompletionsWithOptions(resp, model, ResponsesToChatCompletionsOptions{})
+}
+
+func ResponsesToChatCompletionsWithOptions(resp *ResponsesResponse, model string, opts ResponsesToChatCompletionsOptions) *ChatCompletionsResponse {
 	id := resp.ID
 	if id == "" {
 		id = generateChatCmplID()
@@ -33,6 +37,7 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 	var contentText string
 	var refusalText string
 	var reasoningText string
+	var reasoningDetails []ChatReasoningDetail
 	var toolCalls []ChatToolCall
 
 	for _, item := range resp.Output {
@@ -57,6 +62,11 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 			})
 		case "reasoning":
 			reasoningText += responsesReasoningText(item)
+			if opts.AnthropicReasoningDetails {
+				if detail, ok := anthropicThinkingReasoningDetail(item.EncryptedContent, len(reasoningDetails)); ok {
+					reasoningDetails = append(reasoningDetails, detail)
+				}
+			}
 		case "web_search_call":
 			// silently consumed — results already incorporated into text output
 		}
@@ -72,6 +82,9 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 	}
 	if reasoningText != "" {
 		msg.ReasoningContent = reasoningText
+	}
+	if len(reasoningDetails) > 0 {
+		msg.ReasoningDetails, _ = json.Marshal(reasoningDetails)
 	}
 
 	finishReason := responsesStatusToChatFinishReason(resp.Status, resp.IncompleteDetails, toolCalls)
@@ -116,18 +129,22 @@ func responsesStatusToChatFinishReason(status string, details *ResponsesIncomple
 // ResponsesEventToChatState tracks state for converting a sequence of Responses
 // SSE events into Chat Completions SSE chunks.
 type ResponsesEventToChatState struct {
-	ID                     string
-	Model                  string
-	Created                int64
-	SentRole               bool
-	SawToolCall            bool
-	SawText                bool
-	Finalized              bool        // true after finish chunk has been emitted
-	NextToolCallIndex      int         // next sequential tool_call index to assign
-	OutputIndexToToolIndex map[int]int // Responses output_index → Chat tool_calls index
-	OutputIndexToArguments map[int]string
-	IncludeUsage           bool
-	Usage                  *ChatUsage
+	ID                        string
+	Model                     string
+	Created                   int64
+	SentRole                  bool
+	SawToolCall               bool
+	SawText                   bool
+	Finalized                 bool        // true after finish chunk has been emitted
+	NextToolCallIndex         int         // next sequential tool_call index to assign
+	OutputIndexToToolIndex    map[int]int // Responses output_index → Chat tool_calls index
+	OutputIndexToArguments    map[int]string
+	IncludeUsage              bool
+	Usage                     *ChatUsage
+	XAIServerSideSearch       bool // Enabled only for xAI; hosted search is not a client tool.
+	AnthropicReasoningDetails bool // Opt-in only on the native Anthropic bridge.
+	NextReasoningIndex        int
+	emittedReasoningIndexes   map[int]struct{}
 }
 
 // NewResponsesEventToChatState returns an initialised stream state.
@@ -152,6 +169,8 @@ func ResponsesEventToChatChunks(evt *ResponsesStreamEvent, state *ResponsesEvent
 		return resToChatHandleRefusalDelta(evt, state)
 	case "response.output_item.added":
 		return resToChatHandleOutputItemAdded(evt, state)
+	case "response.output_item.done":
+		return resToChatHandleOutputItemDone(evt, state)
 	case "response.function_call_arguments.delta",
 		// custom/freeform 工具（如新版 apply_patch）的输入增量与 function_call 参数增量同形，
 		// 均按 OutputIndex 累加到对应工具调用。
@@ -260,6 +279,9 @@ func resToChatHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		return nil
 	}
 
+	if state.XAIServerSideSearch && IsServerSideSearchCall(evt.Item.Type, evt.Item.CallID) {
+		return nil
+	}
 	state.SawToolCall = true
 	idx := state.NextToolCallIndex
 	state.OutputIndexToToolIndex[evt.OutputIndex] = idx
@@ -484,21 +506,25 @@ func generateChatCmplID() string {
 // ---------------------------------------------------------------------------
 
 type bufferedFuncCall struct {
-	OutputIndex int
-	CallID      string
-	Name        string
-	Args        strings.Builder
+	OutputIndex      int
+	CallID           string
+	Name             string
+	Args             strings.Builder
+	ServerSideSearch bool
 }
 
 // BufferedResponseAccumulator collects content from Responses SSE delta events
 // so that non-streaming handlers can reconstruct output when the terminal event
 // (response.completed / response.done) carries an empty output array.
 type BufferedResponseAccumulator struct {
+	toolSearchCalls      []ResponsesOutput
+	toolSearchSeen       map[string]int
 	text                 strings.Builder
 	refusal              strings.Builder
 	reasoning            strings.Builder
 	funcCalls            []bufferedFuncCall
 	outputIndexToFuncIdx map[int]int
+	XAIServerSideSearch  bool
 }
 
 // NewBufferedResponseAccumulator returns an initialised accumulator.
@@ -526,9 +552,10 @@ func (a *BufferedResponseAccumulator) ProcessEvent(event *ResponsesStreamEvent) 
 			idx := len(a.funcCalls)
 			a.outputIndexToFuncIdx[event.OutputIndex] = idx
 			a.funcCalls = append(a.funcCalls, bufferedFuncCall{
-				OutputIndex: event.OutputIndex,
-				CallID:      event.Item.CallID,
-				Name:        event.Item.Name,
+				OutputIndex:      event.OutputIndex,
+				CallID:           event.Item.CallID,
+				Name:             event.Item.Name,
+				ServerSideSearch: a.XAIServerSideSearch && IsServerSideSearchCall(event.Item.Type, event.Item.CallID),
 			})
 		}
 	case "response.function_call_arguments.delta", "response.custom_tool_call_input.delta":
@@ -548,6 +575,19 @@ func (a *BufferedResponseAccumulator) ProcessEvent(event *ResponsesStreamEvent) 
 				_, _ = a.funcCalls[idx].Args.WriteString(completed)
 			}
 		}
+	case "response.output_item.done":
+		if event.Item != nil && event.Item.Type == "tool_search_call" && event.Item.CallID != "" &&
+			(event.Item.Status == "" || event.Item.Status == "completed") {
+			if a.toolSearchSeen == nil {
+				a.toolSearchSeen = make(map[string]int)
+			}
+			if index, seen := a.toolSearchSeen[event.Item.CallID]; seen {
+				a.toolSearchCalls[index] = *event.Item
+			} else {
+				a.toolSearchSeen[event.Item.CallID] = len(a.toolSearchCalls)
+				a.toolSearchCalls = append(a.toolSearchCalls, *event.Item)
+			}
+		}
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 		if event.Delta != "" {
 			_, _ = a.reasoning.WriteString(event.Delta)
@@ -557,7 +597,7 @@ func (a *BufferedResponseAccumulator) ProcessEvent(event *ResponsesStreamEvent) 
 
 // HasContent reports whether any content has been accumulated.
 func (a *BufferedResponseAccumulator) HasContent() bool {
-	return a.text.Len() > 0 || a.refusal.Len() > 0 || len(a.funcCalls) > 0 || a.reasoning.Len() > 0
+	return a.text.Len() > 0 || a.refusal.Len() > 0 || len(a.funcCalls) > 0 || len(a.toolSearchCalls) > 0 || a.reasoning.Len() > 0
 }
 
 // BuildOutput constructs a []ResponsesOutput from the accumulated delta
@@ -592,6 +632,10 @@ func (a *BufferedResponseAccumulator) BuildOutput() []ResponsesOutput {
 	}
 
 	for i := range a.funcCalls {
+		if a.funcCalls[i].ServerSideSearch {
+			out = append(out, ResponsesOutput{Type: "custom_tool_call", CallID: a.funcCalls[i].CallID, Name: a.funcCalls[i].Name, Input: a.funcCalls[i].Args.String()})
+			continue
+		}
 		out = append(out, ResponsesOutput{
 			Type:      "function_call",
 			CallID:    a.funcCalls[i].CallID,
@@ -600,6 +644,7 @@ func (a *BufferedResponseAccumulator) BuildOutput() []ResponsesOutput {
 		})
 	}
 
+	out = append(out, a.toolSearchCalls...)
 	return out
 }
 

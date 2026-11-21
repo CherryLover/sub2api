@@ -335,7 +335,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 
 		upstreamStart := time.Now()
-		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		resp, err = s.doOpenAIProcessingUpstream(upstreamReq, proxyURL, account)
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		if err != nil {
 			// Transport-level failure (proxy/DNS/TCP/TLS — no HTTP response). Convert to
@@ -1489,11 +1489,13 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverError(
 		},
 	})
 	return &UpstreamFailoverError{
-		StatusCode:             statusCode,
-		ResponseBody:           body,
-		ResponseHeaders:        headers,
-		RetryableOnSameAccount: openAIStreamFailedEventRetryableOnSameAccount(account, payload, message),
-		RequestScopedTransient: isOpenAIUpstreamCapacityShedEvent(payload),
+		streamClientRule:          resolveOpenAIStreamClientRule(c, account, payload, message),
+		StreamFailureBeforeOutput: strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.failed",
+		StatusCode:                statusCode,
+		ResponseBody:              body,
+		ResponseHeaders:           headers,
+		RetryableOnSameAccount:    openAIStreamFailedEventRetryableOnSameAccount(account, payload, message),
+		RequestScopedTransient:    isOpenAIUpstreamCapacityShedEvent(payload),
 	}
 }
 
@@ -1627,6 +1629,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	scanner.Buffer(scanBuf[:0], maxLineSize)
 	defer putSSEScannerBuf64K(scanBuf)
 	documentScanner := newOpenAISSEJSONDocumentScanner(scanner)
+	apiKeyPrelude := account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey
+	var splitJSON []byte
+	reemitBoundary := false
 
 	needModelReplace := strings.TrimSpace(originalModel) != "" && strings.TrimSpace(mappedModel) != "" && strings.TrimSpace(originalModel) != strings.TrimSpace(mappedModel)
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
@@ -1639,8 +1644,32 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		}
 	}
 
-	for documentScanner.Scan() {
-		line := documentScanner.Text()
+	for reemitBoundary || documentScanner.Scan() {
+		line := ""
+		if reemitBoundary {
+			reemitBoundary = false
+		} else {
+			line = documentScanner.Text()
+		}
+		// Keep unknown pre-output JSON private until its complete event type
+		// is known. Do not commit fragments or exceed the existing event limit.
+		if apiKeyPrelude && !clientOutputStarted {
+			if data, ok := extractOpenAISSEDataLine(line); ok && (splitJSON != nil || (strings.HasPrefix(strings.TrimSpace(data), "{") && !gjson.Valid(data))) {
+				if len(data) >= min(maxLineSize, maxOpenAIConcatenatedJSONBytes)-len(splitJSON) {
+					return resultWithUsage(), errors.New("multiline Responses SSE event exceeds size limit")
+				}
+				splitJSON = append(splitJSON, data...)
+				splitJSON = append(splitJSON, '\n')
+				continue
+			}
+			if line == "" && splitJSON != nil {
+				var compact bytes.Buffer
+				if err := json.Compact(&compact, splitJSON); err != nil {
+					return resultWithUsage(), errors.New("invalid multiline Responses SSE event")
+				}
+				line, splitJSON, reemitBoundary = "data: "+compact.String(), nil, true
+			}
+		}
 		lineStartsClientOutput := false
 		forceFlushFailedEvent := false
 		if data, ok := extractOpenAISSEDataLine(line); ok {
@@ -1820,6 +1849,12 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				}
 			}
 		}
+	}
+	if splitJSON != nil {
+		if err := documentScanner.Err(); err != nil {
+			return resultWithUsage(), fmt.Errorf("incomplete multiline Responses SSE event: %w", err)
+		}
+		return resultWithUsage(), errors.New("incomplete multiline Responses SSE event")
 	}
 	if err := documentScanner.Err(); err != nil {
 		if (sawDone || sawTerminalEvent) && !sawFailedEvent {

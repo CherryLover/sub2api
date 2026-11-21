@@ -22,12 +22,14 @@ const (
 	BetaStructuredOutputs = "structured-outputs-2025-11-13"
 
 	// 新增（对齐官方 CLI 2.1.9x 以来的流量）
-	BetaPromptCachingScope      = "prompt-caching-scope-2026-01-05"
-	BetaEffort                  = "effort-2025-11-24"
-	BetaRedactThinking          = "redact-thinking-2026-02-12"
-	BetaContextManagement       = "context-management-2025-06-27"
-	BetaThinkingBindingControls = "thinking-binding-controls-2026-08-01"
-	BetaExtendedCacheTTL        = "extended-cache-ttl-2025-04-11"
+	BetaPromptCachingScope          = "prompt-caching-scope-2026-01-05"
+	BetaEffort                      = "effort-2025-11-24"
+	BetaRedactThinking              = "redact-thinking-2026-02-12"
+	BetaContextManagement           = "context-management-2025-06-27"
+	BetaThinkingBindingControls     = "thinking-binding-controls-2026-08-01"
+	BetaExtendedCacheTTL            = "extended-cache-ttl-2025-04-11"
+	BetaMidConversationOutputConfig = "mid-conversation-output-config-2026-07-01"
+	BetaPerTurnControl              = "per-turn-control-2026-07-01"
 
 	// server-side refusal fallback beta 字段族（beta Messages API 专有）。
 	// 仅用于 sanitize 的条件判断（strip-or-keep），禁止加入默认 mimicry / Bedrock 白名单。
@@ -78,7 +80,7 @@ const DefaultCacheControlTTL = "5m"
 //
 // ⚠️ 读取实际生效的版本号请用 CLIVersion()，它会叠加 SUB2API_CLAUDE_CLI_VERSION 覆盖。
 // 直接引用本常量只在"表达内置基线"时才正确（例如覆盖值的下限校验）。
-const CLICurrentVersion = "2.1.258"
+const CLICurrentVersion = "2.1.321"
 
 // FullClaudeCodeMimicryBetas 返回最"像"真实 Claude Code CLI 的完整 beta 列表，
 // 用于 OAuth 账号伪装成 Claude Code 时使用。
@@ -135,6 +137,8 @@ type Model struct {
 
 // DefaultModels Claude Code 客户端支持的默认模型列表
 var DefaultModels = []Model{
+	{ID: "claude-fable-5-2", Type: "model", DisplayName: "Claude Fable 5.2", CreatedAt: "2026-11-09T00:00:00Z"},
+	{ID: "claude-mythos-5-2", Type: "model", DisplayName: "Claude Mythos 5.2", CreatedAt: "2026-11-09T00:00:00Z"},
 	{
 		ID:          "claude-fable-5",
 		Type:        "model",
@@ -225,7 +229,7 @@ func DefaultModelIDs() []string {
 }
 
 // DefaultTestModel 测试时使用的默认模型
-const DefaultTestModel = "claude-sonnet-4-5-20250929"
+const DefaultTestModel = "claude-sonnet-4-6"
 
 // ModelIDOverrides Claude OAuth 请求需要的模型 ID 映射
 var ModelIDOverrides = map[string]string{

@@ -20,6 +20,7 @@ func ResponsesToAnthropic(resp *ResponsesResponse, model string) *AnthropicRespo
 		Type:  "message",
 		Role:  "assistant",
 		Model: model,
+		Usage: anthropicUsageFromResponsesUsage(nil),
 	}
 
 	var blocks []AnthropicContentBlock
@@ -54,6 +55,8 @@ func ResponsesToAnthropic(resp *ResponsesResponse, model string) *AnthropicRespo
 				Name:  item.Name,
 				Input: sanitizeAnthropicToolUseInput(item.Name, item.Arguments),
 			})
+		case "tool_search_call":
+			blocks = append(blocks, toolSearchCallToolUse(item))
 		case "web_search_call":
 			toolUseID := "srvtoolu_" + item.ID
 			query := ""
@@ -92,7 +95,7 @@ func ResponsesToAnthropic(resp *ResponsesResponse, model string) *AnthropicRespo
 
 func anthropicUsageFromResponsesUsage(usage *ResponsesUsage) AnthropicUsage {
 	if usage == nil {
-		return AnthropicUsage{}
+		return AnthropicUsage{CacheCreationInputTokensPresent: true, CacheReadInputTokensPresent: true}
 	}
 
 	cachedTokens := 0
@@ -106,10 +109,12 @@ func anthropicUsageFromResponsesUsage(usage *ResponsesUsage) AnthropicUsage {
 	}
 
 	return AnthropicUsage{
-		InputTokens:              inputTokens,
-		OutputTokens:             usage.OutputTokens,
-		CacheReadInputTokens:     cachedTokens,
-		CacheCreationInputTokens: usage.CacheCreationInputTokens,
+		InputTokens:                     inputTokens,
+		OutputTokens:                    usage.OutputTokens,
+		CacheReadInputTokens:            cachedTokens,
+		CacheCreationInputTokens:        usage.CacheCreationInputTokens,
+		CacheCreationInputTokensPresent: true,
+		CacheReadInputTokensPresent:     true,
 	}
 }
 
@@ -174,6 +179,7 @@ type responsesTextPart struct {
 // ResponsesEventToAnthropicState tracks state for converting a sequence of
 // Responses SSE events directly into Anthropic SSE events.
 type ResponsesEventToAnthropicState struct {
+	toolSearchSeen   map[string]bool
 	MessageStartSent bool
 	MessageStopSent  bool
 
@@ -187,6 +193,11 @@ type ResponsesEventToAnthropicState struct {
 	// emitted as signature_delta before the thinking block is closed.
 	PendingThinkingSignature string
 	HasToolCall              bool
+
+	// XAIServerSideSearch is set by callers whose upstream is xAI. A
+	// custom_tool_call that IsServerSideSearchCall then never becomes a tool_use
+	// block, because xAI runs it itself.
+	XAIServerSideSearch bool
 
 	// OutputIndexToBlockIdx maps Responses output_index → Anthropic content block index.
 	OutputIndexToBlockIdx map[int]int
@@ -280,10 +291,12 @@ func FinalizeResponsesAnthropicStream(state *ResponsesEventToAnthropicState) []A
 				StopReason: stopReason,
 			},
 			Usage: &AnthropicUsage{
-				InputTokens:              state.InputTokens,
-				OutputTokens:             state.OutputTokens,
-				CacheReadInputTokens:     state.CacheReadInputTokens,
-				CacheCreationInputTokens: state.CacheCreationInputTokens,
+				InputTokens:                     state.InputTokens,
+				OutputTokens:                    state.OutputTokens,
+				CacheReadInputTokens:            state.CacheReadInputTokens,
+				CacheCreationInputTokens:        state.CacheCreationInputTokens,
+				CacheCreationInputTokensPresent: true,
+				CacheReadInputTokensPresent:     true,
 			},
 		},
 		AnthropicStreamEvent{Type: "message_stop"},
@@ -331,8 +344,10 @@ func resToAnthHandleCreated(evt *ResponsesStreamEvent, state *ResponsesEventToAn
 			Model:      state.Model,
 			StopReason: nil,
 			Usage: AnthropicUsage{
-				InputTokens:  0,
-				OutputTokens: 0,
+				InputTokens:                     0,
+				OutputTokens:                    0,
+				CacheCreationInputTokensPresent: true,
+				CacheReadInputTokensPresent:     true,
 			},
 		},
 	}}
@@ -347,6 +362,9 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 	// function_call 与 custom_tool_call（custom/freeform 工具，如新版 apply_patch）
 	// 同样映射为 Anthropic 的 tool_use 块。
 	case "function_call", "custom_tool_call":
+		if state.XAIServerSideSearch && IsServerSideSearchCall(evt.Item.Type, evt.Item.CallID) {
+			return nil
+		}
 		var events []AnthropicStreamEvent
 		events = append(events, closeCurrentBlock(state)...)
 
@@ -618,6 +636,10 @@ func resToAnthHandleOutputItemDone(evt *ResponsesStreamEvent, state *ResponsesEv
 	if evt.Item.Type == "web_search_call" && evt.Item.Status == "completed" {
 		return resToAnthHandleWebSearchDone(evt, state)
 	}
+	// The native tool_search_call carries its arguments only on done.
+	if evt.Item.Type == "tool_search_call" {
+		return resToAnthHandleToolSearchDone(evt, state)
+	}
 
 	// Capture encrypted_content on reasoning item done (often only present here).
 	if evt.Item.Type == "reasoning" {
@@ -763,10 +785,12 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 				StopReason: stopReason,
 			},
 			Usage: &AnthropicUsage{
-				InputTokens:              state.InputTokens,
-				OutputTokens:             state.OutputTokens,
-				CacheReadInputTokens:     state.CacheReadInputTokens,
-				CacheCreationInputTokens: state.CacheCreationInputTokens,
+				InputTokens:                     state.InputTokens,
+				OutputTokens:                    state.OutputTokens,
+				CacheReadInputTokens:            state.CacheReadInputTokens,
+				CacheCreationInputTokens:        state.CacheCreationInputTokens,
+				CacheCreationInputTokensPresent: true,
+				CacheReadInputTokensPresent:     true,
 			},
 		},
 		AnthropicStreamEvent{Type: "message_stop"},

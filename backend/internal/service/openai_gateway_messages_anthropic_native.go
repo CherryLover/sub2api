@@ -40,6 +40,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
+	SetActualOpenAIUpstreamEndpoint(c, "/v1/messages")
 
 	originalModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	if originalModel == "" {
@@ -99,7 +100,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 		return nil, err
 	}
 
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	resp, err := s.doOpenAIProcessingUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
@@ -248,15 +249,17 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 	c.Data(resp.StatusCode, contentType, body)
 
 	return &OpenAIForwardResult{
-		RequestID:        resp.Header.Get("x-request-id"),
-		Usage:            claudeUsageToOpenAIUsage(usage),
-		Model:            originalModel,
-		BillingModel:     billingModel,
-		UpstreamModel:    upstreamModel,
-		UpstreamEndpoint: "/v1/messages",
-		Stream:           false,
-		ReasoningEffort:  reasoningEffort,
-		Duration:         time.Since(startTime),
+		RequestID:                     resp.Header.Get("x-request-id"),
+		Usage:                         claudeUsageToOpenAIUsage(usage),
+		Model:                         originalModel,
+		BillingModel:                  billingModel,
+		UpstreamModel:                 upstreamModel,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		UpstreamEndpoint:              "/v1/messages",
+		Stream:                        false,
+		ReasoningEffort:               reasoningEffort,
+		Duration:                      time.Since(startTime),
 	}, nil
 }
 
@@ -534,17 +537,19 @@ func (s *OpenAIGatewayService) nativeAnthropicStreamResult(
 		usage = &ClaudeUsage{}
 	}
 	return &OpenAIForwardResult{
-		RequestID:        resp.Header.Get("x-request-id"),
-		Usage:            claudeUsageToOpenAIUsage(usage),
-		Model:            originalModel,
-		BillingModel:     billingModel,
-		UpstreamModel:    upstreamModel,
-		UpstreamEndpoint: "/v1/messages",
-		Stream:           true,
-		ReasoningEffort:  reasoningEffort,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ClientDisconnect: clientDisconnect,
+		RequestID:                     resp.Header.Get("x-request-id"),
+		Usage:                         claudeUsageToOpenAIUsage(usage),
+		Model:                         originalModel,
+		BillingModel:                  billingModel,
+		UpstreamModel:                 upstreamModel,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		UpstreamEndpoint:              "/v1/messages",
+		Stream:                        true,
+		ReasoningEffort:               reasoningEffort,
+		Duration:                      time.Since(startTime),
+		FirstTokenMs:                  firstTokenMs,
+		ClientDisconnect:              clientDisconnect,
 	}
 }
 
@@ -557,9 +562,12 @@ func claudeUsageToOpenAIUsage(u *ClaudeUsage) OpenAIUsage {
 		return OpenAIUsage{}
 	}
 	return OpenAIUsage{
-		InputTokens:              u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens,
-		OutputTokens:             u.OutputTokens,
-		CacheCreationInputTokens: u.CacheCreationInputTokens,
-		CacheReadInputTokens:     u.CacheReadInputTokens,
+		InputTokens:                     u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens,
+		OutputTokens:                    u.OutputTokens,
+		CacheCreationInputTokens:        u.CacheCreationInputTokens,
+		CacheCreation5mTokens:           u.CacheCreation5mTokens,
+		CacheCreation1hTokens:           u.CacheCreation1hTokens,
+		CacheReadInputTokens:            u.CacheReadInputTokens,
+		cacheCreationInputTokensPresent: u.cacheCreationInputTokensPresent,
 	}
 }

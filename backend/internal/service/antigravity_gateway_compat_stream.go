@@ -71,12 +71,18 @@ func (a *antigravityChatStreamAdapter) emitResponseEvent(event *apicompat.Respon
 
 type antigravityResponsesStreamAdapter struct {
 	anthropicState *apicompat.AnthropicEventToResponsesState
+	toolRestorer   *apicompat.ResponsesClientToolStreamRestorer
 }
 
-func newAntigravityResponsesStreamAdapter(model string) *antigravityResponsesStreamAdapter {
+func newAntigravityResponsesStreamAdapter(model string, mappings ...apicompat.ResponsesClientToolMapping) *antigravityResponsesStreamAdapter {
 	state := apicompat.NewAnthropicEventToResponsesState()
 	state.Model = model
-	return &antigravityResponsesStreamAdapter{anthropicState: state}
+	mapping := antigravityCompatToolMapping(mappings)
+	adapter := &antigravityResponsesStreamAdapter{anthropicState: state}
+	if len(mapping.CustomTools) > 0 || mapping.ToolSearch || len(mapping.NamespaceTools) > 0 {
+		adapter.toolRestorer = apicompat.NewResponsesClientToolStreamRestorer(mapping)
+	}
+	return adapter
 }
 
 func (a *antigravityResponsesStreamAdapter) Emit(event *apicompat.AnthropicStreamEvent, writer *antigravityClientWriter) {
@@ -96,8 +102,16 @@ func (a *antigravityResponsesStreamAdapter) WriteError(writer *antigravityClient
 }
 
 func (a *antigravityResponsesStreamAdapter) emitResponseEvent(event apicompat.ResponsesStreamEvent, writer *antigravityClientWriter) {
-	if data, err := apicompat.ResponsesEventToSSE(event); err == nil {
-		writer.Write([]byte(data))
+	if a.toolRestorer == nil {
+		if data, err := apicompat.ResponsesEventToSSE(event); err == nil {
+			writer.Write([]byte(data))
+		}
+		return
+	}
+	for _, restored := range a.toolRestorer.Restore(event) {
+		if data, err := apicompat.ResponsesEventToSSE(restored); err == nil {
+			writer.Write([]byte(data))
+		}
 	}
 }
 
@@ -304,11 +318,24 @@ func mergeAntigravityCompatUsage(dst *ClaudeUsage, src *antigravity.ClaudeUsage)
 	if dst == nil || src == nil {
 		return
 	}
-	dst.InputTokens = src.InputTokens
-	dst.OutputTokens = src.OutputTokens
-	dst.CacheCreationInputTokens = src.CacheCreationInputTokens
-	dst.CacheReadInputTokens = src.CacheReadInputTokens
-	dst.ImageOutputTokens = src.ImageOutputTokens
+	// Anthropic message_start reports input/cache usage, while subsequent
+	// message_delta events often report only output_tokens. Zero-valued fields
+	// in an output-only delta are absent, not a request to erase prior usage.
+	if src.InputTokens > 0 {
+		dst.InputTokens = src.InputTokens
+	}
+	if src.OutputTokens > 0 {
+		dst.OutputTokens = src.OutputTokens
+	}
+	if src.CacheCreationInputTokens > 0 {
+		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
+	}
+	if src.CacheReadInputTokens > 0 {
+		dst.CacheReadInputTokens = src.CacheReadInputTokens
+	}
+	if src.ImageOutputTokens > 0 {
+		dst.ImageOutputTokens = src.ImageOutputTokens
+	}
 }
 
 func (s *AntigravityGatewayService) handleAntigravityCompatStream(
@@ -356,14 +383,24 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 				if !session.hasMeaningfulData() && !writer.Disconnected() {
 					return nil, antigravityCompatEmptyStreamError()
 				}
+				if !session.processor.HasTerminalState() && !writer.Disconnected() {
+					writeAntigravityCompatStreamError(c, adapter, writer, "stream_incomplete")
+					return session.collectResult(false), errGeminiStreamIncomplete
+				}
 				return session.finish()
 			}
 			if event.err != nil {
+				if errors.Is(event.err, errAntigravityFirstByteTimeout) {
+					return nil, newAntigravityFirstByteTimeoutFailoverError(resp, prefix)
+				}
 				return s.handleAntigravityCompatReadError(c, session, event.err, maxLineSize, prefix)
 			}
 			resetAntigravityCompatTimer(timeoutTimer, timeout)
 			s.observeAntigravityGeminiSSELine(c, event.line)
 			session.consume(event.line)
+			if session.processor.TruncatedOnTurnBoundary() {
+				return session.finish()
+			}
 
 		case <-timeoutCh:
 			if writer.Disconnected() {
@@ -503,6 +540,7 @@ func antigravityCompatEmptyStreamError() error {
 		StatusCode:             http.StatusBadGateway,
 		ResponseBody:           []byte(`{"error":"empty stream response from upstream"}`),
 		RetryableOnSameAccount: true,
+		EmptyStream:            true,
 		RequestScopedTransient: true,
 		NextAccountAction:      NextAccountStop,
 	}
@@ -530,13 +568,23 @@ func (s *AntigravityGatewayService) handleResponsesStreamingFromAntigravity(
 	resp *http.Response,
 	startTime time.Time,
 	originalModel string,
+	mappings ...apicompat.ResponsesClientToolMapping,
 ) (*antigravityStreamResult, error) {
 	return s.handleAntigravityCompatStream(
 		c,
 		resp,
 		startTime,
 		originalModel,
-		newAntigravityResponsesStreamAdapter(originalModel),
+		newAntigravityResponsesStreamAdapter(originalModel, antigravityCompatToolMapping(mappings)),
 		"antigravity responses stream",
 	)
+}
+
+// antigravityCompatToolMapping preserves the empty mapping for direct
+// stream handler tests and non-Responses callers.
+func antigravityCompatToolMapping(mappings []apicompat.ResponsesClientToolMapping) apicompat.ResponsesClientToolMapping {
+	if len(mappings) == 0 {
+		return apicompat.ResponsesClientToolMapping{}
+	}
+	return mappings[0]
 }

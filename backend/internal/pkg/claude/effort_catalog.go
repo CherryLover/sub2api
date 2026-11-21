@@ -42,6 +42,16 @@ func EffortLevelsForModel(model string) []string {
 	return nil
 }
 
+// IsFable52 identifies released Fable 5.2, excluding previews and later minors.
+func IsFable52(model string) bool {
+	return normalizeEffortModelID(model) == "claude-fable-5-2"
+}
+
+// IsMythos52 identifies released Mythos 5.2 after provider normalization.
+func IsMythos52(model string) bool {
+	return normalizeEffortModelID(model) == "claude-mythos-5-2"
+}
+
 // IsOpus55 identifies the fixed Opus 5.5 ID after provider/local suffix normalization.
 func IsOpus55(model string) bool {
 	return normalizeEffortModelID(model) == "claude-opus-5-5"

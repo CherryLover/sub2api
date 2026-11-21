@@ -332,6 +332,9 @@ func neutralizeClaudeIdentity(text string) string {
 var codexIdentityOpeners = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^[ \t\r\n]*You are Codex,? (?:a coding agent |an agent )?based on GPT-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+)*\.?`),
 	regexp.MustCompile(`(?i)^[ \t\r\n]*You are GPT-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+)* running in the Codex CLI\.?`),
+	// This known Pi client identity is metadata, not the task instruction.
+	// Only leading system-block attribution is rewritten; interior mentions stay intact.
+	regexp.MustCompile(`(?i)^[ \t\r\n]*You are (?:an? )?(?:expert )?coding (?:assistant|agent) (?:running|operating|working) inside pi(?:,? a coding agent harness)?\.?`),
 }
 
 // This Claude Code 2.1.325 security-policy sentence causes Antigravity to
@@ -730,6 +733,45 @@ func isAntigravityOpusHighTierModel(model string) bool {
 		strings.HasPrefix(lower, "claude-opus-4-8")
 }
 
+// carbonThinkingConfig preserves the upstream default when no effort is specified.
+// https://aistudio.google.com/docs/whats-new-gemini-4-carbon
+func carbonThinkingConfig(req *ClaudeRequest, bareModel bool) *GeminiThinkingConfig {
+	cfg := &GeminiThinkingConfig{}
+	if req.Thinking != nil {
+		cfg.IncludeThoughts = req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive"
+	}
+	if bareModel {
+		if req.OutputConfig != nil {
+			switch strings.ToLower(strings.TrimSpace(req.OutputConfig.Effort)) {
+			case "none", "minimal", "low":
+				cfg.ThinkingLevel = "low"
+			case "medium":
+				cfg.ThinkingLevel = "medium"
+			case "high", "xhigh", "max":
+				cfg.ThinkingLevel = "high"
+			}
+		}
+		if req.Thinking != nil {
+			if req.Thinking.Type == "disabled" {
+				cfg.ThinkingLevel = "low"
+			} else if cfg.ThinkingLevel == "" && req.Thinking.Type == "enabled" && req.Thinking.BudgetTokens > 0 {
+				switch {
+				case req.Thinking.BudgetTokens <= 1024:
+					cfg.ThinkingLevel = "low"
+				case req.Thinking.BudgetTokens <= 8192:
+					cfg.ThinkingLevel = "medium"
+				default:
+					cfg.ThinkingLevel = "high"
+				}
+			}
+		}
+	}
+	if !cfg.IncludeThoughts && cfg.ThinkingLevel == "" {
+		return nil
+	}
+	return cfg
+}
+
 func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 	maxLimit := maxOutputTokensLimit(req.Model)
 	config := &GeminiGenerationConfig{
@@ -746,8 +788,16 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 		config.MaxOutputTokens = req.MaxTokens
 	}
 
+	// Carbon accepts thinking levels rather than token budgets. Tiered IDs, when
+	// supplied by the account catalog, already select the level upstream.
+	carbonModel := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(req.Model)), "models/")
+	isCarbon := carbonModel == "gemini-4-carbon" || carbonModel == "gemini-4-carbon-low" || carbonModel == "gemini-4-carbon-medium" || carbonModel == "gemini-4-carbon-high"
+	if isCarbon {
+		config.ThinkingConfig = carbonThinkingConfig(req, carbonModel == "gemini-4-carbon")
+	}
+
 	// Thinking 配置
-	if req.Thinking != nil && (req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive") {
+	if !isCarbon && req.Thinking != nil && (req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive") {
 		config.ThinkingConfig = &GeminiThinkingConfig{
 			IncludeThoughts: true,
 		}

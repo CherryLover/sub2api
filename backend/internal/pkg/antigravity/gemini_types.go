@@ -84,8 +84,9 @@ type GeminiImageConfig struct {
 
 // GeminiThinkingConfig Gemini thinking 配置
 type GeminiThinkingConfig struct {
-	IncludeThoughts bool `json:"includeThoughts"`
-	ThinkingBudget  int  `json:"thinkingBudget,omitempty"`
+	IncludeThoughts bool   `json:"includeThoughts"`
+	ThinkingBudget  int    `json:"thinkingBudget,omitempty"`
+	ThinkingLevel   string `json:"thinkingLevel,omitempty"`
 }
 
 // GeminiToolDeclaration Gemini 工具声明
@@ -144,12 +145,17 @@ type V1InternalResponse struct {
 	ModelVersion string         `json:"modelVersion,omitempty"`
 }
 
+type GeminiPromptFeedback struct {
+	BlockReason string `json:"blockReason,omitempty"`
+}
+
 // GeminiResponse Gemini 响应
 type GeminiResponse struct {
-	Candidates    []GeminiCandidate    `json:"candidates,omitempty"`
-	UsageMetadata *GeminiUsageMetadata `json:"usageMetadata,omitempty"`
-	ResponseID    string               `json:"responseId,omitempty"`
-	ModelVersion  string               `json:"modelVersion,omitempty"`
+	PromptFeedback *GeminiPromptFeedback `json:"promptFeedback,omitempty"`
+	Candidates     []GeminiCandidate     `json:"candidates,omitempty"`
+	UsageMetadata  *GeminiUsageMetadata  `json:"usageMetadata,omitempty"`
+	ResponseID     string                `json:"responseId,omitempty"`
+	ModelVersion   string                `json:"modelVersion,omitempty"`
 }
 
 // GeminiCandidate Gemini 候选响应

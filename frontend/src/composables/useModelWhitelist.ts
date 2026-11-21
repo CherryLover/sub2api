@@ -10,7 +10,7 @@ const openaiModels = [
   // GPT-5.6 系列
   'gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
   // GPT-6 系列
-  'gpt-6', 'gpt-6-astra', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna',
+  'gpt-6', 'gpt-6-astra', 'gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna',
   // GPT-5.5 系列
   'gpt-5.5',
   // GPT-5.4 系列
@@ -40,7 +40,9 @@ export const claudeModels = [
   'claude-sonnet-4-6',
   'claude-sonnet-5-5',
   'claude-sonnet-5',
-  'claude-fable-5'
+  'claude-fable-5',
+  'claude-fable-5-2',
+  'claude-mythos-5-2'
 ]
 
 // Google Gemini
@@ -54,7 +56,8 @@ const geminiModels = [
   'gemini-2.5-pro',
   'gemini-3.5-flash',
   'gemini-3-flash-preview',
-  'gemini-3-pro-preview'
+  'gemini-3-pro-preview',
+  'gemini-4-carbon'
 ]
 
 // Antigravity 官方支持的模型（精确匹配）
@@ -85,6 +88,7 @@ const antigravityModels = [
   'gemini-3.1-pro',
   'gemini-3.1-pro-high',
   'gemini-3.1-pro-low',
+  'gemini-4-carbon',
   'gemini-3-pro-image',
   // 其他
   'gpt-oss-120b-medium',
@@ -273,6 +277,8 @@ export const allModels = allModelsList.map(m => ({ value: m, label: m }))
 // =====================
 
 const anthropicPresetMappings = [
+  { label: 'Fable 5.2', from: 'claude-fable-5-2', to: 'claude-fable-5-2', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
+  { label: 'Mythos 5.2', from: 'claude-mythos-5-2', to: 'claude-mythos-5-2', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Fable 5', from: 'claude-fable-5', to: 'claude-fable-5', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Sonnet 5.5', from: 'claude-sonnet-5-5', to: 'claude-sonnet-5-5', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
   { label: 'Sonnet 5', from: 'claude-sonnet-5', to: 'claude-sonnet-5', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
@@ -291,6 +297,8 @@ const anthropicPresetMappings = [
 ]
 
 const openaiPresetMappings = [
+  { label: 'GPT-6.2 Sol', from: 'gpt-6.2-sol', to: 'gpt-6.2-sol', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
+  { label: 'GPT-6.2 Astra', from: 'gpt-6.2-astra', to: 'gpt-6.2-astra', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
   { label: 'GPT-4o', from: 'gpt-4o', to: 'gpt-4o', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' },
   { label: 'GPT-4o Mini', from: 'gpt-4o-mini', to: 'gpt-4o-mini', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
   { label: 'GPT-4.1', from: 'gpt-4.1', to: 'gpt-4.1', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
@@ -344,6 +352,7 @@ const grokPresetMappings = [
 
 // Antigravity 预设映射（支持通配符）
 const antigravityPresetMappings = [
+  { label: 'Gemini 4 Carbon', from: 'gemini-4-carbon', to: 'gemini-4-carbon', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },
   // Claude 通配符映射
   { label: 'Claude→Sonnet', from: 'claude-*', to: 'claude-sonnet-4-5', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
   { label: 'Fable 5', from: 'claude-fable-5', to: 'claude-fable-5', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
@@ -382,6 +391,8 @@ const antigravityPresetMappings = [
 
 // Bedrock 预设映射（与后端 DefaultBedrockModelMapping 保持一致）
 const bedrockPresetMappings = [
+  { label: 'Fable 5.2', from: 'claude-fable-5-2', to: 'anthropic.claude-fable-5-2', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
+  { label: 'Mythos 5.2', from: 'claude-mythos-5-2', to: 'anthropic.claude-mythos-5-2', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Fable 5', from: 'claude-fable-5', to: 'anthropic.claude-fable-5', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Opus 4.6', from: 'claude-opus-4-6', to: 'us.anthropic.claude-opus-4-6-v1', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400' },
   { label: 'Opus 4.7', from: 'claude-opus-4-7', to: 'us.anthropic.claude-opus-4-7-v1', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400' },

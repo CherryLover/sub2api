@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -125,32 +124,43 @@ func (s *GatewayService) ForwardAsResponses(
 		proxyURL = account.Proxy.URL()
 	}
 
-	// 10. Build upstream request
-	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-	upstreamReq, _, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
-	releaseUpstreamCtx()
-	if err != nil {
-		return nil, fmt.Errorf("build upstream request: %w", err)
-	}
-
-	// 11. Send request
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-	if err != nil {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
+	// Build each attempt from the same request, reusing the account only if
+	// another worker rotated the OAuth token after our previous attempt.
+	var resp *http.Response
+	for retriedRotatedToken := false; ; {
+		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
+		upstreamReq, _, buildErr := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
+		releaseUpstreamCtx()
+		if buildErr != nil {
+			return nil, fmt.Errorf("build upstream request: %w", buildErr)
 		}
-		safeErr := sanitizeUpstreamErrorMessage(err.Error())
-		setOpsUpstreamError(c, 0, safeErr, "")
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: 0,
-			Kind:               "request_error",
-			Message:            safeErr,
-		})
-		writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
-		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+		if err != nil {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			safeErr := sanitizeUpstreamErrorMessage(err.Error())
+			setOpsUpstreamError(c, 0, safeErr, "")
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: 0,
+				Kind:               "request_error",
+				Message:            safeErr,
+			})
+			writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
+			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		}
+		if resp.StatusCode == http.StatusUnauthorized && !retriedRotatedToken {
+			if rotated := s.rotatedClaudeAccessToken(ctx, account, token); rotated != "" {
+				_ = resp.Body.Close()
+				token = rotated
+				retriedRotatedToken = true
+				continue
+			}
+		}
+		break
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -163,7 +173,12 @@ func (s *GatewayService) ForwardAsResponses(
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
+		// Account-specific custom error rules also apply outside default failover statuses.
+		shouldDisable := false
+		if s.rateLimitService != nil {
+			shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+		}
+		if shouldDisable || s.shouldFailoverUpstreamError(resp.StatusCode) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
@@ -173,10 +188,6 @@ func (s *GatewayService) ForwardAsResponses(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			shouldDisable := false
-			if s.rateLimitService != nil {
-				shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
-			}
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
@@ -289,30 +300,27 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 		return
 	}
 
-	cacheReadTokens := src.CacheReadInputTokens
-	if cacheReadTokens == 0 && src.CachedTokens > 0 {
-		cacheReadTokens = src.CachedTokens
+	cacheReadTokens := max(src.CacheReadInputTokens, 0)
+	hasCacheReadTokens := src.CacheReadInputTokensPresent || src.CacheReadInputTokens != 0
+	if cacheReadTokens == 0 && (src.CachedTokensPresent || src.CachedTokens != 0) {
+		cacheReadTokens = max(src.CachedTokens, 0)
+		hasCacheReadTokens = true
 	}
-	if cacheReadTokens == 0 && src.PromptTokensDetails != nil && src.PromptTokensDetails.CachedTokens > 0 {
-		cacheReadTokens = src.PromptTokensDetails.CachedTokens
+	if cacheReadTokens == 0 && src.PromptTokensDetails != nil && (src.PromptTokensDetails.CachedTokensPresent || src.PromptTokensDetails.CachedTokens != 0) {
+		cacheReadTokens = max(src.PromptTokensDetails.CachedTokens, 0)
+		hasCacheReadTokens = true
 	}
 	if cacheReadTokens == 0 && src.PromptCacheHitTokens != nil {
 		cacheReadTokens = max(*src.PromptCacheHitTokens, 0)
+		hasCacheReadTokens = true
 	}
+	mergeAnthropicCacheCreationUsage(dst, src)
 
 	// Some Anthropic-compatible providers retain OpenAI-style prompt/cache
 	// fields. Prefer those authoritative totals or hit/miss buckets over the
 	// overloaded input_tokens field. This covers Kimi's changing stream
 	// semantics as well as GLM/DeepSeek cache aliases.
-	if src.PromptTokens > 0 || src.PromptCacheHitTokens != nil || src.PromptCacheMissTokens != nil {
-		if src.PromptCacheMissTokens != nil {
-			dst.InputTokens = max(*src.PromptCacheMissTokens, 0)
-		} else {
-			dst.InputTokens = max(src.PromptTokens-cacheReadTokens-src.CacheCreationInputTokens, 0)
-		}
-		dst.CacheReadInputTokens = cacheReadTokens
-		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
-	} else {
+	if src.PromptTokens <= 0 && src.PromptCacheHitTokens == nil && src.PromptCacheMissTokens == nil && !dst.promptTotalPresent {
 		// Without an authoritative prompt total or miss bucket, input_tokens is
 		// provider-specific: it may already be the uncached bucket, or it may be
 		// a total from an earlier event. Do not infer a subtraction merely because
@@ -321,16 +329,67 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 		if src.InputTokens > 0 {
 			dst.InputTokens = src.InputTokens
 		}
-		if cacheReadTokens > 0 {
-			dst.CacheReadInputTokens = cacheReadTokens
-		}
-		if src.CacheCreationInputTokens > 0 {
-			dst.CacheCreationInputTokens = src.CacheCreationInputTokens
-		}
 	}
+	if hasCacheReadTokens && (cacheReadTokens > 0 || dst.CacheReadInputTokens <= 0) {
+		dst.CacheReadInputTokens = cacheReadTokens
+	}
+	normalizeAnthropicPromptTotal(dst, src.PromptTokens, src.PromptCacheMissTokens)
 	if src.OutputTokens > 0 {
 		dst.OutputTokens = src.OutputTokens
 	}
+}
+
+func normalizeAnthropicPromptTotal(usage *ClaudeUsage, promptTokens int, promptCacheMissTokens *int) {
+	if promptCacheMissTokens != nil {
+		usage.promptTotalPresent = false
+		usage.InputTokens = max(*promptCacheMissTokens, 0)
+		return
+	}
+	if promptTokens > 0 {
+		usage.promptTotalTokens = promptTokens
+		usage.promptTotalPresent = true
+	}
+	if usage.promptTotalPresent {
+		usage.InputTokens = max(usage.promptTotalTokens-usage.CacheReadInputTokens-usage.CacheCreationInputTokens, 0)
+	}
+}
+
+func mergeAnthropicCacheCreationUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
+	if src.HasCacheCreationInputTokens() && (src.CacheCreationInputTokens > 0 || dst.CacheCreationInputTokens <= 0) {
+		dst.CacheCreationInputTokens = max(src.CacheCreationInputTokens, 0)
+		dst.cacheCreationInputTokensPresent = true
+		dst.cacheCreationInputTokensFromDetails = false
+	}
+	if src.CacheCreation != nil {
+		if src.CacheCreation.Ephemeral5mInputTokens != nil {
+			dst.CacheCreation5mTokens = max(*src.CacheCreation.Ephemeral5mInputTokens, 0)
+		}
+		if src.CacheCreation.Ephemeral1hInputTokens != nil {
+			dst.CacheCreation1hTokens = max(*src.CacheCreation.Ephemeral1hInputTokens, 0)
+		}
+		if (!dst.cacheCreationInputTokensPresent || dst.cacheCreationInputTokensFromDetails || dst.CacheCreationInputTokens <= 0) && (src.CacheCreation.Ephemeral5mInputTokens != nil || src.CacheCreation.Ephemeral1hInputTokens != nil) {
+			dst.CacheCreationInputTokens = dst.CacheCreation5mTokens + dst.CacheCreation1hTokens
+			dst.cacheCreationInputTokensFromDetails = true
+		}
+	}
+}
+
+func mergeRawAnthropicCacheCreationUsage(node gjson.Result, dst *ClaudeUsage) {
+	aggregate := node.Get("cache_creation_input_tokens")
+	usage := apicompat.AnthropicUsage{
+		CacheCreationInputTokens:        int(aggregate.Int()),
+		CacheCreationInputTokensPresent: aggregate.Exists() && aggregate.Type != gjson.Null,
+		CacheCreation:                   &apicompat.AnthropicCacheCreation{},
+	}
+	if tokens := node.Get("cache_creation.ephemeral_5m_input_tokens"); tokens.Exists() && tokens.Type != gjson.Null {
+		value := int(tokens.Int())
+		usage.CacheCreation.Ephemeral5mInputTokens = &value
+	}
+	if tokens := node.Get("cache_creation.ephemeral_1h_input_tokens"); tokens.Exists() && tokens.Type != gjson.Null {
+		value := int(tokens.Int())
+		usage.CacheCreation.Ephemeral1hInputTokens = &value
+	}
+	mergeAnthropicCacheCreationUsage(dst, usage)
 }
 
 func syncAnthropicResponsesUsage(state *apicompat.AnthropicEventToResponsesState, usage ClaudeUsage) {
@@ -349,6 +408,8 @@ func normalizeAnthropicEventUsageForResponses(event *apicompat.AnthropicStreamEv
 		dst.OutputTokens = usage.OutputTokens
 		dst.CacheReadInputTokens = usage.CacheReadInputTokens
 		dst.CacheCreationInputTokens = usage.CacheCreationInputTokens
+		dst.CacheCreationInputTokensPresent = true
+		dst.CacheCreation = nil
 	}
 	normalize(event.Usage)
 	if event.Message != nil {
@@ -380,35 +441,51 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	clientToolMapping apicompat.ResponsesClientToolMapping,
 ) (*ForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
+	observer := beginUpstreamResponseModelObservation(c)
 
-	scanner := bufio.NewScanner(resp.Body)
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
-	}
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	stream := newAnthropicCompatStream(s.cfg, c, resp, "anthropic buffered compatibility", requestID)
+	defer stream.stop()
+	writerSizeBeforeStream := c.Writer.Size()
 
 	// Accumulate the final Anthropic response from streaming events
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	resultWithUsage := func() *ForwardResult {
+		return &ForwardResult{
+			RequestID:                     requestID,
+			Usage:                         usage,
+			Model:                         originalModel,
+			UpstreamModel:                 mappedModel,
+			UpstreamResponseModel:         observer.Model(),
+			UpstreamResponseModelConflict: observer.Conflict(),
+			ReasoningEffort:               reasoningEffort,
+			Stream:                        false,
+			Duration:                      time.Since(startTime),
+		}
+	}
+
+	for {
+		line, ok := stream.nextLine()
+		if !ok {
+			break
+		}
 		eventType, ok := parseAnthropicSSEField(line, "event")
 		if !ok {
 			continue
 		}
 
 		// Read the data line
-		if !scanner.Scan() {
+		dataLine, ok := stream.nextLine()
+		if !ok {
 			break
 		}
-		dataLine := scanner.Text()
 		payload, ok := parseAnthropicSSEField(dataLine, "data")
 		if !ok {
 			continue
 		}
 
+		observer.ObserveAnthropic([]byte(payload))
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			logger.L().Warn("forward_as_responses buffered: failed to parse event",
@@ -417,6 +494,11 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 				zap.String("event_type", eventType),
 			)
 			continue
+		}
+
+		stream.observe(&event, payload)
+		if stream.upstreamErrType != "" {
+			break
 		}
 
 		// message_start carries the initial response structure
@@ -456,13 +538,15 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn("forward_as_responses buffered: read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-		}
+	if failure := stream.failure(); failure != nil {
+		return finishAnthropicCompatStreamFailure(c, writerSizeBeforeStream, failure, resultWithUsage(), func() {
+			writeResponsesError(c, http.StatusBadGateway, failure.errType, failure.message)
+		})
+	}
+	if stream.clientDisconnected {
+		result := resultWithUsage()
+		result.ClientDisconnect = true
+		return result, nil
 	}
 
 	if finalResp == nil {
@@ -504,15 +588,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		c.JSON(http.StatusOK, responsesResp)
 	}
 
-	return &ForwardResult{
-		RequestID:       requestID,
-		Usage:           usage,
-		Model:           originalModel,
-		UpstreamModel:   mappedModel,
-		ReasoningEffort: reasoningEffort,
-		Stream:          false,
-		Duration:        time.Since(startTime),
-	}, nil
+	return resultWithUsage(), nil
 }
 
 // handleResponsesStreamingResponse reads Anthropic SSE events from upstream,
@@ -527,6 +603,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	clientToolMapping apicompat.ResponsesClientToolMapping,
 ) (*ForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
+	observer := beginUpstreamResponseModelObservation(c)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -550,15 +627,17 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:        requestID,
-			Usage:            usage,
-			Model:            originalModel,
-			UpstreamModel:    mappedModel,
-			ReasoningEffort:  reasoningEffort,
-			Stream:           true,
-			Duration:         time.Since(startTime),
-			FirstTokenMs:     firstTokenMs,
-			ClientDisconnect: stream.clientDisconnected,
+			RequestID:                     requestID,
+			Usage:                         usage,
+			Model:                         originalModel,
+			UpstreamModel:                 mappedModel,
+			UpstreamResponseModel:         observer.Model(),
+			UpstreamResponseModelConflict: observer.Conflict(),
+			ReasoningEffort:               reasoningEffort,
+			Stream:                        true,
+			Duration:                      time.Since(startTime),
+			FirstTokenMs:                  firstTokenMs,
+			ClientDisconnect:              stream.clientDisconnected,
 		}
 	}
 
@@ -665,6 +744,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			continue
 		}
 
+		observer.ObserveAnthropic([]byte(payload))
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			logger.L().Warn("forward_as_responses stream: failed to parse event",

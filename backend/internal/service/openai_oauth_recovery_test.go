@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -121,6 +122,22 @@ func (r *openAI401ConcurrentRepo) UpdateCredentials(_ context.Context, _ int64, 
 	r.account.Credentials = shallowCopyMap(credentials)
 	return nil
 }
+
+// Mirror the production CAS boundary rather than an unconditional test-only save.
+func (r *openAI401ConcurrentRepo) UpdateOpenAIOAuthCredentialsIfUnchanged(ctx context.Context, id int64, expected map[string]any, expectedProxy *int64, credentials map[string]any) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.account == nil || r.account.ID != id || !r.account.IsOpenAIOAuth() || r.account.IsCredentialShadow() ||
+		!reflect.DeepEqual(r.account.Credentials, expected) || !reflect.DeepEqual(r.account.ProxyID, expectedProxy) {
+		return false, nil
+	}
+	r.account.Credentials = shallowCopyMap(credentials)
+	return true, nil
+}
+
 func TestOpenAIOAuth401ConcurrentRefreshReusesWinner(t *testing.T) {
 	original := newOpenAIOAuthRecoveryAccount()
 	repo := &openAI401ConcurrentRepo{account: snapshotOAuthRefreshAccount(original)}
@@ -193,9 +210,9 @@ func TestOpenAIOAuth401DistributedLockWinner(t *testing.T) {
 }
 
 func TestOpenAIOAuth401RecoveryCancellationAndAccountChanges(t *testing.T) {
-	t.Run("cancelled_refresh_does_not_persist", func(t *testing.T) {
+	t.Run("cancelled_request_preserves_successful_rotation", func(t *testing.T) {
 		account := newOpenAIOAuthRecoveryAccount()
-		repo := &refreshAPIAccountRepo{account: account}
+		repo := &refreshAPIAccountRepo{account: snapshotOAuthRefreshAccount(account)}
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		executor := &refreshAPIExecutorStub{credentials: map[string]any{"access_token": "late-at", "refresh_token": "late-rt"}, onRefresh: cancel}
@@ -203,7 +220,8 @@ func TestOpenAIOAuth401RecoveryCancellationAndAccountChanges(t *testing.T) {
 		provider.SetRefreshAPI(NewOAuthRefreshAPI(repo, nil), executor)
 		_, err := provider.refreshRejectedAccessToken(ctx, account, "rejected-at")
 		require.ErrorIs(t, err, context.Canceled)
-		require.Zero(t, repo.updateCredentialsCalls)
+		require.Equal(t, 1, repo.updateCredentialsCalls)
+		require.Equal(t, "late-rt", repo.account.GetOpenAIRefreshToken(), "a completed upstream rotation is irreversible")
 		require.Equal(t, "old-rt", account.GetOpenAIRefreshToken())
 	})
 	t.Run("changed_proxy", func(t *testing.T) {

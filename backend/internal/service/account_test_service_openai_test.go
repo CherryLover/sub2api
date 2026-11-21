@@ -504,7 +504,7 @@ func TestAccountTestService_OpenAI429WithoutResetSignalDoesNotMutateRuntimeState
 	require.Nil(t, account.RateLimitResetAt)
 }
 
-func TestAccountTestService_OpenAI401SetsPermanentErrorOnly(t *testing.T) {
+func TestAccountTestService_OpenAIUnclassified401DoesNotPermanentlyDisableAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := newTestContext()
 
@@ -524,8 +524,10 @@ func TestAccountTestService_OpenAI401SetsPermanentErrorOnly(t *testing.T) {
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
 	require.Error(t, err)
-	require.Equal(t, account.ID, repo.setErrorID)
-	require.Contains(t, repo.setErrorMsg, "Authentication failed (401)")
+	// An unclassified 401 is not proof of permanent revocation.
+	require.Zero(t, repo.setErrorID)
+	require.Empty(t, repo.setErrorMsg)
+	require.Equal(t, StatusActive, account.Status)
 	require.Zero(t, repo.rateLimitedID)
 	require.Zero(t, repo.clearedErrorID)
 	require.Nil(t, account.RateLimitResetAt)

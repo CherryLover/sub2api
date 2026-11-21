@@ -144,6 +144,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	scanner.Buffer(scanBuf[:0], maxLineSize)
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	sawTerminalState := false
 
 	type scanEvent struct {
 		line string
@@ -227,8 +228,12 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			return
 		}
 		errorEventSent = true
-		_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"error\":\"%s\"}\n\n", reason)
+		// Native Gemini SDKs expect a Google error object in a data frame.
+		writeSSE(c.Writer, "", map[string]any{"error": map[string]any{
+			"code": http.StatusBadGateway, "status": "UNAVAILABLE", "message": reason,
+		}})
 		flusher.Flush()
+		MarkResponseCommitted(c)
 	}
 
 	for {
@@ -238,9 +243,17 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				queueBudget.release(len(ev.line))
 			}
 			if !ok {
-				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: cw.Disconnected()}, nil
+				result := &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: cw.Disconnected()}
+				if !sawTerminalState && !cw.Disconnected() {
+					sendErrorEvent("stream_incomplete")
+					return result, errGeminiStreamIncomplete
+				}
+				return result, nil
 			}
 			if ev.err != nil {
+				if errors.Is(ev.err, errAntigravityFirstByteTimeout) {
+					return nil, newAntigravityFirstByteTimeoutFailoverError(resp, "antigravity gemini")
+				}
 				if disconnect, handled := handleStreamReadError(ev.err, cw.Disconnected(), "antigravity gemini"); handled {
 					return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: disconnect}, nil
 				}
@@ -269,6 +282,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				inner, parseErr := s.unwrapV1InternalResponse([]byte(payload))
 				if parseErr == nil && inner != nil {
 					payload = string(inner)
+				} else {
+					inner = []byte(payload)
+				}
+				if geminiStreamTerminalReason(inner) != "" {
+					sawTerminalState = true
 				}
 
 				// 解析 usage
@@ -426,6 +444,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 				goto returnResponse
 			}
 			if ev.err != nil {
+				if errors.Is(ev.err, errAntigravityFirstByteTimeout) {
+					return nil, newAntigravityFirstByteTimeoutFailoverError(resp, "antigravity gemini non-stream")
+				}
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					logger.LegacyPrintf("service.antigravity_gateway", "SSE line too long (antigravity non-stream): max_size=%d error=%v", maxLineSize, ev.err)
 				}
@@ -519,6 +540,7 @@ returnResponse:
 			StatusCode:             http.StatusBadGateway,
 			ResponseBody:           []byte(`{"error":"empty stream response from upstream"}`),
 			RetryableOnSameAccount: true,
+			EmptyStream:            true,
 		}
 	}
 
@@ -910,6 +932,9 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 				goto returnResponse
 			}
 			if ev.err != nil {
+				if errors.Is(ev.err, errAntigravityFirstByteTimeout) {
+					return nil, nil, newAntigravityFirstByteTimeoutFailoverError(resp, "antigravity claude non-stream")
+				}
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					logger.LegacyPrintf("service.antigravity_gateway", "SSE line too long (antigravity claude non-stream): max_size=%d error=%v", maxLineSize, ev.err)
 				}
@@ -976,6 +1001,7 @@ returnResponse:
 			StatusCode:             http.StatusBadGateway,
 			ResponseBody:           []byte(`{"error":"empty stream response from upstream"}`),
 			RetryableOnSameAccount: true,
+			EmptyStream:            true,
 		}
 	}
 
@@ -1172,6 +1198,10 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 				queueBudget.release(len(ev.line))
 			}
 			if !ok {
+				if processor.MessageStartSent() && !processor.HasTerminalState() && !cw.Disconnected() {
+					sendErrorEvent("stream_incomplete")
+					return &antigravityStreamResult{usage: finishUsage(), firstTokenMs: firstTokenMs}, errGeminiStreamIncomplete
+				}
 				// 上游完成，发送结束事件
 				finalEvents, agUsage := processor.Finish()
 				if len(finalEvents) > 0 {
@@ -1184,11 +1214,15 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 						StatusCode:             http.StatusBadGateway,
 						ResponseBody:           []byte(`{"error":"empty stream response from upstream"}`),
 						RetryableOnSameAccount: true,
+						EmptyStream:            true,
 					}
 				}
 				return &antigravityStreamResult{usage: convertUsage(agUsage), firstTokenMs: firstTokenMs, clientDisconnect: cw.Disconnected()}, nil
 			}
 			if ev.err != nil {
+				if errors.Is(ev.err, errAntigravityFirstByteTimeout) {
+					return nil, newAntigravityFirstByteTimeoutFailoverError(resp, "antigravity claude")
+				}
 				if disconnect, handled := handleStreamReadError(ev.err, cw.Disconnected(), "antigravity claude"); handled {
 					return &antigravityStreamResult{usage: finishUsage(), firstTokenMs: firstTokenMs, clientDisconnect: disconnect}, nil
 				}
@@ -1212,6 +1246,9 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 					firstTokenMs = &ms
 				}
 				cw.Write(claudeEvents)
+			}
+			if processor.TruncatedOnTurnBoundary() {
+				return &antigravityStreamResult{usage: finishUsage(), firstTokenMs: firstTokenMs, clientDisconnect: cw.Disconnected()}, nil
 			}
 
 		case <-intervalCh:

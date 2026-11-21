@@ -48,7 +48,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	token string,
 	firstClientMessage []byte,
 	hooks *OpenAIWSIngressHooks,
-) error {
+) (returnErr error) {
 	if s == nil {
 		return errors.New("service is nil")
 	}
@@ -259,7 +259,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = next
 		}
-		cleanedMetadata, _, metadataErr := normalizeOpenAIOAuthInputMetadataForAccount(normalized, account)
+		cleanedMetadata, _, metadataErr := normalizeOpenAIOAuthInputCompatibilityForAccount(normalized, account)
 		if metadataErr != nil {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, metadataErr.Error(), metadataErr)
 		}
@@ -274,6 +274,13 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				)
 			}
 			normalized = litePayload
+		}
+		if account.UsesOpenAICodexProtocol() {
+			historyPayload, _, historyErr := ensureOpenAIOAuthWebSearchToolForHistoryBody(normalized, isOpenAIResponsesLiteWebSocketPayload(normalized))
+			if historyErr != nil {
+				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket search history", historyErr)
+			}
+			normalized = historyPayload
 		}
 		apiKey := getAPIKeyFromContext(c)
 		imageGenerationAllowed := GroupAllowsImageGeneration(apiKeyGroup(apiKey))
@@ -750,13 +757,13 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	agentTaskRecoveryTried := false
-	var acquireTurnLease func(int, string, bool) (*openAIWSConnLease, error)
-	acquireTurnLease = func(turn int, preferred string, forcePreferredConn bool) (*openAIWSConnLease, error) {
+	var acquireTurnLease func(int, string, bool, ...bool) (*openAIWSConnLease, error)
+	acquireTurnLease = func(turn int, preferred string, forcePreferredConn bool, forceNew ...bool) (*openAIWSConnLease, error) {
 		req := cloneOpenAIWSAcquireRequest(baseAcquireReq)
 		req.PreferredConnID = strings.TrimSpace(preferred)
 		req.ForcePreferredConn = forcePreferredConn
 		// dedicated 模式下每次获取均新建连接，避免跨会话复用残留上下文。
-		req.ForceNewConn = dedicatedMode
+		req.ForceNewConn = dedicatedMode || (len(forceNew) > 0 && forceNew[0])
 		acquireCtx, acquireCancel := context.WithTimeout(ctx, acquireTimeout)
 		lease, acquireErr := s.acquireOpenAIWSWithOAuthRecovery(acquireCtx, &req)
 		if req.Headers.Get("Authorization") != baseAcquireReq.Headers.Get("Authorization") {
@@ -770,7 +777,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if recoveryErr := s.recoverAgentIdentityTask(ctx, account, account.GetCredential("task_id")); recoveryErr != nil {
 				return nil, fmt.Errorf("agent identity task recovery failed: %w", recoveryErr)
 			}
-			return acquireTurnLease(turn, preferred, forcePreferredConn)
+			return acquireTurnLease(turn, preferred, forcePreferredConn, forceNew...)
 		}
 		if acquireErr != nil {
 			canonicalModel := canonicalOpenAIAccountSchedulingModel(account, ingressSessionOriginalModel)
@@ -846,6 +853,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return lease, nil
 	}
 
+	nativeHistory := s.newOpenAIWSNativeHistory(ctx)
+	defer nativeHistory.close()
 	sendAndRelay := func(turn int, lease *openAIWSConnLease, payload []byte, payloadBytes int, originalModel string, imageBillingModel string, imageSizeTier string, imageInputSize string) (*OpenAIForwardResult, error) {
 		responseModelObserver := &upstreamResponseModelObserver{}
 		if lease == nil {
@@ -1118,9 +1127,15 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					Duration:                      time.Since(turnStart),
 					FirstTokenMs:                  firstTokenMs,
 				}
+				if account.UsesOpenAICodexProtocol() && lease.initializedWithoutWebSearch() && gjson.GetBytes(upstreamMessage, "response.output").IsArray() {
+					result.wsSearchReplayOutput, result.wsSearchReplayOutputComplete = boundedOpenAIWSSearchReplay(replayCollector.allItems, nil, openAIWSSearchReplayMaxBytes)
+				}
 				if replayInput := replayCollector.Items(); len(replayInput) > 0 {
 					result.wsReplayInput = replayInput
 					result.wsReplayInputExists = true
+				}
+				if !clientDisconnected && nativeHistory.ready && (terminalEvent == "response.completed" || terminalEvent == "response.done") {
+					result.wsAccountFailoverReplayInput = nativeHistory.captureCompletedOutput(upstreamMessage)
 				}
 				if imageCount > 0 {
 					result.ImageCount = imageCount
@@ -1199,6 +1214,19 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	defer releaseSessionLease()
 
 	turn := 1
+	defer func() {
+		var failoverErr *UpstreamFailoverError
+		if turn > 1 && errors.As(returnErr, &failoverErr) {
+			// Only complete bounded current-window history can replace an account.
+			// The source is the client request, never old account-specific mutations.
+			retryPayload, safe, buildErr := nativeHistory.retryPayload(currentClientPayload, currentOriginalModel)
+			if buildErr != nil || !safe || ctx.Err() != nil {
+				retryPayload = nil
+			}
+			returnErr = newOpenAIWSCurrentTurnFailoverError(returnErr, retryPayload)
+		}
+	}()
+	nativeHistoryBuilt := false
 	turnRetry := 0
 	turnPrevRecoveryTried := false
 	lastTurnFinishedAt := time.Time{}
@@ -1208,6 +1236,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	var lastTurnStrictState *openAIWSIngressPreviousTurnStrictState
 	lastTurnReplayInput := []json.RawMessage(nil)
 	lastTurnReplayInputExists := false
+	var searchReplay openAIWSSearchReplayState
 	currentTurnReplayInput := []json.RawMessage(nil)
 	currentTurnReplayInputExists := false
 	skipBeforeTurn := false
@@ -1334,6 +1363,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 		}
 		skipBeforeTurn = false
+		originalPreviousResponseID := openAIWSPayloadStringFromRaw(currentPayload, "previous_response_id")
 		boundaryPayload, contextWindowBoundary, boundaryErr := normalizeOpenAIWSContextWindowBoundary(
 			currentPayload,
 			lastTurnWindowID,
@@ -1401,6 +1431,23 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					truncateOpenAIWSLogValue(sessionConnID, openAIWSIDValueMaxLen),
 					truncateOpenAIWSLogValue(expectedPrev, openAIWSIDValueMaxLen),
 				)
+			}
+		}
+		if !nativeHistoryBuilt {
+			if contextWindowBoundary.Changed && originalPreviousResponseID != "" {
+				nativeHistory.clear("window_continuation")
+			} else {
+				nativeHistory.preparePayload(currentPayload, currentPreviousResponseID)
+			}
+			nativeHistoryBuilt = true
+		}
+		var searchInput []json.RawMessage
+		searchInputComplete := false
+		if account.UsesOpenAICodexProtocol() {
+			var searchInputErr error
+			searchInput, searchInputComplete, searchInputErr = searchReplay.input(currentPayload, currentPreviousResponseID)
+			if searchInputErr != nil {
+				searchInputComplete = false
 			}
 		}
 		nextReplayInput, nextReplayInputExists, replayInputErr := buildOpenAIWSReplayInputSequence(
@@ -1524,6 +1571,33 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			} else {
 				unpinSessionConn(sessionConnID)
 			}
+		}
+		if account.UsesOpenAICodexProtocol() && sessionLease.initializedWithoutWebSearch() && openAIWSWebSearchDeclared(currentPayload) {
+			fullPayload, safe, rebuildErr := buildOpenAIWSCurrentTurnRetryPayload(currentPayload, searchInput, searchInputComplete, "")
+			if rebuildErr != nil {
+				return fmt.Errorf("rebuild websocket search input: %w", rebuildErr)
+			}
+			if !safe || !searchInputComplete {
+				return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "web search activation requires complete bounded input history; reconnect with full input", nil)
+			}
+			resetSessionLease(true)
+			acquiredLease, acquireErr := acquireTurnLease(turn, "", false, true)
+			if acquireErr != nil {
+				return fmt.Errorf("acquire websocket for search activation: %w", acquireErr)
+			}
+			sessionLease = acquiredLease
+			sessionConnID = strings.TrimSpace(sessionLease.ConnID())
+			if storeDisabled {
+				pinSessionConn(sessionConnID)
+			} else {
+				unpinSessionConn(sessionConnID)
+			}
+			currentPayload = fullPayload
+			currentPayloadBytes = len(fullPayload)
+			currentPreviousResponseID = ""
+			forcePreferredConn = false
+			currentTurnReplayInput = searchInput
+			currentTurnReplayInputExists = true
 		}
 		shouldPreflightPing := turn > 1 && sessionLease != nil && sessionLease.SupportsIdlePingWithoutReader() && turnRetry == 0
 		if shouldPreflightPing && openAIWSIngressPreflightPingIdle > 0 && !lastTurnFinishedAt.IsZero() {
@@ -1678,6 +1752,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		turnPrevRecoveryTried = false
 		lastTurnFinishedAt = time.Now()
 		lastTurnClean = true
+		// History must not escape through asynchronous usage callbacks.
+		nativeHistory.commit(result)
+		if result != nil {
+			result.wsAccountFailoverReplayInput = nil
+		}
 		if hooks != nil && hooks.AfterTurn != nil {
 			hooks.AfterTurn(turn, result, nil)
 		}
@@ -1689,6 +1768,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		if contextWindowBoundary.WindowID != "" {
 			lastTurnWindowID = contextWindowBoundary.WindowID
 		}
+		searchReplay.store(responseID, searchInput, searchInputComplete, result.wsSearchReplayOutput, result.wsSearchReplayOutputComplete)
 		lastTurnPayload = cloneOpenAIWSPayloadBytes(currentPayload)
 		lastTurnReplayInput = cloneOpenAIWSRawMessages(currentTurnReplayInput)
 		lastTurnReplayInputExists = currentTurnReplayInputExists
@@ -1801,6 +1881,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 		}
 		currentPayload = nextPayload.payloadRaw
+		nativeHistoryBuilt = false
+		nativeHistory.ready = false
 		currentClientPayload = nextPayload.rawForHash
 		currentOriginalModel = nextPayload.originalModel
 		currentImageBillingModel = nextPayload.imageBillingModel

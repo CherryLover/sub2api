@@ -843,6 +843,8 @@ func TestAntigravityCompatKeepaliveAfterFirstEvent(t *testing.T) {
 	)
 	require.NoError(t, err)
 	time.Sleep(1200 * time.Millisecond)
+	_, err = io.WriteString(writer, `data: {"response":{"candidates":[{"finishReason":"STOP"}]}}`+"\n\n")
+	require.NoError(t, err)
 	require.NoError(t, writer.Close())
 	require.NoError(t, <-done)
 	require.Contains(t, recorder.Body.String(), ": ping\n\n")

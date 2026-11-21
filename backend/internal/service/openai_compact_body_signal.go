@@ -125,7 +125,7 @@ func HasCompactionTriggerInInput(body []byte) bool {
 	if !bytes.Contains(body, []byte("compaction_trigger")) && !bytes.Contains(body, []byte(`\u`)) {
 		return false
 	}
-	input := gjson.GetBytes(body, "input")
+	input := parseRawJSONView(body).Get("input")
 	if !input.IsArray() {
 		return false
 	}

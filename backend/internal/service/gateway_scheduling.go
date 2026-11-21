@@ -1530,6 +1530,10 @@ func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Ac
 func (s *GatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {
 	hydrated, err := s.hydrateSelectedAccount(ctx, account)
 	if err != nil {
+		// Release the acquired slot when hydration fails before the caller receives it.
+		if release != nil {
+			release()
+		}
 		return nil, err
 	}
 	return attachSelectionProfitGate(ctx, &AccountSelectionResult{
@@ -2597,8 +2601,8 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		_, ok := ResolveBedrockModelID(account, requestedModel)
 		return ok
 	}
-	// OpenAI 透传模式：仅替换认证，允许所有模型
-	if account.Platform == PlatformOpenAI && account.IsOpenAIPassthroughEnabled() {
+	// Passthrough ignores leftover mappings unless model filtering is enabled.
+	if account.IsOpenAIPassthroughEnabled() && !account.IsOpenAIPassthroughModelFilterEnabled() {
 		return true
 	}
 	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）

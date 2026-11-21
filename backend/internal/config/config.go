@@ -274,15 +274,16 @@ type PricingConfig struct {
 type ServerConfig struct {
 	Host                     string    `mapstructure:"host"`
 	Port                     int       `mapstructure:"port"`
-	Mode                     string    `mapstructure:"mode"`                  // debug/release
-	EnableServerTiming       bool      `mapstructure:"enable_server_timing"`  // Admin UI Server-Timing response header
-	ReadHeaderTimeout        int       `mapstructure:"read_header_timeout"`   // 读取请求头超时（秒）
-	MaxHeaderBytes           int       `mapstructure:"max_header_bytes"`      // 请求头最大字节数（HTTP/2 映射为 header-list 上限）
-	IdleTimeout              int       `mapstructure:"idle_timeout"`          // 空闲连接超时（秒）
-	TrustedProxies           []string  `mapstructure:"trusted_proxies"`       // 可信代理列表（CIDR/IP）
-	TrustedProxiesConfigured bool      `mapstructure:"-" json:"-" yaml:"-"`   // 是否显式配置了可信代理列表
-	MaxRequestBodySize       int64     `mapstructure:"max_request_body_size"` // 全局最大请求体限制
-	H2C                      H2CConfig `mapstructure:"h2c"`                   // HTTP/2 Cleartext 配置
+	Mode                     string    `mapstructure:"mode"`                   // debug/release
+	EnableServerTiming       bool      `mapstructure:"enable_server_timing"`   // Admin UI Server-Timing response header
+	ReadHeaderTimeout        int       `mapstructure:"read_header_timeout"`    // 读取请求头超时（秒）
+	MaxHeaderBytes           int       `mapstructure:"max_header_bytes"`       // 请求头最大字节数（HTTP/2 映射为 header-list 上限）
+	ShutdownDrainTimeout     int       `mapstructure:"shutdown_drain_timeout"` // seconds; default 5 preserves existing deployment behavior
+	IdleTimeout              int       `mapstructure:"idle_timeout"`           // 空闲连接超时（秒）
+	TrustedProxies           []string  `mapstructure:"trusted_proxies"`        // 可信代理列表（CIDR/IP）
+	TrustedProxiesConfigured bool      `mapstructure:"-" json:"-" yaml:"-"`    // 是否显式配置了可信代理列表
+	MaxRequestBodySize       int64     `mapstructure:"max_request_body_size"`  // 全局最大请求体限制
+	H2C                      H2CConfig `mapstructure:"h2c"`                    // HTTP/2 Cleartext 配置
 }
 
 // H2CConfig HTTP/2 Cleartext 配置
@@ -540,6 +541,10 @@ type GatewayConfig struct {
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
+	// AntigravityFirstByteTimeout: Antigravity 上游首字节超时（秒），0表示禁用。
+	// 覆盖等待响应头以及响应头已返回但响应体尚无任何字节的阶段；
+	// 超时且尚未向客户端写出语义内容时切换账号。
+	AntigravityFirstByteTimeout int `mapstructure:"antigravity_first_byte_timeout"`
 	// OpenAIResponseHeaderTimeout: OpenAI/Codex 上游等待响应头的超时时间（秒），0表示无超时
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout         int  `mapstructure:"openai_response_header_timeout"`
@@ -863,6 +868,11 @@ type GatewayOpenAIWSConfig struct {
 	PrewarmGenerateEnabled bool `mapstructure:"prewarm_generate_enabled"`
 	// ClientReadLimitBytes: 入站客户端 WS 单帧读取上限。
 	ClientReadLimitBytes int64 `mapstructure:"client_read_limit_bytes"`
+	// Native replay is opt-in. A zero budget preserves fail-closed later-turn behavior.
+	// Limits cover retained current-window history, including item descriptors.
+	NativeReplayMaxSessionBytes int64 `mapstructure:"native_replay_max_session_bytes"`
+	NativeReplayMaxTotalBytes   int64 `mapstructure:"native_replay_max_total_bytes"`
+	NativeReplayMaxItems        int   `mapstructure:"native_replay_max_items"`
 	// HTTPBridgeEnabled: 首包过大时，保持客户端 WS，改用 HTTP Responses 上游。
 	HTTPBridgeEnabled bool `mapstructure:"http_bridge_enabled"`
 	// HTTPBridgeThresholdBytes: 触发 HTTP bridge 的入站 WS payload 阈值。
@@ -1629,6 +1639,7 @@ func setDefaults() {
 	viper.SetDefault("server.enable_server_timing", false)
 	viper.SetDefault("server.read_header_timeout", 10) // 10秒读取请求头
 	viper.SetDefault("server.max_header_bytes", 64*1024)
+	viper.SetDefault("server.shutdown_drain_timeout", 5)
 	viper.SetDefault("server.idle_timeout", 120) // 120秒空闲超时
 	viper.SetDefault("server.max_request_body_size", int64(256*1024*1024))
 	// H2C 默认配置
@@ -1868,6 +1879,7 @@ func setDefaults() {
 
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
+	viper.SetDefault("gateway.antigravity_first_byte_timeout", 0)
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
 	viper.SetDefault("gateway.disable_openai_transport_error_cooldown", false)
 	viper.SetDefault("gateway.grok_response_header_timeout", 120)
@@ -1902,6 +1914,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.store_disabled_force_new_conn", true)
 	viper.SetDefault("gateway.openai_ws.prewarm_generate_enabled", false)
 	viper.SetDefault("gateway.openai_ws.client_read_limit_bytes", 64*1024*1024)
+	viper.SetDefault("gateway.openai_ws.native_replay_max_session_bytes", 0)
+	viper.SetDefault("gateway.openai_ws.native_replay_max_total_bytes", 64*1024*1024)
+	viper.SetDefault("gateway.openai_ws.native_replay_max_items", 8192)
 	viper.SetDefault("gateway.openai_ws.http_bridge_enabled", true)
 	viper.SetDefault("gateway.openai_ws.http_bridge_threshold_bytes", 15*1024*1024)
 	viper.SetDefault("gateway.openai_ws.responses_websockets", false)
@@ -2153,6 +2168,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Server.MaxHeaderBytes < 8*1024 || c.Server.MaxHeaderBytes > 1024*1024 {
 		return fmt.Errorf("server.max_header_bytes must be between 8192 and 1048576 bytes")
+	}
+	if c.Server.ShutdownDrainTimeout <= 0 || c.Server.ShutdownDrainTimeout > 86400 {
+		return fmt.Errorf("server.shutdown_drain_timeout must be between 1 and 86400 seconds")
 	}
 	if c.Server.IdleTimeout <= 0 {
 		return fmt.Errorf("server.idle_timeout must be positive")
@@ -2537,6 +2555,10 @@ func (c *Config) Validate() error {
 	if c.Gateway.ResponseHeaderTimeout < 0 {
 		return fmt.Errorf("gateway.response_header_timeout must be non-negative")
 	}
+	if c.Gateway.AntigravityFirstByteTimeout < 0 || c.Gateway.AntigravityFirstByteTimeout > 600 ||
+		(c.Gateway.AntigravityFirstByteTimeout > 0 && c.Gateway.AntigravityFirstByteTimeout < 5) {
+		return fmt.Errorf("gateway.antigravity_first_byte_timeout must be 0 or between 5-600 seconds")
+	}
 	if c.Gateway.OpenAIResponseHeaderTimeout < 0 {
 		return fmt.Errorf("gateway.openai_response_header_timeout must be non-negative")
 	}
@@ -2696,6 +2718,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.OpenAIWS.ClientReadLimitBytes <= 0 {
 		return fmt.Errorf("gateway.openai_ws.client_read_limit_bytes must be positive")
+	}
+	if c.Gateway.OpenAIWS.NativeReplayMaxSessionBytes < 0 || c.Gateway.OpenAIWS.NativeReplayMaxTotalBytes < 0 || c.Gateway.OpenAIWS.NativeReplayMaxItems < 0 {
+		return fmt.Errorf("gateway.openai_ws native replay budgets must be non-negative")
 	}
 	if c.Gateway.OpenAIWS.HTTPBridgeThresholdBytes < 0 {
 		return fmt.Errorf("gateway.openai_ws.http_bridge_threshold_bytes must be non-negative")

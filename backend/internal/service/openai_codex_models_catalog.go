@@ -334,7 +334,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 	}
 
 	if isClaudeCodexModel(modelID) {
-		if claude.IsOpus55(modelID) {
+		if claude.IsOpus55(modelID) || claude.IsFable52(modelID) || claude.IsMythos52(modelID) {
 			descriptor.ContextWindow = 1_000_000
 			descriptor.MaxContextWindow = 1_000_000
 		}
@@ -343,6 +343,9 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		descriptor.SupportsParallelToolCalls = true
 		if levels := configuredCodexClaudeReasoningLevels(modelID); len(levels) > 0 {
 			defaultReasoningLevel := claudeCodexDefaultReasoningLevel(levels)
+			if claude.IsFable52(modelID) || claude.IsMythos52(modelID) {
+				defaultReasoningLevel = "high"
+			}
 			descriptor.DefaultReasoningLevel = &defaultReasoningLevel
 			descriptor.SupportedReasoningLevels = levels
 		}
@@ -389,6 +392,16 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		}
 	}
 
+	if base := openai.GPT62ModelID(modelID); base != "" {
+		metadata := openai.CodexGPT62SolMetadata
+		if base == "gpt-6.2-astra" {
+			metadata = openai.CodexGPT62AstraMetadata
+		}
+		if err := json.Unmarshal(metadata, &descriptor); err != nil {
+			panic(fmt.Errorf("invalid bundled %s Codex descriptor: %w", base, err))
+		}
+		descriptor.Slug = modelID
+	}
 	if openai.IsGPT61TerraModelSpelling(modelID) {
 		// Overlay the official Codex model description. This intentionally
 		// differs from API pricing/effort validation (API still accepts none).

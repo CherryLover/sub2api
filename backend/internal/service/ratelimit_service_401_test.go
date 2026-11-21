@@ -357,3 +357,37 @@ func TestRateLimitService_HandleUpstreamError_OAuth401NoRefreshTokenSetsError(t 
 		require.Len(t, invalidator.accounts, 1)
 	})
 }
+
+// An Anthropic setup token is recoverable even when no refresh_token exists.
+// Explicit 401 cooldown settings remain respected, including Lite's default
+// Anthropic 401 cooldown disablement when the setting is zero.
+func TestRateLimitService_SetupToken401DoesNotPermanentlyDisable(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	invalidator := &tokenCacheInvalidatorRecorder{}
+	cfg := &config.Config{}
+	cfg.RateLimit.OAuth401CooldownMinutes = 10
+	svc := NewRateLimitService(repo, nil, cfg, nil, nil)
+	svc.SetTokenCacheInvalidator(invalidator)
+	account := &Account{ID: 105, Platform: PlatformAnthropic, Type: AccountTypeSetupToken,
+		Credentials: map[string]any{"access_token": "setup-token-access"}}
+	disabled := svc.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, []byte("unauthorized"))
+	require.True(t, disabled, "temporarily avoid this account while credentials recover")
+	require.Equal(t, 0, repo.setErrorCalls, "one setup-token 401 must not cause permanent disablement")
+	require.Equal(t, 1, repo.tempCalls)
+	require.Equal(t, int64(105), repo.lastTempID)
+	require.Len(t, invalidator.accounts, 1)
+}
+
+func TestRateLimitService_SetupToken401PreservesLiteDefaultCooldownPolicy(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	invalidator := &tokenCacheInvalidatorRecorder{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc.SetTokenCacheInvalidator(invalidator)
+	account := &Account{ID: 106, Platform: PlatformAnthropic, Type: AccountTypeSetupToken,
+		Credentials: map[string]any{"access_token": "setup-token-access"}}
+	disabled := svc.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, []byte("unauthorized"))
+	require.False(t, disabled, "Lite disables Anthropic 401 cooling by default")
+	require.Zero(t, repo.setErrorCalls)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, invalidator.accounts, 1)
+}

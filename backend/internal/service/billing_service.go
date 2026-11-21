@@ -450,6 +450,35 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown: false,
 	}
 
+	// Fable/Mythos 5.2 official fallback prices; these model IDs have no
+	// legacy family price. Do not overwrite explicit channel or group rates.
+	for _, model := range []string{"claude-fable-5-2", "claude-mythos-5-2"} {
+		p := claude52FallbackPricing
+		s.fallbackPrices[model] = &ModelPricing{
+			InputPricePerToken: p.InputCostPerToken, OutputPricePerToken: p.OutputCostPerToken,
+			CacheCreationPricePerToken: p.CacheCreationInputTokenCost,
+			CacheCreation5mPrice:       p.CacheCreationInputTokenCost,
+			CacheCreation1hPrice:       p.CacheCreationInputTokenCostAbove1hr,
+			CacheReadPricePerToken:     p.CacheReadInputTokenCost,
+			SupportsCacheBreakdown:     true,
+		}
+	}
+
+	// Gemini 4 Carbon introductory global rates are valid through 2026-11-30.
+	// The announced 2026-12-01 price transition needs a date-aware settlement
+	// policy before release; keep this shared catalog immutable and do not
+	// silently apply promotional prices beyond their validity.
+	// Implicit caching only: no cache storage charge.
+	s.fallbackPrices["gemini-4-carbon"] = &ModelPricing{
+		InputPricePerToken:             2e-6,
+		OutputPricePerToken:            10e-6,
+		CacheReadPricePerToken:         0.1e-6,
+		InputPricePerTokenPriority:     3.6e-6,
+		OutputPricePerTokenPriority:    18e-6,
+		CacheReadPricePerTokenPriority: 0.18e-6,
+		SupportsCacheBreakdown:         false,
+	}
+
 	// Gemini 4 Argon: $2/$10/$0.10 per MTok introductory rates until
 	// 2026-11-30; these explicit fallbacks cover Antigravity aliases.
 	s.fallbackPrices["gemini-4-argon"] = &ModelPricing{
@@ -530,6 +559,16 @@ func (s *BillingService) initFallbackPricing() {
 		LongContextInputMultiplier:         2,
 		LongContextOutputMultiplier:        1.5,
 	}
+	// GPT-6.2 Astra official standard token rates. Ultrafast pricing is
+	// deliberately excluded until the dated promotion is reviewed.
+	s.fallbackPrices["gpt-6.2-astra"] = &ModelPricing{
+		InputPricePerToken: 8e-6, InputPricePerTokenPriority: 16e-6,
+		OutputPricePerToken: 40e-6, OutputPricePerTokenPriority: 80e-6,
+		CacheCreationPricePerToken: 10e-6, CacheCreationPricePerTokenPriority: 20e-6,
+		CacheReadPricePerToken: 0.4e-6, CacheReadPricePerTokenPriority: 0.8e-6,
+		CacheCreationPriceExplicit: true,
+		LongContextInputThreshold:  272_000, LongContextInputMultiplier: 2, LongContextOutputMultiplier: 1.5,
+	}
 	s.fallbackPrices["gpt-6.1-sol"] = &ModelPricing{
 		InputPricePerToken:                 2e-6,
 		InputPricePerTokenPriority:         4e-6,
@@ -544,6 +583,8 @@ func (s *BillingService) initFallbackPricing() {
 		LongContextInputMultiplier:         2,
 		LongContextOutputMultiplier:        1.5,
 	}
+	// GPT-6.2 Sol shares the GPT-6.1 Sol static token price card.
+	s.fallbackPrices["gpt-6.2-sol"] = s.fallbackPrices["gpt-6.1-sol"]
 	s.fallbackPrices["gpt-6-sol"] = &ModelPricing{
 		InputPricePerToken:                 2e-6,
 		InputPricePerTokenPriority:         4e-6,
@@ -1025,6 +1066,12 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 
 	// 按模型系列匹配
+	if claude.IsFable52(modelLower) {
+		return s.fallbackPrices["claude-fable-5-2"]
+	}
+	if claude.IsMythos52(modelLower) {
+		return s.fallbackPrices["claude-mythos-5-2"]
+	}
 	if claude.IsOpus55(modelLower) {
 		return s.fallbackPrices["claude-opus-5-5"]
 	}
@@ -1077,6 +1124,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 	if strings.Contains(modelLower, "gemini-3.7-flash") || strings.Contains(modelLower, "gemini-3-7-flash") {
 		return s.fallbackPrices["gemini-3.7-flash"]
+	}
+	if normalizeGeminiThinkingTierAlias(lastSegment(strings.TrimSpace(modelLower))) == "gemini-4-carbon" {
+		return s.fallbackPrices["gemini-4-carbon"]
 	}
 	if strings.Contains(modelLower, "gemini-4-argon-cyber") {
 		return s.fallbackPrices["gemini-4-argon-cyber-permissive"]
@@ -1232,7 +1282,7 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// OpenAI（GPT-5 / Codex 族）：仅匹配已知型号，避免未知 OpenAI 型号误计价。
 	if normalized := normalizeKnownOpenAICodexModel(modelLower); normalized != "" {
 		switch normalized {
-		case "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna":
+		case "gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna":
 			return s.fallbackPrices[normalized]
 		case "gpt-6-astra":
 			return s.fallbackPrices["gpt-6-astra"]
@@ -1931,7 +1981,7 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 
 func openAIModelFastPricingRatio(normalized string) float64 {
 	switch normalized {
-	case "gpt-5.4", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna":
+	case "gpt-5.4", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra", "gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna":
 		return 2.0
 	case "gpt-5.5":
 		return 2.5

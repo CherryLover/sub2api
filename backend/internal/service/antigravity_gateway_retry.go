@@ -204,12 +204,18 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 
 		// MODEL_CAPACITY_EXHAUSTED 使用独立的重试参数（60 次，固定 1s 间隔）
 		maxAttempts := antigravitySmartRetryMaxAttempts
+		capacitySwitch := false
 		if isModelCapacityExhausted {
-			maxAttempts = antigravityModelCapacityRetryMaxAttempts
 			waitDuration = antigravityModelCapacityRetryWait
+			capacitySwitch = !isSingleAccountRetry(p.ctx)
+			if capacitySwitch {
+				maxAttempts = antigravityModelCapacitySwitchAttempts
+			} else {
+				maxAttempts = antigravityModelCapacityRetryMaxAttempts
+			}
 
 			// 全局去重：如果其他 goroutine 已在重试同一模型且尚在 cooldown 中，直接返回 503
-			if modelName != "" {
+			if modelName != "" && !capacitySwitch {
 				modelCapacityExhaustedMu.RLock()
 				cooldownUntil, exists := modelCapacityExhaustedUntil[modelName]
 				modelCapacityExhaustedMu.RUnlock()
@@ -256,7 +262,17 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 				}
 			}
 
-			retryResp, retryErr := p.httpUpstream.Do(retryReq, p.proxyURL, p.account.ID, p.account.Concurrency)
+			retryResp, retryErr := s.doAntigravityUpstreamRequest(p, retryReq)
+			var firstByteFailover *UpstreamFailoverError
+			if errors.As(retryErr, &firstByteFailover) || p.ctx.Err() != nil {
+				if lastRetryResp != nil {
+					_ = lastRetryResp.Body.Close()
+				}
+				if p.ctx.Err() != nil {
+					retryErr = p.ctx.Err()
+				}
+				return &smartRetryResult{action: smartRetryActionBreakWithResp, err: retryErr}
+			}
 			if retryErr == nil && retryResp != nil && retryResp.StatusCode != http.StatusTooManyRequests && retryResp.StatusCode != http.StatusServiceUnavailable {
 				log.Printf("%s status=%d smart_retry_success attempt=%d/%d", p.prefix, retryResp.StatusCode, attempt, maxAttempts)
 				// 重试成功，清除 MODEL_CAPACITY_EXHAUSTED cooldown
@@ -282,12 +298,16 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			if retryResp != nil {
 				lastRetryBody, _ = io.ReadAll(io.LimitReader(retryResp.Body, 8<<10))
 				_ = retryResp.Body.Close()
+				if firstByteErr := antigravityFirstByteResponseError(retryResp, p.prefix); firstByteErr != nil {
+					return &smartRetryResult{action: smartRetryActionBreakWithResp, err: firstByteErr}
+				}
 			}
 
-			// 解析新的重试信息，用于下次重试的等待时间（MODEL_CAPACITY_EXHAUSTED 使用固定循环，跳过）
-			if !isModelCapacityExhausted && attempt < maxAttempts && lastRetryBody != nil {
-				newShouldRetry, _, newWaitDuration, _, _ := shouldTriggerAntigravitySmartRetry(p.account, lastRetryBody)
-				if newShouldRetry && newWaitDuration > 0 {
+			// The final upstream RetryInfo also determines the model cooldown.
+			// Capacity exhaustion retains its independent fixed retry policy.
+			if !isModelCapacityExhausted && lastRetryBody != nil {
+				newShouldRetry, newShouldRateLimit, newWaitDuration, newModelName, newIsCapacity := shouldTriggerAntigravitySmartRetry(p.account, lastRetryBody)
+				if !newIsCapacity && (newShouldRetry || newShouldRateLimit) && newModelName == modelName && newWaitDuration > 0 {
 					waitDuration = newWaitDuration
 				}
 			}
@@ -301,6 +321,17 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		retryBody := lastRetryBody
 		if retryBody == nil {
 			retryBody = respBody
+		}
+
+		if isModelCapacityExhausted && capacitySwitch {
+			resetAt := time.Now().Add(antigravityModelCapacityAccountCooldown)
+			if modelName != "" && setModelRateLimitByModelName(p.ctx, p.accountRepo, p.account.ID, modelName, p.prefix, resp.StatusCode, resetAt, true) {
+				s.updateAccountModelRateLimitInCache(p.ctx, p.account, modelName, resetAt)
+			}
+			s.clearStickySession(p.ctx, p.groupID, p.sessionHash)
+			return &smartRetryResult{action: smartRetryActionBreakWithResp, switchError: &AntigravityAccountSwitchError{
+				OriginalAccountID: p.account.ID, RateLimitedModel: modelName, IsStickySession: p.isStickySession,
+			}}
 		}
 
 		// MODEL_CAPACITY_EXHAUSTED：模型容量不足，切换账号无意义
@@ -431,7 +462,17 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 			break
 		}
 
-		retryResp, retryErr := p.httpUpstream.Do(retryReq, p.proxyURL, p.account.ID, p.account.Concurrency)
+		retryResp, retryErr := s.doAntigravityUpstreamRequest(p, retryReq)
+		var firstByteFailover *UpstreamFailoverError
+		if errors.As(retryErr, &firstByteFailover) || p.ctx.Err() != nil {
+			if lastRetryResp != nil {
+				_ = lastRetryResp.Body.Close()
+			}
+			if p.ctx.Err() != nil {
+				retryErr = p.ctx.Err()
+			}
+			return &smartRetryResult{action: smartRetryActionBreakWithResp, err: retryErr}
+		}
 		if retryErr == nil && retryResp != nil && retryResp.StatusCode != http.StatusTooManyRequests && retryResp.StatusCode != http.StatusServiceUnavailable {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d single_account_503_retry_success attempt=%d/%d total_waited=%v",
 				p.prefix, retryResp.StatusCode, attempt, antigravitySingleAccountSmartRetryMaxAttempts, totalWaited)
@@ -456,6 +497,9 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 		lastRetryResp = retryResp
 		lastRetryBody, _ = io.ReadAll(io.LimitReader(retryResp.Body, 8<<10))
 		_ = retryResp.Body.Close()
+		if firstByteErr := antigravityFirstByteResponseError(retryResp, p.prefix); firstByteErr != nil {
+			return &smartRetryResult{action: smartRetryActionBreakWithResp, err: firstByteErr}
+		}
 
 		// 解析新的重试信息，更新下次等待时间
 		if attempt < antigravitySingleAccountSmartRetryMaxAttempts && lastRetryBody != nil {
@@ -568,11 +612,18 @@ urlFallbackLoop:
 				return nil, err
 			}
 
-			resp, err = p.httpUpstream.Do(upstreamReq, p.proxyURL, p.account.ID, p.account.Concurrency)
+			resp, err = s.doAntigravityUpstreamRequest(p, upstreamReq)
 			if err == nil && resp == nil {
 				err = errors.New("upstream returned nil response")
 			}
 			if err != nil {
+				var failoverErr *UpstreamFailoverError
+				if errors.As(err, &failoverErr) {
+					return nil, err
+				}
+				if p.ctx.Err() != nil {
+					return nil, p.ctx.Err()
+				}
 				safeErr := sanitizeUpstreamErrorMessage(err.Error())
 				appendOpsUpstreamError(p.c, OpsUpstreamErrorEvent{
 					Platform:           p.account.Platform,
@@ -604,6 +655,9 @@ urlFallbackLoop:
 			if resp.StatusCode >= 400 {
 				respBody := s.readUpstreamErrorBody(resp)
 				_ = resp.Body.Close()
+				if firstByteErr := antigravityFirstByteResponseError(resp, p.prefix); firstByteErr != nil {
+					return nil, firstByteErr
+				}
 
 				// No account cooldown or policy penalties for a provider
 				// endpoint catalog miss: retry the eligible next URL first.
@@ -621,6 +675,17 @@ urlFallbackLoop:
 						Header:     resp.Header.Clone(),
 						Body:       io.NopCloser(bytes.NewReader(respBody)),
 					}, nil)
+				}
+
+				// 账号/模型不匹配的 404 不是账号健康问题：直接交给上层换号，
+				// 不让自定义错误码策略把它误记成账号或模型的限流/停用。
+				if s.isAntigravityAccountModelUnavailableError(resp.StatusCode, respBody) {
+					resp = &http.Response{
+						StatusCode: resp.StatusCode,
+						Header:     resp.Header.Clone(),
+						Body:       io.NopCloser(bytes.NewReader(respBody)),
+					}
+					break urlFallbackLoop
 				}
 
 				// ★ 统一入口：自定义错误码 + 临时不可调度
@@ -819,6 +884,38 @@ func (s *AntigravityGatewayService) shouldFailoverUpstreamError(statusCode int) 
 	default:
 		return statusCode >= 500
 	}
+}
+
+// antigravityRequestedEntityNotFoundMessage 是 Antigravity 目录不包含请求模型时
+// 上游返回的确定性 404 文案。账号的模型映射通常由运营方维护，映射到某个账号
+// 未开通的模型时只有换号才能成功；它既不表示账号健康异常，也不代表请求体非法。
+const antigravityRequestedEntityNotFoundMessage = "requested entity was not found"
+
+// isAntigravityAccountModelUnavailableError 识别“当前账号不支持该模型”的窄 404。
+//
+// 只接受 404 且错误消息与 "Requested entity was not found." 完全一致（忽略大小写、
+// 首尾空白和句末标点），避免把上游 base_url 配错、路由不存在等真实 404 也当成换号
+// 信号。v1internal 的 response 包装会先解包再匹配。
+func (s *AntigravityGatewayService) isAntigravityAccountModelUnavailableError(statusCode int, body []byte) bool {
+	if statusCode != http.StatusNotFound {
+		return false
+	}
+	candidates := [][]byte{body}
+	if s != nil {
+		if unwrapped, err := s.unwrapV1InternalResponse(body); err == nil && !bytes.Equal(unwrapped, body) {
+			candidates = append(candidates, unwrapped)
+		}
+	}
+	for _, candidate := range candidates {
+		msg := strings.ToLower(strings.TrimSpace(extractAntigravityErrorMessage(candidate)))
+		if msg == "" && !json.Valid(candidate) {
+			msg = strings.ToLower(strings.TrimSpace(string(candidate)))
+		}
+		if strings.TrimRight(msg, ".! ") == antigravityRequestedEntityNotFoundMessage {
+			return true
+		}
+	}
+	return false
 }
 
 // isGoogleProjectConfigError 判断（已提取的小写）错误消息是否属于 Google 服务端配置类问题。

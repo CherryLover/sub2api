@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
@@ -379,16 +378,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	// 优先使用 Gemini CLI 的会话标识（privileged-user-id + tmp 目录哈希）
 	sessionHash := extractGeminiCLISessionHash(c, body)
 	if sessionHash == "" {
-		// Fallback: 使用通用的会话哈希生成逻辑（适用于其他客户端）
-		parsedReq, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
-		if parsedReq != nil {
-			parsedReq.SessionContext = &service.SessionContext{
-				ClientIP:  ip.GetClientIP(c),
-				UserAgent: c.GetHeader("User-Agent"),
-				APIKeyID:  apiKey.ID,
-			}
-		}
-		sessionHash = h.gatewayService.GenerateSessionHash(parsedReq)
+		sessionHash = h.geminiNativeFallbackSessionHash(c, apiKey.ID, reqModel, body)
 	}
 	sessionKey := sessionHash
 	if sessionHash != "" {
@@ -657,6 +647,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
 		// 5) forward (根据平台分流)
+		writerSizeBeforeForward := c.Writer.Size()
 		var result *service.ForwardResult
 		requestCtx := c.Request.Context()
 		if fs.SwitchCount > 0 {
@@ -684,6 +675,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
+				if !gatewayForwardMayFailover(c, writerSizeBeforeForward, failoverErr) {
+					h.handleGeminiFailoverExhausted(c, failoverErr)
+					return
+				}
 				if boundCache != nil {
 					h.handleGeminiFailoverExhausted(c, failoverErr)
 					return
@@ -703,6 +698,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			// 转发层已写出错误响应；客户端断开时转发层不写，响应未提交则标记 499。
 			failoverClientGone(c)
 			reqLog.Error("gemini.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			if stream {
+				middleware.MarkAbortTruncatedStream(c)
+			}
 			return
 		}
 
@@ -792,7 +790,7 @@ func parseGeminiModelAction(rest string) (model string, action string, err error
 
 func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError) {
 	if failoverErr == nil {
-		googleError(c, http.StatusBadGateway, "Upstream request failed")
+		writeGeminiFailoverError(c, http.StatusBadGateway, "Upstream request failed")
 		return
 	}
 
@@ -818,7 +816,7 @@ func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverE
 				c.Set(service.OpsSkipPassthroughKey, true)
 			}
 
-			googleError(c, respCode, msg)
+			writeGeminiFailoverError(c, respCode, msg)
 			return
 		}
 	}
@@ -829,7 +827,7 @@ func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverE
 
 	// 使用默认的错误映射
 	status, message := mapGeminiUpstreamError(statusCode)
-	googleError(c, status, message)
+	writeGeminiFailoverError(c, status, message)
 }
 
 func mapGeminiUpstreamError(statusCode int) (int, string) {
@@ -978,4 +976,8 @@ func derefGroupID(groupID *int64) int64 {
 		return 0
 	}
 	return *groupID
+}
+
+func (h *GatewayHandler) geminiNativeFallbackSessionHash(_ *gin.Context, keyID int64, model string, body []byte) string {
+	return service.GenerateGeminiContentSessionHash(keyID, model, body)
 }

@@ -773,7 +773,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 			UsageTokens{
 				InputTokens:           result.Usage.InputTokens,
 				OutputTokens:          result.Usage.OutputTokens,
-				CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
+				CacheCreationTokens:   result.Usage.effectiveCacheCreationTokens(),
 				CacheReadTokens:       result.Usage.CacheReadInputTokens,
 				CacheCreation5mTokens: result.Usage.CacheCreation5mTokens,
 				CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
@@ -1014,6 +1014,16 @@ func (s *GatewayService) calculateImageCost(
 	return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
 }
 
+// effectiveCacheCreationTokens keeps persisted usage totals consistent when
+// Anthropic returns only TTL-specific cache creation buckets. A positive
+// aggregate remains authoritative when it differs from the bucket snapshot.
+func (usage ClaudeUsage) effectiveCacheCreationTokens() int {
+	if usage.CacheCreationInputTokens > 0 {
+		return usage.CacheCreationInputTokens
+	}
+	return max(usage.CacheCreation5mTokens, 0) + max(usage.CacheCreation1hTokens, 0)
+}
+
 // calculateTokenCost 计算 Token 计费：根据 opts 决定走普通/长上下文/渠道统一计费。
 func (s *GatewayService) calculateTokenCost(
 	ctx context.Context,
@@ -1027,7 +1037,7 @@ func (s *GatewayService) calculateTokenCost(
 	tokens := UsageTokens{
 		InputTokens:           result.Usage.InputTokens,
 		OutputTokens:          result.Usage.OutputTokens,
-		CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
+		CacheCreationTokens:   result.Usage.effectiveCacheCreationTokens(),
 		CacheReadTokens:       result.Usage.CacheReadInputTokens,
 		CacheCreation5mTokens: result.Usage.CacheCreation5mTokens,
 		CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
@@ -1121,7 +1131,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		UpstreamEndpoint:      optionalTrimmedStringPtr(input.UpstreamEndpoint),
 		InputTokens:           result.Usage.InputTokens,
 		OutputTokens:          result.Usage.OutputTokens,
-		CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
+		CacheCreationTokens:   result.Usage.effectiveCacheCreationTokens(),
 		CacheReadTokens:       result.Usage.CacheReadInputTokens,
 		CacheCreation5mTokens: result.Usage.CacheCreation5mTokens,
 		CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,

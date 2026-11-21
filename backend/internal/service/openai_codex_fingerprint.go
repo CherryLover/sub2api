@@ -270,6 +270,7 @@ type codexFingerprintIDs struct {
 	turnID                        string
 	windowID                      string
 	turnStartedAtUnixMs           int64
+	originalClientSessionID       string
 	originalBodySessionID         string
 	originalBodySessionIDCaptured bool
 }
@@ -289,9 +290,10 @@ func resolveCodexFingerprintIDs(account *Account, clientSessionID string, mode c
 	}
 
 	ids := &codexFingerprintIDs{
-		accountID:           account.ID,
-		mode:                mode,
-		turnStartedAtUnixMs: time.Now().UnixMilli(),
+		accountID:               account.ID,
+		originalClientSessionID: strings.TrimSpace(clientSessionID),
+		mode:                    mode,
+		turnStartedAtUnixMs:     time.Now().UnixMilli(),
 	}
 
 	ids.installationID = resolveConvergedInstallationID(account, seed)
@@ -501,13 +503,17 @@ func captureCodexFingerprintOriginalBodySessionIDRaw(ids *codexFingerprintIDs, v
 }
 
 func shouldRewriteCodexFingerprintPromptCacheKey(ids *codexFingerprintIDs, promptCacheKey string) bool {
-	if ids == nil || !ids.originalBodySessionIDCaptured || ids.originalBodySessionID == "" || ids.sessionID == "" {
+	if ids == nil || ids.sessionID == "" || promptCacheKey == "" {
 		return false
 	}
 	if ids.mode != codexFingerprintSession && ids.mode != codexFingerprintFull {
 		return false
 	}
-	return promptCacheKey == ids.originalBodySessionID
+	// Ephemeral forks retain their parent's session header and cache key but
+	// declare a child session in metadata. Recognize either proven session
+	// identity; unrelated caller-specified cache keys remain opaque.
+	return (ids.originalBodySessionIDCaptured && ids.originalBodySessionID != "" && promptCacheKey == ids.originalBodySessionID) ||
+		(ids.originalClientSessionID != "" && promptCacheKey == ids.originalClientSessionID)
 }
 
 func applyCodexFingerprintPromptCacheKey(reqBody map[string]any, ids *codexFingerprintIDs) bool {

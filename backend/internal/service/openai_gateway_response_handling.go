@@ -182,14 +182,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		streamInterval = resolveGrokStreamIdleTimeout(cfgSec)
 	}
 	// 仅监控上游数据间隔超时，不被下游写入阻塞影响
-	var intervalTicker *time.Ticker
+	var intervalTimer *time.Timer
 	if streamInterval > 0 {
-		intervalTicker = time.NewTicker(streamInterval)
-		defer intervalTicker.Stop()
+		intervalTimer = time.NewTimer(streamInterval)
+		defer intervalTimer.Stop()
 	}
 	var intervalCh <-chan time.Time
-	if intervalTicker != nil {
-		intervalCh = intervalTicker.C
+	if intervalTimer != nil {
+		intervalCh = intervalTimer.C
 	}
 
 	keepaliveInterval := time.Duration(0)
@@ -330,13 +330,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	needModelReplace := originalModel != mappedModel
 	var createdAtStamper responsesCreatedAtStamper
 	streamOutputAccumulator := apicompat.NewBufferedResponseAccumulator()
+	streamOutputAccumulator.XAIServerSideSearch = account != nil && account.IsGrok()
 	streamDoneItems := newResponsesStreamOutputItems()
 	streamImageOutputs := make([]json.RawMessage, 0, 1)
 	streamSeenImages := make(map[string]struct{})
 	searchCounter := 0
 	// Dedup search tool calls across SSE events (item.done + response.completed
 	// both list the same call_id — counting both would ~2× the surcharge).
-	streamSearchSeen := make(map[string]struct{})
+	var streamSearchCounter grokSearchStreamCounter
 	resultWithUsage := func() *openaiStreamingResult {
 		return &openaiStreamingResult{
 			usage:            usage,
@@ -448,9 +449,56 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		sendErrorEvent(code, message)
 		return resultWithUsage(), fmt.Errorf("stream read error: %w", scanErr), true
 	}
+	// Upstream SSE keepalive events are protocol frames, not semantic first
+	// output. Deliver them without exposing attempt-specific buffered frames or
+	// stopping the first-output timeout, so downstream SDK idle timers can reset.
+	upstreamKeepaliveEvent := false
+	keepaliveEventDirect := false
+	writeKeepaliveDirect := func(fragment string) {
+		if clientDisconnected {
+			return
+		}
+		n, err := w.Write([]byte(fragment))
+		recordOpenAIStreamKeepaliveBytes(c, n)
+		if err != nil {
+			clientDisconnected = true
+			logger.LegacyPrintf("service.openai_gateway", "Client disconnected while forwarding upstream SSE keepalive")
+		}
+	}
 	processSSELine := func(line string, queueDrained bool) {
 		if streamEarlyErr != nil {
 			return
+		}
+		if stageFirstOutput && firstOutputStage != nil && !firstOutputStage.closed {
+			if strings.HasPrefix(line, "event:") {
+				upstreamKeepaliveEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:")) == "keepalive"
+				if upstreamKeepaliveEvent {
+					keepaliveEventDirect = true
+					eventInProgress = true
+					writeKeepaliveDirect(line + "\n")
+					return
+				}
+			}
+			if data, ok := extractOpenAISSEDataLine(line); ok &&
+				(upstreamKeepaliveEvent || strings.TrimSpace(gjson.Get(data, "type").String()) == "keepalive") {
+				keepaliveEventDirect = true
+				eventInProgress = true
+				writeKeepaliveDirect(line + "\n")
+				return
+			}
+			if keepaliveEventDirect {
+				writeKeepaliveDirect(line + "\n")
+				if line == "" {
+					keepaliveEventDirect = false
+					upstreamKeepaliveEvent = false
+					eventInProgress = false
+					if !clientDisconnected {
+						flusher.Flush()
+						lastDownstreamWriteAt = time.Now()
+					}
+				}
+				return
+			}
 		}
 		// Extract data from SSE line (supports both "data: " and "data:" formats)
 		if data, ok := extractOpenAISSEDataLine(line); ok {
@@ -546,7 +594,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				line = "data: " + data
 			}
 			imageCounter.AddSSEData(dataBytes)
-			searchCounter += countGrokNativeSearchCallsInSSEDataDedup(dataBytes, streamSearchSeen)
+			if account != nil && account.IsGrok() {
+				searchCounter = streamSearchCounter.observe(dataBytes)
+			}
 
 			// Correct Codex tool calls if needed (apply_patch -> edit, etc.)
 			if correctedData, corrected := s.toolCorrector.CorrectToolCallsInSSEBytes(dataBytes); corrected {
@@ -796,7 +846,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
-			if time.Since(lastRead) < streamInterval {
+			if remaining := streamInterval - time.Since(lastRead); remaining > 0 {
+				intervalTimer.Reset(remaining)
 				continue
 			}
 			if clientDisconnected {
@@ -806,6 +857,18 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			// 处理流超时，可能标记账户为临时不可调度或错误状态
 			if s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+			}
+			if account != nil && account.Platform == PlatformOpenAI &&
+				!openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
+				_ = resp.Body.Close()
+				failoverErr := s.newOpenAIStreamFailoverError(
+					c, account, false, upstreamRequestID, nil,
+					"OpenAI upstream stream idle timeout before model output", resp.Header,
+				)
+				// Reuse the first-output one-switch budget so a stalled request
+				// cannot walk through and cool the entire account pool.
+				failoverErr.SafeToFailoverAfterWrite = true
+				return resultWithUsage(), failoverErr
 			}
 			// Grok: short cool + account failover when no client-visible bytes
 			// were committed yet (pre-commit). After output started we keep the

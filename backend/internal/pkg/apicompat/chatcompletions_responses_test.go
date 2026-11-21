@@ -779,14 +779,19 @@ func TestChatCompletionsToResponses_AssistantThinkingTagPreserved(t *testing.T) 
 
 	var items []ResponsesInputItem
 	require.NoError(t, json.Unmarshal(resp.Input, &items))
-	require.Len(t, items, 2)
+	require.Len(t, items, 3)
+	assert.Equal(t, "reasoning", items[1].Type)
+	var summary []ResponsesSummary
+	require.NoError(t, json.Unmarshal(items[1].Summary, &summary))
+	require.Len(t, summary, 1)
+	assert.Equal(t, "internal plan", summary[0].Text)
 
 	var parts []ResponsesContentPart
-	require.NoError(t, json.Unmarshal(items[1].Content, &parts))
+	require.NoError(t, json.Unmarshal(items[2].Content, &parts))
 	require.Len(t, parts, 1)
 	assert.Equal(t, "output_text", parts[0].Type)
-	assert.Contains(t, parts[0].Text, "<thinking>internal plan</thinking>")
-	assert.Contains(t, parts[0].Text, "final answer")
+	assert.NotContains(t, parts[0].Text, "<thinking>")
+	assert.Equal(t, "final answer", parts[0].Text)
 }
 
 func TestChatCompletionsToResponses_AssistantReasoningContentPreserved(t *testing.T) {
@@ -807,14 +812,19 @@ func TestChatCompletionsToResponses_AssistantReasoningContentPreserved(t *testin
 
 	var items []ResponsesInputItem
 	require.NoError(t, json.Unmarshal(resp.Input, &items))
-	require.Len(t, items, 2)
+	require.Len(t, items, 3)
+	assert.Equal(t, "reasoning", items[1].Type)
+	var summary []ResponsesSummary
+	require.NoError(t, json.Unmarshal(items[1].Summary, &summary))
+	require.Len(t, summary, 1)
+	assert.Equal(t, "internal plan", summary[0].Text)
 
 	var parts []ResponsesContentPart
-	require.NoError(t, json.Unmarshal(items[1].Content, &parts))
+	require.NoError(t, json.Unmarshal(items[2].Content, &parts))
 	require.Len(t, parts, 1)
 	assert.Equal(t, "output_text", parts[0].Type)
-	assert.Contains(t, parts[0].Text, "<thinking>internal plan</thinking>")
-	assert.Contains(t, parts[0].Text, "final answer")
+	assert.NotContains(t, parts[0].Text, "<thinking>")
+	assert.Equal(t, "final answer", parts[0].Text)
 }
 
 // ---------------------------------------------------------------------------

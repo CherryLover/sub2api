@@ -11,6 +11,8 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-6.2-sol":          "gpt-6.2-sol",
+	"gpt-6.2-astra":        "gpt-6.2-astra",
 	"gpt-6.1-terra":        "gpt-6.1-terra",
 	"gpt-6.1-sol":          "gpt-6.1-sol",
 	"gpt-6-sol":            "gpt-6-sol",
@@ -65,6 +67,8 @@ var codexVersionModelPrefixes = []struct {
 	target string
 }{
 	{prefix: "gpt-6.1-terra", target: "gpt-6.1-terra"},
+	{prefix: "gpt-6.2-sol", target: "gpt-6.2-sol"},
+	{prefix: "gpt-6.2-astra", target: "gpt-6.2-astra"},
 	{prefix: "gpt-6.1-sol", target: "gpt-6.1-sol"},
 	{prefix: "gpt-6-sol", target: "gpt-6-sol"},
 	{prefix: "gpt-6-luna", target: "gpt-6-luna"},
@@ -263,18 +267,23 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 		}
 	}
 
-	// ChatGPT internal Codex endpoint does not accept role:"system".
-	// Mirror its text into instructions because Codex OAuth requires it. Some
-	// callers must also keep the guidance in input as developer (notably
-	// Responses JSON object mode), while Chat Completions compatibility can
-	// omit text-only messages after promoting them losslessly.
-	if extractSystemMessagesFromInput(reqBody, opts.OmitPromotedSystemMessagesFromInput) {
-		result.Modified = true
-	}
-
-	// instructions 处理逻辑：根据是否是 Codex CLI 分别调用不同方法
-	if !opts.SkipDefaultInstructions && applyInstructions(reqBody, opts.IsCodexCLI) {
-		result.Modified = true
+	cacheableInstructions := !opts.IsCompact && openai.GPT62ModelID(normalizedModel) != ""
+	if cacheableInstructions {
+		if normalizeGPT62SystemMessages(reqBody) {
+			result.Modified = true
+		}
+		if !opts.SkipDefaultInstructions && applyGPT62DefaultInstructions(reqBody, normalizedModel) {
+			result.Modified = true
+		}
+	} else {
+		// Older Codex endpoints retain their system-to-instructions promotion.
+		// GPT-6.2 keeps this guidance in input so multi-turn prefixes can cache.
+		if extractSystemMessagesFromInput(reqBody, opts.OmitPromotedSystemMessagesFromInput) {
+			result.Modified = true
+		}
+		if !opts.SkipDefaultInstructions && applyInstructions(reqBody, opts.IsCodexCLI) {
+			result.Modified = true
+		}
 	}
 	if isCodexSparkModel(normalizedModel) && applyCodexSparkImageUnsupportedInstructions(reqBody) {
 		result.Modified = true
@@ -1385,6 +1394,7 @@ func filterCodexInput(input []any, preserveReferences bool) []any {
 
 func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []any {
 	filtered := make([]any, 0, len(input))
+	additionalToolsIDs := codexAdditionalToolsIDMappings(input)
 	for _, item := range input {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -1456,8 +1466,12 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 			for key, value := range m {
 				newItem[key] = value
 			}
-			if id, ok := newItem["id"].(string); ok && strings.HasPrefix(id, "call_") {
-				newItem["id"] = fixCallIDPrefix(id)
+			if id, ok := newItem["id"].(string); ok {
+				if normalized, exists := additionalToolsIDs[id]; exists {
+					newItem["id"] = normalized
+				} else if strings.HasPrefix(id, "call_") {
+					newItem["id"] = fixCallIDPrefix(id)
+				}
 			}
 			filtered = append(filtered, newItem)
 			continue
@@ -1517,7 +1531,15 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 			}
 		}
 
-		if !opts.PreserveReferences {
+		// Additional tool declarations belong to this request, not stored history.
+		if typ == "additional_tools" {
+			if id, ok := m["id"].(string); ok {
+				if normalized, exists := additionalToolsIDs[id]; exists {
+					ensureCopy()
+					newItem["id"] = normalized
+				}
+			}
+		} else if !opts.PreserveReferences {
 			ensureCopy()
 			delete(newItem, "id")
 		} else if id, ok := m["id"].(string); ok && shouldStripOpenAIResponsesInputItemID(typ, id) {

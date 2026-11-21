@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -372,6 +373,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
 		if isRequestBodyMemoryBudgetExhausted(err) {
+			c.Header("Retry-After", "1")
 			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Request body memory budget exhausted")
 			return
 		}
@@ -383,8 +385,17 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 
+	if !h.admitOpenAIJSONProcessing(c, body, false) {
+		return
+	}
 	if len(body) == 0 {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+		return
+	}
+
+	// Reject malformed client encodings before JSON transformation or routing.
+	if !utf8.Valid(body) {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body must be valid UTF-8 JSON. Send UTF-8 encoded bytes.")
 		return
 	}
 
@@ -432,6 +443,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	}
 	if cappedBody, changed := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); changed {
 		body = cappedBody
+	}
+	if normalizedBody, changed := normalizeCodexUntrustedContext(body); changed {
+		body = normalizedBody
+		reqLog.Info("openai.codex_untrusted_context_normalized", zap.String("normalization", "call_output_to_user_message"))
 	}
 
 	reqStream, ok := parseOpenAICompatibleStream(body)
@@ -549,6 +564,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
 	firstOutputTimeoutSwitchCount := 0
+	streamKeyReplayUsed := false
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
@@ -758,11 +774,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			})
 		}
 		if err != nil {
-			if result == nil && isRequestBodyMemoryBudgetExhausted(err) {
-				// Local memory pressure is not an upstream failure. Do not
-				// penalize the account or retry against another account.
-				c.Header("Retry-After", "1")
-				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Request body memory budget exhausted", streamStarted)
+			if result == nil && h.handleOpenAIProcessingMemoryError(c, err, false, streamStarted) {
 				return
 			}
 			if result != nil && result.ClientDisconnect {
@@ -813,12 +825,22 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
+					streamKeyFailure := reqStream && account.Platform == service.PlatformOpenAI && account.Type == service.AccountTypeAPIKey &&
+						failoverErr.StatusCode == http.StatusBadGateway && failoverErr.StreamFailureBeforeOutput && !failoverErr.IsCredentialFailure() && !failoverErr.RequestScopedTransient
+					if streamKeyFailure {
+						if streamKeyReplayUsed || !service.OpenAIStreamKeyReplayAllowed(c.Request.Context(), sessionHashBody) {
+							h.handleFailoverExhausted(c, failoverErr, streamStarted)
+							return
+						}
+						streamKeyReplayUsed = true
+						maxAccountSwitches = min(maxAccountSwitches, switchCount+1)
+					}
 					if openAIFirstOutputFailoverExhausted(failoverErr, &firstOutputTimeoutSwitchCount) {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
 					// 池模式：同账号重试
-					if failoverErr.RetryableOnSameAccount {
+					if failoverErr.RetryableOnSameAccount && !streamKeyFailure {
 						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 						if sameAccountRetryCount[account.ID] < retryLimit && sameAccountRetryDeadlineAllows(failoverErr) {
 							sameAccountRetryCount[account.ID]++
@@ -1123,6 +1145,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
 		if isRequestBodyMemoryBudgetExhausted(err) {
+			c.Header("Retry-After", "1")
 			h.anthropicErrorResponse(c, http.StatusServiceUnavailable, "api_error", "Request body memory budget exhausted")
 			return
 		}
@@ -1131,6 +1154,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			return
 		}
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		return
+	}
+	if !h.admitOpenAIJSONProcessing(c, body, true) {
 		return
 	}
 	if len(body) == 0 {
@@ -1320,7 +1346,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
 		// 应用渠道模型映射到请求体
 		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
-		writerSizeBeforeForward := c.Writer.Size()
+		writerSizeBeforeForward := service.OpenAICompactKeepaliveAdjustedWrittenSize(c)
 		routingTrace.BeginAttempt(account)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
@@ -1391,6 +1417,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			})
 		}
 		if err != nil {
+			if result == nil && h.handleOpenAIProcessingMemoryError(c, err, true, streamStarted) {
+				return
+			}
 			if result != nil && result.ImageCount > 0 {
 				reqLog.Warn("openai_messages.forward_partial_error_with_image_result",
 					zap.Int64("account_id", account.ID),
@@ -1407,9 +1436,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						)
 						return
 					}
-					if c.Writer.Size() != writerSizeBeforeForward {
+					if !openAIForwardMayFailover(c, writerSizeBeforeForward, failoverErr) {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, true)
 						return
+					}
+					if c.Writer.Written() {
+						streamStarted = true
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
 						h.gatewayService.ReportOpenAIAccountScheduleFailure(account, account.GetMappedModel(currentRoutingModel), err)
@@ -1562,16 +1594,20 @@ func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, 
 		h.anthropicStreamingAwareError(c, status, "api_error", message, streamStarted)
 		return
 	}
+	if status, kind, message, matched := service.ApplyOpenAIStreamFailedFrameRule(c, failoverErr); matched {
+		h.anthropicStreamingAwareError(c, status, kind, message, streamStarted || c.Writer.Written())
+		return
+	}
 	status, errType, errMsg := h.mapUpstreamError(failoverErr.StatusCode)
 	h.anthropicStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
 
 // ensureAnthropicErrorResponse writes a fallback Anthropic error if no response was written.
 func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponse(c *gin.Context, streamStarted bool) bool {
-	if c == nil || c.Writer == nil || c.Writer.Written() {
+	if c == nil || c.Writer == nil || service.OpenAICompactKeepaliveAdjustedWrittenSize(c) >= 0 {
 		return false
 	}
-	h.anthropicStreamingAwareError(c, http.StatusBadGateway, "api_error", "Upstream request failed", streamStarted)
+	h.anthropicStreamingAwareError(c, http.StatusBadGateway, "api_error", "Upstream request failed", streamStarted || c.Writer.Written())
 	return true
 }
 
@@ -1647,6 +1683,14 @@ const (
 // 零值并回退到 TurnStarted 记录的首轮开始时刻。后续 turn 在 response.create
 // 写入上游前调用 BeforeTurn，按当时的利润门复核并冻结定价。绝不能用建连时刻
 // 初始化，否则会把长连接的所有 turn 钉死在建连时的峰谷因子。
+// Immutable snapshot carried across account retries of the same logical WS turn.
+// A new client turn still refreshes its group and freezes a new pricing instant.
+type openAIWSReplayTurnSnapshot struct {
+	ctx context.Context
+	key *service.APIKey
+	at  time.Time
+}
+
 type openAIWSTurnPricing struct {
 	mu sync.Mutex
 	at time.Time
@@ -2196,6 +2240,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	wsAttemptMessage := append([]byte(nil), firstMessage...)
+	ctx, releaseNativeReplayBudget := h.gatewayService.WithOpenAIWSNativeReplayBudget(ctx)
+	defer releaseNativeReplayBudget()
+	var replayTurnSnapshot *openAIWSReplayTurnSnapshot
 	handleWSFailover := func(account *service.Account, failoverErr *service.UpstreamFailoverError) bool {
 		if ctx.Err() != nil {
 			return false
@@ -2389,6 +2436,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 		maxReasoningEffort, reasoningEffortMappings, _ := openAIReasoningEffortPolicyForRequest(c, apiKey)
 		var requestPayloadHash string
+		attemptReplaySnapshot := replayTurnSnapshot
+		var currentTurnSnapshot atomic.Pointer[openAIWSReplayTurnSnapshot]
 		var turnStartsMu sync.Mutex
 		turnStarts := make(map[int]time.Time, 4)
 		recordTurnStart := func(turn int, startedAt time.Time) {
@@ -2487,8 +2536,19 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				// 长连接跨峰谷/倍率刷新防护：每个 turn 按当前时刻重装门并复核
 				// 当前账号，越线即要求客户端重连重选（连接绑定单一上游账号，
 				// 无法中途换号）。本 turn 的准入与计费共用同一 pricingAt。
-				turnBillingCtx := turnBillingAPIKeys.begin(ctx, h.apiKeyService, turn, apiKey)
-				turnCtx, turnAt := h.gatewayService.WithOpenAITurnPricingContext(turnBillingCtx, apiKey.GroupID)
+				var turnCtx context.Context
+				var turnAt time.Time
+				if turn == 1 && attemptReplaySnapshot != nil {
+					// This is the same logical turn on a replacement account: retain
+					// its already frozen group/price snapshot rather than connection-old prices.
+					turnBillingAPIKeys.set(turn, attemptReplaySnapshot.key)
+					turnCtx = withOpenAIWSTurnBillingGroup(ctx, attemptReplaySnapshot.key)
+					turnAt = attemptReplaySnapshot.at // ctx already carries the original turn's frozen pricing gate.
+				} else {
+					turnBillingCtx := turnBillingAPIKeys.begin(ctx, h.apiKeyService, turn, apiKey)
+					turnCtx, turnAt = h.gatewayService.WithOpenAITurnPricingContext(turnBillingCtx, apiKey.GroupID)
+				}
+				currentTurnSnapshot.Store(&openAIWSReplayTurnSnapshot{ctx: turnCtx, key: turnBillingAPIKeys.forTurn(turn, apiKey), at: turnAt})
 				if _, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(turnCtx, account); vetoed {
 					reqLog.Info("openai.websocket_turn_profit_vetoed",
 						zap.Int("turn", turn),
@@ -2690,6 +2750,37 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				wsAttemptMessage = nextAttemptMessage
 				if retryCurrentTurn {
 					previousResponseID = ""
+					previousResponseCanMove = true
+					if snapshot := currentTurnSnapshot.Load(); snapshot != nil {
+						replayTurnSnapshot = snapshot
+						ctx = snapshot.ctx
+						firstTurnStartedAt = snapshot.at
+					} else {
+						closeOpenAIWSFailoverExhausted(wsConn, failoverErr)
+						return
+					}
+					if model := strings.TrimSpace(gjson.GetBytes(retryPayload, "model").String()); model != "" {
+						reqModel = model
+					}
+					if apiKey.Group == nil || apiKey.Group.Platform != service.PlatformComposite {
+						wsRouteModel = reqModel
+					}
+					var modelRestricted bool
+					channelMappingWS, modelRestricted = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, wsRouteModel)
+					if modelRestricted {
+						closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "current model is not available for this group")
+						return
+					}
+					wsForwardModel = openAIChannelForwardModel(channelMappingWS, wsRouteModel)
+					imageIntent = service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, retryPayload)
+					if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
+						closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
+						return
+					}
+					requiredCapability = service.OpenAIEndpointCapabilityChatCompletions
+					if imageIntent && requestPlatform == service.PlatformOpenAI {
+						requiredCapability = service.OpenAIEndpointCapabilityResponses
+					}
 					reqLog.Warn("openai.websocket_current_turn_failover_retry",
 						zap.Int64("account_id", account.ID),
 						zap.Int("upstream_status", failoverErr.StatusCode),

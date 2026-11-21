@@ -516,6 +516,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 		keepaliveTimer.Reset(keepaliveInterval)
 	}
 	inPartialEvent := false
+	clientModel := compositeClientModel(ctx, "")
 
 	for {
 		select {
@@ -572,6 +573,12 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				trimmed := strings.TrimSpace(line)
 				if strings.HasPrefix(trimmed, "event:") && anthropicStreamEventIsTerminal(strings.TrimSpace(strings.TrimPrefix(trimmed, "event:")), "") {
 					sawTerminalEvent = true
+				}
+			}
+
+			if data, ok := extractAnthropicSSEDataLine(line); ok && clientModel != "" && gjson.Get(data, "type").String() == "message_start" && gjson.Get(data, "message.model").Exists() {
+				if rewritten, err := sjson.Set(data, "message.model", clientModel); err == nil {
+					line = "data: " + rewritten
 				}
 			}
 
@@ -652,81 +659,47 @@ func parseSSEUsagePassthrough(data string, usage *ClaudeUsage) {
 	if usage == nil || data == "" || data == "[DONE]" {
 		return
 	}
-
 	parsed := gjson.Parse(data)
-	switch parsed.Get("type").String() {
-	case "message_start":
-		msgUsage := parsed.Get("message.usage")
-		if msgUsage.Exists() {
-			usage.InputTokens = int(msgUsage.Get("input_tokens").Int())
-			usage.CacheCreationInputTokens = int(msgUsage.Get("cache_creation_input_tokens").Int())
-			usage.CacheReadInputTokens = int(msgUsage.Get("cache_read_input_tokens").Int())
-
-			// 保持与通用解析一致：message_start 允许覆盖 5m/1h 明细（包括 0）。
-			cc5m := msgUsage.Get("cache_creation.ephemeral_5m_input_tokens")
-			cc1h := msgUsage.Get("cache_creation.ephemeral_1h_input_tokens")
-			if cc5m.Exists() || cc1h.Exists() {
-				usage.CacheCreation5mTokens = int(cc5m.Int())
-				usage.CacheCreation1hTokens = int(cc1h.Int())
-			}
-		}
-	case "message_delta":
-		deltaUsage := parsed.Get("usage")
-		if deltaUsage.Exists() {
-			if v := deltaUsage.Get("input_tokens").Int(); v > 0 {
-				usage.InputTokens = int(v)
-			}
-			if v := deltaUsage.Get("output_tokens").Int(); v > 0 {
-				usage.OutputTokens = int(v)
-			}
-			if v := deltaUsage.Get("cache_creation_input_tokens").Int(); v > 0 {
-				usage.CacheCreationInputTokens = int(v)
-			}
-			if v := deltaUsage.Get("cache_read_input_tokens").Int(); v > 0 {
-				usage.CacheReadInputTokens = int(v)
-			}
-
-			cc5m := deltaUsage.Get("cache_creation.ephemeral_5m_input_tokens")
-			cc1h := deltaUsage.Get("cache_creation.ephemeral_1h_input_tokens")
-			if cc5m.Exists() {
-				usage.CacheCreation5mTokens = int(cc5m.Int())
-			}
-			if cc1h.Exists() {
-				usage.CacheCreation1hTokens = int(cc1h.Int())
-			}
-		}
-	}
-
-	if usage.CacheReadInputTokens == 0 {
-		if cached := parsed.Get("message.usage.cached_tokens").Int(); cached > 0 {
-			usage.CacheReadInputTokens = int(cached)
-		}
-		if cached := parsed.Get("usage.cached_tokens").Int(); usage.CacheReadInputTokens == 0 && cached > 0 {
-			usage.CacheReadInputTokens = int(cached)
-		}
-	}
-	if usage.CacheCreationInputTokens == 0 {
-		cc5m := parsed.Get("message.usage.cache_creation.ephemeral_5m_input_tokens").Int()
-		cc1h := parsed.Get("message.usage.cache_creation.ephemeral_1h_input_tokens").Int()
-		if cc5m == 0 && cc1h == 0 {
-			cc5m = parsed.Get("usage.cache_creation.ephemeral_5m_input_tokens").Int()
-			cc1h = parsed.Get("usage.cache_creation.ephemeral_1h_input_tokens").Int()
-		}
-		total := cc5m + cc1h
-		if total > 0 {
-			usage.CacheCreationInputTokens = int(total)
-		}
-	}
-
-	// Kimi's Anthropic-compatible stream uses input_tokens with two meanings:
-	// message_start reports total prompt input, while message_delta reports only
-	// uncached input. prompt_tokens remains the total in both events. Normalize
-	// to ClaudeUsage's mutually-exclusive buckets so downstream billing does not
-	// subtract cache tokens from an already-uncached value.
 	usageNode := parsed.Get("usage")
-	if parsed.Get("type").String() == "message_start" {
+	if parsed.Get("type").String() == "message_start" || !usageNode.IsObject() {
 		usageNode = parsed.Get("message.usage")
 	}
+	if !usageNode.IsObject() {
+		return
+	}
+	switch parsed.Get("type").String() {
+	case "message_start":
+		if input := usageNode.Get("input_tokens"); input.Exists() && input.Type != gjson.Null {
+			usage.InputTokens = max(int(input.Int()), 0)
+		}
+		if output := usageNode.Get("output_tokens"); output.Exists() && output.Type != gjson.Null {
+			usage.OutputTokens = max(int(output.Int()), 0)
+		}
+		if read := usageNode.Get("cache_read_input_tokens"); read.Exists() && read.Type != gjson.Null {
+			usage.CacheReadInputTokens = max(int(read.Int()), 0)
+		}
+	default:
+		if input := usageNode.Get("input_tokens"); input.Int() > 0 {
+			usage.InputTokens = int(input.Int())
+		}
+		if output := usageNode.Get("output_tokens"); output.Int() > 0 {
+			usage.OutputTokens = int(output.Int())
+		}
+		if read := usageNode.Get("cache_read_input_tokens"); read.Int() > 0 {
+			usage.CacheReadInputTokens = int(read.Int())
+		}
+	}
+	mergeRawAnthropicCacheCreationUsage(usageNode, usage)
+	if usage.CacheReadInputTokens == 0 {
+		for _, path := range []string{"cached_tokens", "prompt_tokens_details.cached_tokens", "prompt_cache_hit_tokens"} {
+			if cached := usageNode.Get(path); cached.Int() > 0 {
+				usage.CacheReadInputTokens = int(cached.Int())
+				break
+			}
+		}
+	}
+	// Provider-specific prompt/cache aliases are distinct from Anthropic's
+	// uncached input_tokens; do not double-subtract cached prompt tokens.
 	normalizeAnthropicCompatiblePromptUsage(usageNode, usage)
 }
 
@@ -741,47 +714,30 @@ func normalizeAnthropicCompatiblePromptUsage(usageNode gjson.Result, usage *Clau
 	promptCacheHitTokens := usageNode.Get("prompt_cache_hit_tokens")
 	promptCacheMissTokens := usageNode.Get("prompt_cache_miss_tokens")
 	if (!promptTokens.Exists() || promptTokens.Int() <= 0) &&
-		!promptCacheHitTokens.Exists() && !promptCacheMissTokens.Exists() {
+		!promptCacheHitTokens.Exists() && !promptCacheMissTokens.Exists() && !usage.promptTotalPresent {
 		return false
 	}
 
 	cacheReadTokens := usage.CacheReadInputTokens
-	if v := usageNode.Get("cache_read_input_tokens"); v.Exists() {
-		cacheReadTokens = int(v.Int())
-	}
-	if cacheReadTokens == 0 {
-		if v := usageNode.Get("cached_tokens"); v.Exists() {
-			cacheReadTokens = int(v.Int())
-		}
-	}
-	if cacheReadTokens == 0 {
-		if v := usageNode.Get("prompt_tokens_details.cached_tokens"); v.Exists() {
-			cacheReadTokens = int(v.Int())
-		}
-	}
-	if cacheReadTokens == 0 && promptCacheHitTokens.Exists() {
-		cacheReadTokens = max(int(promptCacheHitTokens.Int()), 0)
-	}
-
-	cacheCreationTokens := usage.CacheCreationInputTokens
-	if v := usageNode.Get("cache_creation_input_tokens"); v.Exists() {
-		cacheCreationTokens = int(v.Int())
-	}
-	if cacheCreationTokens == 0 {
-		cc5m := usageNode.Get("cache_creation.ephemeral_5m_input_tokens").Int()
-		cc1h := usageNode.Get("cache_creation.ephemeral_1h_input_tokens").Int()
-		if cc5m > 0 || cc1h > 0 {
-			cacheCreationTokens = int(cc5m + cc1h)
+	for _, path := range []string{"cache_read_input_tokens", "cached_tokens", "prompt_tokens_details.cached_tokens", "prompt_cache_hit_tokens"} {
+		if value := usageNode.Get(path); value.Exists() && value.Type != gjson.Null {
+			cacheReadTokens = max(int(value.Int()), 0)
+			if cacheReadTokens > 0 {
+				break
+			}
 		}
 	}
 
-	if promptCacheMissTokens.Exists() {
-		usage.InputTokens = max(int(promptCacheMissTokens.Int()), 0)
-	} else {
-		usage.InputTokens = max(int(promptTokens.Int())-cacheReadTokens-cacheCreationTokens, 0)
+	mergeRawAnthropicCacheCreationUsage(usageNode, usage)
+	if cacheReadTokens > 0 || usage.CacheReadInputTokens <= 0 {
+		usage.CacheReadInputTokens = cacheReadTokens
 	}
-	usage.CacheReadInputTokens = cacheReadTokens
-	usage.CacheCreationInputTokens = cacheCreationTokens
+	var cacheMissTokens *int
+	if promptCacheMissTokens.Exists() && promptCacheMissTokens.Type != gjson.Null {
+		value := int(promptCacheMissTokens.Int())
+		cacheMissTokens = &value
+	}
+	normalizeAnthropicPromptTotal(usage, int(promptTokens.Int()), cacheMissTokens)
 	return true
 }
 
@@ -799,18 +755,8 @@ func parseClaudeUsageFromResponseBody(body []byte) *ClaudeUsage {
 
 	usage.InputTokens = int(usageNode.Get("input_tokens").Int())
 	usage.OutputTokens = int(usageNode.Get("output_tokens").Int())
-	usage.CacheCreationInputTokens = int(usageNode.Get("cache_creation_input_tokens").Int())
+	mergeRawAnthropicCacheCreationUsage(usageNode, usage)
 	usage.CacheReadInputTokens = int(usageNode.Get("cache_read_input_tokens").Int())
-
-	cc5m := usageNode.Get("cache_creation.ephemeral_5m_input_tokens").Int()
-	cc1h := usageNode.Get("cache_creation.ephemeral_1h_input_tokens").Int()
-	if cc5m > 0 || cc1h > 0 {
-		usage.CacheCreation5mTokens = int(cc5m)
-		usage.CacheCreation1hTokens = int(cc1h)
-	}
-	if usage.CacheCreationInputTokens == 0 && (cc5m > 0 || cc1h > 0) {
-		usage.CacheCreationInputTokens = int(cc5m + cc1h)
-	}
 	if usage.CacheReadInputTokens == 0 {
 		if cached := usageNode.Get("cached_tokens").Int(); cached > 0 {
 			usage.CacheReadInputTokens = int(cached)
@@ -909,6 +855,7 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	if contentType == "" {
 		contentType = "application/json"
 	}
+	body = restoreCompositeClientModel(ctx, body)
 	body = reverseToolNamesIfPresent(c, body)
 	c.Data(resp.StatusCode, contentType, body)
 	return usage, nil
