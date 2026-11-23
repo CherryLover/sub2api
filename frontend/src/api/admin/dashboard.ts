@@ -43,6 +43,7 @@ export interface TrendParams {
 export interface ModelStatsParams {
   start_date?: string
   end_date?: string
+  timezone?: string
   user_id?: number
   api_key_id?: number
   model?: string
@@ -66,8 +67,14 @@ export interface ModelStatsResponse {
  * @param params - Query parameters for filtering
  * @returns Model usage statistics
  */
-export async function getModelStats(params?: ModelStatsParams): Promise<ModelStatsResponse> {
-  const { data } = await apiClient.get<ModelStatsResponse>('/admin/dashboard/models', { params })
+export async function getModelStats(
+  params?: ModelStatsParams,
+  options?: { signal?: AbortSignal }
+): Promise<ModelStatsResponse> {
+  const { data } = await apiClient.get<ModelStatsResponse>('/admin/dashboard/models', {
+    params,
+    signal: options?.signal
+  })
   return data
 }
 

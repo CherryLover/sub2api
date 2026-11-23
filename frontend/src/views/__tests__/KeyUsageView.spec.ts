@@ -964,9 +964,12 @@ describe('KeyUsageView', () => {
       expect(summaries[0].text()).toContain('3,400')
       expect(summaries[0].text()).toContain('$1.25')
 
-      // Today's models are shown by default.
+      // Today's models are shown by default, along with family distribution summary.
       expect(wrapper.find('[data-testid="window-model-table"]').exists()).toBe(true)
       expect(wrapper.text()).toContain('claude-opus-5')
+      const familyCards = wrapper.findAll('[data-testid="model-family-card"]')
+      expect(familyCards.length).toBeGreaterThan(0)
+      expect(familyCards.some((card) => card.attributes('data-family') === 'claude')).toBe(true)
 
       wrapper.unmount()
     })

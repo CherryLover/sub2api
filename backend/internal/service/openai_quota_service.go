@@ -309,6 +309,17 @@ func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*
 	// model_usage 显式可用性的地方，错过这次就只能等那个可能已经过期的 reset_at。
 	// 失败只记日志，绝不影响本次用量查询的返回值。
 	s.applyOpenAIModelUsageSelfHeal(ctx, selfHealObservation, &payload, time.Now())
+
+	// 持久化账号的 Codex Credits 状态到 account.Extra（供路由策略与管理后台柱状图展示）。
+	if payload.Credits != nil && s.accountRepo != nil {
+		if acc, loadErr := s.accountRepo.GetByID(ctx, accountID); loadErr == nil && acc != nil && !acc.IsShadow() {
+			if creditUpdates := BuildCodexCreditsExtraUpdates(payload.Credits, acc.Extra, time.Now()); len(creditUpdates) > 0 {
+				if err := s.accountRepo.UpdateExtra(ctx, accountID, creditUpdates); err != nil {
+					slog.Warn("openai_quota_credits_cache_write_failed", "account_id", accountID, "error", err)
+				}
+			}
+		}
+	}
 	return &payload, nil
 }
 
