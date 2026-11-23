@@ -133,6 +133,9 @@ type OpenAICodexUsageSnapshot struct {
 	SecondaryResetAfterSeconds  *int     `json:"secondary_reset_after_seconds,omitempty"`
 	SecondaryWindowMinutes      *int     `json:"secondary_window_minutes,omitempty"`
 	PrimaryOverSecondaryPercent *float64 `json:"primary_over_secondary_percent,omitempty"`
+	CreditsHas                  *bool    `json:"credits_has,omitempty"`
+	CreditsUnlimited            *bool    `json:"credits_unlimited,omitempty"`
+	CreditsBalance              *string  `json:"credits_balance,omitempty"`
 	UpdatedAt                   string   `json:"updated_at,omitempty"`
 }
 

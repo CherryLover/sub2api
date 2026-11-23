@@ -137,6 +137,46 @@
           :show-now-when-idle="true"
           color="emerald"
         />
+        <!-- OpenAI Codex Credits inline bar + mode badge -->
+        <div
+          v-if="openAICreditsInfo.hasData && (openAICreditsInfo.unlimited || openAICreditsInfo.peakBalance > 0 || openAICreditsInfo.hasCredits)"
+          data-testid="openai-credits-inline"
+          class="flex items-center gap-1.5 pt-0.5 text-[10px]"
+          :title="openAICreditsTooltip"
+        >
+          <span class="w-[32px] shrink-0 font-medium text-teal-600 dark:text-teal-400">
+            {{ t('admin.accounts.creditsChart.shortLabel') }}
+          </span>
+          <div class="flex h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
+            <div
+              v-if="openAICreditsInfo.unlimited"
+              class="h-full w-full bg-gradient-to-r from-indigo-500 to-teal-400"
+            />
+            <template v-else>
+              <div
+                class="h-full bg-teal-500"
+                :style="{ width: `${openAICreditsInfo.remainingPct.toFixed(1)}%` }"
+              />
+              <div
+                v-if="openAICreditsInfo.spentPct > 0"
+                class="h-full bg-amber-400"
+                :style="{ width: `${openAICreditsInfo.spentPct.toFixed(1)}%` }"
+              />
+            </template>
+          </div>
+          <span class="font-medium tabular-nums text-gray-700 dark:text-dark-200">
+            {{ openAICreditsInfo.unlimited ? '∞' : formatCreditsAmount(openAICreditsInfo.balance) }}
+          </span>
+          <span
+            v-if="openAICreditsInfo.mode !== 'on'"
+            :class="[
+              'rounded px-1 py-0 text-[9px] font-medium',
+              getCodexCreditsModeBadgeClass(openAICreditsInfo.mode)
+            ]"
+          >
+            {{ t(`admin.accounts.creditsMode.${openAICreditsInfo.mode}`) }}
+          </span>
+        </div>
         <!--
           Upstream codex /wham/usage quota query + reset. The local active-sampling
           refresh button is rendered via the pre-actions slot so the user sees a
@@ -709,6 +749,11 @@ import { isMonthlyProrationActive } from '@/utils/monthlyQuotaProration'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
+import {
+  formatCreditsAmount,
+  getCodexCreditsModeBadgeClass,
+  getOpenAICreditsInfo,
+} from '@/utils/openaiCredits'
 import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
 import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
 import CNProviderBalanceCell from './CNProviderBalanceCell.vue'
@@ -1600,6 +1645,17 @@ const quotaTotalBar = computed((): QuotaBarInfo | null => {
   const limit = props.account.quota_limit ?? 0
   if (limit <= 0) return null
   return makeQuotaBar(props.account.quota_used ?? 0, limit)
+})
+
+const openAICreditsInfo = computed(() => getOpenAICreditsInfo(props.account))
+
+const openAICreditsTooltip = computed(() => {
+  const info = openAICreditsInfo.value
+  const modeLabel = t(`admin.accounts.creditsMode.${info.mode}`)
+  if (info.unlimited) {
+    return `${t('admin.accounts.creditsChart.unlimited')} · ${modeLabel}`
+  }
+  return `${t('admin.accounts.creditsChart.remaining')}: ${formatCreditsAmount(info.balance)} · ${t('admin.accounts.creditsChart.spent')}: ${formatCreditsAmount(info.spent)} · ${modeLabel}`
 })
 
 const handleQuotaResetAccountUpdated = (account: Account) => {

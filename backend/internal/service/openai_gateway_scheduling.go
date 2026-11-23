@@ -491,7 +491,26 @@ func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) 
 	disabled5h := resolveAccountExtraBool(account.Extra, "auto_pause_5h_disabled")
 	disabled7d := resolveAccountExtraBool(account.Extra, "auto_pause_7d_disabled")
 	threshold5h, threshold7d := resolveOpenAIQuotaAutoPauseThresholds(ctx, account)
+	creditsMode := ResolveCodexCreditsMode(account.Extra)
+	hasCredits := AccountHasCodexCredits(account.Extra)
 	now := time.Now()
+
+	// Codex credits policy (aligned with yetone/magpie):
+	// - "off": never spend credits — hold at 100% of any window even if auto-pause thresholds are unset/disabled.
+	// - "on" / "first" / "last" with usable credits: allow continuing past a full window on credits.
+	if creditsMode == CodexCreditsModeOff {
+		if threshold5h <= 0 || disabled5h {
+			threshold5h = 1.0
+			disabled5h = false
+		}
+		if threshold7d <= 0 || disabled7d {
+			threshold7d = 1.0
+			disabled7d = false
+		}
+	} else if hasCredits {
+		return false, openAIQuotaAutoPauseDecision{}
+	}
+
 	if !disabled5h && threshold5h > 0 {
 		if utilization, ok := resolveOpenAIQuotaUtilization(account.Extra, "5h", now); ok && utilization >= threshold5h {
 			return true, openAIQuotaAutoPauseDecision{window: "5h", threshold: threshold5h, utilization: utilization}

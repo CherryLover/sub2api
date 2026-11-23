@@ -1109,6 +1109,34 @@ export default {
 	  autoPause5hDisabled: '禁用 5h 自动暂停',
 	  autoPause7dDisabled: '禁用 7d 自动暂停',
 	  autoPauseDisabledHint: '开启后该账号永不进入自动暂停（即使全局默认阈值已配置）。',
+      creditsMode: {
+        label: '点数（Credits）路由策略',
+        on: '默认',
+        first: '优先花点数',
+        last: '兜底花点数',
+        off: '禁用点数',
+        onOption: '默认 (on) — 窗口满后在原位继续花点数',
+        firstOption: '优先 (first) — 窗口满后优先把本账号点数花完',
+        lastOption: '兜底 (last) — 其他账号免费额度用完后再花点数',
+        offOption: '禁用 (off) — 窗口满 100% 立即挂起，绝不花点数',
+        onHint: '默认策略：5h/7d 窗口用满后，若账号持有可用点数则跳过自动停调、在原位继续承接请求。',
+        firstHint: '优先消耗点数：窗口用满后给予调度加权，优先把本账号点数花完，不将流量切走。',
+        lastHint: '兜底消耗点数：窗口用满后降级到最低优先级，等其他还有免费窗口额度的账号用完后再消耗本账号点数。',
+        offHint: '禁用点数：5h 或 7d 窗口达到 100% 时立即本地挂起该账号，绝不消耗点数，直到窗口自然重置。'
+      },
+      creditsChart: {
+        title: 'OpenAI 点数余额与消费概览',
+        shortLabel: '点数',
+        accountCount: '{count} 个账号',
+        totalRemaining: '总剩余',
+        totalSpent: '已消费',
+        unlimitedCount: '{count} 个无限',
+        remaining: '剩余点数',
+        spent: '已消费',
+        unlimited: '无限点数',
+        expand: '展开',
+        collapse: '收起'
+      },
       // Quota control (Anthropic OAuth/SetupToken only)
       quotaControl: {
         title: '配额控制',

@@ -994,7 +994,8 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			weights.TTFT*ttftFactor +
 			weights.Reset*resetFactor +
 			weights.QuotaHeadroom*quotaHeadroomFactor +
-			weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor)
+			weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor) +
+			openAICodexCreditsScoreAdjustment(item.account, now)
 		if req.StickyWeighted {
 			if req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID {
 				item.score += weights.Previous
@@ -2845,7 +2846,8 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 			weights.TTFT*ttftFactor +
 			weights.Reset*resetFactor +
 			weights.QuotaHeadroom*quotaHeadroomFactor +
-			weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor)
+			weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor) +
+			openAICodexCreditsScoreAdjustment(candidate.account, now)
 		score := OpenAIAccountSchedulerScoreSnapshot{
 			BaseScore:             baseScore,
 			StickyWeightedEnabled: stickyWeightedEnabled,
@@ -3010,6 +3012,16 @@ func openAIFreshUpstreamBillingRate(account *Account, now time.Time) (float64, b
 func openAIQuotaHeadroomFactor(account *Account, now time.Time) float64 {
 	if account == nil || len(account.Extra) == 0 || openAIQuotaHeadroomSnapshotStale(account.Extra, now) {
 		return openAIQuotaHeadroomNeutralFactor
+	}
+	if AccountIsSpendingCodexCredits(account.Extra, now) {
+		switch ResolveCodexCreditsMode(account.Extra) {
+		case CodexCreditsModeFirst:
+			return 1.0
+		case CodexCreditsModeLast:
+			return 0.0
+		default:
+			return openAIQuotaHeadroomNeutralFactor
+		}
 	}
 	primaryUsedPercent, ok := resolveAccountExtraNumber(account.Extra, "codex_primary_used_percent", "codex_7d_used_percent")
 	if !ok || openAIQuotaWindowResetAny(account.Extra, now, "primary", "7d") {

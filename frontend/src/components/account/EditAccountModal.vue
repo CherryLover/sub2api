@@ -2369,6 +2369,22 @@
           />
           <p class="input-hint">{{ t('admin.accounts.autoPauseThresholdHint') }}</p>
         </div>
+
+        <!-- OpenAI Codex Credits Routing Policy -->
+        <div class="border-t border-gray-100 pt-3 dark:border-dark-700">
+          <label class="input-label">{{ t('admin.accounts.creditsMode.label') }}</label>
+          <select
+            v-model="codexCreditsMode"
+            class="input"
+            data-testid="codex-credits-mode"
+          >
+            <option value="on">{{ t('admin.accounts.creditsMode.onOption') }}</option>
+            <option value="first">{{ t('admin.accounts.creditsMode.firstOption') }}</option>
+            <option value="last">{{ t('admin.accounts.creditsMode.lastOption') }}</option>
+            <option value="off">{{ t('admin.accounts.creditsMode.offOption') }}</option>
+          </select>
+          <p class="input-hint">{{ t(`admin.accounts.creditsMode.${codexCreditsMode}Hint`) }}</p>
+        </div>
       </div>
 
       <!-- 配额控制 (Anthropic OAuth/SetupToken: 亲和 + 窗口费用 + 会话 + RPM 等) -->
@@ -3228,6 +3244,7 @@ const autoPause5hThreshold = ref<number | null>(null)
 const autoPause7dThreshold = ref<number | null>(null)
 const autoPause5hDisabled = ref(false)
 const autoPause7dDisabled = ref(false)
+const codexCreditsMode = ref<'on' | 'first' | 'last' | 'off'>('on')
 const upstreamBillingAutoProbeEnabled = ref(false)
 const upstreamBillingRateSyncEnabled = ref(false)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
@@ -3811,6 +3828,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
 	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
 	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
+	const rawCreditsMode = typeof extra?.codex_credits_mode === 'string' ? extra.codex_credits_mode.trim().toLowerCase() : 'on'
+	codexCreditsMode.value =
+		rawCreditsMode === 'first' || rawCreditsMode === 'last' || rawCreditsMode === 'off'
+			? rawCreditsMode
+			: 'on'
 	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
   upstreamBillingRateSyncEnabled.value =
     upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
@@ -5312,6 +5334,11 @@ const handleSubmit = async () => {
 			newExtra.auto_pause_7d_disabled = true
 		} else {
 			delete newExtra.auto_pause_7d_disabled
+		}
+		if (codexCreditsMode.value && codexCreditsMode.value !== 'on') {
+			newExtra.codex_credits_mode = codexCreditsMode.value
+		} else {
+			delete newExtra.codex_credits_mode
 		}
 
 		delete newExtra.codex_image_generation_bridge_enabled

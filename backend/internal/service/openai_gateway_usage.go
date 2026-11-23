@@ -973,6 +973,25 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 		hasData = true
 	}
 
+	// Credits headers (present on ChatGPT/Codex responses)
+	if v := strings.TrimSpace(headers.Get("x-codex-credits-has-credits")); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			snapshot.CreditsHas = &b
+			hasData = true
+		}
+	}
+	if v := strings.TrimSpace(headers.Get("x-codex-credits-unlimited")); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			snapshot.CreditsUnlimited = &b
+			hasData = true
+		}
+	}
+	if v := strings.TrimSpace(headers.Get("x-codex-credits-balance")); v != "" {
+		bal := v
+		snapshot.CreditsBalance = &bal
+		hasData = true
+	}
+
 	if !hasData {
 		return nil
 	}
@@ -1132,6 +1151,15 @@ func (s *OpenAIGatewayService) updateCodexUsageSnapshotForModel(ctx context.Cont
 	go func() {
 		updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		var existingExtra map[string]any
+		if snapshot.CreditsBalance != nil {
+			if acc, err := s.accountRepo.GetByID(updateCtx, accountID); err == nil && acc != nil {
+				existingExtra = acc.Extra
+			}
+		}
+		for k, v := range buildCodexCreditsHeaderUpdates(snapshot, existingExtra, now) {
+			updates[k] = v
+		}
 		_ = s.accountRepo.UpdateExtra(updateCtx, accountID, updates)
 	}()
 }

@@ -1048,6 +1048,34 @@ export default {
 	  autoPause5hDisabled: 'Disable 5h auto-pause',
 	  autoPause7dDisabled: 'Disable 7d auto-pause',
 	  autoPauseDisabledHint: 'When enabled, this account is never auto-paused (even if a global default threshold is configured).',
+      creditsMode: {
+        label: 'Credits Routing Policy',
+        on: 'Default',
+        first: 'Credits First',
+        last: 'Credits Last',
+        off: 'No Credits',
+        onOption: 'Default (on) — Continue in place on credits when window fills',
+        firstOption: 'First (first) — Spend this account credits before moving elsewhere',
+        lastOption: 'Last (last) — Spend credits only after accounts with free headroom',
+        offOption: 'Off (off) — Hold at 100% window utilization, never spend credits',
+        onHint: 'Default: when 5h/7d windows fill, bypass auto-pause and keep serving on credits in place.',
+        firstHint: 'Credits First: boost scheduling score when running on credits so this account spends its credits first.',
+        lastHint: 'Credits Last: demote scheduling score when running on credits so accounts with free window headroom go first.',
+        offHint: 'No Credits: immediately hold this account at 100% of any window and never spend credits until reset.'
+      },
+      creditsChart: {
+        title: 'OpenAI Credits Balance & Consumption',
+        shortLabel: 'Credits',
+        accountCount: '{count} accounts',
+        totalRemaining: 'Remaining',
+        totalSpent: 'Spent',
+        unlimitedCount: '{count} unlimited',
+        remaining: 'Remaining',
+        spent: 'Spent',
+        unlimited: 'Unlimited Credits',
+        expand: 'Expand',
+        collapse: 'Collapse'
+      },
       // Quota control (Anthropic OAuth/SetupToken only)
       quotaControl: {
         title: 'Quota Control',
