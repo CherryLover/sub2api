@@ -896,11 +896,20 @@ function triggerRingAnimation(items: RingItem[]) {
   displayPcts.value = items.map(() => 0)
 
   nextTick(() => {
+    if (typeof requestAnimationFrame === 'undefined') {
+      ringAnimated.value = true
+      displayPcts.value = items.map(item => item.pct)
+      return
+    }
     ringRafId = requestAnimationFrame(() => {
       ringRafId = null
       ringDelayTimer = setTimeout(() => {
         ringDelayTimer = null
         ringAnimated.value = true
+        if (typeof requestAnimationFrame === 'undefined') {
+          displayPcts.value = items.map(item => item.pct)
+          return
+        }
 
         // Animate percentage numbers
         const duration = 1000
@@ -912,7 +921,7 @@ function triggerRingAnimation(items: RingItem[]) {
           const p = Math.min(elapsed / duration, 1)
           const ease = 1 - Math.pow(1 - p, 3)
           displayPcts.value = targets.map(target => Math.round(ease * target))
-          ringRafId = p < 1 ? requestAnimationFrame(tick) : null
+          ringRafId = p < 1 && typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame(tick) : null
         }
         ringRafId = requestAnimationFrame(tick)
       }, 50)

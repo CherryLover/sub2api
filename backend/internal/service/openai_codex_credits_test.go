@@ -67,13 +67,13 @@ func TestBuildCodexCreditsExtraUpdates_TracksPeakBalance(t *testing.T) {
 	}
 }
 
-func TestParseOpenAICodexUsageHeaders_Credits(t *testing.T) {
+func TestParseCodexRateLimitHeaders_Credits(t *testing.T) {
 	h := http.Header{}
 	h.Set("x-codex-credits-has-credits", "true")
 	h.Set("x-codex-credits-unlimited", "false")
 	h.Set("x-codex-credits-balance", "420.75")
 
-	snap := ParseOpenAICodexUsageHeaders(h)
+	snap := ParseCodexRateLimitHeaders(h)
 	if snap == nil {
 		t.Fatalf("expected non-nil snapshot")
 	}
@@ -91,8 +91,8 @@ func TestParseOpenAICodexUsageHeaders_Credits(t *testing.T) {
 func TestShouldAutoPauseOpenAIAccountByQuota_CreditsModes(t *testing.T) {
 	now := time.Now()
 	ctx := withOpenAIQuotaAutoPauseSettings(context.Background(), OpsOpenAIAccountQuotaAutoPauseSettings{
-		Threshold5h: 0.95,
-		Threshold7d: 0.95,
+		DefaultThreshold5h: 0.95,
+		DefaultThreshold7d: 0.95,
 	})
 	baseExtra := func(mode string, hasCredits bool, balance float64) map[string]any {
 		return map[string]any{
