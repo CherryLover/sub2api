@@ -10,6 +10,7 @@ const {
   updateApiKey,
   removeApiKey,
   getBatchApiKeysUsage,
+  getModelStats,
   getAllGroups,
   searchUsers,
   showError,
@@ -19,6 +20,7 @@ const {
   updateApiKey: vi.fn(),
   removeApiKey: vi.fn(),
   getBatchApiKeysUsage: vi.fn(),
+  getModelStats: vi.fn(),
   getAllGroups: vi.fn(),
   searchUsers: vi.fn(),
   showError: vi.fn(),
@@ -38,6 +40,7 @@ vi.mock('@/api/admin', () => ({
     },
     dashboard: {
       getBatchApiKeysUsage,
+      getModelStats,
     },
     groups: {
       getAll: getAllGroups,
@@ -128,8 +131,8 @@ const TablePageLayoutStub = {
 
 const DataTableStub = {
   name: 'DataTable',
-  props: ['columns', 'data'],
-  emits: ['sort'],
+  props: ['columns', 'data', 'expandedRowKeys', 'clickableRows'],
+  emits: ['sort', 'rowClick'],
   template: `
     <div>
       <div data-test="columns">{{ columns.map((col) => col.key).join(',') }}</div>
@@ -137,13 +140,16 @@ const DataTableStub = {
       <button data-test="sort-usage" @click="$emit('sort', 'usage', 'desc')">Sort Usage</button>
       <button data-test="sort-last-used-at" @click="$emit('sort', 'last_used_at', 'asc')">Sort Last Used</button>
       <button data-test="sort-name" @click="$emit('sort', 'name', 'asc')">Sort Name</button>
-      <div v-for="row in data" :key="row.id" data-test="row">
+      <div v-for="row in data" :key="row.id" data-test="row" @click="clickableRows && $emit('rowClick', row)">
         <div data-test="cell-name"><slot name="cell-name" :value="row.name" :row="row" /></div>
         <div data-test="cell-user"><slot name="cell-user" :value="row.user" :row="row" /></div>
         <div data-test="cell-key"><slot name="cell-key" :value="row.key" :row="row" /></div>
         <div data-test="cell-status"><slot name="cell-status" :value="row.status" :row="row" /></div>
         <div data-test="cell-usage"><slot name="cell-usage" :value="null" :row="row" /></div>
         <div data-test="row-actions"><slot name="cell-actions" :value="null" :row="row" /></div>
+        <div v-if="Array.isArray(expandedRowKeys) && expandedRowKeys.includes(row.id)" data-test="expanded-row">
+          <slot name="expanded-row" :row="row" />
+        </div>
       </div>
       <slot name="empty" />
     </div>
@@ -400,5 +406,60 @@ describe('admin ApiKeysView 行操作', () => {
       path: '/admin/usage',
       query: { api_key_id: '1', user_id: '7' },
     })
+  })
+})
+
+describe('admin ApiKeysView 行内展开模型用量', () => {
+  it('点击行可在列表内展开与收起上游模型用量详情面板', async () => {
+    getModelStats.mockResolvedValue({
+      models: [
+        {
+          model: 'deepseek-flash',
+          requests: 30,
+          input_tokens: 10000,
+          output_tokens: 2000,
+          cache_creation_tokens: 0,
+          cache_read_tokens: 0,
+          total_tokens: 12000,
+          cost: 0.3,
+          actual_cost: 0.3,
+        },
+        {
+          model: 'gpt-6.1-sol',
+          requests: 10,
+          input_tokens: 8000,
+          output_tokens: 2000,
+          cache_creation_tokens: 0,
+          cache_read_tokens: 0,
+          total_tokens: 10000,
+          cost: 0.7,
+          actual_cost: 0.7,
+        },
+      ],
+      start_date: '2026-11-23',
+      end_date: '2026-11-23',
+    })
+
+    const wrapper = await mountView()
+    expect(wrapper.find('[data-test="expanded-row"]').exists()).toBe(false)
+
+    await wrapper.get('[data-test="toggle-expand-1"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="expanded-row"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="apikey-usage-expand-panel"]').exists()).toBe(true)
+    expect(getModelStats).toHaveBeenCalledTimes(1)
+    expect(getModelStats.mock.calls[0][0]).toMatchObject({
+      api_key_id: 1,
+      model_source: 'upstream',
+    })
+    expect(wrapper.findAll('[data-testid="model-family-card"]').map((el) => el.attributes('data-family'))).toEqual([
+      'openai',
+      'deepseek',
+    ])
+
+    await wrapper.get('[data-test="toggle-expand-1"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="expanded-row"]').exists()).toBe(false)
   })
 })

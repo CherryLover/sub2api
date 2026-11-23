@@ -85,12 +85,26 @@
           row-key="id"
           :actions-count="1"
           :server-side-sort="true"
+          :clickable-rows="true"
+          :expanded-row-keys="expandedRowKeys"
           default-sort-key="created_at"
           default-sort-order="desc"
           @sort="handleSort"
+          @row-click="toggleRowExpand"
         >
           <template #cell-name="{ value, row }">
-            <div class="flex items-center gap-1.5">
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 transition-transform hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-200"
+                :class="{ 'rotate-90 text-primary-600 dark:text-primary-400': isRowExpanded(row.id) }"
+                :aria-expanded="isRowExpanded(row.id)"
+                :aria-label="isRowExpanded(row.id) ? t('admin.apiKeys.expand.collapse') : t('admin.apiKeys.expand.expand')"
+                :data-test="`toggle-expand-${row.id}`"
+                @click.stop="toggleRowExpand(row)"
+              >
+                <Icon name="chevronRight" size="xs" />
+              </button>
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
               <Icon
                 v-if="hasIpRules(row)"
@@ -180,12 +194,20 @@
 
           <template #cell-actions="{ row }">
             <button
-              @click="openKeyUsage(row)"
+              @click.stop="openKeyUsage(row)"
               class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-primary-50 hover:text-primary-600 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
             >
               <Icon name="chartBar" size="sm" />
               <span class="text-xs">{{ t('admin.apiKeys.viewUsage') }}</span>
             </button>
+          </template>
+
+          <template #expanded-row="{ row }">
+            <ApiKeyUsageExpandPanel
+              :api-key="row"
+              :usage-stat="usageStats[row.id]"
+              @open-usage="openKeyUsage"
+            />
           </template>
 
           <template #empty>
@@ -234,6 +256,7 @@ import Select from '@/components/common/Select.vue'
 import SearchInput from '@/components/common/SearchInput.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
+import ApiKeyUsageExpandPanel from '@/components/admin/apiKey/ApiKeyUsageExpandPanel.vue'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -260,6 +283,18 @@ const apiKeys = ref<ApiKey[]>([])
 const groups = ref<AdminGroup[]>([])
 const loading = ref(false)
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
+const expandedRowKeys = ref<number[]>([])
+
+const isRowExpanded = (id: number) => expandedRowKeys.value.includes(id)
+
+const toggleRowExpand = (row: ApiKey) => {
+  if (!row || typeof row.id !== 'number') return
+  if (expandedRowKeys.value.includes(row.id)) {
+    expandedRowKeys.value = expandedRowKeys.value.filter((k) => k !== row.id)
+  } else {
+    expandedRowKeys.value = [...expandedRowKeys.value, row.id]
+  }
+}
 
 const pagination = ref({
   page: 1,
@@ -414,6 +449,7 @@ const loadApiKeys = async () => {
     )
     if (signal.aborted) return
     apiKeys.value = response.items
+    expandedRowKeys.value = []
     pagination.value.total = response.total
     pagination.value.pages = response.pages
 

@@ -439,8 +439,19 @@
             v-if="modelStats.length > 0"
             class="fade-up fade-up-delay-4 rounded-2xl border border-gray-200 bg-white/90 backdrop-blur-sm overflow-hidden dark:border-dark-700 dark:bg-dark-900/90"
           >
-            <div class="px-8 py-5 border-b border-gray-200 dark:border-dark-700">
+            <div class="flex flex-wrap items-center justify-between gap-2 px-8 py-5 border-b border-gray-200 dark:border-dark-700">
               <h3 class="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('keyUsage.modelStats') }}</h3>
+              <span class="rounded-full bg-teal-500/10 px-2.5 py-0.5 text-[11px] font-medium text-teal-700 dark:bg-teal-500/15 dark:text-teal-300">
+                {{ t('keyUsage.windows.upstreamBasis') }}
+              </span>
+            </div>
+            <div class="border-b border-gray-100 px-8 py-5 dark:border-dark-800">
+              <ModelFamilySummary
+                :models="customRangeFamilyModels"
+                :title="t('keyUsage.windows.familyDistribution')"
+                :other-label="t('keyUsage.windows.otherFamily')"
+                :requests-unit="t('keyUsage.requests')"
+              />
             </div>
             <div class="overflow-x-auto">
               <table class="w-full">
@@ -603,8 +614,22 @@
                 </div>
 
                 <div class="overflow-hidden rounded-2xl border border-gray-200 bg-white/90 backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90">
-                  <div class="border-b border-gray-200 px-5 py-5 dark:border-dark-700 sm:px-8">
+                  <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-5 py-5 dark:border-dark-700 sm:px-8">
                     <h3 class="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('keyUsage.windows.modelsTitle') }}</h3>
+                    <span class="rounded-full bg-teal-500/10 px-2.5 py-0.5 text-[11px] font-medium text-teal-700 dark:bg-teal-500/15 dark:text-teal-300">
+                      {{ t('keyUsage.windows.upstreamBasis') }}
+                    </span>
+                  </div>
+                  <div
+                    v-if="activeWindowFamilyModels.length > 0"
+                    class="border-b border-gray-100 px-5 py-5 dark:border-dark-800 sm:px-8"
+                  >
+                    <ModelFamilySummary
+                      :models="activeWindowFamilyModels"
+                      :title="t('keyUsage.windows.familyDistribution')"
+                      :other-label="t('keyUsage.windows.otherFamily')"
+                      :requests-unit="t('keyUsage.requests')"
+                    />
                   </div>
                   <WindowModelTable :models="activeWindowModels" />
                 </div>
@@ -655,6 +680,8 @@ import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
 import RankingWindowCard from '@/components/keyUsage/RankingWindowCard.vue'
 import WindowModelTable from '@/components/keyUsage/WindowModelTable.vue'
+import ModelFamilySummary from '@/components/common/ModelFamilySummary.vue'
+import type { ModelUsageInput } from '@/utils/modelFamily'
 import {
   createKeyUsageSession,
   DEFAULT_KEY_USAGE_METRIC,
@@ -1116,6 +1143,22 @@ const activeWindowLabel = computed(() => windowLabel(activeWindow.value))
 const activeWindowStat = computed<KeyUsageWindowStat | null>(() => report.value?.window_stat ?? null)
 const activeWindowEmpty = computed(() => isEmptyWindow(activeWindowStat.value))
 const activeWindowModels = computed(() => activeWindowStat.value?.models ?? [])
+const activeWindowFamilyModels = computed<ModelUsageInput[]>(() =>
+  activeWindowModels.value.map((m) => ({
+    model: m.model,
+    requests: Number(m.requests) || 0,
+    tokens: Number(m.tokens) || 0,
+    cost: Number(m.cost_usd) || 0,
+  }))
+)
+const customRangeFamilyModels = computed<ModelUsageInput[]>(() =>
+  modelStats.value.map((m) => ({
+    model: m.model || '',
+    requests: Number(m.requests) || 0,
+    tokens: Number(m.total_tokens) || 0,
+    cost: Number(m.actual_cost != null ? m.actual_cost : m.cost) || 0,
+  }))
+)
 
 const hasWindowStats = computed(() => Boolean(report.value?.window_stat))
 

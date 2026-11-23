@@ -292,9 +292,16 @@ func (s *UsageService) GetGroupStatsWithFilters(ctx context.Context, startTime, 
 	return stats, nil
 }
 
-// GetAPIKeyModelStats returns per-model usage stats for a specific API Key.
+// GetAPIKeyModelStats returns per-model usage stats for a specific API Key,
+// grouped by the actual upstream model executed (e.g. deepseek-flash instead of mapped alias).
 func (s *UsageService) GetAPIKeyModelStats(ctx context.Context, apiKeyID int64, startTime, endTime time.Time) ([]usagestats.ModelStat, error) {
-	stats, err := s.usageRepo.GetModelStatsWithFilters(ctx, startTime, endTime, 0, apiKeyID, 0, 0, nil, nil, nil)
+	stats, err := s.GetModelStatsWithFiltersBySource(
+		ctx,
+		startTime,
+		endTime,
+		usagestats.UsageLogFilters{APIKeyID: apiKeyID},
+		usagestats.ModelSourceUpstream,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("get api key model stats: %w", err)
 	}
